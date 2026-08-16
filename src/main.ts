@@ -13,6 +13,9 @@ import { createLogger } from "./logger.js";
 import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
 import { ManifestStore } from "./recording/manifest-store.js";
 import { RecordingCoordinator } from "./recording/recording-coordinator.js";
+import { configureTerminalEncoding } from "./terminal-encoding.js";
+
+const terminalEncoding = configureTerminalEncoding();
 
 if (existsSync(".env")) {
   loadEnvFile(".env");
@@ -30,6 +33,12 @@ try {
 }
 
 const logger = createLogger(config.logLevel);
+if (!terminalEncoding.configured) {
+  logger.warn(
+    { errorType: terminalEncoding.errorType },
+    "Não foi possível configurar o terminal do Windows para UTF-8",
+  );
+}
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });

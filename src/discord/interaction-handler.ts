@@ -14,6 +14,7 @@ import {
   RecordingAlreadyActiveError,
   type RecordingCoordinator,
 } from "../recording/recording-coordinator.js";
+import { createEphemeralReply } from "./responses.js";
 
 export function installInteractionHandler(
   client: Client,
@@ -58,10 +59,9 @@ async function handleRecordingRole(
       isAdministrator: context.member.permissions.has(PermissionFlagsBits.Administrator),
     })
   ) {
-    await interaction.reply({
-      content: "Você não pode configurar os cargos de gravação.",
-      ephemeral: true,
-    });
+    await interaction.reply(
+      createEphemeralReply("Você não pode configurar os cargos de gravação."),
+    );
     return;
   }
 
@@ -72,25 +72,19 @@ async function handleRecordingRole(
       roleIds.length === 0
         ? "Nenhum cargo foi autorizado. Apenas administradores podem controlar gravações."
         : `Cargos autorizados:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`;
-    await interaction.reply({ content, ephemeral: true });
+    await interaction.reply(createEphemeralReply(content));
     return;
   }
 
   const role = interaction.options.getRole("role", true);
   if (subcommand === "add") {
     await store.addRecordingRole(context.guildId, role.id);
-    await interaction.reply({
-      content: `${role} agora pode controlar gravações.`,
-      ephemeral: true,
-    });
+    await interaction.reply(createEphemeralReply(`${role} agora pode controlar gravações.`));
     return;
   }
 
   await store.removeRecordingRole(context.guildId, role.id);
-  await interaction.reply({
-    content: `${role} não pode mais controlar gravações.`,
-    ephemeral: true,
-  });
+  await interaction.reply(createEphemeralReply(`${role} não pode mais controlar gravações.`));
 }
 
 async function handleRecord(
@@ -104,17 +98,15 @@ async function handleRecord(
   }
   const voiceChannel = context.member.voice.channel;
   if (voiceChannel?.type !== ChannelType.GuildVoice) {
-    await interaction.reply({
-      content: "Entre em um canal de voz antes de usar `/record`.",
-      ephemeral: true,
-    });
+    await interaction.reply(
+      createEphemeralReply("Entre em um canal de voz antes de usar `/record`."),
+    );
     return;
   }
   if (!(await isRecordingAuthorized(context.member, context.guildId, store))) {
-    await interaction.reply({
-      content: "Você não possui um cargo autorizado para gravar.",
-      ephemeral: true,
-    });
+    await interaction.reply(
+      createEphemeralReply("Você não possui um cargo autorizado para gravar."),
+    );
     return;
   }
 
@@ -149,24 +141,19 @@ async function handleStop(
   }
   const activeRecording = coordinator.get(context.guildId);
   if (activeRecording === undefined) {
-    await interaction.reply({
-      content: "Não existe uma gravação ativa neste servidor.",
-      ephemeral: true,
-    });
+    await interaction.reply(createEphemeralReply("Não existe uma gravação ativa neste servidor."));
     return;
   }
   if (context.member.voice.channelId !== activeRecording.voiceChannelId) {
-    await interaction.reply({
-      content: "Você precisa estar no canal que está sendo gravado para usar `/stop`.",
-      ephemeral: true,
-    });
+    await interaction.reply(
+      createEphemeralReply("Você precisa estar no canal que está sendo gravado para usar `/stop`."),
+    );
     return;
   }
   if (!(await isRecordingAuthorized(context.member, context.guildId, store))) {
-    await interaction.reply({
-      content: "Você não possui um cargo autorizado para encerrar.",
-      ephemeral: true,
-    });
+    await interaction.reply(
+      createEphemeralReply("Você não possui um cargo autorizado para encerrar."),
+    );
     return;
   }
 
@@ -177,10 +164,7 @@ async function handleStop(
 
 async function resolveGuildContext(interaction: ChatInputCommandInteraction) {
   if (interaction.guild === null || interaction.guildId === null) {
-    await interaction.reply({
-      content: "Este comando só pode ser usado em um servidor.",
-      ephemeral: true,
-    });
+    await interaction.reply(createEphemeralReply("Este comando só pode ser usado em um servidor."));
     return undefined;
   }
   const member = await interaction.guild.members.fetch(interaction.user.id);
@@ -203,7 +187,7 @@ async function sendError(interaction: ChatInputCommandInteraction, message: stri
   if (interaction.deferred || interaction.replied) {
     await interaction.editReply(message).catch(() => undefined);
   } else {
-    await interaction.reply({ content: message, ephemeral: true }).catch(() => undefined);
+    await interaction.reply(createEphemeralReply(message)).catch(() => undefined);
   }
 }
 
