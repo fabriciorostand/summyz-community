@@ -1,0 +1,25 @@
+{
+  "openai/whisper-1": {
+    "interSpeechSilenceMs": 0,
+    "language": "pt-BR",
+    "temperature": 0,
+    "timestampMode": "word"
+  },
+  "openai/whisper-large-v3": {
+    "interSpeechSilenceMs": 0,
+    "language": "pt-BR",
+    "temperature": 0,
+    "timestampMode": "word"
+  },
+  "deepgram/nova-3": {
+    "interSpeechSilenceMs": 350,
+    "language": "pt-BR",
+    "temperature": 0,
+    "timestampMode": "word"
+  },
+  "mistralai/voxtral-mini-transcribe": {
+    "interSpeechSilenceMs": 0,
+    "temperature": 0,
+    "timestampMode": "batch"
+  }
+}

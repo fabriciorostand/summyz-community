@@ -23,6 +23,13 @@ Para usar o comando, você precisa:
 
 Se todas as pessoas saírem do canal, o Summyz encerra a gravação e sai do canal automaticamente.
 
+Depois de um encerramento por `/stop` ou canal vazio, a transcrição começa em segundo plano. O
+arquivo completo é salvo localmente como `transcript.txt`; ele ainda não é publicado no Discord.
+Antes de enviar áudio ao provedor configurado, o servidor do bot descarta localmente trechos sem voz
+e consolida falas próximas da mesma pessoa sem misturar participantes.
+Se a reunião não puder ser transcrita integralmente, o canal onde `/record` foi executado recebe
+somente um aviso genérico.
+
 ## `/recording-role add role:<cargo>`
 
 Autoriza um cargo a iniciar e encerrar gravações.
@@ -49,3 +56,5 @@ Somente administradores e membros com a permissão **Gerenciar servidor** podem 
 - Se a conexão de voz cair, o Summyz avisa no canal de texto e tenta retomar por até cinco minutos.
 - Se o processo reiniciar, o áudio já capturado é preservado e a gravação é retomada quando ainda
   houver pessoas no canal.
+- Gravações encerradas por desligamento, reinício ou esgotamento da reconexão não são transcritas
+  automaticamente nesta etapa.

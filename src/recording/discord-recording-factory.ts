@@ -30,11 +30,12 @@ import {
 } from "./manifest.js";
 import type { ManifestStore } from "./manifest-store.js";
 import { calculateProcessCpuPercent, estimatePacketLossPercent } from "./recording-metrics.js";
-import type {
-  RecordingHandle,
-  RecordingSessionFactory,
-  RecordingStopReason,
-  StartRecordingInput,
+import {
+  shouldStartTranscription,
+  type RecordingHandle,
+  type RecordingSessionFactory,
+  type RecordingStopReason,
+  type StartRecordingInput,
 } from "./recording-coordinator.js";
 
 interface ActiveCapture {
@@ -49,17 +50,20 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #config: AppConfig;
   readonly #logger: Logger;
   readonly #manifestStore: ManifestStore;
+  readonly #onCompleted: ((manifest: RecordingManifest) => void) | undefined;
 
   public constructor(
     client: Client,
     config: AppConfig,
     manifestStore: ManifestStore,
     logger: Logger,
+    onCompleted?: (manifest: RecordingManifest) => void,
   ) {
     this.#client = client;
     this.#config = config;
     this.#manifestStore = manifestStore;
     this.#logger = logger;
+    this.#onCompleted = onCompleted;
   }
 
   public async create(input: StartRecordingInput, onEnded?: () => void): Promise<RecordingHandle> {
@@ -177,6 +181,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       manifest: readyManifest,
       manifestStore: this.#manifestStore,
       notify: (message) => this.#notify(readyManifest.notificationChannelId, message),
+      ...(this.#onCompleted === undefined ? {} : { onCompleted: this.#onCompleted }),
       ...(onEnded === undefined ? {} : { onEnded }),
     });
     recording.start();
@@ -215,6 +220,7 @@ interface DiscordVoiceRecordingInput {
   manifest: RecordingManifest;
   manifestStore: ManifestStore;
   notify(message: string): Promise<void>;
+  onCompleted?: (manifest: RecordingManifest) => void;
   onEnded?: () => void;
 }
 
@@ -229,6 +235,7 @@ class DiscordVoiceRecording implements RecordingHandle {
   readonly #logger: Logger;
   readonly #manifestStore: ManifestStore;
   readonly #notify: (message: string) => Promise<void>;
+  readonly #onCompleted: ((manifest: RecordingManifest) => void) | undefined;
   readonly #onEnded: (() => void) | undefined;
   #ended = false;
   #manifest: RecordingManifest;
@@ -250,6 +257,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     this.#manifest = input.manifest;
     this.#manifestStore = input.manifestStore;
     this.#notify = input.notify;
+    this.#onCompleted = input.onCompleted;
     this.#onEnded = input.onEnded;
   }
 
@@ -560,7 +568,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     await this.#manifestQueue;
 
     const now = new Date().toISOString();
-    if (reason === "command" || reason === "channel_empty") {
+    if (shouldStartTranscription(reason)) {
       await this.#updateManifest((manifest) => markManifestCompleted(manifest, now));
     } else {
       await this.#updateManifest((manifest) =>
@@ -586,6 +594,16 @@ class DiscordVoiceRecording implements RecordingHandle {
       "Gravação encerrada",
     );
     this.#onEnded?.();
+    if (shouldStartTranscription(reason)) {
+      try {
+        this.#onCompleted?.(this.#manifest);
+      } catch (error) {
+        this.#logger.error(
+          { errorType: getErrorType(error), meetingId: this.meetingId },
+          "Falha ao iniciar processamento da transcrição",
+        );
+      }
+    }
   }
 
   #performanceMetrics(): {

@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   RecordingAlreadyActiveError,
   RecordingCoordinator,
+  shouldStartTranscription,
   type RecordingHandle,
   type RecordingSessionFactory,
 } from "../src/recording/recording-coordinator.js";
@@ -18,6 +19,13 @@ function createHandle(guildId: string, voiceChannelId: string): RecordingHandle 
 }
 
 describe("RecordingCoordinator", () => {
+  it("inicia transcrição somente após comando ou canal vazio", () => {
+    expect(shouldStartTranscription("command")).toBe(true);
+    expect(shouldStartTranscription("channel_empty")).toBe(true);
+    expect(shouldStartTranscription("shutdown")).toBe(false);
+    expect(shouldStartTranscription("reconnect_exhausted")).toBe(false);
+  });
+
   it("bloqueia inicializações concorrentes no mesmo servidor", async () => {
     const factory: RecordingSessionFactory = {
       create: vi.fn(async (input) => createHandle(input.guildId, input.voiceChannelId)),

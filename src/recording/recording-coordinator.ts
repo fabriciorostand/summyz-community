@@ -2,6 +2,10 @@ import type { RecordingManifest } from "./manifest.js";
 
 export type RecordingStopReason = "channel_empty" | "command" | "reconnect_exhausted" | "shutdown";
 
+export function shouldStartTranscription(reason: RecordingStopReason): boolean {
+  return reason === "command" || reason === "channel_empty";
+}
+
 export interface StartRecordingInput {
   guildId: string;
   notificationChannelId: string;

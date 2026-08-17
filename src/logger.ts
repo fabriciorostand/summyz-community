@@ -8,6 +8,7 @@ const REDACTED_PATHS = [
   "headers.authorization",
   "headers.cookie",
   "headers.set-cookie",
+  "openRouterApiKey",
   "prompt",
   "response",
   "token",
