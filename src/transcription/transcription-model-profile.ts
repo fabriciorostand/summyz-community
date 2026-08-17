@@ -7,6 +7,8 @@ const providerOptionsSchema = z.record(z.string().min(1), z.record(z.string().mi
 const transcriptionModelProfileSchema = z.object({
   interSpeechSilenceMs: z.number().int().min(0).max(5_000),
   language: z.string().min(1).optional(),
+  mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
+  prompt: z.string().min(1).optional(),
   providerOptions: providerOptionsSchema.optional(),
   temperature: z.number().min(0).max(1),
   timestampMode: z.enum(["batch", "word"]),

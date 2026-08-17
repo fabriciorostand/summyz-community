@@ -64,6 +64,7 @@ function createService(input: {
   interSpeechSilenceMs?: number;
   manifestStore: ManifestStore;
   notifyFailure?: (manifest: RecordingManifest) => Promise<void>;
+  onCompleted?: (manifest: RecordingManifest) => void;
   provider: TranscriptionProvider;
   speechAnalyzer?: SpeechAnalyzer;
   transcriptionStore: TranscriptionStore;
@@ -77,6 +78,7 @@ function createService(input: {
     logger: createLogger("silent"),
     manifestStore: input.manifestStore,
     notifyFailure: input.notifyFailure ?? vi.fn(async () => undefined),
+    ...(input.onCompleted === undefined ? {} : { onCompleted: input.onCompleted }),
     now: () => new Date("2026-08-16T20:02:00.000Z"),
     provider: input.provider,
     speechAnalyzer:
@@ -120,7 +122,8 @@ describe("MeetingTranscriptionService", () => {
         ],
       })),
     };
-    const service = createService({ ...context, provider });
+    const onCompleted = vi.fn();
+    const service = createService({ ...context, onCompleted, provider });
 
     await service.process(context.manifest);
 
@@ -134,6 +137,8 @@ describe("MeetingTranscriptionService", () => {
     });
     await service.process(context.manifest);
     expect(provider.transcribe).toHaveBeenCalledTimes(2);
+    expect(onCompleted).toHaveBeenCalledOnce();
+    expect(onCompleted).toHaveBeenCalledWith(context.manifest);
   });
 
   it("não cria o txt, preserva os áudios e notifica uma falha terminal", async () => {

@@ -24,6 +24,38 @@ describe("perfis de modelos de transcrição", () => {
     });
   });
 
+  it("carrega o perfil GPT-4o Transcribe com timestamps por lote", async () => {
+    await expect(
+      loadTranscriptionModelProfile(
+        resolve("config/transcription-model-profiles.json"),
+        "openai/gpt-4o-transcribe",
+      ),
+    ).resolves.toEqual({
+      interSpeechSilenceMs: 350,
+      language: "pt",
+      mergeMaxGapMs: 0,
+      temperature: 0,
+      timestampMode: "batch",
+    });
+  });
+
+  it("carrega o perfil GPT Transcribe sem vocabulário controlado", async () => {
+    await expect(
+      loadTranscriptionModelProfile(
+        resolve("config/transcription-model-profiles.json"),
+        "openai/gpt-transcribe",
+      ),
+    ).resolves.toEqual({
+      interSpeechSilenceMs: 0,
+      language: "pt",
+      mergeMaxGapMs: 0,
+      prompt:
+        "Conversa informal em português brasileiro. Preserve a fala literalmente, incluindo hesitações, repetições e frases interrompidas. Não traduza, resuma, corrija, complete ou invente conteúdo.",
+      temperature: 0,
+      timestampMode: "batch",
+    });
+  });
+
   it("seleciona pelo slug exato e mantém configurações isoladas", () => {
     const profiles = parseTranscriptionModelProfiles({
       "deepgram/nova-3": {
@@ -88,6 +120,20 @@ describe("perfis de modelos de transcrição", () => {
           providerOptions: { deepgram: "smart_format=true" },
           temperature: 0,
           timestampMode: "word",
+        },
+      }),
+    ).toThrow();
+  });
+
+  it("valida o prompt opcional como texto não vazio", () => {
+    expect(() =>
+      parseTranscriptionModelProfiles({
+        "openai/gpt-transcribe": {
+          interSpeechSilenceMs: 350,
+          language: "pt",
+          prompt: "",
+          temperature: 0,
+          timestampMode: "batch",
         },
       }),
     ).toThrow();

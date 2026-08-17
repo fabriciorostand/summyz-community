@@ -1,7 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import { createManifest, addSegment } from "../src/recording/manifest.js";
-import { assembleTranscript } from "../src/transcription/transcript-assembler.js";
+import {
+  assembleTranscript,
+  assembleTranscriptEntries,
+} from "../src/transcription/transcript-assembler.js";
 
 function createMeeting() {
   const manifest = createManifest({
@@ -51,6 +54,36 @@ describe("montagem da transcrição", () => {
       "[00:00:10.000 – 00:00:15.000] Ana: Vamos publicar amanhã.\n" +
         "[00:00:12.000 – 00:00:14.000] Bruno: Concordo.\n",
     );
+  });
+
+  it("expõe entradas estruturadas estáveis para as etapas posteriores", () => {
+    const entries = assembleTranscriptEntries(createMeeting(), [
+      {
+        pieces: [{ endedAtMs: 5_000, startedAtMs: 0, text: "Vamos publicar amanhã." }],
+        segmentId: "segment-a",
+      },
+      {
+        pieces: [{ endedAtMs: 2_000, startedAtMs: 0, text: "Concordo." }],
+        segmentId: "segment-b",
+      },
+    ]);
+
+    expect(entries).toEqual([
+      {
+        endedAtMs: 15_000,
+        id: "segment-a:000000",
+        speaker: "Ana",
+        startedAtMs: 10_000,
+        text: "Vamos publicar amanhã.",
+      },
+      {
+        endedAtMs: 14_000,
+        id: "segment-b:000000",
+        speaker: "Bruno",
+        startedAtMs: 12_000,
+        text: "Concordo.",
+      },
+    ]);
   });
 
   it("desambigua nomes de exibição iguais sem expor userId", () => {

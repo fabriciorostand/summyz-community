@@ -1,18 +1,31 @@
 import type { RecordingManifest, RecordingSegment } from "../recording/manifest.js";
 import type { TranscribedSegment } from "./transcription-provider.js";
 
-interface AbsoluteTranscriptPiece {
+export interface TranscriptEntry {
   endedAtMs: number;
+  id: string;
   speaker: string;
   startedAtMs: number;
   text: string;
-  tieBreaker: string;
 }
 
 export function assembleTranscript(
   manifest: RecordingManifest,
   transcriptions: readonly TranscribedSegment[],
 ): string {
+  const entries = assembleTranscriptEntries(manifest, transcriptions);
+  const lines = entries.map(
+    (entry) =>
+      `[${formatTimestamp(entry.startedAtMs)} – ${formatTimestamp(entry.endedAtMs)}] ` +
+      `${entry.speaker}: ${entry.text}`,
+  );
+  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+}
+
+export function assembleTranscriptEntries(
+  manifest: RecordingManifest,
+  transcriptions: readonly TranscribedSegment[],
+): TranscriptEntry[] {
   const transcriptionBySegmentId = new Map(
     transcriptions.map((transcription) => [transcription.segmentId, transcription]),
   );
@@ -24,7 +37,7 @@ export function assembleTranscript(
   }
 
   const speakerNames = createSpeakerNames(manifest.segments);
-  const pieces: AbsoluteTranscriptPiece[] = [];
+  const pieces: TranscriptEntry[] = [];
   for (const segment of manifest.segments) {
     const transcription = transcriptionBySegmentId.get(segment.segmentId);
     if (transcription === undefined) {
@@ -50,10 +63,10 @@ export function assembleTranscript(
       }
       pieces.push({
         endedAtMs: timelineStartedAtMs + piece.endedAtMs,
+        id: `${segment.segmentId}:${String(index).padStart(6, "0")}`,
         speaker: speakerNames.get(segment.userId) ?? segment.userDisplayName,
         startedAtMs: timelineStartedAtMs + piece.startedAtMs,
         text,
-        tieBreaker: `${segment.userId}:${segment.segmentId}:${String(index).padStart(6, "0")}`,
       });
     }
   }
@@ -62,15 +75,9 @@ export function assembleTranscript(
     (left, right) =>
       left.startedAtMs - right.startedAtMs ||
       left.endedAtMs - right.endedAtMs ||
-      left.tieBreaker.localeCompare(right.tieBreaker),
+      left.id.localeCompare(right.id),
   );
-
-  const lines = pieces.map(
-    (piece) =>
-      `[${formatTimestamp(piece.startedAtMs)} – ${formatTimestamp(piece.endedAtMs)}] ` +
-      `${piece.speaker}: ${piece.text}`,
-  );
-  return lines.length === 0 ? "" : `${lines.join("\n")}\n`;
+  return pieces;
 }
 
 function createSpeakerNames(segments: readonly RecordingSegment[]): Map<string, string> {

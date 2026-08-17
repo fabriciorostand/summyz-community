@@ -137,6 +137,35 @@ describe("OpenRouterTranscriptionProvider", () => {
     });
   });
 
+  it("encaminha o prompt opcional sem transformá-lo em vocabulário controlado", async () => {
+    const prompt =
+      "Transcreva literalmente em português brasileiro, sem resumir ou completar as falas.";
+    const fetch_ = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(JSON.parse(String(init.body))).toMatchObject({
+        model: "openai/gpt-transcribe",
+        prompt,
+      });
+      return Response.json({ text: "Uma fala." });
+    });
+    const profile: TranscriptionModelProfile = {
+      interSpeechSilenceMs: 350,
+      language: "pt",
+      mergeMaxGapMs: 0,
+      prompt,
+      temperature: 0,
+      timestampMode: "batch",
+    };
+    const { provider } = createProvider(fetch_, undefined, "openai/gpt-transcribe", profile);
+
+    await expect(
+      provider.transcribe({
+        audio: Buffer.from("audio"),
+        audioDurationMs: 1_000,
+        format: "wav",
+      }),
+    ).resolves.toMatchObject({ pieces: [{ text: "Uma fala." }] });
+  });
+
   it("retenta falhas transitórias com backoff e respeita o limite", async () => {
     const fetch_ = vi
       .fn<(url: string, init: RequestInit) => Promise<Response>>()

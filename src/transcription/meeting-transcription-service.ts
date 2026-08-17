@@ -41,6 +41,7 @@ interface MeetingTranscriptionServiceOptions {
   manifestStore: ManifestStore;
   notifyFailure(manifest: RecordingManifest): Promise<void>;
   now?: () => Date;
+  onCompleted?: (manifest: RecordingManifest) => void;
   provider: TranscriptionProvider;
   speechAnalyzer: SpeechAnalyzer;
   transcriptionStore: TranscriptionStore;
@@ -71,6 +72,7 @@ export class MeetingTranscriptionService {
   readonly #manifestStore: ManifestStore;
   readonly #notifyFailure: (manifest: RecordingManifest) => Promise<void>;
   readonly #now: () => Date;
+  readonly #onCompleted: ((manifest: RecordingManifest) => void) | undefined;
   readonly #provider: TranscriptionProvider;
   readonly #speechAnalyzer: SpeechAnalyzer;
   readonly #transcriptionStore: TranscriptionStore;
@@ -86,6 +88,7 @@ export class MeetingTranscriptionService {
     this.#manifestStore = options.manifestStore;
     this.#notifyFailure = options.notifyFailure;
     this.#now = options.now ?? (() => new Date());
+    this.#onCompleted = options.onCompleted;
     this.#provider = options.provider;
     this.#speechAnalyzer = options.speechAnalyzer;
     this.#transcriptionStore = options.transcriptionStore;
@@ -255,6 +258,14 @@ export class MeetingTranscriptionService {
         { meetingId: manifest.meetingId, segmentCount: manifest.segments.length },
         "Transcrição da reunião concluída",
       );
+      try {
+        this.#onCompleted?.(manifest);
+      } catch (error) {
+        this.#logger.error(
+          { errorType: getErrorType(error), meetingId: manifest.meetingId },
+          "Falha ao iniciar processamento do resumo",
+        );
+      }
     } catch (error) {
       const failureCode = getFailureCode(error);
       try {

@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 
 import { loadConfig } from "./config.js";
+import { DiscordMeetingPublisher } from "./discord/discord-meeting-publisher.js";
 import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
@@ -15,6 +16,12 @@ import { DiscordRecordingFactory } from "./recording/discord-recording-factory.j
 import { ManifestStore } from "./recording/manifest-store.js";
 import { RecordingCoordinator } from "./recording/recording-coordinator.js";
 import { configureTerminalEncoding } from "./terminal-encoding.js";
+import { MeetingSummaryGenerator } from "./summary/meeting-summary-generator.js";
+import { MeetingSummaryService } from "./summary/meeting-summary-service.js";
+import { OpenRouterSummaryProvider } from "./summary/openrouter-summary-provider.js";
+import { PublicationStore } from "./summary/publication-store.js";
+import { SummaryCoordinator } from "./summary/summary-coordinator.js";
+import { SummaryStore } from "./summary/summary-store.js";
 import { FailedRecordingRetention } from "./transcription/failed-recording-retention.js";
 import { MeetingTranscriptionService } from "./transcription/meeting-transcription-service.js";
 import { OpenRouterTranscriptionProvider } from "./transcription/openrouter-transcription-provider.js";
@@ -59,6 +66,35 @@ const client = new Client({
 const guildConfigStore = new GuildConfigStore(join(config.dataDir, "config", "guilds.json"));
 const manifestStore = new ManifestStore(join(config.dataDir, "recordings"));
 const transcriptionStore = new TranscriptionStore(join(config.dataDir, "recordings"));
+const summaryStore = new SummaryStore(join(config.dataDir, "recordings"));
+const publicationStore = new PublicationStore(join(config.dataDir, "recordings"));
+const summaryProvider = new OpenRouterSummaryProvider({
+  apiKey: config.openRouterApiKey,
+  logger,
+  maxAttempts: config.summaryMaxAttempts,
+  model: config.openRouterSummaryModel,
+  retryBaseMs: config.summaryRetryBaseMs,
+  retryMaxMs: config.summaryRetryMaxMs,
+  timeoutMs: config.summaryTimeoutMs,
+});
+const summaryGenerator = new MeetingSummaryGenerator({
+  maxChunkCharacters: config.summaryChunkMaxCharacters,
+  provider: summaryProvider,
+});
+const meetingPublisher = new DiscordMeetingPublisher({
+  client,
+  logger,
+  store: publicationStore,
+  timeZone: config.summaryTimeZone,
+});
+const summaryService = new MeetingSummaryService({
+  generator: summaryGenerator,
+  logger,
+  publisher: meetingPublisher,
+  summaryStore,
+  transcriptionStore,
+});
+const summaryCoordinator = new SummaryCoordinator(summaryService, logger);
 const transcriptionProvider = new OpenRouterTranscriptionProvider({
   apiKey: config.openRouterApiKey,
   logger,
@@ -80,10 +116,14 @@ const transcriptionService = new MeetingTranscriptionService({
   logger,
   manifestStore,
   notifyFailure: (manifest) => notifyTranscriptionFailure(client, logger, manifest),
+  onCompleted: (manifest) => {
+    summaryCoordinator.start(manifest);
+  },
   provider: transcriptionProvider,
   speechAnalyzer,
   transcriptionStore,
-  transcriptionMergeMaxGapMs: config.transcriptionMergeMaxGapMs,
+  transcriptionMergeMaxGapMs:
+    transcriptionModelProfile.mergeMaxGapMs ?? config.transcriptionMergeMaxGapMs,
   transcriptionWindowMaxMs: config.transcriptionWindowMaxSeconds * 1_000,
 });
 const transcriptionCoordinator = new TranscriptionCoordinator(transcriptionService, logger);
@@ -133,6 +173,18 @@ client.once(Events.ClientReady, async (readyClient) => {
       "Falha ao recuperar gravações anteriores",
     );
   }
+
+  try {
+    const completedManifests = await manifestStore.listCompleted();
+    for (const manifest of completedManifests) {
+      summaryCoordinator.start(manifest);
+    }
+  } catch (error) {
+    logger.error(
+      { errorType: error instanceof Error ? error.name : typeof error },
+      "Falha ao recuperar resumos ou publicações anteriores",
+    );
+  }
 });
 
 let shuttingDown = false;
@@ -144,6 +196,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   logger.info({ signal }, "Encerramento do Summyz solicitado");
   await coordinator.shutdown();
   await transcriptionCoordinator.shutdown();
+  await summaryCoordinator.shutdown();
   try {
     await speechAnalyzer.close();
   } catch (error) {

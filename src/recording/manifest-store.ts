@@ -78,6 +78,16 @@ export class ManifestStore {
   }
 
   public async listRecoverable(): Promise<RecordingManifest[]> {
+    const manifests = await this.#listManifests();
+    return manifests.filter((manifest) => manifest.status !== "completed");
+  }
+
+  public async listCompleted(): Promise<RecordingManifest[]> {
+    const manifests = await this.#listManifests();
+    return manifests.filter((manifest) => manifest.status === "completed");
+  }
+
+  async #listManifests(): Promise<RecordingManifest[]> {
     let entries: Dirent<string>[];
     try {
       entries = await readdir(this.#rootDirectory, { withFileTypes: true, encoding: "utf8" });
@@ -103,10 +113,7 @@ export class ManifestStore {
         }),
     );
 
-    return manifests.filter(
-      (manifest): manifest is RecordingManifest =>
-        manifest !== undefined && manifest.status !== "completed",
-    );
+    return manifests.filter((manifest): manifest is RecordingManifest => manifest !== undefined);
   }
 
   async #write(manifest: RecordingManifest): Promise<void> {

@@ -1,7 +1,8 @@
-# Smoke test de gravação e transcrição
+# Smoke test de gravação, transcrição, resumo e publicação
 
 Este teste valida `opusscript` antes de considerar um decodificador nativo.
-Também valida a transcrição de uma call real em pt-BR, incluindo falas sobrepostas.
+Também valida a transcrição de uma call real em pt-BR, o resumo estruturado e a publicação em uma
+thread pública do Discord.
 
 ## Preparação
 
@@ -11,6 +12,9 @@ Também valida a transcrição de uma call real em pt-BR, incluindo falas sobrep
 4. Autorize o cargo de teste com `/recording-role add`.
 5. Configure `OPENROUTER_API_KEY` e um `OPENROUTER_TRANSCRIPTION_MODEL` que possua uma entrada
    correspondente em `config/transcription-model-profiles.json`.
+6. Configure `OPENROUTER_SUMMARY_MODEL` com um modelo que aceite saída estruturada.
+7. Confirme que o bot possui as permissões Criar threads públicas, Enviar mensagens em threads e
+   Ler histórico de mensagens no canal de teste.
 
 ## Cenários
 
@@ -95,10 +99,52 @@ de a origem temporal ser persistida no segmento representante.
 Quando `mistralai/voxtral-mini-transcribe` estiver configurado, valide também que uma linha pode
 cobrir o lote consolidado inteiro: o OpenRouter fornece somente o texto desse modelo, então o
 intervalo representa o primeiro ao último trecho real de voz do lote, sem precisão por palavra.
+Faça a mesma validação com `openai/gpt-transcribe` e `openai/gpt-4o-transcribe`, cujos perfis usam
+timestamps por lote e `language: "pt"`. O primeiro usa prompt genérico e nenhuma pausa sintética; o
+segundo usa 350 ms entre intervalos internos e nenhum prompt. Nenhum perfil contém vocabulário
+controlado. Confirme que segmentos distintos não são unidos e que a ordem das falas sobrepostas é
+preservada.
 Quando `deepgram/nova-3` estiver configurado, confirme que o perfil insere 350 ms entre intervalos de
 voz sem deslocar os timestamps finais da reunião. Trocar entre Nova-3 e Whisper não deve exigir nem
 alterar configurações internas do outro perfil.
-Não adicione ao Git o áudio, `transcription.json` ou `transcript.txt` produzidos no teste.
+Não adicione ao Git o áudio, `transcription.json`, `transcript.txt`, `summary.json` ou
+`publication.json` produzidos no teste.
+
+## Validação do resumo e da publicação
+
+Durante a reunião, use um roteiro que inclua explicitamente:
+
+1. uma decisão confirmada;
+2. uma tarefa com o nome do responsável e o prazo;
+3. uma tarefa sem responsável e sem prazo;
+4. uma sugestão vaga, como “alguém precisa decidir a ferramenta”;
+5. um assunto que ainda precisa de decisão;
+6. uma proposta negada ou abandonada.
+
+Depois do log `Resumo da reunião concluído`, confira no canal onde `/record` foi executado:
+
+- mensagem `Resumo da call disponível`;
+- thread pública `Resumo da call — DD/MM/AAAA HH:mm`;
+- seções Resumo executivo, Tópicos discutidos, Decisões, Tarefas e Pendências e observações;
+- `transcript.txt` completo como anexo;
+- nome do responsável e prazo exatamente como foram falados;
+- tarefa explícita sem responsável e prazo, sem campos inventados;
+- sugestão vaga e assunto não decidido somente em Pendências e observações;
+- ausência da proposta negada nas decisões e tarefas;
+- ausência de decisões, tarefas, responsáveis ou prazos não verificáveis na transcrição;
+- ausência de IDs internos, referências de evidência e timestamps técnicos no resumo publicado.
+
+Para exercitar a divisão e a consolidação sem fazer uma call de duas horas, reduza temporariamente
+`SUMMARY_CHUNK_MAX_CHARACTERS` para que o roteiro ocupe mais de um bloco. Restaure o valor normal
+depois do teste e confirme que nenhuma fala foi dividida entre blocos.
+
+Confirme que `summary.json` e `publication.json` terminam com estado `completed`. Reinicie o bot
+depois da publicação e verifique que ele não cria outra mensagem ou thread para a mesma reunião.
+
+O fallback após falha do resumo deve ser validado pelos testes automatizados com um provedor falso.
+Ele deve criar a mensagem `Transcrição da call disponível (Resumo indisponível)`, a thread
+`Transcrição — DD/MM/AAAA`, um aviso genérico e o anexo `transcript.txt`. Não envie uma transcrição
+real deliberadamente a um modelo inválido apenas para provocar essa falha.
 
 ## Cenário de falha controlada
 

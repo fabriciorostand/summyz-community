@@ -52,6 +52,7 @@ describe("ManifestStore", () => {
     await store.save(completed);
 
     await expect(store.listRecoverable()).resolves.toEqual([active]);
+    await expect(store.listCompleted()).resolves.toEqual([completed]);
   });
 
   it("rejeita identificadores que escapam do diretório de gravações", async () => {
@@ -66,6 +67,7 @@ describe("ManifestStore", () => {
     const store = new ManifestStore(join(directory, "missing"));
 
     await expect(store.listRecoverable()).resolves.toEqual([]);
+    await expect(store.listCompleted()).resolves.toEqual([]);
   });
 
   it("ignora arquivos e diretórios sem manifesto", async () => {

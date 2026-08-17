@@ -144,6 +144,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
           input_audio: inputAudio,
           ...(this.#profile.language === undefined ? {} : { language: this.#profile.language }),
           model: this.#model,
+          ...(this.#profile.prompt === undefined ? {} : { prompt: this.#profile.prompt }),
           ...(this.#profile.providerOptions === undefined
             ? {}
             : { provider: { options: this.#profile.providerOptions } }),

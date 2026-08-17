@@ -8,6 +8,7 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   FAILED_RECORDING_RETENTION_HOURS: z.coerce.number().int().min(1).max(720).default(24),
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY é obrigatório"),
+  OPENROUTER_SUMMARY_MODEL: z.string().min(1, "OPENROUTER_SUMMARY_MODEL é obrigatório"),
   OPENROUTER_TRANSCRIPTION_MODEL: z.string().min(1, "OPENROUTER_TRANSCRIPTION_MODEL é obrigatório"),
   TRANSCRIPTION_MODEL_PROFILES_FILE: z
     .string()
@@ -25,6 +26,16 @@ const environmentSchema = z.object({
     .min(100, "SEGMENT_SILENCE_MS deve ser maior ou igual a 100")
     .max(30_000, "SEGMENT_SILENCE_MS deve ser menor ou igual a 30000")
     .default(1_000),
+  SUMMARY_CHUNK_MAX_CHARACTERS: z.coerce.number().int().min(1_000).max(10_000_000).default(500_000),
+  SUMMARY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(4),
+  SUMMARY_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
+  SUMMARY_RETRY_MAX_MS: z.coerce.number().int().min(100).max(300_000).default(30_000),
+  SUMMARY_TIME_ZONE: z
+    .string()
+    .min(1)
+    .refine(isValidTimeZone, "SUMMARY_TIME_ZONE deve ser um fuso IANA válido")
+    .default("America/Sao_Paulo"),
+  SUMMARY_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
   TRANSCRIPTION_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
   TRANSCRIPTION_MERGE_MAX_GAP_MS: z.coerce.number().int().min(0).max(30_000).default(2_000),
   TRANSCRIPTION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(4),
@@ -50,9 +61,16 @@ export interface AppConfig {
   failedRecordingRetentionHours: number;
   logLevel: z.infer<typeof environmentSchema>["LOG_LEVEL"];
   openRouterApiKey: string;
+  openRouterSummaryModel: string;
   openRouterTranscriptionModel: string;
   segmentMaxSeconds: number;
   segmentSilenceMs: number;
+  summaryChunkMaxCharacters: number;
+  summaryMaxAttempts: number;
+  summaryRetryBaseMs: number;
+  summaryRetryMaxMs: number;
+  summaryTimeZone: string;
+  summaryTimeoutMs: number;
   transcriptionConcurrency: number;
   transcriptionMergeMaxGapMs: number;
   transcriptionModelProfilesFile: string;
@@ -77,9 +95,16 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     failedRecordingRetentionHours: parsed.FAILED_RECORDING_RETENTION_HOURS,
     logLevel: parsed.LOG_LEVEL,
     openRouterApiKey: parsed.OPENROUTER_API_KEY,
+    openRouterSummaryModel: parsed.OPENROUTER_SUMMARY_MODEL,
     openRouterTranscriptionModel: parsed.OPENROUTER_TRANSCRIPTION_MODEL,
     segmentMaxSeconds: parsed.SEGMENT_MAX_SECONDS,
     segmentSilenceMs: parsed.SEGMENT_SILENCE_MS,
+    summaryChunkMaxCharacters: parsed.SUMMARY_CHUNK_MAX_CHARACTERS,
+    summaryMaxAttempts: parsed.SUMMARY_MAX_ATTEMPTS,
+    summaryRetryBaseMs: parsed.SUMMARY_RETRY_BASE_MS,
+    summaryRetryMaxMs: parsed.SUMMARY_RETRY_MAX_MS,
+    summaryTimeZone: parsed.SUMMARY_TIME_ZONE,
+    summaryTimeoutMs: parsed.SUMMARY_TIMEOUT_MS,
     transcriptionConcurrency: parsed.TRANSCRIPTION_CONCURRENCY,
     transcriptionMergeMaxGapMs: parsed.TRANSCRIPTION_MERGE_MAX_GAP_MS,
     transcriptionModelProfilesFile: parsed.TRANSCRIPTION_MODEL_PROFILES_FILE,
@@ -92,4 +117,13 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     transcriptionWindowMaxSeconds: parsed.TRANSCRIPTION_WINDOW_MAX_SECONDS,
     voiceReconnectMaxMs: parsed.VOICE_RECONNECT_MAX_MS,
   };
+}
+
+function isValidTimeZone(timeZone: string): boolean {
+  try {
+    new Intl.DateTimeFormat("pt-BR", { timeZone }).format();
+    return true;
+  } catch {
+    return false;
+  }
 }

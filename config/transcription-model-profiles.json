@@ -11,6 +11,21 @@
     "temperature": 0,
     "timestampMode": "word"
   },
+  "openai/gpt-transcribe": {
+    "interSpeechSilenceMs": 0,
+    "language": "pt",
+    "mergeMaxGapMs": 0,
+    "prompt": "Conversa informal em português brasileiro. Preserve a fala literalmente, incluindo hesitações, repetições e frases interrompidas. Não traduza, resuma, corrija, complete ou invente conteúdo.",
+    "temperature": 0,
+    "timestampMode": "batch"
+  },
+  "openai/gpt-4o-transcribe": {
+    "interSpeechSilenceMs": 350,
+    "language": "pt",
+    "mergeMaxGapMs": 0,
+    "temperature": 0,
+    "timestampMode": "batch"
+  },
   "deepgram/nova-3": {
     "interSpeechSilenceMs": 350,
     "language": "pt-BR",

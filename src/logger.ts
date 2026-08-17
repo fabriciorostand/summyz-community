@@ -11,6 +11,7 @@ const REDACTED_PATHS = [
   "openRouterApiKey",
   "prompt",
   "response",
+  "summary",
   "token",
   "transcript",
 ] as const;

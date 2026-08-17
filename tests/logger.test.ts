@@ -19,6 +19,7 @@ describe("logger", () => {
         authorization: "Bearer segredo",
         discordToken: "token-secreto",
         openRouterApiKey: "openrouter-secreto",
+        summary: "resumo sensível da reunião",
         transcript: "conteúdo da call",
       },
       "evento seguro",
@@ -30,6 +31,7 @@ describe("logger", () => {
     expect(output).not.toContain("openrouter-secreto");
     expect(output).not.toContain("conteúdo da call");
     expect(output).not.toContain("conteúdo do áudio");
+    expect(output).not.toContain("resumo sensível da reunião");
     expect(output).toContain("[Redacted]");
   });
 });
