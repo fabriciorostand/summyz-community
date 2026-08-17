@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
 import { type TranscriptionState, transcriptionStateSchema } from "./transcription-state.js";
@@ -39,6 +39,37 @@ export class TranscriptionStore {
 
   public transcriptPath(meetingId: string): string {
     return this.resolveMeetingFile(meetingId, "transcript.txt");
+  }
+
+  public rawTranscriptPath(meetingId: string): string {
+    return this.resolveMeetingFile(meetingId, "transcript.raw.txt");
+  }
+
+  public async preserveRawTranscript(meetingId: string): Promise<string> {
+    try {
+      return await readFile(this.rawTranscriptPath(meetingId), "utf8");
+    } catch (error) {
+      if (!isFileNotFound(error)) {
+        throw error;
+      }
+    }
+    const directory = this.meetingDirectory(meetingId);
+    const temporaryPath = this.resolveMeetingFile(
+      meetingId,
+      `transcript.raw.${process.pid}.${Date.now()}.${Math.random().toString(36).slice(2)}.tmp`,
+    );
+    await mkdir(directory, { recursive: true });
+    await writeFile(temporaryPath, await readFile(this.transcriptPath(meetingId)), { flag: "wx" });
+    try {
+      await link(temporaryPath, this.rawTranscriptPath(meetingId));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) {
+        throw error;
+      }
+    } finally {
+      await rm(temporaryPath, { force: true });
+    }
+    return readFile(this.rawTranscriptPath(meetingId), "utf8");
   }
 
   public async save(state: TranscriptionState): Promise<void> {

@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import { createManifest, addSegment } from "../src/recording/manifest.js";
 import {
   assembleTranscript,
+  assembleTranscriptFromEntries,
   assembleTranscriptEntries,
 } from "../src/transcription/transcript-assembler.js";
 
@@ -84,6 +85,20 @@ describe("montagem da transcrição", () => {
         text: "Concordo.",
       },
     ]);
+  });
+
+  it("remonta o arquivo usando somente os metadados preservados e o texto revisado", () => {
+    expect(
+      assembleTranscriptFromEntries([
+        {
+          endedAtMs: 15_000,
+          id: "segment-a:000000",
+          speaker: "Ana",
+          startedAtMs: 10_000,
+          text: "Conjuntivite corrigida.",
+        },
+      ]),
+    ).toBe("[00:00:10.000 – 00:00:15.000] Ana: Conjuntivite corrigida.\n");
   });
 
   it("desambigua nomes de exibição iguais sem expor userId", () => {

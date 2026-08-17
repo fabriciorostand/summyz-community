@@ -93,11 +93,11 @@ Mensagens enviadas ao Discord não devem revelar stack traces, caminhos internos
 ### Commits e Autoria
 
 - **Conventional Commits no formato `<tipo>(<escopo>): <descrição>`:** tipo/prefixo em
-  inglês + escopo nomeado conforme o projeto + descrição em pt-br em UTF-8. O escopo indica a área afetada.
+  inglês + escopo nomeado conforme o projeto + descrição em inglês. O escopo indica a área afetada.
   
   Exemplos:
-  - `feat(recording): adiciona criação de sessão por canal`
-  - `fix(audio): preserva timestamp de segmentos simultâneos`
-  - `test(manifest): cobre recuperação após escrita interrompida`
-  - `docs(readme): documenta configuração inicial`
+  - `feat(recording): add session creation by channel`
+  - `fix(audio): preserve timestamps of simultaneous segments`
+  - `test(manifest): cover recovery after interrupted write`
+  - `docs(readme): document initial setup`
 - **NUNCA** se adicione como coautor nos commits (não utilize `Co-Authored-By: Codex`).

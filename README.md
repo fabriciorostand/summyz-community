@@ -5,8 +5,10 @@ publica resumos com decisões e tarefas.
 
 O Summyz grava cada participante separadamente e, depois do encerramento normal da call, transcreve
 os segmentos por meio do OpenRouter e monta um arquivo único preservando falantes, timestamps e
-falas sobrepostas. Em seguida, gera um resumo estruturado e publica em uma thread do Discord o
-resumo executivo, os tópicos discutidos, as decisões, as tarefas e a transcrição completa.
+falas sobrepostas. Uma segunda etapa revisa apenas o texto da transcrição, sem
+permitir que o modelo altere IDs, falantes, timestamps ou ordem. Em seguida, gera um resumo
+estruturado e publica em uma thread do Discord o resumo executivo, os tópicos discutidos, as
+decisões, as tarefas e a transcrição completa.
 
 ## Requisitos
 
@@ -21,7 +23,8 @@ resumo executivo, os tópicos discutidos, as decisões, as tarefas e a transcri�
 1. Instale as dependências com `npm install`.
 2. Copie `.env.example` para `.env`.
 3. Preencha `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `OPENROUTER_API_KEY`,
-   `OPENROUTER_TRANSCRIPTION_MODEL` e `OPENROUTER_SUMMARY_MODEL`.
+   `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_REFINEMENT_MODEL` e
+   `OPENROUTER_SUMMARY_MODEL`.
 4. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
 5. Execute `npm run dev`.
@@ -73,7 +76,7 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 
 ## Configurações de transcrição
 
-- `OPENROUTER_API_KEY`: chave usada nos endpoints de transcrição e resumo;
+- `OPENROUTER_API_KEY`: chave usada nos endpoints de transcrição, refinamento e resumo;
 - `OPENROUTER_TRANSCRIPTION_MODEL`: modelo STT escolhido no OpenRouter, sem padrão implícito;
 - `TRANSCRIPTION_MODEL_PROFILES_FILE`: arquivo JSON com a configuração individual de cada modelo;
   padrão `./config/transcription-model-profiles.json`;
@@ -146,6 +149,29 @@ O OpenRouter pode rotear uma requisição entre provedores compatíveis com o mo
 Summyz aceita esse roteamento automático. Para requisitos de privacidade mais restritos, use as
 configurações de privacidade da conta do OpenRouter ou um provedor local em uma evolução futura.
 
+## Configurações de refinamento
+
+- `OPENROUTER_REFINEMENT_MODEL`: modelo de texto que revisa a saída do STT; o exemplo recomenda
+  `google/gemini-3.7-flash`;
+- `REFINEMENT_CHUNK_MAX_CHARACTERS`: tamanho máximo aproximado de cada bloco, sempre dividido entre
+  falas; padrão `500000` caracteres;
+- `REFINEMENT_MAX_ATTEMPTS`: total de tentativas por bloco; padrão `3`;
+- `REFINEMENT_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
+- `REFINEMENT_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
+- `REFINEMENT_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms.
+
+O refinamento recebe os blocos estruturados produzidos pelo Whisper e devolve somente pares de
+`id` e `text`. O código rejeita qualquer resposta que remova, acrescente ou reordene IDs e sempre
+reutiliza falante e timestamps do Whisper. O prompt pede uma revisão conservadora de erros
+ortográficos, fonéticos e contextuais evidentes; ele não contém lista de nomes, palavras-chave ou
+vocabulário controlado.
+
+Antes da primeira chamada, o Summyz preserva atomicamente a saída original em
+`transcript.raw.txt`. Se o modelo ou a resposta estruturada falhar nas três tentativas, restaura o
+original em `transcript.txt`, registra o fallback em `refinement.json` e continua normalmente para
+o resumo e a publicação. O Discord não recebe um aviso específico desse fallback, pois a
+transcrição original continua disponível.
+
 ## Configurações de resumo
 
 - `OPENROUTER_SUMMARY_MODEL`: modelo de texto usado no resumo, configurado separadamente do modelo
@@ -179,6 +205,10 @@ O resultado é escrito atomicamente em:
 ```text
 data/recordings/<meetingId>/transcript.txt
 ```
+
+Quando o refinamento é iniciado, a versão sem revisão fica preservada em
+`data/recordings/<meetingId>/transcript.raw.txt`; `transcript.txt` passa a conter a versão revisada
+ou permanece idêntico ao original quando ocorre fallback.
 
 Cada trecho segue este formato:
 
@@ -218,11 +248,11 @@ Se o resumo continuar falhando depois dos retries, a mensagem informa
 `Transcrição da call disponível (Resumo indisponível)` e cria uma thread
 `Transcrição — DD/MM/AAAA` contendo apenas o aviso genérico e `transcript.txt`.
 
-Os estados ficam em `summary.json` e `publication.json`. IDs de mensagem e thread são persistidos a
-cada passo e as mensagens usam nonces determinísticos, permitindo retomar a publicação após
-reinício e reduzir duplicações. Como a API do Discord é externamente consistente, a garantia é de
-publicação idempotente nas condições normais, não de atomicidade absoluta entre o filesystem e o
-Discord.
+Os estados ficam em `refinement.json`, `summary.json` e `publication.json`. IDs de mensagem e thread
+são persistidos a cada passo e as mensagens usam nonces determinísticos, permitindo retomar a
+publicação após reinício e reduzir duplicações. Como a API do Discord é externamente consistente, a
+garantia é de publicação idempotente nas condições normais, não de atomicidade absoluta entre o
+filesystem e o Discord.
 
 Os áudios correspondentes a transcrições concluídas ainda não são excluídos automaticamente.
 

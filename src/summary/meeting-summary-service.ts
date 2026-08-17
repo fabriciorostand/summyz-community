@@ -2,9 +2,7 @@ import type { Logger } from "pino";
 
 import type { MeetingPublisher } from "../discord/discord-meeting-publisher.js";
 import type { RecordingManifest } from "../recording/manifest.js";
-import { assembleTranscriptEntries } from "../transcription/transcript-assembler.js";
-import type { TranscribedSegment } from "../transcription/transcription-provider.js";
-import type { TranscriptionState } from "../transcription/transcription-state.js";
+import type { RefinementStore } from "../refinement/refinement-store.js";
 import type { TranscriptionStore } from "../transcription/transcription-store.js";
 import type { MeetingSummaryGenerationResult } from "./meeting-summary-generator.js";
 import { createPublicSummary, type SummaryTranscriptEntry } from "./summary-result.js";
@@ -20,6 +18,7 @@ interface MeetingSummaryServiceOptions {
   logger: Logger;
   now?: () => Date;
   publisher: MeetingPublisher;
+  refinementStore: RefinementStore;
   summaryStore: SummaryStore;
   transcriptionStore: TranscriptionStore;
 }
@@ -29,6 +28,7 @@ export class MeetingSummaryService {
   readonly #logger: Logger;
   readonly #now: () => Date;
   readonly #publisher: MeetingPublisher;
+  readonly #refinementStore: RefinementStore;
   readonly #summaryStore: SummaryStore;
   readonly #transcriptionStore: TranscriptionStore;
 
@@ -37,6 +37,7 @@ export class MeetingSummaryService {
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
     this.#publisher = options.publisher;
+    this.#refinementStore = options.refinementStore;
     this.#summaryStore = options.summaryStore;
     this.#transcriptionStore = options.transcriptionStore;
   }
@@ -64,6 +65,10 @@ export class MeetingSummaryService {
       await this.#publisher.publishTranscriptOnly(manifest, transcriptPath);
       return;
     }
+    const refinement = await this.#refinementStore.tryLoad(manifest.meetingId);
+    if (refinement?.status !== "completed" && refinement?.status !== "fallback") {
+      return;
+    }
 
     state ??= createSummaryState(manifest.meetingId, this.#now().toISOString());
     await this.#summaryStore.save(state);
@@ -71,8 +76,7 @@ export class MeetingSummaryService {
 
     let generated: MeetingSummaryGenerationResult;
     try {
-      const entries = assembleTranscriptEntries(manifest, toTranscribedSegments(transcription));
-      generated = await this.#generator.generate(entries);
+      generated = await this.#generator.generate(refinement.entries);
     } catch (error) {
       const failed = markSummaryFailed(
         state,
@@ -106,24 +110,6 @@ export class MeetingSummaryService {
       transcriptPath,
     );
   }
-}
-
-function toTranscribedSegments(state: TranscriptionState): TranscribedSegment[] {
-  return state.segments.map((segment) => {
-    if (segment.status !== "completed") {
-      throw new Error("A transcrição concluída contém segmentos pendentes");
-    }
-    return {
-      ...(segment.audioDurationMs === undefined
-        ? {}
-        : { audioDurationMs: segment.audioDurationMs }),
-      pieces: segment.pieces,
-      segmentId: segment.segmentId,
-      ...(segment.timelineStartedAtMs === undefined
-        ? {}
-        : { timelineStartedAtMs: segment.timelineStartedAtMs }),
-    };
-  });
 }
 
 function getAttemptCount(error: unknown): number {

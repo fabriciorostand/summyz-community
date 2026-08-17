@@ -1,4 +1,4 @@
-import { access, mkdtemp, readFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -67,6 +67,19 @@ describe("TranscriptionStore", () => {
     );
   });
 
+  it("preserva a primeira transcrição bruta mesmo após o arquivo final ser revisado", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-transcriptions-"));
+    const store = new TranscriptionStore(root);
+    await store.writeTranscript("meeting-1", "texto bruto\n");
+
+    await expect(store.preserveRawTranscript("meeting-1")).resolves.toBe("texto bruto\n");
+    await store.writeTranscript("meeting-1", "texto revisado\n");
+    await expect(store.preserveRawTranscript("meeting-1")).resolves.toBe("texto bruto\n");
+    await expect(readFile(store.rawTranscriptPath("meeting-1"), "utf8")).resolves.toBe(
+      "texto bruto\n",
+    );
+  });
+
   it("lista somente falhas cuja retenção expirou", async () => {
     const root = await mkdtemp(join(tmpdir(), "summyz-transcriptions-"));
     const store = new TranscriptionStore(root);
@@ -98,5 +111,26 @@ describe("TranscriptionStore", () => {
 
     await expect(store.tryLoad("meeting-1")).resolves.toBeUndefined();
     await expect(store.listFailuresBefore("2026-08-16T00:00:00.000Z")).resolves.toEqual([]);
+  });
+
+  it("propaga arquivos inválidos e ignora entradas inseguras ao listar falhas", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-transcriptions-"));
+    const store = new TranscriptionStore(root);
+    await mkdir(store.meetingDirectory("meeting-1"), { recursive: true });
+    await writeFile(
+      store.resolveMeetingFile("meeting-1", "transcription.json"),
+      "inválido",
+      "utf8",
+    );
+    await expect(store.tryLoad("meeting-1")).rejects.toThrow();
+    await rm(store.meetingDirectory("meeting-1"), { recursive: true });
+
+    await writeFile(join(root, "arquivo-ignorado"), "texto", "utf8");
+    await mkdir(join(root, ".diretorio-inseguro"));
+    await expect(store.listFailuresBefore("2026-08-16T00:00:00.000Z")).resolves.toEqual([]);
+
+    await store.writeTranscript("meeting-2", "texto bruto\n");
+    await mkdir(store.rawTranscriptPath("meeting-2"));
+    await expect(store.preserveRawTranscript("meeting-2")).rejects.toThrow();
   });
 });

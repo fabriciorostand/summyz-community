@@ -14,6 +14,10 @@ export function assembleTranscript(
   transcriptions: readonly TranscribedSegment[],
 ): string {
   const entries = assembleTranscriptEntries(manifest, transcriptions);
+  return assembleTranscriptFromEntries(entries);
+}
+
+export function assembleTranscriptFromEntries(entries: readonly TranscriptEntry[]): string {
   const lines = entries.map(
     (entry) =>
       `[${formatTimestamp(entry.startedAtMs)} – ${formatTimestamp(entry.endedAtMs)}] ` +

@@ -8,6 +8,7 @@ const environmentSchema = z.object({
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   FAILED_RECORDING_RETENTION_HOURS: z.coerce.number().int().min(1).max(720).default(24),
   OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY é obrigatório"),
+  OPENROUTER_REFINEMENT_MODEL: z.string().min(1, "OPENROUTER_REFINEMENT_MODEL é obrigatório"),
   OPENROUTER_SUMMARY_MODEL: z.string().min(1, "OPENROUTER_SUMMARY_MODEL é obrigatório"),
   OPENROUTER_TRANSCRIPTION_MODEL: z.string().min(1, "OPENROUTER_TRANSCRIPTION_MODEL é obrigatório"),
   TRANSCRIPTION_MODEL_PROFILES_FILE: z
@@ -26,6 +27,16 @@ const environmentSchema = z.object({
     .min(100, "SEGMENT_SILENCE_MS deve ser maior ou igual a 100")
     .max(30_000, "SEGMENT_SILENCE_MS deve ser menor ou igual a 30000")
     .default(1_000),
+  REFINEMENT_CHUNK_MAX_CHARACTERS: z.coerce
+    .number()
+    .int()
+    .min(1_000)
+    .max(10_000_000)
+    .default(500_000),
+  REFINEMENT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  REFINEMENT_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
+  REFINEMENT_RETRY_MAX_MS: z.coerce.number().int().min(100).max(300_000).default(30_000),
+  REFINEMENT_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
   SUMMARY_CHUNK_MAX_CHARACTERS: z.coerce.number().int().min(1_000).max(10_000_000).default(500_000),
   SUMMARY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(4),
   SUMMARY_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
@@ -61,10 +72,16 @@ export interface AppConfig {
   failedRecordingRetentionHours: number;
   logLevel: z.infer<typeof environmentSchema>["LOG_LEVEL"];
   openRouterApiKey: string;
+  openRouterRefinementModel: string;
   openRouterSummaryModel: string;
   openRouterTranscriptionModel: string;
   segmentMaxSeconds: number;
   segmentSilenceMs: number;
+  refinementChunkMaxCharacters: number;
+  refinementMaxAttempts: number;
+  refinementRetryBaseMs: number;
+  refinementRetryMaxMs: number;
+  refinementTimeoutMs: number;
   summaryChunkMaxCharacters: number;
   summaryMaxAttempts: number;
   summaryRetryBaseMs: number;
@@ -95,10 +112,16 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     failedRecordingRetentionHours: parsed.FAILED_RECORDING_RETENTION_HOURS,
     logLevel: parsed.LOG_LEVEL,
     openRouterApiKey: parsed.OPENROUTER_API_KEY,
+    openRouterRefinementModel: parsed.OPENROUTER_REFINEMENT_MODEL,
     openRouterSummaryModel: parsed.OPENROUTER_SUMMARY_MODEL,
     openRouterTranscriptionModel: parsed.OPENROUTER_TRANSCRIPTION_MODEL,
     segmentMaxSeconds: parsed.SEGMENT_MAX_SECONDS,
     segmentSilenceMs: parsed.SEGMENT_SILENCE_MS,
+    refinementChunkMaxCharacters: parsed.REFINEMENT_CHUNK_MAX_CHARACTERS,
+    refinementMaxAttempts: parsed.REFINEMENT_MAX_ATTEMPTS,
+    refinementRetryBaseMs: parsed.REFINEMENT_RETRY_BASE_MS,
+    refinementRetryMaxMs: parsed.REFINEMENT_RETRY_MAX_MS,
+    refinementTimeoutMs: parsed.REFINEMENT_TIMEOUT_MS,
     summaryChunkMaxCharacters: parsed.SUMMARY_CHUNK_MAX_CHARACTERS,
     summaryMaxAttempts: parsed.SUMMARY_MAX_ATTEMPTS,
     summaryRetryBaseMs: parsed.SUMMARY_RETRY_BASE_MS,

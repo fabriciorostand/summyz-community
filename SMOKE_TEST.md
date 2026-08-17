@@ -12,7 +12,8 @@ thread pública do Discord.
 4. Autorize o cargo de teste com `/recording-role add`.
 5. Configure `OPENROUTER_API_KEY` e um `OPENROUTER_TRANSCRIPTION_MODEL` que possua uma entrada
    correspondente em `config/transcription-model-profiles.json`.
-6. Configure `OPENROUTER_SUMMARY_MODEL` com um modelo que aceite saída estruturada.
+6. Configure `OPENROUTER_REFINEMENT_MODEL` e `OPENROUTER_SUMMARY_MODEL` com modelos que aceitem
+   saída estruturada.
 7. Confirme que o bot possui as permissões Criar threads públicas, Enviar mensagens em threads e
    Ler histórico de mensagens no canal de teste.
 
@@ -83,6 +84,7 @@ Encerre primeiro com `/stop` e repita em outra reunião saindo do canal sem usar
 casos, aguarde o log `Transcrição da reunião concluída` e confira:
 
 - existência de `data/recordings/<meetingId>/transcript.txt`;
+- existência de `data/recordings/<meetingId>/transcript.raw.txt` após o refinamento;
 - uma linha legível por trecho, com início, fim e nome correto;
 - nomes iguais desambiguados com `#1`, `#2` e assim por diante;
 - ordem cronológica pelo início das falas;
@@ -90,6 +92,11 @@ casos, aguarde o log `Transcrição da reunião concluída` e confira:
 - ausência de `userId`, detalhes internos, conteúdo inventado ou falas atribuídas à pessoa errada;
 - presença da resposta curta real e ausência de texto para o ruído sem fala;
 - coerência do texto com o áudio ouvido pelos participantes.
+
+Compare `transcript.raw.txt` com `transcript.txt` e confirme que o refinamento alterou somente erros
+textuais evidentes. A quantidade e a ordem das linhas, os nomes e todos os timestamps devem ser
+idênticos. Confirme também que o estado `refinement.json` termina como `completed`. Não inclua nomes
+ou termos do roteiro no prompt ou em configuração de vocabulário.
 
 Uma reunião só passa no critério quando todos os segmentos estão `completed` em
 `transcription.json` e o arquivo final representa corretamente as falas alternadas e sobrepostas.
@@ -107,8 +114,8 @@ preservada.
 Quando `deepgram/nova-3` estiver configurado, confirme que o perfil insere 350 ms entre intervalos de
 voz sem deslocar os timestamps finais da reunião. Trocar entre Nova-3 e Whisper não deve exigir nem
 alterar configurações internas do outro perfil.
-Não adicione ao Git o áudio, `transcription.json`, `transcript.txt`, `summary.json` ou
-`publication.json` produzidos no teste.
+Não adicione ao Git o áudio, `transcription.json`, `refinement.json`, `transcript.raw.txt`,
+`transcript.txt`, `summary.json` ou `publication.json` produzidos no teste.
 
 ## Validação do resumo e da publicação
 
@@ -140,6 +147,11 @@ depois do teste e confirme que nenhuma fala foi dividida entre blocos.
 
 Confirme que `summary.json` e `publication.json` terminam com estado `completed`. Reinicie o bot
 depois da publicação e verifique que ele não cria outra mensagem ou thread para a mesma reunião.
+
+O fallback após três falhas do refinamento deve ser validado pelos testes automatizados com um
+provedor falso. Ele deve preservar `transcript.raw.txt`, restaurar o mesmo conteúdo em
+`transcript.txt`, marcar `refinement.json` como `fallback` e continuar para o resumo sem publicar um
+erro específico no Discord.
 
 O fallback após falha do resumo deve ser validado pelos testes automatizados com um provedor falso.
 Ele deve criar a mensagem `Transcrição da call disponível (Resumo indisponível)`, a thread

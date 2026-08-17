@@ -12,6 +12,11 @@ import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
 import { notifyTranscriptionFailure } from "./discord/transcription-notifier.js";
 import { GuildConfigStore } from "./guild-config-store.js";
 import { createLogger } from "./logger.js";
+import { MeetingRefinementGenerator } from "./refinement/meeting-refinement-generator.js";
+import { MeetingRefinementService } from "./refinement/meeting-refinement-service.js";
+import { OpenRouterRefinementProvider } from "./refinement/openrouter-refinement-provider.js";
+import { RefinementCoordinator } from "./refinement/refinement-coordinator.js";
+import { RefinementStore } from "./refinement/refinement-store.js";
 import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
 import { ManifestStore } from "./recording/manifest-store.js";
 import { RecordingCoordinator } from "./recording/recording-coordinator.js";
@@ -66,6 +71,7 @@ const client = new Client({
 const guildConfigStore = new GuildConfigStore(join(config.dataDir, "config", "guilds.json"));
 const manifestStore = new ManifestStore(join(config.dataDir, "recordings"));
 const transcriptionStore = new TranscriptionStore(join(config.dataDir, "recordings"));
+const refinementStore = new RefinementStore(join(config.dataDir, "recordings"));
 const summaryStore = new SummaryStore(join(config.dataDir, "recordings"));
 const publicationStore = new PublicationStore(join(config.dataDir, "recordings"));
 const summaryProvider = new OpenRouterSummaryProvider({
@@ -91,10 +97,34 @@ const summaryService = new MeetingSummaryService({
   generator: summaryGenerator,
   logger,
   publisher: meetingPublisher,
+  refinementStore,
   summaryStore,
   transcriptionStore,
 });
 const summaryCoordinator = new SummaryCoordinator(summaryService, logger);
+const refinementProvider = new OpenRouterRefinementProvider({
+  apiKey: config.openRouterApiKey,
+  logger,
+  maxAttempts: config.refinementMaxAttempts,
+  model: config.openRouterRefinementModel,
+  retryBaseMs: config.refinementRetryBaseMs,
+  retryMaxMs: config.refinementRetryMaxMs,
+  timeoutMs: config.refinementTimeoutMs,
+});
+const refinementGenerator = new MeetingRefinementGenerator({
+  maxChunkCharacters: config.refinementChunkMaxCharacters,
+  provider: refinementProvider,
+});
+const refinementService = new MeetingRefinementService({
+  generator: refinementGenerator,
+  logger,
+  onCompleted: (manifest) => {
+    summaryCoordinator.start(manifest);
+  },
+  refinementStore,
+  transcriptionStore,
+});
+const refinementCoordinator = new RefinementCoordinator(refinementService, logger);
 const transcriptionProvider = new OpenRouterTranscriptionProvider({
   apiKey: config.openRouterApiKey,
   logger,
@@ -117,7 +147,7 @@ const transcriptionService = new MeetingTranscriptionService({
   manifestStore,
   notifyFailure: (manifest) => notifyTranscriptionFailure(client, logger, manifest),
   onCompleted: (manifest) => {
-    summaryCoordinator.start(manifest);
+    refinementCoordinator.start(manifest);
   },
   provider: transcriptionProvider,
   speechAnalyzer,
@@ -177,7 +207,12 @@ client.once(Events.ClientReady, async (readyClient) => {
   try {
     const completedManifests = await manifestStore.listCompleted();
     for (const manifest of completedManifests) {
-      summaryCoordinator.start(manifest);
+      const summaryState = await summaryStore.tryLoad(manifest.meetingId);
+      if (summaryState?.status === "completed" || summaryState?.status === "failed") {
+        summaryCoordinator.start(manifest);
+      } else {
+        refinementCoordinator.start(manifest);
+      }
     }
   } catch (error) {
     logger.error(
@@ -196,6 +231,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   logger.info({ signal }, "Encerramento do Summyz solicitado");
   await coordinator.shutdown();
   await transcriptionCoordinator.shutdown();
+  await refinementCoordinator.shutdown();
   await summaryCoordinator.shutdown();
   try {
     await speechAnalyzer.close();

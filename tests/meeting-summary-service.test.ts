@@ -5,6 +5,11 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createLogger } from "../src/logger.js";
+import { RefinementStore } from "../src/refinement/refinement-store.js";
+import {
+  createRefinementState,
+  markRefinementCompleted,
+} from "../src/refinement/refinement-state.js";
 import { addSegment, createManifest, markManifestCompleted } from "../src/recording/manifest.js";
 import type { MeetingPublisher } from "../src/discord/discord-meeting-publisher.js";
 import type { MeetingSummaryGenerationResult } from "../src/summary/meeting-summary-generator.js";
@@ -68,6 +73,23 @@ async function createContext() {
   transcription = markTranscriptionCompleted(transcription, "2026-08-17T10:02:00.000Z");
   await transcriptionStore.save(transcription);
   await transcriptionStore.writeTranscript("meeting-1", "transcrição");
+  const refinementStore = new RefinementStore(root);
+  await refinementStore.save(
+    markRefinementCompleted(
+      createRefinementState("meeting-1", "2026-08-17T10:02:00.000Z"),
+      [
+        {
+          endedAtMs: 12_000,
+          id: "segment-1:000000",
+          speaker: "Ana",
+          startedAtMs: 10_000,
+          text: "Está decidido: fluxo A revisado.",
+        },
+      ],
+      1,
+      "2026-08-17T10:02:30.000Z",
+    ),
+  );
   const summaryStore = new SummaryStore(root);
   const publishSummary = vi.fn(async () => undefined);
   const publishTranscriptOnly = vi.fn(async () => undefined);
@@ -77,6 +99,7 @@ async function createContext() {
     publishSummary,
     publishTranscriptOnly,
     publisher,
+    refinementStore,
     root,
     summaryStore,
     transcriptionStore,
@@ -101,6 +124,7 @@ describe("MeetingSummaryService", () => {
       generator: { generate: vi.fn(async () => generated) },
       logger: createLogger("silent"),
       publisher: context.publisher,
+      refinementStore: context.refinementStore,
       summaryStore: context.summaryStore,
       transcriptionStore: context.transcriptionStore,
     });
@@ -123,6 +147,7 @@ describe("MeetingSummaryService", () => {
       generator,
       logger: createLogger("silent"),
       publisher: context.publisher,
+      refinementStore: context.refinementStore,
       summaryStore: context.summaryStore,
       transcriptionStore: context.transcriptionStore,
     });
@@ -130,7 +155,11 @@ describe("MeetingSummaryService", () => {
     await service.process(context.manifest);
 
     expect(generate).toHaveBeenCalledWith([
-      expect.objectContaining({ id: "segment-1:000000", speaker: "Ana" }),
+      expect.objectContaining({
+        id: "segment-1:000000",
+        speaker: "Ana",
+        text: "Está decidido: fluxo A revisado.",
+      }),
     ]);
     await expect(context.summaryStore.load("meeting-1")).resolves.toMatchObject({
       attempts: 1,
@@ -156,6 +185,7 @@ describe("MeetingSummaryService", () => {
       generator,
       logger: createLogger("silent"),
       publisher: context.publisher,
+      refinementStore: context.refinementStore,
       summaryStore: context.summaryStore,
       transcriptionStore: context.transcriptionStore,
     });
@@ -179,6 +209,7 @@ describe("MeetingSummaryService", () => {
       generator: { generate },
       logger: createLogger("silent"),
       publisher: completedContext.publisher,
+      refinementStore: completedContext.refinementStore,
       summaryStore: completedContext.summaryStore,
       transcriptionStore: completedContext.transcriptionStore,
     });
@@ -201,6 +232,7 @@ describe("MeetingSummaryService", () => {
       generator: { generate },
       logger: createLogger("silent"),
       publisher: failedContext.publisher,
+      refinementStore: failedContext.refinementStore,
       summaryStore: failedContext.summaryStore,
       transcriptionStore: failedContext.transcriptionStore,
     });
@@ -220,6 +252,7 @@ describe("MeetingSummaryService", () => {
       generator: { generate },
       logger: createLogger("silent"),
       publisher: context.publisher,
+      refinementStore: context.refinementStore,
       summaryStore: context.summaryStore,
       transcriptionStore: context.transcriptionStore,
     });
