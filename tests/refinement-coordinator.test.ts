@@ -46,4 +46,12 @@ describe("RefinementCoordinator", () => {
     await coordinator.shutdown();
     expect(process).toHaveBeenCalledTimes(2);
   });
+
+  it("trata rejeição externa que não usa Error", async () => {
+    const process = vi.fn(() => Promise.reject("falha externa"));
+    const coordinator = new RefinementCoordinator({ process }, createLogger("silent"));
+
+    expect(coordinator.start(manifest)).toBe(true);
+    await coordinator.shutdown();
+  });
 });

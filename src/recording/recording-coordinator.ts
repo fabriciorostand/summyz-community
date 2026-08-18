@@ -2,6 +2,10 @@ import type { RecordingManifest } from "./manifest.js";
 
 export type RecordingStopReason = "channel_empty" | "command" | "reconnect_exhausted" | "shutdown";
 
+export type RecordingStopRequest =
+  | { reason: "command"; stoppedByUserId: string }
+  | { reason: Exclude<RecordingStopReason, "command"> };
+
 export function shouldStartTranscription(reason: RecordingStopReason): boolean {
   return reason === "command" || reason === "channel_empty";
 }
@@ -10,12 +14,14 @@ export interface StartRecordingInput {
   guildId: string;
   notificationChannelId: string;
   voiceChannelId: string;
+  voiceChannelName?: string;
 }
 
 export interface RecordingHandle {
   guildId: string;
   meetingId: string;
-  stop(reason: RecordingStopReason): Promise<void>;
+  notificationChannelId: string;
+  stop(request: RecordingStopRequest): Promise<void>;
   voiceChannelId: string;
 }
 
@@ -86,13 +92,13 @@ export class RecordingCoordinator {
     }
   }
 
-  public async stop(guildId: string, reason: RecordingStopReason): Promise<boolean> {
+  public async stop(guildId: string, request: RecordingStopRequest): Promise<boolean> {
     const handle = this.#recordings.get(guildId);
     if (handle === undefined) {
       return false;
     }
 
-    await handle.stop(reason);
+    await handle.stop(request);
     this.#removeIfCurrent(guildId, handle);
     return true;
   }
@@ -107,12 +113,12 @@ export class RecordingCoordinator {
       return;
     }
 
-    await this.stop(guildId, "channel_empty");
+    await this.stop(guildId, { reason: "channel_empty" });
   }
 
   public async shutdown(): Promise<void> {
     await Promise.allSettled(
-      [...this.#recordings.values()].map((recording) => recording.stop("shutdown")),
+      [...this.#recordings.values()].map((recording) => recording.stop({ reason: "shutdown" })),
     );
     this.#recordings.clear();
   }

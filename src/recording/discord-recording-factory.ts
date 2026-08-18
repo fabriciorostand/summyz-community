@@ -29,12 +29,13 @@ import {
   type RecordingSegment,
 } from "./manifest.js";
 import type { ManifestStore } from "./manifest-store.js";
+import { createRecordingStopNotification } from "./recording-notification.js";
 import { calculateProcessCpuPercent, estimatePacketLossPercent } from "./recording-metrics.js";
 import {
   shouldStartTranscription,
   type RecordingHandle,
   type RecordingSessionFactory,
-  type RecordingStopReason,
+  type RecordingStopRequest,
   type StartRecordingInput,
 } from "./recording-coordinator.js";
 
@@ -73,6 +74,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       notificationChannelId: input.notificationChannelId,
       startedAt: new Date().toISOString(),
       voiceChannelId: input.voiceChannelId,
+      voiceChannelName: input.voiceChannelName,
     });
     await this.#manifestStore.save(manifest);
 
@@ -201,7 +203,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     try {
       const channel = await this.#client.channels.fetch(channelId);
       if (channel?.isSendable()) {
-        await channel.send({ content: message });
+        await channel.send({ allowedMentions: { parse: [] }, content: message });
       }
     } catch (error) {
       this.#logger.warn(
@@ -227,6 +229,7 @@ interface DiscordVoiceRecordingInput {
 class DiscordVoiceRecording implements RecordingHandle {
   readonly guildId: string;
   readonly meetingId: string;
+  readonly notificationChannelId: string;
   readonly voiceChannelId: string;
   readonly #activeCaptures = new Map<string, ActiveCapture>();
   readonly #config: AppConfig;
@@ -249,6 +252,7 @@ class DiscordVoiceRecording implements RecordingHandle {
   public constructor(input: DiscordVoiceRecordingInput) {
     this.guildId = input.manifest.guildId;
     this.meetingId = input.manifest.meetingId;
+    this.notificationChannelId = input.manifest.notificationChannelId;
     this.voiceChannelId = input.manifest.voiceChannelId;
     this.#config = input.config;
     this.#connection = input.connection;
@@ -282,8 +286,8 @@ class DiscordVoiceRecording implements RecordingHandle {
     );
   }
 
-  public async stop(reason: RecordingStopReason): Promise<void> {
-    this.#stopPromise ??= this.#stop(reason);
+  public async stop(request: RecordingStopRequest): Promise<void> {
+    this.#stopPromise ??= this.#stop(request);
     await this.#stopPromise;
   }
 
@@ -546,10 +550,10 @@ class DiscordVoiceRecording implements RecordingHandle {
     await this.#notify(
       "⚠️ Não foi possível retomar a gravação em cinco minutos. O áudio capturado foi preservado.",
     );
-    await this.stop("reconnect_exhausted");
+    await this.stop({ reason: "reconnect_exhausted" });
   }
 
-  async #stop(reason: RecordingStopReason): Promise<void> {
+  async #stop(request: RecordingStopRequest): Promise<void> {
     if (this.#ended) {
       return;
     }
@@ -567,6 +571,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     this.#activeCaptures.clear();
     await this.#manifestQueue;
 
+    const reason = request.reason;
     const now = new Date().toISOString();
     if (shouldStartTranscription(reason)) {
       await this.#updateManifest((manifest) => markManifestCompleted(manifest, now));
@@ -577,12 +582,9 @@ class DiscordVoiceRecording implements RecordingHandle {
     }
 
     this.#connection.destroy();
-    if (reason === "channel_empty") {
-      await this.#notify("⏹️ Todos saíram do canal. A gravação foi encerrada automaticamente.");
-    } else if (reason === "shutdown") {
-      await this.#notify(
-        "⚠️ O Summyz foi desligado durante a call. O áudio foi preservado e a retomada ocorrerá no próximo início.",
-      );
+    const notification = createRecordingStopNotification(this.#manifest, request);
+    if (notification !== undefined) {
+      await this.#notify(notification);
     }
     this.#logger.info(
       {

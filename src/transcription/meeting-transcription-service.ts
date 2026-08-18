@@ -24,6 +24,7 @@ import {
   type TranscriptionState,
 } from "./transcription-state.js";
 import type { TranscriptionStore } from "./transcription-store.js";
+import { IncompatibleTranscriptionResponseError } from "./openrouter-transcription-provider.js";
 import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
 import { writePcmAsWav as defaultWritePcmAsWav } from "./wav.js";
 
@@ -285,8 +286,15 @@ export class MeetingTranscriptionService {
           "Falha ao persistir o estado perdido da transcrição",
         );
       }
+      const incompatibilityReason =
+        error instanceof IncompatibleTranscriptionResponseError ? error.reason : undefined;
       this.#logger.error(
-        { errorType: getErrorType(error), failureCode, meetingId: manifest.meetingId },
+        {
+          errorType: getErrorType(error),
+          failureCode,
+          ...(incompatibilityReason === undefined ? {} : { incompatibilityReason }),
+          meetingId: manifest.meetingId,
+        },
         "Falha ao transcrever reunião",
       );
       try {

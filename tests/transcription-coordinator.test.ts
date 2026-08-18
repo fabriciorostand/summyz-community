@@ -68,4 +68,22 @@ describe("TranscriptionCoordinator", () => {
     await coordinator.shutdown();
     expect(process).toHaveBeenCalledTimes(2);
   });
+
+  it("trata rejeição externa que não usa Error", async () => {
+    const process = vi.fn(() => Promise.reject("falha externa"));
+    const coordinator = new TranscriptionCoordinator({ process }, createLogger("silent"));
+    const manifest = markManifestCompleted(
+      createManifest({
+        guildId: "guild-1",
+        meetingId: "meeting-external-error",
+        notificationChannelId: "text-1",
+        startedAt: "2026-08-16T20:00:00.000Z",
+        voiceChannelId: "voice-1",
+      }),
+      "2026-08-16T20:01:00.000Z",
+    );
+
+    expect(coordinator.start(manifest)).toBe(true);
+    await coordinator.shutdown();
+  });
 });

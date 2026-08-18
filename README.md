@@ -7,7 +7,7 @@ O Summyz grava cada participante separadamente e, depois do encerramento normal 
 os segmentos por meio do OpenRouter e monta um arquivo único preservando falantes, timestamps e
 falas sobrepostas. Uma segunda etapa revisa apenas o texto da transcrição, sem
 permitir que o modelo altere IDs, falantes, timestamps ou ordem. Em seguida, gera um resumo
-estruturado e publica em uma thread do Discord o resumo executivo, os tópicos discutidos, as
+estruturado e publica em um post de fórum do Discord o resumo executivo, os tópicos discutidos, as
 decisões, as tarefas e a transcrição completa.
 
 ## Requisitos
@@ -44,7 +44,6 @@ Nunca versione o arquivo `.env` nem publique o token do bot.
 - Ver canais;
 - Conectar;
 - Enviar mensagens;
-- Criar threads públicas;
 - Enviar mensagens em threads;
 - Ler histórico de mensagens;
 - Anexar arquivos;
@@ -55,12 +54,14 @@ estiver instalado, alterar as permissões padrão no Developer Portal não atual
 cargo existente: ajuste as permissões do cargo do bot e as sobrescritas do canal onde as reuniões
 serão publicadas, ou reinstale o bot com o novo link.
 
-As permissões Criar threads públicas, Enviar mensagens em threads, Ler histórico de mensagens e
-Anexar arquivos devem estar liberadas também nas configurações específicas do canal, quando houver
-sobrescritas. `Enviar mensagens` sozinho não permite escrever dentro de uma thread.
+As permissões Enviar mensagens, Enviar mensagens em threads, Ler histórico de mensagens e Anexar
+arquivos devem estar liberadas também nas configurações específicas do fórum, quando houver
+sobrescritas. `Enviar mensagens` sozinho não permite responder dentro de um post.
 
-Depois de adicionar o bot, use `/recording-role add` para autorizar os cargos desejados. Consulte
-[BOT_COMMANDS.md](./BOT_COMMANDS.md) para ver todos os comandos e regras de acesso.
+Depois de adicionar o bot, use `/recording-role add` para autorizar os cargos desejados e
+`/recording-summary-forum set` para definir o fórum das publicações. Novas gravações ficam
+bloqueadas enquanto não houver um fórum configurado. Consulte [BOT_COMMANDS.md](./BOT_COMMANDS.md)
+para ver todos os comandos e regras de acesso.
 
 ## Configurações de gravação
 
@@ -182,7 +183,7 @@ transcrição original continua disponível.
 - `SUMMARY_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
 - `SUMMARY_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
 - `SUMMARY_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
-- `SUMMARY_TIME_ZONE`: fuso IANA usado no título da thread; padrão `America/Sao_Paulo`.
+- `SUMMARY_TIME_ZONE`: fuso IANA usado no título do post; padrão `America/Sao_Paulo`.
 
 O resumo usa saída estruturada validada. Transcrições maiores que o limite configurado são divididas
 somente entre falas, resumidas por blocos e consolidadas. O Summyz mantém internamente as referências
@@ -233,26 +234,38 @@ algum segmento continuar impossível de analisar/processar ou o provedor esgotar
 
 ## Publicação no Discord
 
-Depois da transcrição e do resumo, o Summyz publica no canal onde `/record` foi executado uma
-mensagem curta e cria uma thread pública com arquivamento automático após sete dias de inatividade.
-A thread de sucesso usa o nome `Resumo da call — DD/MM/AAAA HH:mm` e contém:
+Depois da transcrição e do resumo, o Summyz consulta a configuração mais recente do servidor e cria
+um post no fórum escolhido. O post de sucesso usa o nome
+`Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz` e contém:
 
-- resumo executivo;
+- ID da reunião e resumo executivo na primeira mensagem;
 - tópicos discutidos;
 - decisões;
 - tarefas, com responsável e prazo somente quando explícitos;
 - pendências e observações;
 - `transcript.txt` como arquivo anexo.
 
-Se o resumo continuar falhando depois dos retries, a mensagem informa
-`Transcrição da call disponível (Resumo indisponível)` e cria uma thread
-`Transcrição — DD/MM/AAAA` contendo apenas o aviso genérico e `transcript.txt`.
+O Discord move o post para a área de posts antigos depois de até sete dias sem atividade; o
+conteúdo não é apagado e pode ser reaberto.
+
+Se o resumo continuar falhando depois dos retries, o Summyz cria o post
+`Transcrição — DD/MM/AAAA HH:mm — Nome do canal de voz`. A primeira mensagem informa que o resumo
+está indisponível e inclui `transcript.txt` como anexo.
+
+O chat onde `/record` foi executado concentra o histórico público da sessão: início, falha ao
+iniciar, interrupção, retomada, falha definitiva de reconexão, encerramento manual, canal vazio,
+desligamento, falha da transcrição e falha da publicação. Ao usar `/stop`, somente quem executou o
+comando recebe uma confirmação efêmera no chat da interação, com referência ao chat original; o
+aviso público de encerramento menciona essa pessoa no chat do `/record`. No encerramento automático,
+o aviso identifica o canal de voz quando seu nome está disponível e informa que os segmentos serão
+processados. Se o fórum for alterado antes de uma publicação começar, a reunião usa o destino mais
+recente; uma publicação já iniciada ou concluída permanece no post original.
 
 Os estados ficam em `refinement.json`, `summary.json` e `publication.json`. IDs de mensagem e thread
-são persistidos a cada passo e as mensagens usam nonces determinísticos, permitindo retomar a
-publicação após reinício e reduzir duplicações. Como a API do Discord é externamente consistente, a
-garantia é de publicação idempotente nas condições normais, não de atomicidade absoluta entre o
-filesystem e o Discord.
+são persistidos a cada passo e as respostas usam nonces determinísticos, permitindo retomar a
+publicação após reinício e reduzir duplicações. A criação inicial de posts de fórum não oferece
+nonce pela API do Discord; portanto, a garantia é de idempotência nas condições normais, não de
+atomicidade absoluta entre o filesystem e o Discord.
 
 Os áudios correspondentes a transcrições concluídas ainda não são excluídos automaticamente.
 

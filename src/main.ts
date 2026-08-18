@@ -89,6 +89,7 @@ const summaryGenerator = new MeetingSummaryGenerator({
 });
 const meetingPublisher = new DiscordMeetingPublisher({
   client,
+  guildConfigStore,
   logger,
   store: publicationStore,
   timeZone: config.summaryTimeZone,

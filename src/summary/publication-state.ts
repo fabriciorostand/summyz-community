@@ -2,6 +2,7 @@ import { z } from "zod";
 
 const basePublicationStateSchema = z.object({
   createdAt: z.iso.datetime(),
+  failureNotifiedAt: z.iso.datetime().optional(),
   meetingId: z.string().min(1),
   mode: z.enum(["summary", "transcript_only"]),
   schemaVersion: z.literal(1),

@@ -63,11 +63,21 @@ export class TranscriptionRequestError extends Error {
 }
 
 export class IncompatibleTranscriptionResponseError extends Error {
-  public constructor() {
+  public readonly reason: TranscriptionIncompatibilityReason;
+
+  public constructor(reason: TranscriptionIncompatibilityReason) {
     super("O modelo configurado não retornou timestamps compatíveis");
     this.name = "IncompatibleTranscriptionResponseError";
+    this.reason = reason;
   }
 }
+
+export type TranscriptionIncompatibilityReason =
+  | "invalid_audio_duration"
+  | "invalid_json"
+  | "invalid_response_shape"
+  | "invalid_timestamps"
+  | "missing_timestamps";
 
 export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
   readonly #apiKey: string;
@@ -119,6 +129,8 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
             attempt,
             delayMs,
             errorType: getErrorType(error),
+            incompatibilityReason:
+              error instanceof IncompatibleTranscriptionResponseError ? error.reason : undefined,
             status: error instanceof TranscriptionRequestError ? error.status : undefined,
           },
           "Tentativa de transcrição falhou; uma nova tentativa será realizada",
@@ -150,7 +162,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
             : { provider: { options: this.#profile.providerOptions } }),
           response_format: acceptsUntimedText ? "json" : "verbose_json",
           temperature: this.#profile.temperature,
-          ...(acceptsUntimedText ? {} : { timestamp_granularities: ["word"] }),
+          ...(acceptsUntimedText ? {} : { timestamp_granularities: ["word", "segment"] }),
         }),
         headers: {
           Authorization: `Bearer ${this.#apiKey}`,
@@ -172,50 +184,91 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
       });
     }
 
-    let parsed: z.infer<typeof responseSchema>;
+    let body: unknown;
     try {
-      const body: unknown = await response.json();
-      parsed = responseSchema.parse(body);
+      body = await response.json();
     } catch {
-      throw new IncompatibleTranscriptionResponseError();
+      throw new IncompatibleTranscriptionResponseError("invalid_json");
+    }
+    const result = responseSchema.safeParse(body);
+    if (!result.success) {
+      throw new IncompatibleTranscriptionResponseError("invalid_response_shape");
+    }
+    const parsed = result.data;
+
+    const wordsResult = parseTimedItems(parsed.words, true);
+    if (wordsResult?.success === true) {
+      return wordsResult.pieces;
+    }
+    const segmentsResult = parseTimedItems(parsed.segments, false);
+    if (segmentsResult?.success === true) {
+      return segmentsResult.pieces;
     }
 
-    const timedItems = parsed.words ?? parsed.segments;
-    const hasTimedText = timedItems?.some(
-      (item) => (item.text ?? item.word ?? "").trim().length > 0,
-    );
-    if (hasTimedText !== true) {
+    if (wordsResult === undefined && segmentsResult === undefined) {
       const text = parsed.text.trim();
       if (text.length === 0) {
         return [];
       }
+      if (!acceptsUntimedText) {
+        throw new IncompatibleTranscriptionResponseError("missing_timestamps");
+      }
       if (
-        !acceptsUntimedText ||
         input.audioDurationMs === undefined ||
         !Number.isFinite(input.audioDurationMs) ||
         input.audioDurationMs <= 0
       ) {
-        throw new IncompatibleTranscriptionResponseError();
+        throw new IncompatibleTranscriptionResponseError("invalid_audio_duration");
       }
       return [{ endedAtMs: Math.round(input.audioDurationMs), startedAtMs: 0, text }];
     }
-    if (timedItems === undefined) {
-      throw new IncompatibleTranscriptionResponseError();
-    }
-    const pieces =
-      parsed.words === undefined
-        ? timedItems.map((item) => toTranscriptPiece(item))
-        : groupWords(timedItems);
-    if (
-      pieces.some(
-        (piece) =>
-          piece.text.length === 0 || piece.endedAtMs <= piece.startedAtMs || piece.startedAtMs < 0,
-      )
-    ) {
-      throw new IncompatibleTranscriptionResponseError();
-    }
-    return pieces;
+    throw new IncompatibleTranscriptionResponseError(
+      selectIncompatibilityReason(wordsResult, segmentsResult),
+    );
   }
+}
+
+type TimedItemsResult =
+  | { pieces: TranscriptPiece[]; success: true }
+  | { reason: "invalid_response_shape" | "invalid_timestamps"; success: false };
+
+function parseTimedItems(
+  items: readonly z.infer<typeof timedTextSchema>[] | undefined,
+  shouldGroupWords: boolean,
+): TimedItemsResult | undefined {
+  if (items === undefined || !items.some((item) => getTimedItemText(item).length > 0)) {
+    return undefined;
+  }
+  if (items.some((item) => getTimedItemText(item).length === 0)) {
+    return { reason: "invalid_response_shape", success: false };
+  }
+  const rawPieces = items.map((item) => toTranscriptPiece(item));
+  if (rawPieces.some(hasInvalidTimestamp)) {
+    return { reason: "invalid_timestamps", success: false };
+  }
+  return {
+    pieces: shouldGroupWords ? groupWords(items) : rawPieces,
+    success: true,
+  };
+}
+
+function selectIncompatibilityReason(
+  wordsResult: TimedItemsResult | undefined,
+  segmentsResult: TimedItemsResult | undefined,
+): "invalid_response_shape" | "invalid_timestamps" {
+  return wordsResult?.success === false && wordsResult.reason === "invalid_timestamps"
+    ? "invalid_timestamps"
+    : segmentsResult?.success === false && segmentsResult.reason === "invalid_timestamps"
+      ? "invalid_timestamps"
+      : "invalid_response_shape";
+}
+
+function hasInvalidTimestamp(piece: TranscriptPiece): boolean {
+  return piece.endedAtMs <= piece.startedAtMs || piece.startedAtMs < 0;
+}
+
+function getTimedItemText(item: z.infer<typeof timedTextSchema>): string {
+  return (item.text ?? item.word ?? "").trim();
 }
 
 function groupWords(words: readonly z.infer<typeof timedTextSchema>[]): TranscriptPiece[] {
@@ -247,12 +300,16 @@ function toTranscriptPiece(item: z.infer<typeof timedTextSchema>): TranscriptPie
   return {
     endedAtMs: Math.round(item.end * 1_000),
     startedAtMs: Math.round(item.start * 1_000),
-    text: (item.text ?? item.word ?? "").trim(),
+    text: getTimedItemText(item),
   };
 }
 
 function isRetryable(error: unknown): boolean {
-  return error instanceof TranscriptionRequestError && error.retryable;
+  return (
+    (error instanceof TranscriptionRequestError && error.retryable) ||
+    (error instanceof IncompatibleTranscriptionResponseError &&
+      error.reason !== "invalid_audio_duration")
+  );
 }
 
 function parseRetryAfter(value: string | null): number | undefined {

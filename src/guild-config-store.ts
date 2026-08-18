@@ -5,6 +5,12 @@ import { z } from "zod";
 
 const guildConfigurationSchema = z.object({
   recordingRoleIds: z.array(z.string()).default([]),
+  summaryForum: z
+    .object({
+      forumId: z.string().min(1),
+      tagId: z.string().min(1).optional(),
+    })
+    .optional(),
 });
 
 const persistedConfigurationSchema = z.object({
@@ -13,6 +19,9 @@ const persistedConfigurationSchema = z.object({
 });
 
 type PersistedConfiguration = z.infer<typeof persistedConfigurationSchema>;
+export type SummaryForumConfiguration = NonNullable<
+  z.infer<typeof guildConfigurationSchema>["summaryForum"]
+>;
 
 const EMPTY_CONFIGURATION: PersistedConfiguration = {
   guilds: {},
@@ -33,6 +42,13 @@ export class GuildConfigStore {
     return [...(configuration.guilds[guildId]?.recordingRoleIds ?? [])];
   }
 
+  public async getSummaryForum(guildId: string): Promise<SummaryForumConfiguration | undefined> {
+    await this.#writeQueue;
+    const configuration = await this.#read();
+    const summaryForum = configuration.guilds[guildId]?.summaryForum;
+    return summaryForum === undefined ? undefined : { ...summaryForum };
+  }
+
   public async addRecordingRole(guildId: string, roleId: string): Promise<void> {
     await this.#enqueueUpdate((configuration) => {
       const currentRoles = configuration.guilds[guildId]?.recordingRoleIds ?? [];
@@ -44,7 +60,10 @@ export class GuildConfigStore {
         ...configuration,
         guilds: {
           ...configuration.guilds,
-          [guildId]: { recordingRoleIds },
+          [guildId]: {
+            ...configuration.guilds[guildId],
+            recordingRoleIds,
+          },
         },
       };
     });
@@ -56,12 +75,48 @@ export class GuildConfigStore {
       guilds: {
         ...configuration.guilds,
         [guildId]: {
+          ...configuration.guilds[guildId],
           recordingRoleIds: (configuration.guilds[guildId]?.recordingRoleIds ?? []).filter(
             (currentRoleId) => currentRoleId !== roleId,
           ),
         },
       },
     }));
+  }
+
+  public async setSummaryForum(
+    guildId: string,
+    summaryForum: SummaryForumConfiguration,
+  ): Promise<void> {
+    const validated = guildConfigurationSchema.shape.summaryForum.unwrap().parse(summaryForum);
+    await this.#enqueueUpdate((configuration) => ({
+      ...configuration,
+      guilds: {
+        ...configuration.guilds,
+        [guildId]: {
+          ...configuration.guilds[guildId],
+          recordingRoleIds: configuration.guilds[guildId]?.recordingRoleIds ?? [],
+          summaryForum: validated,
+        },
+      },
+    }));
+  }
+
+  public async clearSummaryForum(guildId: string): Promise<void> {
+    await this.#enqueueUpdate((configuration) => {
+      const current = configuration.guilds[guildId];
+      if (current === undefined) {
+        return configuration;
+      }
+      const { summaryForum: _summaryForum, ...remaining } = current;
+      return {
+        ...configuration,
+        guilds: {
+          ...configuration.guilds,
+          [guildId]: remaining,
+        },
+      };
+    });
   }
 
   async #enqueueUpdate(

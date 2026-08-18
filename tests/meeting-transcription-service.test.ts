@@ -1,7 +1,9 @@
 import { access, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { PassThrough } from "node:stream";
 
+import type { Logger } from "pino";
 import { describe, expect, it, vi } from "vitest";
 
 import { createLogger } from "../src/logger.js";
@@ -14,6 +16,7 @@ import {
 } from "../src/recording/manifest.js";
 import { ManifestStore } from "../src/recording/manifest-store.js";
 import { MeetingTranscriptionService } from "../src/transcription/meeting-transcription-service.js";
+import { IncompatibleTranscriptionResponseError } from "../src/transcription/openrouter-transcription-provider.js";
 import { TranscriptionStore } from "../src/transcription/transcription-store.js";
 import type { SpeechAnalyzer } from "../src/transcription/speech-analyzer.js";
 import type { TranscriptionProvider } from "../src/transcription/transcription-provider.js";
@@ -62,6 +65,7 @@ async function createMeeting(root: string): Promise<{
 
 function createService(input: {
   interSpeechSilenceMs?: number;
+  logger?: Logger;
   manifestStore: ManifestStore;
   notifyFailure?: (manifest: RecordingManifest) => Promise<void>;
   onCompleted?: (manifest: RecordingManifest) => void;
@@ -75,7 +79,7 @@ function createService(input: {
     concurrency: 2,
     interSpeechSilenceMs: input.interSpeechSilenceMs ?? 0,
     ...(input.convertPcmToOgg === undefined ? {} : { convertPcmToOgg: input.convertPcmToOgg }),
-    logger: createLogger("silent"),
+    logger: input.logger ?? createLogger("silent"),
     manifestStore: input.manifestStore,
     notifyFailure: input.notifyFailure ?? vi.fn(async () => undefined),
     ...(input.onCompleted === undefined ? {} : { onCompleted: input.onCompleted }),
@@ -168,6 +172,36 @@ describe("MeetingTranscriptionService", () => {
       ),
     ).resolves.toBeUndefined();
     expect(notifyFailure).toHaveBeenCalledOnce();
+  });
+
+  it("registra somente a categoria estrutural segura da resposta incompatível", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-meeting-"));
+    const context = await createMeeting(root);
+    const destination = new PassThrough();
+    let output = "";
+    destination.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+    const sensitiveContent = "resposta sensível do provedor";
+    const error = Object.assign(new IncompatibleTranscriptionResponseError("missing_timestamps"), {
+      response: sensitiveContent,
+    });
+    const provider: TranscriptionProvider = {
+      transcribe: vi.fn(async () => {
+        throw error;
+      }),
+    };
+    const service = createService({
+      ...context,
+      logger: createLogger("error", destination),
+      provider,
+    });
+
+    await service.process(context.manifest);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(output).toContain('"incompatibilityReason":"missing_timestamps"');
+    expect(output).not.toContain(sensitiveContent);
   });
 
   it("usa WAV sem perdas quando a nova conversão para Ogg falha", async () => {

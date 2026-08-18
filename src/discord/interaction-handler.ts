@@ -1,14 +1,17 @@
 import {
+  ChannelFlags,
   ChannelType,
   type ChatInputCommandInteraction,
-  Events,
-  type GuildMember,
-  PermissionFlagsBits,
   type Client,
+  Events,
+  type ForumChannel,
+  type GuildMember,
+  MessageFlags,
+  PermissionFlagsBits,
 } from "discord.js";
 import type { Logger } from "pino";
 
-import { canManageRecordingRoles, canRecord } from "../authorization.js";
+import { canConfigureSummaryForum, canManageRecordingRoles, canRecord } from "../authorization.js";
 import type { GuildConfigStore } from "../guild-config-store.js";
 import {
   RecordingAlreadyActiveError,
@@ -30,6 +33,8 @@ export function installInteractionHandler(
     try {
       if (interaction.commandName === "recording-role") {
         await handleRecordingRole(interaction, guildConfigStore);
+      } else if (interaction.commandName === "recording-summary-forum") {
+        await handleRecordingSummaryForum(interaction, guildConfigStore);
       } else if (interaction.commandName === "record") {
         await handleRecord(interaction, guildConfigStore, coordinator);
       } else if (interaction.commandName === "stop") {
@@ -43,6 +48,113 @@ export function installInteractionHandler(
       await sendError(interaction, "Não foi possível concluir o comando. Tente novamente.");
     }
   });
+}
+
+async function handleRecordingSummaryForum(
+  interaction: ChatInputCommandInteraction,
+  store: GuildConfigStore,
+): Promise<void> {
+  const context = await resolveGuildContext(interaction);
+  if (context === undefined) {
+    return;
+  }
+  const recordingRoleIds = await store.listRecordingRoles(context.guildId);
+  if (
+    !canConfigureSummaryForum({
+      canManageGuild: context.member.permissions.has(PermissionFlagsBits.ManageGuild),
+      isAdministrator: context.member.permissions.has(PermissionFlagsBits.Administrator),
+      memberRoleIds: [...context.member.roles.cache.keys()],
+      recordingRoleIds,
+    })
+  ) {
+    await interaction.reply(createEphemeralReply("Você não pode configurar o fórum de resumos."));
+    return;
+  }
+
+  const subcommand = interaction.options.getSubcommand(true);
+  if (subcommand === "show") {
+    const configured = await store.getSummaryForum(context.guildId);
+    const content =
+      configured === undefined
+        ? "Nenhum fórum de resumos está configurado neste servidor."
+        : `Fórum de resumos: <#${configured.forumId}>${
+            configured.tagId === undefined ? "" : `\nTag configurada: \`${configured.tagId}\``
+          }`;
+    await interaction.reply(createEphemeralReply(content));
+    return;
+  }
+
+  if (subcommand === "clear") {
+    await store.clearSummaryForum(context.guildId);
+    await interaction.reply(
+      createEphemeralReply(
+        "Configuração removida. Novas gravações ficarão bloqueadas até que outro fórum seja configurado. Reuniões ainda não publicadas permanecerão pendentes.",
+      ),
+    );
+    return;
+  }
+
+  const selectedChannel = interaction.options.getChannel("forum", true, [ChannelType.GuildForum]);
+  if (selectedChannel.type !== ChannelType.GuildForum) {
+    await interaction.reply(createEphemeralReply("Selecione um canal de fórum válido."));
+    return;
+  }
+  const forum: ForumChannel = selectedChannel;
+  const botMember = await interaction.guild?.members.fetchMe();
+  if (botMember === undefined) {
+    throw new Error("Não foi possível identificar o usuário do bot no servidor");
+  }
+  const permissions = forum.permissionsFor(botMember);
+  if (
+    !permissions?.has([
+      PermissionFlagsBits.ViewChannel,
+      PermissionFlagsBits.SendMessages,
+      PermissionFlagsBits.SendMessagesInThreads,
+      PermissionFlagsBits.AttachFiles,
+      PermissionFlagsBits.ReadMessageHistory,
+    ])
+  ) {
+    await interaction.reply(
+      createEphemeralReply(
+        "O Summyz não possui todas as permissões necessárias nesse fórum: visualizar, criar posts, responder, ler mensagens e anexar arquivos.",
+      ),
+    );
+    return;
+  }
+
+  const tagInput = interaction.options.getString("tag") ?? undefined;
+  const tag =
+    tagInput === undefined
+      ? undefined
+      : forum.availableTags.find(
+          (candidate) =>
+            candidate.id === tagInput ||
+            candidate.name.localeCompare(tagInput, "pt-BR", { sensitivity: "accent" }) === 0,
+        );
+  if (tagInput !== undefined && tag === undefined) {
+    await interaction.reply(
+      createEphemeralReply("A tag informada não existe no fórum selecionado."),
+    );
+    return;
+  }
+  if (forum.flags.has(ChannelFlags.RequireTag) && tag === undefined) {
+    await interaction.reply(
+      createEphemeralReply("Este fórum exige uma tag. Informe a opção `tag` no comando."),
+    );
+    return;
+  }
+
+  await store.setSummaryForum(context.guildId, {
+    forumId: forum.id,
+    ...(tag === undefined ? {} : { tagId: tag.id }),
+  });
+  await interaction.reply(
+    createEphemeralReply(
+      `Fórum de resumos configurado: <#${forum.id}>${
+        tag === undefined ? "" : ` com a tag **${tag.name}**`
+      }.`,
+    ),
+  );
 }
 
 async function handleRecordingRole(
@@ -96,16 +208,24 @@ async function handleRecord(
   if (context === undefined) {
     return;
   }
+  if (!(await isRecordingAuthorized(context.member, context.guildId, store))) {
+    await interaction.reply(
+      createEphemeralReply("Você não possui um cargo autorizado para gravar."),
+    );
+    return;
+  }
+  if ((await store.getSummaryForum(context.guildId)) === undefined) {
+    await interaction.reply(
+      createEphemeralReply(
+        "Configure um fórum com `/recording-summary-forum set` antes de iniciar uma gravação.",
+      ),
+    );
+    return;
+  }
   const voiceChannel = context.member.voice.channel;
   if (voiceChannel?.type !== ChannelType.GuildVoice) {
     await interaction.reply(
       createEphemeralReply("Entre em um canal de voz antes de usar `/record`."),
-    );
-    return;
-  }
-  if (!(await isRecordingAuthorized(context.member, context.guildId, store))) {
-    await interaction.reply(
-      createEphemeralReply("Você não possui um cargo autorizado para gravar."),
     );
     return;
   }
@@ -116,6 +236,7 @@ async function handleRecord(
       guildId: context.guildId,
       notificationChannelId: interaction.channelId,
       voiceChannelId: voiceChannel.id,
+      voiceChannelName: voiceChannel.name,
     });
     await interaction.editReply(
       `🔴 Gravação iniciada em **${voiceChannel.name}** por ${interaction.user}. ` +
@@ -157,9 +278,14 @@ async function handleStop(
     return;
   }
 
-  await interaction.deferReply();
-  await coordinator.stop(context.guildId, "command");
-  await interaction.editReply("⏹️ Gravação encerrada. Os segmentos de áudio foram preservados.");
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  await coordinator.stop(context.guildId, {
+    reason: "command",
+    stoppedByUserId: interaction.user.id,
+  });
+  await interaction.editReply(
+    `✅ Comando processado. A gravação foi encerrada em <#${activeRecording.notificationChannelId}>.`,
+  );
 }
 
 async function resolveGuildContext(interaction: ChatInputCommandInteraction) {

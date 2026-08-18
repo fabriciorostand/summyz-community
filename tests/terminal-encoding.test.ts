@@ -30,4 +30,14 @@ describe("codificação do terminal", () => {
       errorType: "Error",
     });
   });
+
+  it("usa uma categoria estável quando o comando falha sem erro do sistema", () => {
+    const runCommand = vi.fn(() => ({ status: 1 }));
+
+    expect(configureTerminalEncoding("win32", runCommand)).toEqual({
+      attempted: true,
+      configured: false,
+      errorType: "TerminalEncodingCommandFailed",
+    });
+  });
 });

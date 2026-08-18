@@ -1,8 +1,8 @@
 # Smoke test de gravação, transcrição, resumo e publicação
 
 Este teste valida `opusscript` antes de considerar um decodificador nativo.
-Também valida a transcrição de uma call real em pt-BR, o resumo estruturado e a publicação em uma
-thread pública do Discord.
+Também valida a transcrição de uma call real em pt-BR, o resumo estruturado e a publicação em um
+post de fórum do Discord.
 
 ## Preparação
 
@@ -10,12 +10,14 @@ thread pública do Discord.
 2. Configure `.env` com `DISCORD_GUILD_ID` para o servidor de teste.
 3. Execute `npm run dev` e preserve a saída do terminal.
 4. Autorize o cargo de teste com `/recording-role add`.
-5. Configure `OPENROUTER_API_KEY` e um `OPENROUTER_TRANSCRIPTION_MODEL` que possua uma entrada
+5. Crie um fórum de teste e configure-o com `/recording-summary-forum set`. Se o fórum exigir tag,
+   informe uma tag existente no comando.
+6. Configure `OPENROUTER_API_KEY` e um `OPENROUTER_TRANSCRIPTION_MODEL` que possua uma entrada
    correspondente em `config/transcription-model-profiles.json`.
-6. Configure `OPENROUTER_REFINEMENT_MODEL` e `OPENROUTER_SUMMARY_MODEL` com modelos que aceitem
+7. Configure `OPENROUTER_REFINEMENT_MODEL` e `OPENROUTER_SUMMARY_MODEL` com modelos que aceitem
    saída estruturada.
-7. Confirme que o bot possui as permissões Criar threads públicas, Enviar mensagens em threads e
-   Ler histórico de mensagens no canal de teste.
+8. Confirme que o bot possui as permissões Ver canal, Enviar mensagens, Enviar mensagens em
+   threads, Ler histórico de mensagens e Anexar arquivos no fórum de teste.
 
 ## Cenários
 
@@ -29,6 +31,11 @@ Execute uma gravação de pelo menos cinco minutos em cada cenário:
 
 Durante os cenários, confirme que cada participante autorizado consegue usar os comandos nas
 condições documentadas e que bots não geram segmentos.
+
+Execute um `/stop` em um chat diferente daquele usado no `/record`. Confirme que somente o autor vê
+a resposta efêmera no chat do `/stop` e que a mensagem pública de encerramento, com a menção do
+autor, aparece no chat original. No cenário de canal vazio, confirme que o chat original recebe o
+nome do canal, informa o encerramento automático e diz que os segmentos serão processados.
 
 ## O que medir
 
@@ -128,10 +135,10 @@ Durante a reunião, use um roteiro que inclua explicitamente:
 5. um assunto que ainda precisa de decisão;
 6. uma proposta negada ou abandonada.
 
-Depois do log `Resumo da reunião concluído`, confira no canal onde `/record` foi executado:
+Depois do log `Resumo da reunião concluído`, confira no fórum configurado:
 
-- mensagem `Resumo da call disponível`;
-- thread pública `Resumo da call — DD/MM/AAAA HH:mm`;
+- post `Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz`;
+- ID da reunião e Resumo executivo na primeira mensagem;
 - seções Resumo executivo, Tópicos discutidos, Decisões, Tarefas e Pendências e observações;
 - `transcript.txt` completo como anexo;
 - nome do responsável e prazo exatamente como foram falados;
@@ -146,7 +153,7 @@ Para exercitar a divisão e a consolidação sem fazer uma call de duas horas, r
 depois do teste e confirme que nenhuma fala foi dividida entre blocos.
 
 Confirme que `summary.json` e `publication.json` terminam com estado `completed`. Reinicie o bot
-depois da publicação e verifique que ele não cria outra mensagem ou thread para a mesma reunião.
+depois da publicação e verifique que ele não cria outro post para a mesma reunião.
 
 O fallback após três falhas do refinamento deve ser validado pelos testes automatizados com um
 provedor falso. Ele deve preservar `transcript.raw.txt`, restaurar o mesmo conteúdo em
@@ -154,9 +161,9 @@ provedor falso. Ele deve preservar `transcript.raw.txt`, restaurar o mesmo conte
 erro específico no Discord.
 
 O fallback após falha do resumo deve ser validado pelos testes automatizados com um provedor falso.
-Ele deve criar a mensagem `Transcrição da call disponível (Resumo indisponível)`, a thread
-`Transcrição — DD/MM/AAAA`, um aviso genérico e o anexo `transcript.txt`. Não envie uma transcrição
-real deliberadamente a um modelo inválido apenas para provocar essa falha.
+Ele deve criar o post `Transcrição — DD/MM/AAAA HH:mm — Nome do canal de voz`, explicar na primeira
+mensagem que o resumo está indisponível e anexar `transcript.txt`. Não envie uma transcrição real
+deliberadamente a um modelo inválido apenas para provocar essa falha.
 
 ## Cenário de falha controlada
 

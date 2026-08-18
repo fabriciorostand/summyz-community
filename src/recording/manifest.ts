@@ -36,6 +36,7 @@ export const recordingManifestSchema = z.object({
   startedAt: z.iso.datetime(),
   status: manifestStatusSchema,
   voiceChannelId: z.string().min(1),
+  voiceChannelName: z.string().min(1).max(100).optional(),
 });
 
 export type RecordingManifest = z.infer<typeof recordingManifestSchema>;
@@ -44,7 +45,12 @@ export type RecordingSegmentInput = z.input<typeof segmentSchema>;
 
 export type CreateManifestInput = Pick<
   RecordingManifest,
-  "guildId" | "meetingId" | "notificationChannelId" | "startedAt" | "voiceChannelId"
+  | "guildId"
+  | "meetingId"
+  | "notificationChannelId"
+  | "startedAt"
+  | "voiceChannelId"
+  | "voiceChannelName"
 >;
 
 export function createManifest(input: CreateManifestInput): RecordingManifest {

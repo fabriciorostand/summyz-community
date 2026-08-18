@@ -91,4 +91,33 @@ describe("ManifestStore", () => {
     expect(paths.relativeTemporaryPath).toBe("participants/user-1/segment-1.pcm");
     await expect(writeFile(paths.temporaryPath, "audio", { flag: "wx" })).resolves.toBeUndefined();
   });
+
+  it("serializa gravações concorrentes e permite aguardar a fila ao carregar", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-manifests-"));
+    const store = new ManifestStore(root);
+    const first = createManifest({
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const second = markManifestCompleted(first, "2026-08-16T20:10:00.000Z");
+
+    const firstSave = store.save(first);
+    const secondSave = store.save(second);
+    const loaded = store.load("meeting-1");
+
+    await Promise.all([firstSave, secondSave]);
+    await expect(loaded).resolves.toEqual(second);
+  });
+
+  it("propaga manifesto inválido encontrado durante a listagem", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-manifests-"));
+    await mkdir(join(root, "meeting-invalid"));
+    await writeFile(join(root, "meeting-invalid", "manifest.json"), "inválido", "utf8");
+    const store = new ManifestStore(root);
+
+    await expect(store.listRecoverable()).rejects.toBeInstanceOf(SyntaxError);
+  });
 });

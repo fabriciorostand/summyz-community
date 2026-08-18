@@ -1,4 +1,4 @@
-import { PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
+import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 
 const recordCommand = new SlashCommandBuilder()
   .setName("record")
@@ -38,4 +38,40 @@ const recordingRoleCommand = new SlashCommandBuilder()
     subcommand.setName("list").setDescription("Lista os cargos autorizados neste servidor"),
   );
 
-export const commandDefinitions = [recordCommand, stopCommand, recordingRoleCommand] as const;
+const recordingSummaryForumCommand = new SlashCommandBuilder()
+  .setName("recording-summary-forum")
+  .setDescription("Configura o fórum usado para publicar resumos e transcrições")
+  .setDMPermission(false)
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("set")
+      .setDescription("Define o fórum de resumos e transcrições")
+      .addChannelOption((option) =>
+        option
+          .setName("forum")
+          .setDescription("Fórum que receberá as publicações")
+          .addChannelTypes(ChannelType.GuildForum)
+          .setRequired(true),
+      )
+      .addStringOption((option) =>
+        option
+          .setName("tag")
+          .setDescription("Nome ou identificador de uma tag existente no fórum")
+          .setRequired(false),
+      ),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand.setName("show").setDescription("Mostra o fórum configurado neste servidor"),
+  )
+  .addSubcommand((subcommand) =>
+    subcommand
+      .setName("clear")
+      .setDescription("Remove o fórum e bloqueia novas gravações até outra configuração"),
+  );
+
+export const commandDefinitions = [
+  recordCommand,
+  stopCommand,
+  recordingRoleCommand,
+  recordingSummaryForumCommand,
+] as const;

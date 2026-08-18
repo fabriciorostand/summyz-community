@@ -3,19 +3,24 @@ import { createHash } from "node:crypto";
 import {
   ChannelType,
   type Client,
+  type ForumChannel,
   type GuildTextBasedChannel,
-  type Message,
   ThreadAutoArchiveDuration,
 } from "discord.js";
 import type { Logger } from "pino";
 
+import type { GuildConfigStore, SummaryForumConfiguration } from "../guild-config-store.js";
 import type { RecordingManifest } from "../recording/manifest.js";
 import { createPublicationState, type PublicationState } from "../summary/publication-state.js";
 import type { PublicationStore } from "../summary/publication-store.js";
 import type { PublicSummary } from "../summary/summary-result.js";
 
+const PUBLICATION_FAILURE_MESSAGE =
+  "⚠️ Não foi possível publicar o resumo e a transcrição no canal configurado.";
+
 interface DiscordMeetingPublisherOptions {
   client: Client;
+  guildConfigStore: GuildConfigStore;
   logger: Logger;
   now?: () => Date;
   store: PublicationStore;
@@ -33,6 +38,7 @@ export interface MeetingPublisher {
 
 export class DiscordMeetingPublisher implements MeetingPublisher {
   readonly #client: Client;
+  readonly #guildConfigStore: GuildConfigStore;
   readonly #logger: Logger;
   readonly #now: () => Date;
   readonly #store: PublicationStore;
@@ -40,6 +46,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
 
   public constructor(options: DiscordMeetingPublisherOptions) {
     this.#client = options.client;
+    this.#guildConfigStore = options.guildConfigStore;
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
     this.#store = options.store;
@@ -77,40 +84,96 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       return;
     }
 
-    const parent = await this.#resolveParentChannel(manifest.notificationChannelId);
-    let rootMessage: Message<true> | undefined;
-    if (state.rootMessageId === undefined) {
-      rootMessage = await parent.send({
-        allowedMentions: { parse: [] },
-        content:
-          mode === "summary"
-            ? `📝 Resumo da call disponível. ID: \`${manifest.meetingId}\``
-            : `⚠️ Transcrição da call disponível (Resumo indisponível). ID: \`${manifest.meetingId}\``,
-        enforceNonce: true,
-        nonce: createNonce(manifest.meetingId, `${mode}:root`),
-      });
-      state = await this.#saveProgress(state, { rootMessageId: rootMessage.id });
+    try {
+      state = await this.#publishPending(state, manifest, mode, transcriptPath, summary);
+    } catch (error) {
+      const persistedState = await this.#store.tryLoad(manifest.meetingId).catch(() => undefined);
+      const failureState = persistedState?.status === "publishing" ? persistedState : state;
+      await this.#notifyFailureOnce(failureState, manifest);
+      throw error;
     }
 
+    const completedAt = this.#now().toISOString();
+    if (
+      state.rootMessageId === undefined ||
+      state.threadId === undefined ||
+      state.transcriptMessageId === undefined
+    ) {
+      throw new Error("A publicação não possui todos os identificadores do Discord");
+    }
+    const completed = {
+      completedAt,
+      createdAt: state.createdAt,
+      ...(state.failureNotifiedAt === undefined
+        ? {}
+        : { failureNotifiedAt: state.failureNotifiedAt }),
+      meetingId: state.meetingId,
+      mode: state.mode,
+      rootMessageId: state.rootMessageId,
+      schemaVersion: state.schemaVersion,
+      status: "completed" as const,
+      summaryMessageIds: state.summaryMessageIds,
+      threadId: state.threadId,
+      transcriptMessageId: state.transcriptMessageId,
+      updatedAt: completedAt,
+    };
+    await this.#store.save(completed);
+    this.#logger.info(
+      { meetingId: manifest.meetingId, publicationMode: mode, threadId: completed.threadId },
+      "Resultado da reunião publicado no Discord",
+    );
+  }
+
+  async #publishPending(
+    state: Extract<PublicationState, { status: "publishing" }>,
+    manifest: RecordingManifest,
+    mode: PublicationState["mode"],
+    transcriptPath: string,
+    summary?: PublicSummary,
+  ): Promise<Extract<PublicationState, { status: "publishing" }>> {
+    const summaryChunks =
+      mode === "summary" && summary !== undefined ? formatSummary(manifest.meetingId, summary) : [];
     let thread: GuildTextBasedChannel;
+
     if (state.threadId === undefined) {
-      if (state.rootMessageId === undefined) {
-        throw new Error("A mensagem inicial da publicação não foi persistida");
+      const destination = await this.#resolveDestination(manifest.guildId);
+      const forum = await this.#resolveForum(destination.forumId);
+      const title = createPostTitle(
+        manifest.startedAt,
+        manifest.voiceChannelName ?? "Canal de voz",
+        mode,
+        this.#timeZone,
+      );
+      const firstContent =
+        mode === "summary"
+          ? summaryChunks[0]
+          : `ID da reunião: \`${manifest.meetingId}\`\n\n` +
+            "Não foi possível gerar o resumo após as tentativas configuradas. " +
+            "O resumo está indisponível, mas a transcrição completa está anexada.";
+      if (firstContent === undefined) {
+        throw new Error("O resumo não possui conteúdo para iniciar o post");
       }
-      rootMessage ??= await parent.messages.fetch({ message: state.rootMessageId });
-      thread =
-        rootMessage.thread ??
-        (await rootMessage.startThread({
-          autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
-          name: createThreadName(manifest.startedAt, mode, this.#timeZone),
-          reason: `Publicação do resultado da reunião ${manifest.meetingId}`,
-        }));
-      state = await this.#saveProgress(state, { threadId: thread.id });
+      thread = await forum.threads.create({
+        ...(destination.tagId === undefined ? {} : { appliedTags: [destination.tagId] }),
+        autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+        message: {
+          allowedMentions: { parse: [] },
+          content: firstContent,
+          ...(mode === "transcript_only" ? { files: [transcriptPath] } : {}),
+        },
+        name: title,
+        reason: `Publicação do resultado da reunião ${manifest.meetingId}`,
+      });
+      state = await this.#saveProgress(state, {
+        rootMessageId: thread.id,
+        summaryMessageIds: mode === "summary" ? [thread.id] : [],
+        threadId: thread.id,
+        ...(mode === "transcript_only" ? { transcriptMessageId: thread.id } : {}),
+      });
     } else {
       thread = await this.#resolveThread(state.threadId);
     }
 
-    const summaryChunks = mode === "summary" && summary !== undefined ? formatSummary(summary) : [];
     for (let index = state.summaryMessageIds.length; index < summaryChunks.length; index += 1) {
       const content = summaryChunks[index];
       if (content === undefined) {
@@ -130,52 +193,28 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     if (state.transcriptMessageId === undefined) {
       const transcriptMessage = await thread.send({
         allowedMentions: { parse: [] },
-        content:
-          mode === "summary"
-            ? "📎 Transcrição completa da call:"
-            : "Não foi possível gerar o resumo após as tentativas configuradas. A transcrição completa está disponível abaixo:",
+        content: "📎 Transcrição completa da call:",
         enforceNonce: true,
         files: [transcriptPath],
         nonce: createNonce(manifest.meetingId, "transcript"),
       });
       state = await this.#saveProgress(state, { transcriptMessageId: transcriptMessage.id });
     }
-
-    const completedAt = this.#now().toISOString();
-    if (
-      state.rootMessageId === undefined ||
-      state.threadId === undefined ||
-      state.transcriptMessageId === undefined
-    ) {
-      throw new Error("A publicação não possui todos os identificadores do Discord");
-    }
-    const completed = {
-      completedAt,
-      createdAt: state.createdAt,
-      meetingId: state.meetingId,
-      mode: state.mode,
-      rootMessageId: state.rootMessageId,
-      schemaVersion: state.schemaVersion,
-      status: "completed" as const,
-      summaryMessageIds: state.summaryMessageIds,
-      threadId: state.threadId,
-      transcriptMessageId: state.transcriptMessageId,
-      updatedAt: completedAt,
-    };
-    await this.#store.save(completed);
-    this.#logger.info(
-      { meetingId: manifest.meetingId, publicationMode: mode, threadId: completed.threadId },
-      "Resultado da reunião publicado no Discord",
-    );
+    return state;
   }
 
-  async #resolveParentChannel(channelId: string) {
+  async #resolveDestination(guildId: string): Promise<SummaryForumConfiguration> {
+    const destination = await this.#guildConfigStore.getSummaryForum(guildId);
+    if (destination === undefined) {
+      throw new Error("Nenhum fórum de resumos está configurado neste servidor");
+    }
+    return destination;
+  }
+
+  async #resolveForum(channelId: string): Promise<ForumChannel> {
     const channel = await this.#client.channels.fetch(channelId);
-    if (
-      channel === null ||
-      (channel.type !== ChannelType.GuildText && channel.type !== ChannelType.GuildAnnouncement)
-    ) {
-      throw new Error("O canal configurado não permite criar uma thread pública");
+    if (channel?.type !== ChannelType.GuildForum) {
+      throw new Error("O fórum configurado não está disponível para publicação");
     }
     return channel;
   }
@@ -183,13 +222,46 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   async #resolveThread(threadId: string): Promise<GuildTextBasedChannel> {
     const channel = await this.#client.channels.fetch(threadId);
     if (channel === null || !channel.isThread() || !channel.isSendable()) {
-      throw new Error("A thread persistida não está disponível para publicação");
+      throw new Error("O post persistido não está disponível para publicação");
     }
     return channel;
   }
 
+  async #notifyFailureOnce(
+    state: Extract<PublicationState, { status: "publishing" }>,
+    manifest: RecordingManifest,
+  ): Promise<void> {
+    if (state.failureNotifiedAt !== undefined) {
+      return;
+    }
+    try {
+      const channel = await this.#client.channels.fetch(manifest.notificationChannelId);
+      if (channel?.isSendable()) {
+        await channel.send({
+          allowedMentions: { parse: [] },
+          content: PUBLICATION_FAILURE_MESSAGE,
+        });
+        const now = this.#now().toISOString();
+        await this.#store.save({
+          ...state,
+          failureNotifiedAt: now,
+          updatedAt: now,
+        });
+      }
+    } catch (error) {
+      this.#logger.warn(
+        {
+          channelId: manifest.notificationChannelId,
+          errorType: getErrorType(error),
+          meetingId: manifest.meetingId,
+        },
+        "Não foi possível enviar aviso de falha da publicação",
+      );
+    }
+  }
+
   async #saveProgress(
-    state: PublicationState,
+    state: Extract<PublicationState, { status: "publishing" }>,
     update: Partial<
       Pick<
         Extract<PublicationState, { status: "publishing" }>,
@@ -197,9 +269,6 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       >
     >,
   ): Promise<Extract<PublicationState, { status: "publishing" }>> {
-    if (state.status !== "publishing") {
-      throw new Error("A publicação já foi concluída");
-    }
     const updated = {
       ...state,
       ...update,
@@ -210,8 +279,9 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   }
 }
 
-function createThreadName(
+function createPostTitle(
   startedAt: string,
+  voiceChannelName: string,
   mode: PublicationState["mode"],
   timeZone: string,
 ): string {
@@ -227,13 +297,17 @@ function createThreadName(
   const value = (type: Intl.DateTimeFormatPartTypes): string =>
     parts.find((part) => part.type === type)?.value ?? "";
   const date = `${value("day")}/${value("month")}/${value("year")}`;
-  return mode === "summary"
-    ? `Resumo da call — ${date} ${value("hour")}:${value("minute")}`
-    : `Transcrição — ${date}`;
+  const prefix = mode === "summary" ? "Resumo" : "Transcrição";
+  return `${prefix} — ${date} ${value("hour")}:${value("minute")} — ${voiceChannelName}`.slice(
+    0,
+    100,
+  );
 }
 
-function formatSummary(summary: PublicSummary): string[] {
-  const sections = [`## Resumo executivo\n${summary.executiveSummary}`];
+function formatSummary(meetingId: string, summary: PublicSummary): string[] {
+  const sections = [
+    `ID da reunião: \`${meetingId}\`\n\n## Resumo executivo\n${summary.executiveSummary}`,
+  ];
   appendList(sections, "Tópicos discutidos", summary.discussedTopics);
   appendList(sections, "Decisões", summary.decisions);
   if (summary.tasks.length > 0) {
@@ -250,7 +324,7 @@ function formatSummary(summary: PublicSummary): string[] {
     );
   }
   appendList(sections, "Pendências e observações", summary.observations);
-  return splitDiscordContent(sections.join("\n\n"), 1_900);
+  return sections.flatMap((section) => splitDiscordContent(section, 1_900));
 }
 
 function appendList(sections: string[], title: string, items: readonly string[]): void {
@@ -277,4 +351,8 @@ function splitDiscordContent(content: string, maximumLength: number): string[] {
 
 function createNonce(meetingId: string, part: string): string {
   return createHash("sha256").update(`${meetingId}:${part}`).digest("hex").slice(0, 25);
+}
+
+function getErrorType(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
 }

@@ -9,6 +9,10 @@ export interface ManageRecordingRolesAuthorizationInput {
   isAdministrator: boolean;
 }
 
+export interface ConfigureSummaryForumAuthorizationInput extends RecordingAuthorizationInput {
+  canManageGuild: boolean;
+}
+
 export function canRecord(input: RecordingAuthorizationInput): boolean {
   if (input.isAdministrator) {
     return true;
@@ -20,4 +24,8 @@ export function canRecord(input: RecordingAuthorizationInput): boolean {
 
 export function canManageRecordingRoles(input: ManageRecordingRolesAuthorizationInput): boolean {
   return input.isAdministrator || input.canManageGuild;
+}
+
+export function canConfigureSummaryForum(input: ConfigureSummaryForumAuthorizationInput): boolean {
+  return input.canManageGuild || canRecord(input);
 }

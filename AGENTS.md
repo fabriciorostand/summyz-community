@@ -33,7 +33,7 @@ O projeto deve usar configuração estrita do TypeScript.
 ### TDD — estrito (red-green-refactor)
 - **vitest**. Escrever o **teste falhando primeiro**, implementação mínima,
   depois refatorar.
-- Cobertura **≥ 80%** (regras de domínio, gerenciamento de sessões, criação e validação do manifesto,
+- Cobertura **≥ 85%** (regras de domínio, gerenciamento de sessões, criação e validação do manifesto,
   montagem da transcrição, retenção, retries, integrações por meio de adapters testáveis). Glue de infra pode ter cobertura menor, mas caminhos de erro relevantes têm teste.
 - Teste que **falha se segredo ou credenciais vazarem nos logs**.
 - Integrações reais com voz do Discord exigem smoke test manual, além dos testes automatizados das

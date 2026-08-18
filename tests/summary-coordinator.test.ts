@@ -49,4 +49,12 @@ describe("SummaryCoordinator", () => {
 
     expect(process).toHaveBeenCalledTimes(2);
   });
+
+  it("trata rejeição externa que não usa Error", async () => {
+    const process = vi.fn(() => Promise.reject("falha externa"));
+    const coordinator = new SummaryCoordinator({ process }, createLogger("silent"));
+
+    expect(coordinator.start(manifest)).toBe(true);
+    await coordinator.shutdown();
+  });
 });

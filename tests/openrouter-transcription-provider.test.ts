@@ -55,7 +55,7 @@ describe("OpenRouterTranscriptionProvider", () => {
         model: "openai/whisper-1",
         response_format: "verbose_json",
         temperature: 0,
-        timestamp_granularities: ["word"],
+        timestamp_granularities: ["word", "segment"],
       });
       return Response.json({
         segments: [{ end: 1.5, start: 0.25, text: " Olá, mundo. " }],
@@ -201,9 +201,13 @@ describe("OpenRouterTranscriptionProvider", () => {
   it("rejeita respostas sem timestamps", async () => {
     const { provider } = createProvider(async () => Response.json({ text: "Sem timestamps" }));
 
-    await expect(
-      provider.transcribe({ audio: Buffer.from("audio"), format: "ogg" }),
-    ).rejects.toBeInstanceOf(IncompatibleTranscriptionResponseError);
+    const error = await provider
+      .transcribe({ audio: Buffer.from("audio"), format: "ogg" })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toBeInstanceOf(IncompatibleTranscriptionResponseError);
+    expect(error).toMatchObject({ reason: "missing_timestamps" });
+    expect(String(error)).not.toContain("Sem timestamps");
   });
 
   it("agrupa timestamps por palavra em trechos legíveis", async () => {
@@ -243,6 +247,77 @@ describe("OpenRouterTranscriptionProvider", () => {
     ).resolves.toMatchObject({
       pieces: [{ endedAtMs: 500, startedAtMs: 100, text: "Olá." }],
     });
+  });
+
+  it("usa segmentos válidos quando os timestamps por palavra são incompatíveis", async () => {
+    const fetch_ = vi.fn(async () =>
+      Response.json({
+        segments: [{ end: 1.25, start: 0.2, text: "Olá, mundo." }],
+        text: "Olá, mundo.",
+        words: [
+          { end: 0.4, start: 0.1, word: "Olá," },
+          { end: 0.4, start: 0.4, word: "mundo." },
+        ],
+      }),
+    );
+    const { provider, sleep } = createProvider(fetch_);
+
+    await expect(
+      provider.transcribe({ audio: Buffer.from("audio"), format: "wav" }),
+    ).resolves.toEqual({
+      attempts: 1,
+      pieces: [{ endedAtMs: 1_250, startedAtMs: 200, text: "Olá, mundo." }],
+    });
+    expect(fetch_).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("retenta timestamps incompatíveis e aceita uma resposta posterior válida", async () => {
+    const fetch_ = vi
+      .fn<(url: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(
+        Response.json({
+          segments: [{ end: 1, start: 1, text: "Inválido" }],
+          text: "Inválido",
+        }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({
+          segments: [{ end: 1.5, start: 0.25, text: "Válido" }],
+          text: "Válido",
+        }),
+      );
+    const { provider, sleep } = createProvider(fetch_);
+
+    await expect(
+      provider.transcribe({ audio: Buffer.from("audio"), format: "wav" }),
+    ).resolves.toEqual({
+      attempts: 2,
+      pieces: [{ endedAtMs: 1_500, startedAtMs: 250, text: "Válido" }],
+    });
+    expect(fetch_).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledTimes(1);
+  });
+
+  it("falha sem aproximar timestamps após esgotar respostas incompatíveis", async () => {
+    const fetch_ = vi.fn(async () =>
+      Response.json({
+        segments: [{ end: 0.5, start: 0.5, text: "Inválido" }],
+        text: "Inválido",
+        words: [{ end: 0.25, start: 0.25, word: "Inválido" }],
+      }),
+    );
+    const { provider, sleep } = createProvider(fetch_);
+
+    await expect(
+      provider.transcribe({
+        audio: Buffer.from("audio"),
+        audioDurationMs: 5_000,
+        format: "wav",
+      }),
+    ).rejects.toMatchObject({ reason: "invalid_timestamps" });
+    expect(fetch_).toHaveBeenCalledTimes(4);
+    expect(sleep).toHaveBeenCalledTimes(3);
   });
 
   it("aceita um segmento sem fala quando o provedor confirma texto vazio", async () => {
@@ -309,14 +384,31 @@ describe("OpenRouterTranscriptionProvider", () => {
     const malformed = createProvider(async () => new Response("não é JSON")).provider;
     await expect(
       malformed.transcribe({ audio: Buffer.from("audio"), format: "ogg" }),
-    ).rejects.toBeInstanceOf(IncompatibleTranscriptionResponseError);
+    ).rejects.toMatchObject({
+      reason: "invalid_json",
+    });
 
     const invalidTimestamp = createProvider(async () =>
       Response.json({ segments: [{ end: 1, start: 1, text: "Inválido" }], text: "Inválido" }),
     ).provider;
     await expect(
       invalidTimestamp.transcribe({ audio: Buffer.from("audio"), format: "ogg" }),
-    ).rejects.toBeInstanceOf(IncompatibleTranscriptionResponseError);
+    ).rejects.toMatchObject({ reason: "invalid_timestamps" });
+  });
+
+  it("classifica uma estrutura de resposta inválida sem expor seu conteúdo", async () => {
+    const sensitiveContent = "conteúdo sensível retornado pelo provedor";
+    const { provider } = createProvider(async () =>
+      Response.json({ response: sensitiveContent, text: 123 }),
+    );
+
+    const error = await provider
+      .transcribe({ audio: Buffer.from("audio"), format: "ogg" })
+      .catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({ reason: "invalid_response_shape" });
+    expect(JSON.stringify(error)).not.toContain(sensitiveContent);
+    expect(String(error)).not.toContain(sensitiveContent);
   });
 
   it("fecha o último grupo de palavras mesmo sem pontuação", async () => {

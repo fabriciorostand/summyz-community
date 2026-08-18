@@ -13,6 +13,7 @@ function createHandle(guildId: string, voiceChannelId: string): RecordingHandle 
   return {
     guildId,
     meetingId: `meeting-${guildId}`,
+    notificationChannelId: `text-${guildId}`,
     stop: vi.fn(async () => undefined),
     voiceChannelId,
   };
@@ -87,7 +88,7 @@ describe("RecordingCoordinator", () => {
 
     await coordinator.handleHumanCountChanged("guild-1", "voice-1", 0);
 
-    expect(handle.stop).toHaveBeenCalledWith("channel_empty");
+    expect(handle.stop).toHaveBeenCalledWith({ reason: "channel_empty" });
     expect(coordinator.get("guild-1")).toBeUndefined();
   });
 
@@ -134,7 +135,9 @@ describe("RecordingCoordinator", () => {
     };
     const coordinator = new RecordingCoordinator(factory);
 
-    await expect(coordinator.stop("guild-1", "command")).resolves.toBe(false);
+    await expect(
+      coordinator.stop("guild-1", { reason: "command", stoppedByUserId: "user-1" }),
+    ).resolves.toBe(false);
   });
 
   it("remove a gravação encerrada pelo próprio handle", async () => {
@@ -236,8 +239,8 @@ describe("RecordingCoordinator", () => {
 
     await coordinator.shutdown();
 
-    expect(firstHandle.stop).toHaveBeenCalledWith("shutdown");
-    expect(secondHandle.stop).toHaveBeenCalledWith("shutdown");
+    expect(firstHandle.stop).toHaveBeenCalledWith({ reason: "shutdown" });
+    expect(secondHandle.stop).toHaveBeenCalledWith({ reason: "shutdown" });
     expect(coordinator.get("guild-1")).toBeUndefined();
     expect(coordinator.get("guild-2")).toBeUndefined();
   });
