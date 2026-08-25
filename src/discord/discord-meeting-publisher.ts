@@ -9,18 +9,76 @@ import {
 } from "discord.js";
 import type { Logger } from "pino";
 
+import type { AppConfig } from "../config.js";
 import type { GuildConfigurationStore, SummaryForumConfiguration } from "../guild-config-store.js";
 import type { RecordingManifest } from "../recording/manifest.js";
 import { createPublicationState, type PublicationState } from "../summary/publication-state.js";
 import type { PublicationStore } from "../summary/publication-store.js";
 import type { PublicSummary } from "../summary/summary-result.js";
 
-const PUBLICATION_FAILURE_MESSAGE =
-  "⚠️ Não foi possível publicar o resumo e a transcrição no canal configurado.";
+interface PublicationText {
+  assignee: string;
+  auditReason: string;
+  deadline: string;
+  decisions: string;
+  defaultVoiceChannel: string;
+  discussedTopics: string;
+  executiveSummary: string;
+  failureMessage: string;
+  fullTranscript: string;
+  meetingId: string;
+  openIssues: string;
+  summary: string;
+  summaryUnavailable: string;
+  tasks: string;
+  transcript: string;
+}
+
+const publicationTexts = {
+  en: {
+    assignee: "Assignee",
+    auditReason: "Publishing result for meeting",
+    deadline: "Deadline",
+    decisions: "Decisions",
+    defaultVoiceChannel: "Voice channel",
+    discussedTopics: "Discussed topics",
+    executiveSummary: "Executive summary",
+    failureMessage: "⚠️ Unable to publish the summary and transcript to the configured channel.",
+    fullTranscript: "📎 Full voice call transcript:",
+    meetingId: "Meeting ID",
+    openIssues: "Open issues and notes",
+    summary: "Summary",
+    summaryUnavailable:
+      "The summary could not be generated after the configured attempts. " +
+      "The summary is unavailable, but the full transcript is attached.",
+    tasks: "Tasks",
+    transcript: "Transcript",
+  },
+  "pt-br": {
+    assignee: "Responsável",
+    auditReason: "Publicação do resultado da reunião",
+    deadline: "Prazo",
+    decisions: "Decisões",
+    defaultVoiceChannel: "Canal de voz",
+    discussedTopics: "Tópicos discutidos",
+    executiveSummary: "Resumo executivo",
+    failureMessage: "⚠️ Não foi possível publicar o resumo e a transcrição no canal configurado.",
+    fullTranscript: "📎 Transcrição completa da call:",
+    meetingId: "ID da reunião",
+    openIssues: "Pendências e observações",
+    summary: "Resumo",
+    summaryUnavailable:
+      "Não foi possível gerar o resumo após as tentativas configuradas. " +
+      "O resumo está indisponível, mas a transcrição completa está anexada.",
+    tasks: "Tarefas",
+    transcript: "Transcrição",
+  },
+} as const satisfies Record<AppConfig["botLanguage"], PublicationText>;
 
 interface DiscordMeetingPublisherOptions {
   client: Client;
   guildConfigStore: GuildConfigurationStore;
+  language: AppConfig["botLanguage"];
   logger: Logger;
   now?: () => Date;
   store: PublicationStore;
@@ -39,6 +97,7 @@ export interface MeetingPublisher {
 export class DiscordMeetingPublisher implements MeetingPublisher {
   readonly #client: Client;
   readonly #guildConfigStore: GuildConfigurationStore;
+  readonly #language: AppConfig["botLanguage"];
   readonly #logger: Logger;
   readonly #now: () => Date;
   readonly #store: PublicationStore;
@@ -47,6 +106,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   public constructor(options: DiscordMeetingPublisherOptions) {
     this.#client = options.client;
     this.#guildConfigStore = options.guildConfigStore;
+    this.#language = options.language;
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
     this.#store = options.store;
@@ -131,8 +191,11 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     transcriptPath: string,
     summary?: PublicSummary,
   ): Promise<Extract<PublicationState, { status: "publishing" }>> {
+    const text = publicationTexts[this.#language];
     const summaryChunks =
-      mode === "summary" && summary !== undefined ? formatSummary(manifest.meetingId, summary) : [];
+      mode === "summary" && summary !== undefined
+        ? formatSummary(manifest.meetingId, summary, text)
+        : [];
     let thread: GuildTextBasedChannel;
 
     if (state.threadId === undefined) {
@@ -140,16 +203,16 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       const forum = await this.#resolveForum(destination.forumId);
       const title = createPostTitle(
         manifest.startedAt,
-        manifest.voiceChannelName ?? "Canal de voz",
+        manifest.voiceChannelName ?? text.defaultVoiceChannel,
         mode,
         this.#timeZone,
+        this.#language,
+        text,
       );
       const firstContent =
         mode === "summary"
           ? summaryChunks[0]
-          : `ID da reunião: \`${manifest.meetingId}\`\n\n` +
-            "Não foi possível gerar o resumo após as tentativas configuradas. " +
-            "O resumo está indisponível, mas a transcrição completa está anexada.";
+          : `${text.meetingId}: \`${manifest.meetingId}\`\n\n${text.summaryUnavailable}`;
       if (firstContent === undefined) {
         throw new Error("O resumo não possui conteúdo para iniciar o post");
       }
@@ -162,7 +225,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
           ...(mode === "transcript_only" ? { files: [transcriptPath] } : {}),
         },
         name: title,
-        reason: `Publicação do resultado da reunião ${manifest.meetingId}`,
+        reason: `${text.auditReason} ${manifest.meetingId}`,
       });
       state = await this.#saveProgress(state, {
         rootMessageId: thread.id,
@@ -193,7 +256,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     if (state.transcriptMessageId === undefined) {
       const transcriptMessage = await thread.send({
         allowedMentions: { parse: [] },
-        content: "📎 Transcrição completa da call:",
+        content: text.fullTranscript,
         enforceNonce: true,
         files: [transcriptPath],
         nonce: createNonce(manifest.meetingId, "transcript"),
@@ -239,7 +302,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       if (channel?.isSendable()) {
         await channel.send({
           allowedMentions: { parse: [] },
-          content: PUBLICATION_FAILURE_MESSAGE,
+          content: publicationTexts[this.#language].failureMessage,
         });
         const now = this.#now().toISOString();
         await this.#store.save({
@@ -284,8 +347,10 @@ function createPostTitle(
   voiceChannelName: string,
   mode: PublicationState["mode"],
   timeZone: string,
+  language: AppConfig["botLanguage"],
+  text: PublicationText,
 ): string {
-  const parts = new Intl.DateTimeFormat("pt-BR", {
+  const parts = new Intl.DateTimeFormat(language === "en" ? "en-US" : "pt-BR", {
     day: "2-digit",
     hour: "2-digit",
     hour12: false,
@@ -296,34 +361,37 @@ function createPostTitle(
   }).formatToParts(new Date(startedAt));
   const value = (type: Intl.DateTimeFormatPartTypes): string =>
     parts.find((part) => part.type === type)?.value ?? "";
-  const date = `${value("day")}/${value("month")}/${value("year")}`;
-  const prefix = mode === "summary" ? "Resumo" : "Transcrição";
+  const date =
+    language === "en"
+      ? `${value("month")}/${value("day")}/${value("year")}`
+      : `${value("day")}/${value("month")}/${value("year")}`;
+  const prefix = mode === "summary" ? text.summary : text.transcript;
   return `${prefix} — ${date} ${value("hour")}:${value("minute")} — ${voiceChannelName}`.slice(
     0,
     100,
   );
 }
 
-function formatSummary(meetingId: string, summary: PublicSummary): string[] {
+function formatSummary(meetingId: string, summary: PublicSummary, text: PublicationText): string[] {
   const sections = [
-    `ID da reunião: \`${meetingId}\`\n\n## Resumo executivo\n${summary.executiveSummary}`,
+    `${text.meetingId}: \`${meetingId}\`\n\n## ${text.executiveSummary}\n${summary.executiveSummary}`,
   ];
-  appendList(sections, "Tópicos discutidos", summary.discussedTopics);
-  appendList(sections, "Decisões", summary.decisions);
+  appendList(sections, text.discussedTopics, summary.discussedTopics);
+  appendList(sections, text.decisions, summary.decisions);
   if (summary.tasks.length > 0) {
     sections.push(
-      `## Tarefas\n${summary.tasks
+      `## ${text.tasks}\n${summary.tasks
         .map((task) => {
           const details = [
-            task.ownerName === undefined ? undefined : `Responsável: ${task.ownerName}`,
-            task.deadlineText === undefined ? undefined : `Prazo: ${task.deadlineText}`,
+            task.ownerName === undefined ? undefined : `${text.assignee}: ${task.ownerName}`,
+            task.deadlineText === undefined ? undefined : `${text.deadline}: ${task.deadlineText}`,
           ].filter((item): item is string => item !== undefined);
           return `- ${task.text}${details.length === 0 ? "" : `\n  ${details.join(" · ")}`}`;
         })
         .join("\n")}`,
     );
   }
-  appendList(sections, "Pendências e observações", summary.observations);
+  appendList(sections, text.openIssues, summary.observations);
   return sections.flatMap((section) => splitDiscordContent(section, 1_900));
 }
 

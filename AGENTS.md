@@ -25,7 +25,7 @@ O projeto deve usar configuração estrita do TypeScript.
 - **Identificadores de código** (funções, variáveis, tipos, nomes de arquivo/módulo) → **inglês**.
 - **Identificadores de banco de dados** (nomes de **tabelas, colunas e enums** no SQL) → **inglês**,
   sem acento, `snake_case` ASCII.
-- **Comentários de código** → **pt-br**.
+- **Comentários de código** → **inglês**.
 - **Artefatos textuais** (README, documentação) → **pt-br**.
 
 ## Metodologia
@@ -70,7 +70,7 @@ Tokens, chaves e credenciais nunca devem ser versionados.
 
 ## Logs e erros
 
-Logs devem ser estruturados e escritos em **pt-br**.
+Logs devem ser estruturados e escritos em **inglês**.
 
 Registrar eventos relevantes, incluindo:
 

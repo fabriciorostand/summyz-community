@@ -159,6 +159,7 @@ const summaryGenerator = new MeetingSummaryGenerator({
 const meetingPublisher = new DiscordMeetingPublisher({
   client,
   guildConfigStore,
+  language: config.botLanguage,
   logger,
   store: publicationStore,
   timeZone: config.summaryTimeZone,
@@ -210,7 +211,8 @@ const transcriptionService = new MeetingTranscriptionService({
   interSpeechSilenceMs: transcriptionModelProfile.interSpeechSilenceMs,
   logger,
   manifestStore,
-  notifyFailure: (manifest) => notifyTranscriptionFailure(client, logger, manifest),
+  notifyFailure: (manifest) =>
+    notifyTranscriptionFailure(client, logger, manifest, config.botLanguage),
   provider: transcriptionProvider,
   speechAnalyzer,
   transcriptionStore,
@@ -295,7 +297,7 @@ const recordingFactory = new DiscordRecordingFactory(
 );
 const coordinator = new RecordingCoordinator(recordingFactory);
 
-installInteractionHandler(client, guildConfigStore, coordinator, logger);
+installInteractionHandler(client, guildConfigStore, coordinator, logger, config.botLanguage);
 installVoiceStateHandler(client, coordinator, logger);
 
 client.once(Events.ClientReady, async (readyClient) => {
@@ -328,7 +330,7 @@ client.once(Events.ClientReady, async (readyClient) => {
 
   try {
     for (const manifest of await manifestStore.listCompleted()) {
-      // Sincroniza primeiro o backend fixado no manifesto e só então reconcilia o job.
+      // Synchronize the backend pinned in the manifest before reconciling the job.
       await manifestStore.save(manifest);
       await enqueueCompleted(manifest);
     }

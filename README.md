@@ -1,335 +1,373 @@
-# Summyz
+<p align="center">
+  <img src="./assets/banner.png" width="820" alt="Summyz — recording and transcription bot for Discord" />
+</p>
 
-Summyz é um bot para Discord que grava calls sob comando, transcreve o áudio de cada participante e
-publica resumos com decisões e tarefas.
+<p align="center">
+  <a href="./README.md">English</a> |
+  <a href="./README.pt-br.md">Português</a>
+</p>
 
-O Summyz grava cada participante separadamente e, depois do encerramento normal da call, transcreve
-os segmentos por meio do OpenRouter e monta um arquivo único preservando falantes, timestamps e
-falas sobrepostas. Uma segunda etapa revisa apenas o texto da transcrição, sem
-permitir que o modelo altere IDs, falantes, timestamps ou ordem. Em seguida, gera um resumo
-estruturado e publica em um post de fórum do Discord o resumo executivo, os tópicos discutidos, as
-decisões, as tarefas e a transcrição completa.
+<p align="center">
+  <b>Summyz</b> records voice calls on command, transcribes each participant's audio, and publishes
+  summaries with decisions and tasks.
+</p>
 
-## Requisitos
+<p align="center">
+  <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
+  <img src="https://img.shields.io/badge/node-%3E%3D22.5-339933?logo=node.js&logoColor=white" alt="Node >= 22.5" />
+  <img src="https://img.shields.io/badge/PRs-welcome-23A559" alt="PRs welcome" />
+  <img src="https://img.shields.io/badge/self--hosted-100%25-0A0B0F" alt="Self-hosted" />
+</p>
 
-- Node.js 22.12 ou superior;
+---
+
+Summyz records each participant separately and, after the voice call ends normally, transcribes the
+segments through OpenRouter and assembles a single file while preserving speakers, timestamps, and
+overlapping speech. A second stage reviews only the transcript text without allowing the model to
+change IDs, speakers, timestamps, or order. It then generates a structured summary and publishes the
+executive summary, discussed topics, decisions, tasks, and full transcript in a Discord forum post.
+
+## Requirements
+
+- Node.js 22.12 or later;
 - npm;
-- Docker com Compose para executar o bot e, no modo PostgreSQL, o banco;
-- PostgreSQL 18 somente quando `STORAGE_MODE=postgres`;
-- uma aplicação de bot criada no Discord Developer Portal;
-- uma conta no OpenRouter com créditos e uma chave de API;
-- FFmpeg não precisa ser instalado separadamente: o projeto usa um binário empacotado.
+- Docker with Compose to run the bot and, in PostgreSQL mode, the database;
+- PostgreSQL 18 only when `STORAGE_MODE=postgres`;
+- a bot application created in the Discord Developer Portal;
+- an OpenRouter account with credits and an API key;
+- FFmpeg does not need to be installed separately: the project uses a bundled binary.
 
-## Configuração local
+## Local setup
 
-1. Instale as dependências com `npm install`.
-2. Copie `.env.example` para `.env`.
-3. Preencha `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `OPENROUTER_API_KEY`,
-   `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_REFINEMENT_MODEL` e
+1. Install the dependencies with `npm install`.
+2. Copy `.env.example` to `.env`.
+3. Fill in `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `OPENROUTER_API_KEY`,
+   `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_REFINEMENT_MODEL`, and
    `OPENROUTER_SUMMARY_MODEL`.
-4. Escolha `STORAGE_MODE=local` para operar sem banco. Para `STORAGE_MODE=postgres`, defina
-   `POSTGRES_PASSWORD` e `DATABASE_URL`; use o host `postgres` no Compose ou `localhost` no npm.
-5. Defina `PERSIST_MEETING_CONTENT` e `PERSIST_MEETING_AUDIO` conforme a política desejada.
-6. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
-   variável, os comandos são registrados globalmente e podem demorar para aparecer.
-7. Execute `npm run dev`. Para usar containers no modo local, execute
-   `docker compose up -d --build bot`. No modo PostgreSQL, suba primeiro o banco com
-   `docker compose --profile postgres up -d postgres` e, quando estiver saudável, suba o bot.
+4. Choose `STORAGE_MODE=local` to run without a database. For `STORAGE_MODE=postgres`, set
+   `POSTGRES_PASSWORD` and `DATABASE_URL`; use the `postgres` host with Compose or `localhost`
+   with npm.
+5. Set `PERSIST_MEETING_CONTENT` and `PERSIST_MEETING_AUDIO` according to the desired policy.
+6. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
+   are registered globally and may take some time to appear.
+7. Run `npm run dev`. To use containers in local mode, run
+   `docker compose up -d --build bot`. In PostgreSQL mode, start the database first with
+   `docker compose --profile postgres up -d postgres`, then start the bot once the database is
+   healthy.
 
-Se a porta local `5432` já estiver ocupada, altere `POSTGRES_PORT` e ajuste a porta de
-`DATABASE_URL`. O PostgreSQL é publicado somente em `127.0.0.1`; entre containers, a conexão
-continua usando `postgres:5432`.
+If local port `5432` is already in use, change `POSTGRES_PORT` and adjust the port in
+`DATABASE_URL`. PostgreSQL is exposed only on `127.0.0.1`; the connection between containers
+continues to use `postgres:5432`.
 
-Nunca versione o arquivo `.env` nem publique o token do bot.
+Never commit the `.env` file or publish the bot token.
 
-No modo local, o bot não cria conexão nem exige um PostgreSQL. No modo PostgreSQL, migrações e
-conexão são validadas antes do login no Discord; se o banco estiver indisponível ou a URL for
-inválida, o processo encerra com uma mensagem segura. O mesmo ocorre se houver no disco uma reunião
-PostgreSQL pendente de recuperação e `DATABASE_URL` não estiver disponível. Os volumes
-`postgres_data` e `summyz_data` preservam o banco e os arquivos necessários após reinício.
+In local mode, the bot neither creates a connection to nor requires PostgreSQL. In PostgreSQL mode,
+migrations and the connection are validated before the Discord login; if the database is
+unavailable or the URL is invalid, the process exits with a safe message. The same happens if a
+PostgreSQL meeting pending recovery exists on disk and `DATABASE_URL` is unavailable. The
+`postgres_data` and `summyz_data` volumes preserve the database and required files across
+restarts.
 
-## Persistência e privacidade
+## Persistence and privacy
 
-- `STORAGE_MODE=local` é o padrão e guarda manifesto, fila, tentativas e estados operacionais em
-  arquivos atômicos dentro de `DATA_DIR`, sem exigir banco;
-- `STORAGE_MODE=postgres` guarda configuração, reunião mínima, fila e tentativas no PostgreSQL;
-  `DATABASE_URL` passa a ser obrigatória;
-- `PERSIST_MEETING_CONTENT=false` é o padrão. Depois do estado terminal, transcrições, resumo e
-  estados locais são removidos. O backend mantém somente o mínimo operacional necessário à fila e
-  ao diagnóstico de sua conclusão;
-- com `PERSIST_MEETING_CONTENT=true`, o modo local conserva os arquivos da etapa 3; o modo
-  PostgreSQL conserva transcrição bruta e refinada, resumo, publicação e manifesto em
+- `STORAGE_MODE=local` is the default and stores the manifest, queue, attempts, and operational
+  states in atomic files under `DATA_DIR`, without requiring a database;
+- `STORAGE_MODE=postgres` stores configuration, minimal meeting data, the queue, and attempts in
+  PostgreSQL; `DATABASE_URL` becomes required;
+- `PERSIST_MEETING_CONTENT=false` is the default. After the terminal state, transcripts, the
+  summary, and local states are removed. The backend retains only the operational minimum required
+  for the queue and for diagnosing its completion;
+- with `PERSIST_MEETING_CONTENT=true`, local mode preserves the stage 3 files; PostgreSQL mode
+  preserves the raw and refined transcripts, summary, publication, and manifest in
   `meeting_contents`;
-- `PERSIST_MEETING_AUDIO=false` é o padrão: os áudios são excluídos depois de uma transcrição
-  integralmente validada ou depois de esgotar as tentativas duráveis;
-- com `PERSIST_MEETING_AUDIO=true`, os áudios permanecem indefinidamente em `DATA_DIR`. No modo
-  local, `audio-manifest.json` cataloga os segmentos; no modo PostgreSQL, a tabela
-  `meeting_audio_segments` guarda metadados e caminhos relativos;
-- áudio nunca é armazenado como BLOB no PostgreSQL. Mesmo nesse modo, os bytes ficam no volume
-  durável montado em `DATA_DIR`;
-- no modo PostgreSQL, o `manifest.json` local funciona como registro temporário de recuperação junto
-  dos áudios; o processamento o sincroniza com o banco antes de reservar o job;
-- não há expiração automática para conteúdo ou áudio preservado. A exclusão é uma operação manual
-  do administrador no disco ou banco.
+- `PERSIST_MEETING_AUDIO=false` is the default: audio is deleted after a fully validated
+  transcription or after all durable attempts are exhausted;
+- with `PERSIST_MEETING_AUDIO=true`, audio remains in `DATA_DIR` indefinitely. In local mode,
+  `audio-manifest.json` catalogs the segments; in PostgreSQL mode, the
+  `meeting_audio_segments` table stores metadata and relative paths;
+- audio is never stored as a BLOB in PostgreSQL. Even in this mode, the bytes remain in the durable
+  volume mounted at `DATA_DIR`;
+- in PostgreSQL mode, the local `manifest.json` acts as a temporary recovery record alongside the
+  audio; processing synchronizes it with the database before reserving the job;
+- preserved content and audio do not expire automatically. Deletion is a manual administrator
+  operation on disk or in the database.
 
-As três escolhas são copiadas para o manifesto no início da reunião. Alterar o `.env` depois não
-migra nem redireciona uma reunião já iniciada: uma reunião local continua local e uma reunião
-PostgreSQL continua dependente do PostgreSQL até chegar ao estado terminal.
+The three choices are copied to the manifest when the meeting starts. Changing `.env` afterward
+does not migrate or redirect a meeting already in progress: a local meeting remains local, and a
+PostgreSQL meeting continues to depend on PostgreSQL until it reaches a terminal state.
 
-O processamento usa uma fila durável em `processing.json` no modo local ou no PostgreSQL no outro
-modo. A entrega é *at least once*: se o processo cair depois de reservar um job e antes de confirmar
-o resultado, esse job pode executar novamente após o reinício ou vencimento do lease. As etapas e a
-publicação são idempotentes para que a repetição não crie intencionalmente outra reunião. Além dos
-retries rápidos dos provedores, uma falha transitória agenda execuções duráveis após 1 minuto,
-5 minutos, 15 minutos, 1 hora e 6 horas (seis execuções no total, contando a inicial).
+Processing uses a durable queue in `processing.json` in local mode or in PostgreSQL in the other
+mode. Delivery is *at least once*: if the process stops after reserving a job and before confirming
+the result, that job may run again after a restart or lease expiration. The stages and publication
+are idempotent so that a repeat does not intentionally create another meeting. In addition to fast
+provider retries, a transient failure schedules durable runs after 1 minute, 5 minutes, 15 minutes,
+1 hour, and 6 hours (six runs in total, including the initial one).
 
-## Configuração no Discord Developer Portal
+## Discord Developer Portal setup
 
-1. Abra a aplicação do Summyz no Discord Developer Portal.
-2. Em **Bot**, crie ou redefina o token e salve-o como `DISCORD_TOKEN` no `.env`.
-3. Ainda em **Bot**, mantenha desativados os **Privileged Gateway Intents**. A implementação atual
-   usa somente os intents padrão `Guilds` e `Guild Voice States`.
-4. Em **Installation**, configure **Guild Install** com os escopos `bot` e
-   `applications.commands`.
-5. Nas permissões padrão da instalação, conceda ao bot:
+1. Open the Summyz application in the Discord Developer Portal.
+2. Under **Bot**, create or reset the token and save it as `DISCORD_TOKEN` in `.env`.
+3. Still under **Bot**, keep **Privileged Gateway Intents** disabled. The current implementation
+   uses only the standard `Guilds` and `Guild Voice States` intents.
+4. Under **Installation**, configure **Guild Install** with the `bot` and
+   `applications.commands` scopes.
+5. In the default installation permissions, grant the bot:
 
-- Ver canais;
-- Conectar;
-- Enviar mensagens;
-- Enviar mensagens em threads;
-- Ler histórico de mensagens;
-- Anexar arquivos;
-- Usar comandos de aplicativo.
+- View Channels;
+- Connect;
+- Send Messages;
+- Send Messages in Threads;
+- Read Message History;
+- Attach Files;
+- Use Application Commands.
 
-Use o link fornecido pela página **Installation** para adicionar o bot ao servidor. Se o bot já
-estiver instalado, alterar as permissões padrão no Developer Portal não atualiza automaticamente o
-cargo existente: ajuste as permissões do cargo do bot e as sobrescritas do canal onde as reuniões
-serão publicadas, ou reinstale o bot com o novo link.
+Use the link provided on the **Installation** page to add the bot to the server. If the bot is
+already installed, changing the default permissions in the Developer Portal does not automatically
+update the existing role: adjust the bot role permissions and the overrides for the channel where
+meetings will be published, or reinstall the bot with the new link.
 
-As permissões Enviar mensagens, Enviar mensagens em threads, Ler histórico de mensagens e Anexar
-arquivos devem estar liberadas também nas configurações específicas do fórum, quando houver
-sobrescritas. `Enviar mensagens` sozinho não permite responder dentro de um post.
+Send Messages, Send Messages in Threads, Read Message History, and Attach Files must also be allowed
+in the forum-specific settings when overrides exist. `Send Messages` alone does not allow replies
+inside a post.
 
-Depois de adicionar o bot, use `/recording-role add` para autorizar os cargos desejados e
-`/recording-summary-forum set` para definir o fórum das publicações. Novas gravações ficam
-bloqueadas enquanto não houver um fórum configurado. Consulte [BOT_COMMANDS.md](./BOT_COMMANDS.md)
-para ver todos os comandos e regras de acesso.
+After adding the bot, use `/recording-role add` to authorize the desired roles and
+`/recording-summary-forum set` to select the publication forum. New recordings remain blocked
+until a forum is configured. See [BOT_COMMANDS.md](./BOT_COMMANDS.md) for all commands and access
+rules.
 
-## Configurações de gravação
+## Recording settings
 
-- `DATA_DIR`: diretório dos arquivos; padrão `./data`;
-- `SEGMENT_SILENCE_MS`: silêncio que encerra um segmento; padrão `1000` ms;
-- `SEGMENT_MAX_SECONDS`: duração máxima de cada segmento contínuo; padrão `60` s;
-- `VOICE_RECONNECT_MAX_MS`: tempo máximo de reconexão; padrão `300000` ms;
-- `LOG_LEVEL`: nível dos logs estruturados; padrão `info`.
+- `BOT_LANGUAGE`: language used for fixed Discord text and command descriptions; `en` or `pt-br`;
+  default `en`. This setting does not change model language;
+- `DATA_DIR`: file directory; default `./data`;
+- `SEGMENT_SILENCE_MS`: silence that ends a segment; default `1000` ms;
+- `SEGMENT_MAX_SECONDS`: maximum duration of each continuous segment; default `60` s;
+- `VOICE_RECONNECT_MAX_MS`: maximum reconnection time; default `300000` ms;
+- `LOG_LEVEL`: structured log level; default `info`.
 
-Os arquivos são salvos em
-`data/recordings/<meetingId>/participants/<userId>/<segmentId>.ogg`. O `manifest.json` da reunião
-registra participantes, segmentos, interrupções e métricas de recepção.
+Files are saved under
+`data/recordings/<meetingId>/participants/<userId>/<segmentId>.ogg`. The meeting's
+`manifest.json` records participants, segments, interruptions, and reception metrics.
 
-## Configurações de transcrição
+## Transcription settings
 
-- `OPENROUTER_API_KEY`: chave usada nos endpoints de transcrição, refinamento e resumo;
-- `OPENROUTER_TRANSCRIPTION_MODEL`: modelo STT escolhido no OpenRouter, sem padrão implícito;
-- `TRANSCRIPTION_MODEL_PROFILES_FILE`: arquivo JSON com a configuração individual de cada modelo;
-  padrão `./config/transcription-model-profiles.json`;
-- `TRANSCRIPTION_CONCURRENCY`: lotes processados simultaneamente; padrão `2`;
-- `TRANSCRIPTION_VAD_THRESHOLD`: probabilidade mínima de voz no detector Silero local; padrão `0.5`;
-- `TRANSCRIPTION_VAD_MIN_SPEECH_MS`: duração mínima aproximada de voz; padrão `96` ms;
-- `TRANSCRIPTION_MERGE_MAX_GAP_MS`: intervalo máximo para consolidar falas próximas da mesma
-  pessoa; padrão `2000` ms;
-- `TRANSCRIPTION_WINDOW_MAX_SECONDS`: duração máxima de um lote consolidado; padrão `30` s;
-- `TRANSCRIPTION_MAX_ATTEMPTS`: total de tentativas por lote; padrão `4`;
-- `TRANSCRIPTION_TIMEOUT_MS`: timeout de cada tentativa; padrão `90000` ms;
-- `TRANSCRIPTION_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
-- `TRANSCRIPTION_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
+- `OPENROUTER_API_KEY`: key used for the transcription, refinement, and summary endpoints;
+- `OPENROUTER_TRANSCRIPTION_MODEL`: STT model selected in OpenRouter, with no implicit default;
+- `TRANSCRIPTION_MODEL_PROFILES_FILE`: JSON file containing each model's individual
+  configuration; default `./config/transcription-model-profiles.json`;
+- `TRANSCRIPTION_CONCURRENCY`: batches processed simultaneously; default `2`;
+- `TRANSCRIPTION_VAD_THRESHOLD`: minimum speech probability in the local Silero detector;
+  default `0.5`;
+- `TRANSCRIPTION_VAD_MIN_SPEECH_MS`: approximate minimum speech duration; default `96` ms;
+- `TRANSCRIPTION_MERGE_MAX_GAP_MS`: maximum gap for consolidating nearby utterances from the same
+  person; default `2000` ms;
+- `TRANSCRIPTION_WINDOW_MAX_SECONDS`: maximum duration of a consolidated batch; default `30` s;
+- `TRANSCRIPTION_MAX_ATTEMPTS`: total attempts per batch; default `4`;
+- `TRANSCRIPTION_TIMEOUT_MS`: timeout for each attempt; default `90000` ms;
+- `TRANSCRIPTION_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
+- `TRANSCRIPTION_RETRY_MAX_MS`: maximum delay between retries; default `30000` ms.
 
-O modelo configurado precisa possuir uma entrada com o mesmo slug em
-[`config/transcription-model-profiles.json`](./config/transcription-model-profiles.json). O Summyz
-valida todos os perfis e falha antes de se conectar ao Discord se o arquivo for inválido ou o modelo
-ativo não tiver perfil. O modelo continua sendo escolhido pelo `.env`; nenhuma configuração de um
-perfil é herdada por outro.
+The configured model must have an entry with the same slug in
+[`config/transcription-model-profiles.json`](./config/transcription-model-profiles.json). Summyz
+validates every profile and fails before connecting to Discord if the file is invalid or the active
+model has no profile. The model is still selected through `.env`; no configuration from one
+profile is inherited by another.
 
-Cada perfil define:
+Each profile defines:
 
-- `language`: idioma enviado ao provedor; pode ser omitido quando o modelo exige detecção automática;
-- `temperature`: temperatura da transcrição;
-- `timestampMode`: `word` para timestamps detalhados ou `batch` para texto sem timestamps;
-- `interSpeechSilenceMs`: silêncio WAV inserido somente entre intervalos reais de voz do lote;
-- `mergeMaxGapMs`: sobrescrita opcional do intervalo máximo global para consolidar falas da mesma
-  pessoa;
-- `prompt`: instrução textual opcional para orientar o estilo da transcrição;
-- `providerOptions`: opções específicas opcionais, agrupadas pelo slug do provedor conforme o
-  contrato do OpenRouter.
+- `language`: language sent to the provider; when omitted, automatic detection is used;
+- `temperature`: transcription temperature;
+- `timestampMode`: `word` for detailed timestamps or `batch` for text without timestamps;
+- `interSpeechSilenceMs`: WAV silence inserted only between actual speech intervals in the batch;
+- `mergeMaxGapMs`: optional override of the global maximum gap for consolidating utterances from
+  the same person;
+- `prompt`: optional text instruction to guide transcription style;
+- `providerOptions`: optional provider-specific options grouped by provider slug according to the
+  OpenRouter contract.
 
-Os perfis do Whisper mantêm `pt-BR`, `temperature: 0`, timestamps por palavra e nenhuma pausa
-sintética, preservando o comportamento anterior. O perfil `deepgram/nova-3` também usa `pt-BR` e
-timestamps por palavra, mas insere 350 ms entre intervalos de voz. Esse valor foi escolhido em um
-teste controlado: 200 e 500 ms perderam a palavra “não”, enquanto 350 ms preservou “Não, concordo.
-Realmente.”. As opções `smart_format` e `utterances` não foram ativadas porque pioraram esse áudio.
+The Whisper profiles retain `pt-BR`, `temperature: 0`, word-level timestamps, and no synthetic
+pause, preserving the previous behavior. The `deepgram/nova-3` profile also uses `pt-BR` and
+word-level timestamps, but inserts 350 ms between speech intervals. This value was selected in a
+controlled test: 200 and 500 ms dropped the negation, while 350 ms preserved the full utterance,
+“No, I agree. Really.” The `smart_format` and `utterances` options were not enabled because they
+produced worse results for this audio.
 
-O modelo `mistralai/voxtral-mini-transcribe` possui um perfil específico porque sua integração no
-OpenRouter aceita somente `response_format: "json"`, rejeita `pt-BR` e não devolve timestamps. Para
-ele, o Summyz usa detecção automática de idioma e representa cada resposta com o início e o fim do
-lote real de voz enviado. Assim, falantes e sobreposições continuam preservados, mas os timestamps
-são precisos por lote, não por palavra ou frase.
+The `mistralai/voxtral-mini-transcribe` model has a dedicated profile because its OpenRouter
+integration accepts only `response_format: "json"`, rejects `pt-BR`, and does not return
+timestamps. For this model, Summyz uses automatic language detection and represents each response
+with the start and end of the actual speech batch sent. Speakers and overlaps therefore remain
+preserved, but timestamps are precise per batch rather than per word or sentence.
 
-Os perfis `openai/gpt-transcribe` e `openai/gpt-4o-transcribe` usam `language: "pt"`,
-`temperature: 0`, resposta JSON por lote e não unem segmentos distintos. O perfil
-`openai/gpt-transcribe` usa um prompt genérico para orientar transcrição literal e preservação de
-hesitações, sem pausa sintética. O perfil `openai/gpt-4o-transcribe` não usa prompt e insere 350 ms
-entre intervalos internos de voz. Nenhum deles configura `keywords`, nomes, termos específicos ou
-outro vocabulário controlado.
+The `openai/gpt-transcribe` and `openai/gpt-4o-transcribe` profiles use `language: "pt"`,
+`temperature: 0`, one JSON response per batch, and do not merge distinct segments. The
+`openai/gpt-transcribe` profile uses a generic prompt to guide literal transcription and preserve
+hesitations, with no synthetic pause. The `openai/gpt-4o-transcribe` profile uses no prompt and
+inserts 350 ms between internal speech intervals. Neither configures `keywords`, names, specific
+terms, or any other controlled vocabulary.
 
-Embora a API direta da OpenAI documente formatos detalhados para `gpt-transcribe`, o endpoint atual
-do OpenRouter rejeita a solicitação de timestamps por palavra. Assim, cada linha representa um único
-segmento e preserva a ordem temporal das falas e sobreposições.
+Although the direct OpenAI API documents detailed formats for `gpt-transcribe`, OpenRouter's
+current endpoint rejects word-level timestamp requests. Each line therefore represents a single
+segment and preserves the temporal order of utterances and overlaps.
 
-O slug `openai/gpt-transcribe` já é aceito pelo endpoint de transcrição do OpenRouter, ainda que não
-apareça no catálogo público retornado por `/api/v1/models` no momento desta documentação.
+The `openai/gpt-transcribe` slug is already accepted by OpenRouter's transcription endpoint even
+though it does not appear in the public catalog returned by `/api/v1/models` at the time of this
+documentation.
 
-Antes da API, o Summyz decodifica o áudio localmente e usa Silero VAD para confirmar a presença de
-voz. Segmentos sem voz são concluídos como silêncio, com zero tentativas externas, e não aproximam
-falas que estavam distantes na call. Somente os intervalos detectados como voz são consolidados em
-WAV sem perdas quando o intervalo real entre as vozes não passa de 2 segundos, em janelas de até 30
-segundos da mesma pessoa. Conforme o perfil ativo, pequenos silêncios sintéticos podem separar esses
-intervalos para preservar fronteiras de enunciados. Um mapa temporal exclui essas pausas e recoloca
-cada trecho no relógio original depois da transcrição, sem misturar participantes.
+Before calling the API, Summyz decodes audio locally and uses Silero VAD to confirm that speech is
+present. Segments without speech are completed as silence with zero external attempts and do not
+bring together utterances that were far apart in the voice call. Only intervals detected as speech
+are consolidated into lossless WAV when the actual gap between them does not exceed 2 seconds, in
+windows of up to 30 seconds from the same person. Depending on the active profile, short synthetic
+silences may separate these intervals to preserve utterance boundaries. A time map excludes these
+pauses and places each excerpt back on the original clock after transcription, without mixing
+participants.
 
-O OpenRouter pode rotear uma requisição entre provedores compatíveis com o modelo selecionado. O
-Summyz aceita esse roteamento automático. Para requisitos de privacidade mais restritos, use as
-configurações de privacidade da conta do OpenRouter ou um provedor local em uma evolução futura.
+OpenRouter may route a request among providers compatible with the selected model. Summyz accepts
+this automatic routing. For stricter privacy requirements, use the OpenRouter account's privacy
+settings or a local provider in a future version.
 
-## Configurações de refinamento
+## Refinement settings
 
-- `OPENROUTER_REFINEMENT_MODEL`: modelo de texto que revisa a saída do STT; o exemplo recomenda
+- `OPENROUTER_REFINEMENT_MODEL`: text model that reviews the STT output; the example recommends
   `google/gemini-3.7-flash`;
-- `REFINEMENT_CHUNK_MAX_CHARACTERS`: tamanho máximo aproximado de cada bloco, sempre dividido entre
-  falas; padrão `500000` caracteres;
-- `REFINEMENT_MAX_ATTEMPTS`: total de tentativas por bloco; padrão `3`;
-- `REFINEMENT_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
-- `REFINEMENT_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
-- `REFINEMENT_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms.
+- `REFINEMENT_CHUNK_MAX_CHARACTERS`: approximate maximum size of each chunk, always split between
+  utterances; default `500000` characters;
+- `REFINEMENT_MAX_ATTEMPTS`: total attempts per chunk; default `3`;
+- `REFINEMENT_TIMEOUT_MS`: timeout for each attempt; default `120000` ms;
+- `REFINEMENT_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
+- `REFINEMENT_RETRY_MAX_MS`: maximum delay between retries; default `30000` ms.
 
-O refinamento recebe os blocos estruturados produzidos pelo Whisper e devolve somente pares de
-`id` e `text`. O código rejeita qualquer resposta que remova, acrescente ou reordene IDs e sempre
-reutiliza falante e timestamps do Whisper. O prompt pede uma revisão conservadora de erros
-ortográficos, fonéticos e contextuais evidentes; ele não contém lista de nomes, palavras-chave ou
-vocabulário controlado.
+Refinement receives the structured chunks produced by Whisper and returns only `id` and `text`
+pairs. The code rejects any response that removes, adds, or reorders IDs and always reuses the
+speaker and timestamps from Whisper. The prompt requests a conservative review of clear spelling,
+phonetic, and contextual errors; it contains no list of names, keywords, or controlled vocabulary.
 
-Antes da primeira chamada, o Summyz preserva atomicamente a saída original em
-`transcript.raw.txt`. Se o modelo ou a resposta estruturada falhar nas três tentativas, restaura o
-original em `transcript.txt`, registra o fallback em `refinement.json` e continua normalmente para
-o resumo e a publicação. O Discord não recebe um aviso específico desse fallback, pois a
-transcrição original continua disponível.
+Before the first call, Summyz atomically preserves the original output in `transcript.raw.txt`. If
+the model or structured response fails all three attempts, it restores the original to
+`transcript.txt`, records the fallback in `refinement.json`, and proceeds normally to the
+summary and publication. Discord does not receive a specific warning about this fallback because
+the original transcript remains available.
 
-## Configurações de resumo
+## Summary settings
 
-- `OPENROUTER_SUMMARY_MODEL`: modelo de texto usado no resumo, configurado separadamente do modelo
-  de transcrição; o exemplo recomenda `google/gemini-3.7-flash`;
-- `SUMMARY_CHUNK_MAX_CHARACTERS`: tamanho máximo aproximado de cada bloco de transcrição; padrão
-  `500000` caracteres;
-- `SUMMARY_MAX_ATTEMPTS`: total de tentativas por chamada ao modelo; padrão `4`;
-- `SUMMARY_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
-- `SUMMARY_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
-- `SUMMARY_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
-- `SUMMARY_TIME_ZONE`: fuso IANA usado no título do post; padrão `America/Sao_Paulo`.
+- `OPENROUTER_SUMMARY_MODEL`: text model used for the summary, configured separately from the
+  transcription model; the example recommends `google/gemini-3.7-flash`;
+- `SUMMARY_CHUNK_MAX_CHARACTERS`: approximate maximum size of each transcript chunk; default
+  `500000` characters;
+- `SUMMARY_MAX_ATTEMPTS`: total attempts per model call; default `4`;
+- `SUMMARY_TIMEOUT_MS`: timeout for each attempt; default `120000` ms;
+- `SUMMARY_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
+- `SUMMARY_RETRY_MAX_MS`: maximum delay between retries; default `30000` ms;
+- `SUMMARY_TIME_ZONE`: IANA time zone used in the post title; default `America/Sao_Paulo`.
 
-O resumo usa saída estruturada validada. Transcrições maiores que o limite configurado são divididas
-somente entre falas, resumidas por blocos e consolidadas. O Summyz mantém internamente as referências
-às falas que sustentam decisões e tarefas, mas não publica essas evidências. Uma decisão ou tarefa
-sem referência válida é removida. Responsável e prazo só são preservados quando aparecem exatamente
-na fala referenciada; tarefas explícitas podem permanecer sem esses campos.
+The summary uses validated structured output. Transcripts larger than the configured limit are
+split only between utterances, summarized in chunks, and consolidated. Summyz internally retains
+the references to utterances that support decisions and tasks but does not publish this evidence. A
+decision or task without a valid reference is removed. Assignees and deadlines are preserved only
+when they appear exactly in the referenced utterance; explicit tasks may remain without these
+fields.
 
-Pedidos vagos, como “alguém precisa decidir a ferramenta”, não são promovidos a decisão ou tarefa:
-eles aparecem em **Pendências e observações**. Prazos são mantidos no texto original, sem conversão
-automática de expressões como “amanhã” ou “até sexta-feira”.
+Vague requests such as “someone needs to choose the tool” are not promoted to decisions or tasks:
+they appear under **Open issues and notes** in English or **Pendências e observações** in Portuguese.
+Deadlines remain in their original text, without automatically converting expressions such as
+“tomorrow” or “by Friday.”
 
-## Resultado da transcrição
+## Transcription output
 
-A transcrição começa automaticamente quando `/stop` conclui a gravação ou quando todas as pessoas
-saem do canal. Após um reinício, o bot retoma a gravação se ainda houver pessoas; se o canal estiver
-vazio, finaliza o áudio parcial e o processa normalmente.
+Transcription starts automatically when `/stop` finishes the recording or when everyone leaves
+the channel. After a restart, the bot resumes recording if people are still present; if the channel
+is empty, it finalizes the partial audio and processes it normally.
 
-O resultado é escrito atomicamente em:
+The result is written atomically to:
 
 ```text
 data/recordings/<meetingId>/transcript.txt
 ```
 
-Quando o refinamento é iniciado, a versão sem revisão fica preservada em
-`data/recordings/<meetingId>/transcript.raw.txt`; `transcript.txt` passa a conter a versão revisada
-ou permanece idêntico ao original quando ocorre fallback.
+When refinement starts, the unreviewed version is preserved at
+`data/recordings/<meetingId>/transcript.raw.txt`; `transcript.txt` then contains the reviewed
+version or remains identical to the original when a fallback occurs.
 
-Cada trecho segue este formato:
+Each excerpt follows this format:
 
 ```text
-[00:00:10.000 – 00:00:15.000] Ana: Vamos publicar amanhã.
-[00:00:12.000 – 00:00:14.000] Bruno: Concordo.
+[00:00:10.000 – 00:00:15.000] Ana: Let's publish tomorrow.
+[00:00:12.000 – 00:00:14.000] Bruno: I agree.
 ```
 
-Intervalos coincidentes representam falas sobrepostas. Se dois participantes tiverem o mesmo nome
-de exibição, o arquivo usa sufixos estáveis como `Ana #1` e `Ana #2`, mantendo os IDs apenas nos
-artefatos internos.
+Overlapping intervals represent overlapping speech. If two participants have the same display name,
+the file uses stable suffixes such as `Ana #1` and `Ana #2`, keeping IDs only in internal
+artifacts.
 
-O arquivo só é criado depois que todos os segmentos têm sucesso ou são confirmados localmente como
-silêncio. Uma conversão PCM que falhou
-durante a gravação é tentada novamente em Ogg e, se necessário, empacotada sem perdas como WAV. Se
-algum segmento continuar impossível de analisar/processar ou o provedor esgotar os retries:
+The file is created only after every segment succeeds or is locally confirmed as silence. A PCM
+conversion that failed during recording is retried as Ogg and, if necessary, packaged losslessly as
+WAV. If any segment remains impossible to analyze or process, or the provider exhausts its retries:
 
-- nenhum `transcript.txt` é disponibilizado;
-- a falha é persistida em `transcription.json`;
-- o Discord recebe somente um aviso genérico, sem detalhes internos;
-- os áudios são preservados entre tentativas duráveis;
-- depois da última tentativa, o Discord recebe o aviso genérico e os artefatos temporários são
-  excluídos.
+- no `transcript.txt` is made available;
+- the failure is persisted in `transcription.json`;
+- Discord receives only a generic warning, with no internal details;
+- audio is preserved between durable attempts;
+- after the final attempt, Discord receives the generic warning and the temporary artifacts are
+  deleted.
 
-## Publicação no Discord
+## Publishing to Discord
 
-Depois da transcrição e do resumo, o Summyz consulta a configuração mais recente do servidor e cria
-um post no fórum escolhido. O post de sucesso usa o nome
-`Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz` e contém:
+After transcription and summarization, Summyz reads the server's latest configuration and creates a
+post in the selected forum. With `BOT_LANGUAGE=en`, a successful post is named
+`Summary — MM/DD/YYYY HH:mm — Voice channel name`; with `BOT_LANGUAGE=pt-br`, it uses
+`Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz`. The post contains:
 
-- ID da reunião e resumo executivo na primeira mensagem;
-- tópicos discutidos;
-- decisões;
-- tarefas, com responsável e prazo somente quando explícitos;
-- pendências e observações;
-- `transcript.txt` como arquivo anexo.
+- the meeting ID and executive summary in the first message;
+- discussed topics (`Discussed topics` or `Tópicos discutidos`);
+- decisions (`Decisions` or `Decisões`);
+- tasks (`Tasks` or `Tarefas`), with an assignee and deadline only when explicit;
+- open issues and notes (`Open issues and notes` or `Pendências e observações`);
+- `transcript.txt` as an attachment.
 
-O Discord move o post para a área de posts antigos depois de até sete dias sem atividade; o
-conteúdo não é apagado e pode ser reaberto.
+Discord moves the post to the older posts section after up to seven days of inactivity; the content
+is not deleted and can be reopened.
 
-Se o resumo continuar falhando depois dos retries, o Summyz cria o post
-`Transcrição — DD/MM/AAAA HH:mm — Nome do canal de voz`. A primeira mensagem informa que o resumo
-está indisponível e inclui `transcript.txt` como anexo.
+If the summary continues to fail after all retries, Summyz uses `Transcript` in the English post
+title or `Transcrição` in the Portuguese title. The first message states that the summary is
+unavailable and includes `transcript.txt` as an attachment.
 
-O chat onde `/record` foi executado concentra o histórico público da sessão: início, falha ao
-iniciar, interrupção, retomada, falha definitiva de reconexão, encerramento manual, canal vazio,
-desligamento, falha da transcrição e falha da publicação. Ao usar `/stop`, somente quem executou o
-comando recebe uma confirmação efêmera no chat da interação, com referência ao chat original; o
-aviso público de encerramento menciona essa pessoa no chat do `/record`. No encerramento automático,
-o aviso identifica o canal de voz quando seu nome está disponível e informa que os segmentos serão
-processados. Se o fórum for alterado antes de uma publicação começar, a reunião usa o destino mais
-recente; uma publicação já iniciada ou concluída permanece no post original.
+The chat where `/record` was run contains the session's public history: start, failure to start,
+interruption, resumption, permanent reconnection failure, manual stop, empty channel, shutdown,
+transcription failure, and publication failure. When `/stop` is used, only the person who ran the
+command receives an ephemeral confirmation in the interaction chat with a reference to the
+original chat; the public stop notice mentions that person in the `/record` chat. For an automatic
+stop, the notice identifies the voice channel when its name is available and states that the
+segments will be processed. If the forum is changed before publication begins, the meeting uses
+the latest destination; a publication already started or completed remains in the original post.
 
-Enquanto o job está em andamento, os estados ficam no volume durável em `refinement.json`,
-`summary.json` e `publication.json`. IDs de mensagem e thread são persistidos a cada passo e as
-respostas usam nonces determinísticos, permitindo retomar a publicação após reinício e reduzir
-duplicações. A criação inicial de posts de fórum não oferece
-nonce pela API do Discord; portanto, a garantia é de idempotência nas condições normais, não de
-atomicidade absoluta entre o volume e o Discord.
+While the job is in progress, states remain in the durable volume in `refinement.json`,
+`summary.json`, and `publication.json`. Message and thread IDs are persisted at each step, and
+responses use deterministic nonces, allowing publication to resume after a restart and reducing
+duplicates. The initial creation of forum posts does not support a nonce through the Discord API;
+therefore, idempotency is guaranteed under normal conditions, but absolute atomicity between the
+volume and Discord is not.
 
-Quando `PERSIST_MEETING_AUDIO=false`, os áudios são excluídos assim que a transcrição completa é
-validada e persistida, ou após a falha definitiva. Depois da publicação, os demais arquivos
-temporários são excluídos se `PERSIST_MEETING_CONTENT=false`. As cópias habilitadas permanecem no
-backend escolhido no início da reunião até intervenção do administrador.
+When `PERSIST_MEETING_AUDIO=false`, audio is deleted as soon as the complete transcript is
+validated and persisted, or after a permanent failure. After publication, the remaining temporary
+files are deleted if `PERSIST_MEETING_CONTENT=false`. Enabled copies remain in the backend
+selected when the meeting started until an administrator intervenes.
 
-## Qualidade
+## Quality
 
-Use `npm run check` antes de enviar mudanças. Esse comando valida formatação, lint, tipos, testes e
-cobertura. Use `npm run security:audit` para verificar as dependências.
+Run `npm run check` before submitting changes. This command validates formatting, linting, types,
+tests, and coverage. Run `npm run security:audit` to check dependencies.
 
-O decodificador Opus do MVP é `opusscript`, evitando a cadeia vulnerável encontrada na dependência
-nativa avaliada. O procedimento para validar desempenho com até cinco participantes está em
-[SMOKE_TEST.md](./SMOKE_TEST.md).
+The MVP's Opus decoder is `opusscript`, avoiding the vulnerable dependency chain found in the
+native dependency that was evaluated. The procedure for validating performance with up to five
+participants is documented in [SMOKE_TEST.md](./SMOKE_TEST.md).
+
+## Contributing
+
+Contributions are welcome.
+
+1. Fork the repo and create a feature branch.
+2. Keep modules small and single-purpose; follow the existing structure.
+3. Add tests for new logic — `npm test` and the sidecar `pytest` must pass.
+4. Open a pull request describing the change and the reasoning.
+
+For bugs and feature requests, please open an issue.

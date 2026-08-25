@@ -29,7 +29,11 @@ import {
   type RecordingSegment,
 } from "./manifest.js";
 import type { ManifestStore } from "./manifest-store.js";
-import { createRecordingStopNotification } from "./recording-notification.js";
+import {
+  createRecordingStopNotification,
+  getRecordingText,
+  type RecordingText,
+} from "./recording-notification.js";
 import { finalizeInterruptedRecovery } from "./recovery.js";
 import { calculateProcessCpuPercent, estimatePacketLossPercent } from "./recording-metrics.js";
 import {
@@ -53,6 +57,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #logger: Logger;
   readonly #manifestStore: ManifestStore;
   readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
+  readonly #text: RecordingText;
 
   public constructor(
     client: Client,
@@ -66,6 +71,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     this.#manifestStore = manifestStore;
     this.#logger = logger;
     this.#onCompleted = onCompleted;
+    this.#text = getRecordingText(config.botLanguage);
   }
 
   public async create(input: StartRecordingInput, onEnded?: () => void): Promise<RecordingHandle> {
@@ -91,10 +97,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
         "voice_join_failed",
       );
       await this.#manifestStore.save(interrupted);
-      await this.#notify(
-        manifest.notificationChannelId,
-        "⚠️ Não foi possível iniciar a gravação. Nenhum áudio está sendo capturado.",
-      );
+      await this.#notify(manifest.notificationChannelId, this.#text.startFailed);
       throw error;
     }
   }
@@ -108,10 +111,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       const completed = finalizeInterruptedRecovery(manifest, new Date().toISOString());
       await this.#manifestStore.save(completed);
       await this.#enqueueCompleted(completed);
-      await this.#notify(
-        manifest.notificationChannelId,
-        "⚠️ A call estava vazia após o reinício. A gravação parcial foi finalizada e será processada.",
-      );
+      await this.#notify(manifest.notificationChannelId, this.#text.emptyAfterRestart);
       return undefined;
     }
 
@@ -125,17 +125,11 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       await this.#manifestStore.save(recoverableManifest);
     }
 
-    await this.#notify(
-      manifest.notificationChannelId,
-      "⚠️ O Summyz foi interrompido. Tentando retomar a gravação desta call.",
-    );
+    await this.#notify(manifest.notificationChannelId, this.#text.resumingAfterRestart);
 
     try {
       const handle = await this.#open(recoverableManifest, onEnded, voiceChannel);
-      await this.#notify(
-        manifest.notificationChannelId,
-        "✅ A gravação foi retomada automaticamente.",
-      );
+      await this.#notify(manifest.notificationChannelId, this.#text.resumed);
       return handle;
     } catch (error) {
       this.#logger.error(
@@ -146,10 +140,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
         },
         "Falha ao retomar gravação após reinício",
       );
-      await this.#notify(
-        manifest.notificationChannelId,
-        "⚠️ Não foi possível retomar a gravação. O áudio capturado foi preservado.",
-      );
+      await this.#notify(manifest.notificationChannelId, this.#text.resumeFailed);
       return undefined;
     }
   }
@@ -254,6 +245,7 @@ class DiscordVoiceRecording implements RecordingHandle {
   readonly #notify: (message: string) => Promise<void>;
   readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
   readonly #onEnded: (() => void) | undefined;
+  readonly #text: RecordingText;
   #ended = false;
   #manifest: RecordingManifest;
   #manifestQueue: Promise<void> = Promise.resolve();
@@ -277,6 +269,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     this.#notify = input.notify;
     this.#onCompleted = input.onCompleted;
     this.#onEnded = input.onEnded;
+    this.#text = getRecordingText(input.config.botLanguage);
   }
 
   public start(): void {
@@ -514,9 +507,7 @@ class DiscordVoiceRecording implements RecordingHandle {
         ? markManifestInterrupted(manifest, new Date().toISOString(), reason)
         : manifest,
     );
-    await this.#notify(
-      "⚠️ A gravação foi interrompida por um problema de conexão. Tentando retomar automaticamente.",
-    );
+    await this.#notify(this.#text.connectionInterrupted);
     for (const capture of this.#activeCaptures.values()) {
       capture.stop();
     }
@@ -540,7 +531,7 @@ class DiscordVoiceRecording implements RecordingHandle {
             : manifest,
         );
         this.#recovering = false;
-        await this.#notify("✅ A gravação foi retomada automaticamente.");
+        await this.#notify(this.#text.resumed);
         return;
       } catch (error) {
         this.#logger.warn(
@@ -561,9 +552,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     }
 
     this.#recovering = false;
-    await this.#notify(
-      "⚠️ Não foi possível retomar a gravação em cinco minutos. O áudio capturado foi preservado.",
-    );
+    await this.#notify(this.#text.reconnectExhausted);
     await this.stop({ reason: "reconnect_exhausted" });
   }
 
@@ -597,7 +586,11 @@ class DiscordVoiceRecording implements RecordingHandle {
     }
 
     this.#connection.destroy();
-    const notification = createRecordingStopNotification(this.#manifest, request);
+    const notification = createRecordingStopNotification(
+      this.#manifest,
+      request,
+      this.#config.botLanguage,
+    );
     if (notification !== undefined) {
       await this.#notify(notification);
     }

@@ -11,7 +11,7 @@ import { createManifest } from "../src/recording/manifest.js";
 
 describe("aviso de falha da transcrição", () => {
   it("informa apenas o resultado relevante sem detalhes internos", () => {
-    const message = createTranscriptionFailureMessage("meeting-1");
+    const message = createTranscriptionFailureMessage("meeting-1", "pt-br");
 
     expect(message).toContain("Não foi possível transcrever esta chamada");
     expect(message).toContain("meeting-1");
@@ -35,15 +35,25 @@ describe("aviso de falha da transcrição", () => {
       .mockRejectedValueOnce("canal indisponível");
     const client = { channels: { fetch } } as unknown as Client;
 
-    await notifyTranscriptionFailure(client, createLogger("silent"), manifest);
-    await notifyTranscriptionFailure(client, createLogger("silent"), manifest);
+    await notifyTranscriptionFailure(client, createLogger("silent"), manifest, "pt-br");
+    await notifyTranscriptionFailure(client, createLogger("silent"), manifest, "pt-br");
     await expect(
-      notifyTranscriptionFailure(client, createLogger("silent"), manifest),
+      notifyTranscriptionFailure(client, createLogger("silent"), manifest, "pt-br"),
     ).resolves.toBeUndefined();
     await expect(
-      notifyTranscriptionFailure(client, createLogger("silent"), manifest),
+      notifyTranscriptionFailure(client, createLogger("silent"), manifest, "pt-br"),
     ).resolves.toBeUndefined();
 
-    expect(send).toHaveBeenCalledWith({ content: createTranscriptionFailureMessage("meeting-1") });
+    expect(send).toHaveBeenCalledWith({
+      content: createTranscriptionFailureMessage("meeting-1", "pt-br"),
+    });
+  });
+
+  it("gera o aviso público em inglês sem expor detalhes internos", () => {
+    const message = createTranscriptionFailureMessage("meeting-1", "en");
+
+    expect(message).toContain("Unable to transcribe this voice call");
+    expect(message).toContain("meeting-1");
+    expect(message).not.toMatch(/FFmpeg|PCM|WAV|stack|path|conversion/i);
   });
 });

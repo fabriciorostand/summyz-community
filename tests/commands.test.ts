@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { commandDefinitions } from "../src/discord/commands.js";
+import { createCommandDefinitions } from "../src/discord/commands.js";
 
 describe("comandos do bot", () => {
+  const commandDefinitions = createCommandDefinitions("pt-br");
+
   it("expõe os comandos de gravação e configuração", () => {
     expect(commandDefinitions.map((command) => command.toJSON().name)).toEqual([
       "record",
@@ -39,5 +41,17 @@ describe("comandos do bot", () => {
         expect.objectContaining({ name: "tag", required: false }),
       ],
     });
+  });
+
+  it("traduz todas as descrições para o idioma configurado", () => {
+    const english = createCommandDefinitions("en").map((command) => command.toJSON());
+    const portuguese = createCommandDefinitions("pt-br").map((command) => command.toJSON());
+
+    expect(JSON.stringify(english)).toContain("Starts recording the voice channel you are in");
+    expect(JSON.stringify(english)).toContain("Forum that will receive the posts");
+    expect(JSON.stringify(english)).not.toContain("gravação");
+    expect(JSON.stringify(portuguese)).toContain(
+      "Inicia a gravação do canal de voz em que você está",
+    );
   });
 });

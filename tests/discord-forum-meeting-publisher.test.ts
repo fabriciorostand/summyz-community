@@ -37,6 +37,126 @@ async function createContext() {
 }
 
 describe("publicação da reunião em fórum do Discord", () => {
+  it("publica títulos, seções e anexos em inglês com data MM/DD/YYYY", async () => {
+    const context = await createContext();
+    const send = vi
+      .fn()
+      .mockResolvedValueOnce({ id: "topics-1" })
+      .mockResolvedValueOnce({ id: "decisions-1" })
+      .mockResolvedValueOnce({ id: "tasks-1" })
+      .mockResolvedValueOnce({ id: "observations-1" })
+      .mockResolvedValueOnce({ id: "transcript-1" });
+    const thread = { id: "post-1", isSendable: () => true, isThread: () => true, send };
+    const create = vi.fn(async () => thread);
+    const client = {
+      channels: {
+        fetch: vi.fn(async (id: string) =>
+          id === "forum-1" ? { threads: { create }, type: 15 } : thread,
+        ),
+      },
+    } as unknown as Client;
+    const publisher = new DiscordMeetingPublisher({
+      client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      store: new PublicationStore(context.root),
+      timeZone: "America/Sao_Paulo",
+    });
+
+    await publisher.publishSummary(
+      context.manifest,
+      {
+        decisions: ["Adopt the new workflow."],
+        discussedTopics: ["New workflow"],
+        executiveSummary: "The team discussed the workflow.",
+        observations: ["The tool still needs to be selected."],
+        tasks: [{ deadlineText: "by Friday", ownerName: "Bruno", text: "Send the file." }],
+      },
+      context.transcriptPath,
+    );
+
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: expect.stringMatching(/Meeting ID[\s\S]*Executive summary/),
+        }),
+        name: "Summary — 08/17/2026 12:30 — Lobby",
+        reason: "Publishing result for meeting meeting-1",
+      }),
+    );
+    const sent = JSON.stringify(send.mock.calls);
+    expect(sent).toContain("Discussed topics");
+    expect(sent).toContain("Decisions");
+    expect(sent).toContain("Tasks");
+    expect(sent).toContain("Assignee: Bruno");
+    expect(sent).toContain("Deadline: by Friday");
+    expect(sent).toContain("Open issues and notes");
+    expect(sent).toContain("Full voice call transcript");
+    expect(sent).not.toContain("Pendências e observações");
+  });
+
+  it("publica somente a transcrição e avisa falhas em inglês", async () => {
+    const context = await createContext();
+    const thread = {
+      id: "post-1",
+      isSendable: (): boolean => true,
+      isThread: (): boolean => true,
+      send: vi.fn(),
+    };
+    const create = vi.fn(async () => thread);
+    const notify = vi.fn(async () => undefined);
+    const client = {
+      channels: {
+        fetch: vi.fn(async (id: string) => {
+          if (id === "forum-1") return { threads: { create }, type: 15 };
+          return id === "text-original"
+            ? { isSendable: (): boolean => true, send: notify }
+            : thread;
+        }),
+      },
+    } as unknown as Client;
+    const publisher = new DiscordMeetingPublisher({
+      client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      store: new PublicationStore(context.root),
+      timeZone: "America/Sao_Paulo",
+    });
+
+    await publisher.publishTranscriptOnly(context.manifest, context.transcriptPath);
+    expect(create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: expect.objectContaining({
+          content: expect.stringContaining("The summary is unavailable"),
+          files: [context.transcriptPath],
+        }),
+        name: "Transcript — 08/17/2026 12:30 — Lobby",
+      }),
+    );
+
+    await context.configStore.clearSummaryForum("guild-1");
+    const secondPublisher = new DiscordMeetingPublisher({
+      client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      store: new PublicationStore(join(context.root, "second")),
+      timeZone: "America/Sao_Paulo",
+    });
+    await expect(
+      secondPublisher.publishTranscriptOnly(
+        { ...context.manifest, meetingId: "meeting-2" },
+        context.transcriptPath,
+      ),
+    ).rejects.toThrow();
+    expect(notify).toHaveBeenCalledWith({
+      allowedMentions: { parse: [] },
+      content: "⚠️ Unable to publish the summary and transcript to the configured channel.",
+    });
+  });
+
   it("cria um post com resumo, respostas e transcrição usando a tag configurada", async () => {
     const context = await createContext();
     const send = vi
@@ -54,6 +174,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -100,6 +221,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -133,6 +255,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -180,6 +303,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -221,6 +345,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -269,6 +394,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -302,6 +428,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client: { channels: { fetch: vi.fn() } } as unknown as Client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -334,6 +461,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client: { channels: { fetch: vi.fn(async () => thread) } } as unknown as Client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -363,6 +491,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         },
       } as unknown as Client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -382,6 +511,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         channels: { fetch: vi.fn(async () => ({ isSendable: () => false })) },
       } as unknown as Client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -404,6 +534,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         },
       } as unknown as Client,
       guildConfigStore: context.configStore,
+      language: "pt-br",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",

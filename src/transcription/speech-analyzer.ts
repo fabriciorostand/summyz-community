@@ -162,7 +162,7 @@ async function createSileroVad(
 }
 
 async function decodeAudioFile(path: string, maximumBytes: number): Promise<Float32Array> {
-  // O pacote é CommonJS e o TypeScript 7 interpreta incorretamente o default no modo NodeNext.
+  // The package is CommonJS, and TypeScript 7 misinterprets its default export in NodeNext mode.
   const executablePath = ffmpegPath as unknown as string | null;
   if (executablePath === null) {
     throw new Error("O binário do FFmpeg não está disponível");

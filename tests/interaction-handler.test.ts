@@ -25,6 +25,7 @@ afterEach(async () => {
 
 interface InteractionOptions {
   administrator?: boolean;
+  botLanguage?: "en" | "pt-br";
   botMemberAvailable?: boolean;
   channelId?: string;
   chatInput?: boolean;
@@ -59,7 +60,13 @@ async function createHarness(options: InteractionOptions = {}) {
       listener = received;
     }),
   } as unknown as Client;
-  installInteractionHandler(client, store, coordinator, createLogger("silent"));
+  installInteractionHandler(
+    client,
+    store,
+    coordinator,
+    createLogger("silent"),
+    options.botLanguage ?? "pt-br",
+  );
 
   const reply = vi.fn(async () => undefined);
   const editReply = vi.fn(async () => undefined);
@@ -114,6 +121,25 @@ async function createHarness(options: InteractionOptions = {}) {
 }
 
 describe("fluxo de comandos do Discord", () => {
+  it("responde em inglês quando esse é o idioma configurado", async () => {
+    const unauthorized = await createHarness({ botLanguage: "en" });
+    await unauthorized.listener(unauthorized.interaction);
+    expect(unauthorized.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "You do not have an authorized role to start recordings.",
+      }),
+    );
+
+    const guildOnly = await createHarness({
+      botLanguage: "en",
+      guildAvailable: false,
+    });
+    await guildOnly.listener(guildOnly.interaction);
+    expect(guildOnly.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "This command can only be used in a server." }),
+    );
+  });
+
   it("ignora interações que não são comandos e comandos desconhecidos", async () => {
     const nonCommand = await createHarness({ chatInput: false });
     await nonCommand.listener(nonCommand.interaction);

@@ -56,7 +56,7 @@ export class MeetingArtifactRetention {
         .filter((entry) => entry !== "manifest.json" && !retainedEntries.includes(entry))
         .map((entry) => rm(resolve(directory, entry), { force: true, recursive: true })),
     );
-    // O manifesto é removido por último para que uma queda permita repetir a mesma política.
+    // Remove the manifest last so the same policy can run again after a crash.
     await rm(resolve(directory, "manifest.json"), { force: true });
     if (retainAudio) {
       this.#logger.info({ meetingId }, "Conteúdo temporário excluído; áudios preservados");

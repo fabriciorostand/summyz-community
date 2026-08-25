@@ -2,6 +2,9 @@ import { z } from "zod";
 
 const environmentSchema = z
   .object({
+    BOT_LANGUAGE: z
+      .enum(["en", "pt-br"], { error: "BOT_LANGUAGE must be en or pt-br" })
+      .default("en"),
     DATA_DIR: z.string().min(1).default("./data"),
     DATABASE_URL: z
       .url("DATABASE_URL deve ser uma URL válida")
@@ -103,6 +106,7 @@ const environmentSchema = z
   });
 
 export interface AppConfig {
+  botLanguage: z.infer<typeof environmentSchema>["BOT_LANGUAGE"];
   dataDir: string;
   databaseUrl?: string;
   discordClientId: string;
@@ -146,6 +150,7 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
   const parsed = environmentSchema.parse(environment);
 
   return {
+    botLanguage: parsed.BOT_LANGUAGE,
     dataDir: parsed.DATA_DIR,
     ...(parsed.DATABASE_URL === undefined ? {} : { databaseUrl: parsed.DATABASE_URL }),
     discordClientId: parsed.DISCORD_CLIENT_ID,

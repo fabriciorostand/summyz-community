@@ -18,6 +18,7 @@ describe("loadConfig", () => {
     });
 
     expect(config).toMatchObject({
+      botLanguage: "en",
       dataDir: "./data",
       discordClientId: "client-id",
       discordToken: "token",
@@ -53,6 +54,16 @@ describe("loadConfig", () => {
       transcriptionWindowMaxSeconds: 30,
       voiceReconnectMaxMs: 300_000,
     });
+  });
+
+  it("aceita pt-br e rejeita idiomas não suportados", () => {
+    expect(loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "pt-br" }).botLanguage).toBe("pt-br");
+    expect(() => loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "pt-BR" })).toThrow(
+      /BOT_LANGUAGE/,
+    );
+    expect(() => loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "es" })).toThrow(
+      /BOT_LANGUAGE/,
+    );
   });
 
   it("rejeita durações de segmento inválidas", () => {

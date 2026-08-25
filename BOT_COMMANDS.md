@@ -1,103 +1,106 @@
-# Comandos do Summyz
+# Summyz Commands
 
 ## `/record`
 
-Inicia a gravação do canal de voz em que você está.
+Starts recording the voice channel you are in.
 
-Pode usar:
+Who can use it:
 
-- administrador do servidor;
-- membro com um dos cargos autorizados para gravação.
+- server administrators;
+- members with one of the roles authorized to record.
 
-O Summyz publica no canal de texto onde o comando foi usado que a gravação começou. Apenas uma
-gravação pode ficar ativa por servidor. O comando pode ser executado em qualquer chat do servidor,
-mas o usuário precisa estar em um canal de voz convencional. Também é necessário configurar antes
-um fórum com `/recording-summary-forum set`.
+Summyz posts a message in the text channel where the command was used to announce that recording
+has started. Only one recording can be active per server. The command can be run in any server
+chat, but the user must be in a standard voice channel. A forum must also be configured beforehand
+with `/recording-summary-forum set`.
 
 ## `/stop`
 
-Encerra a gravação ativa do servidor.
+Stops the server's active recording.
 
-Para usar o comando, você precisa:
+To use the command, you must:
 
-- ser administrador ou possuir um cargo autorizado;
-- estar no mesmo canal de voz que está sendo gravado.
+- be an administrator or have an authorized role;
+- be in the same voice channel that is being recorded.
 
-Quem executa `/stop` recebe uma confirmação efêmera no chat do comando. O encerramento público,
-com a menção de quem o solicitou, é publicado no chat onde `/record` iniciou a sessão.
+The person who runs `/stop` receives an ephemeral confirmation in the command's chat. The public
+stop notification, mentioning who requested it, is posted in the chat where `/record` started the
+session.
 
-Se todas as pessoas saírem do canal, o Summyz encerra a gravação e sai do canal automaticamente. O
-chat original recebe uma mensagem com o nome do canal de voz, informa que os segmentos foram
-preservados e que serão processados. Gravações antigas sem o nome salvo usam a descrição genérica
-“canal de voz”.
+If everyone leaves the channel, Summyz stops recording and leaves the channel automatically. The
+original chat receives a message with the voice channel's name, stating that the segments were
+preserved and will be processed. Older recordings without a saved name use the generic description
+“voice channel.”
 
-Depois de um encerramento por `/stop` ou canal vazio, a transcrição e o resumo começam em segundo
-plano por uma fila durável. O arquivo completo é publicado como anexo em um post no fórum
-configurado.
-Antes de enviar áudio ao provedor configurado, o servidor do bot descarta localmente trechos sem voz
-e consolida falas próximas da mesma pessoa sem misturar participantes.
-Se a reunião não puder ser transcrita integralmente, o canal onde `/record` foi executado recebe
-somente um aviso genérico.
+After a recording is stopped with `/stop` or because the channel is empty, transcription and
+summarization begin in the background through a durable queue. The complete file is posted as an
+attachment in the configured forum.
+Before sending audio to the configured provider, the bot server locally discards sections without
+speech and merges nearby speech from the same person without mixing participants.
+If the meeting cannot be fully transcribed, the channel where `/record` was run receives only a
+generic warning.
 
-Quando o resumo é concluído, o post contém resumo executivo, tópicos discutidos, decisões,
-tarefas e pendências ou observações. Responsável e prazo só aparecem quando foram ditos
-explicitamente. Se o resumo falhar depois das tentativas configuradas, o Summyz ainda cria uma
-post com a transcrição completa e informa que o resumo está indisponível.
+When the summary is complete, the post contains an executive summary, discussed topics, decisions,
+tasks, and pending items or notes. An assignee and deadline appear only when they were explicitly
+stated. If summarization fails after the configured attempts, Summyz still creates a post with the
+complete transcript and reports that the summary is unavailable.
 
-## `/recording-role add role:<cargo>`
+## `/recording-role add role:<role>`
 
-Autoriza um cargo a iniciar e encerrar gravações.
+Authorizes a role to start and stop recordings.
 
-Somente administradores e membros com a permissão **Gerenciar servidor** podem usar este comando.
+Only administrators and members with the **Manage Server** permission can use this command.
 
-## `/recording-role remove role:<cargo>`
+## `/recording-role remove role:<role>`
 
-Remove a autorização de gravação de um cargo.
+Removes a role's authorization to record.
 
-Somente administradores e membros com a permissão **Gerenciar servidor** podem usar este comando.
+Only administrators and members with the **Manage Server** permission can use this command.
 
 ## `/recording-role list`
 
-Mostra os cargos autorizados a controlar gravações no servidor.
+Shows the roles authorized to control recordings on the server.
 
-Somente administradores e membros com a permissão **Gerenciar servidor** podem usar este comando.
+Only administrators and members with the **Manage Server** permission can use this command.
 
-## `/recording-summary-forum set forum:<fórum> tag:<tag opcional>`
+## `/recording-summary-forum set forum:<forum> tag:<optional tag>`
 
-Define o fórum que receberá os resumos e as transcrições. A tag precisa existir no fórum; quando o
-fórum exige tags, a opção é obrigatória. O comando valida as permissões do bot antes de salvar.
+Sets the forum that will receive summaries and transcripts. The tag must exist in the forum; when
+the forum requires tags, this option is mandatory. The command validates the bot's permissions
+before saving.
 
-Pode usar:
+Who can use it:
 
-- administrador do servidor;
-- membro com a permissão **Gerenciar servidor**;
-- membro com um cargo autorizado para gravação.
+- server administrators;
+- members with the **Manage Server** permission;
+- members with a role authorized to record.
 
 ## `/recording-summary-forum show`
 
-Mostra o fórum e a tag configurados no servidor. Possui as mesmas regras de acesso do `set`.
+Shows the forum and tag configured for the server. It follows the same access rules as `set`.
 
 ## `/recording-summary-forum clear`
 
-Remove o destino. Novas gravações ficam bloqueadas e reuniões ainda não publicadas permanecem
-pendentes até que outro fórum seja configurado. Possui as mesmas regras de acesso do `set`.
+Removes the destination. New recordings are blocked, and meetings that have not yet been published
+remain pending until another forum is configured. It follows the same access rules as `set`.
 
-## Avisos importantes
+## Important Notes
 
-- Administradores sempre podem controlar gravações.
-- A falta de autorização tem prioridade sobre os demais erros de `/record`; para usuários
-  autorizados, a falta de fórum configurado tem prioridade sobre a ausência no canal de voz.
-- Bots não são gravados.
-- Pessoas que entrarem no canal depois do início também serão gravadas.
-- Se a conexão de voz cair, o Summyz avisa no canal de texto e tenta retomar por até cinco minutos.
-- Avisos públicos de início, conexão, encerramento, transcrição e publicação permanecem no chat em
-  que `/record` foi executado, formando um único histórico da sessão.
-- Se o processo reiniciar, o áudio já capturado é preservado e a gravação é retomada quando ainda
-  houver pessoas no canal.
-- Se o canal estiver vazio após o reinício, o Summyz finaliza e processa a gravação parcial.
-- Falhas transitórias são repetidas internamente; não existem comandos públicos de status, retry ou
-  exclusão nesta etapa.
-- Com `PERSIST_MEETING_AUDIO=false`, os áudios são excluídos após transcrição válida ou falha
-  definitiva; com `true`, permanecem no disco até exclusão manual do administrador.
-- O modo de armazenamento e as políticas de conteúdo e áudio são fixados quando `/record` inicia;
-  alterações posteriores no `.env` valem somente para novas reuniões.
+- Administrators can always control recordings.
+- Lack of authorization takes precedence over other `/record` errors; for authorized users, a
+  missing forum configuration takes precedence over not being in a voice channel.
+- Bots are not recorded.
+- People who join the channel after recording starts are also recorded.
+- If the voice connection drops, Summyz posts a warning in the text channel and attempts to resume
+  for up to five minutes.
+- Public notifications about recording start, connection, recording end, transcription, and
+  publication remain in the chat where `/record` was run, forming a single session history.
+- If the process restarts, audio already captured is preserved, and recording resumes if people are
+  still in the channel.
+- If the channel is empty after a restart, Summyz finalizes and processes the partial recording.
+- Transient failures are retried internally; there are no public status, retry, or deletion commands
+  at this stage.
+- With `PERSIST_MEETING_AUDIO=false`, audio files are deleted after a valid transcription or a
+  permanent failure; with `true`, they remain on disk until manually deleted by an administrator.
+- The storage mode and content and audio policies are fixed when `/record` starts; subsequent
+  changes to `.env` apply only to new meetings.

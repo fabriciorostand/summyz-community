@@ -12,19 +12,23 @@ import {
 import type { Logger } from "pino";
 
 import { canConfigureSummaryForum, canManageRecordingRoles, canRecord } from "../authorization.js";
+import type { AppConfig } from "../config.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
 import {
   RecordingAlreadyActiveError,
   type RecordingCoordinator,
 } from "../recording/recording-coordinator.js";
 import { createEphemeralReply } from "./responses.js";
+import { getInteractionText, type InteractionText } from "./interaction-text.js";
 
 export function installInteractionHandler(
   client: Client,
   guildConfigStore: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
   logger: Logger,
+  language: AppConfig["botLanguage"],
 ): void {
+  const text = getInteractionText(language);
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) {
       return;
@@ -32,20 +36,20 @@ export function installInteractionHandler(
 
     try {
       if (interaction.commandName === "recording-role") {
-        await handleRecordingRole(interaction, guildConfigStore);
+        await handleRecordingRole(interaction, guildConfigStore, text);
       } else if (interaction.commandName === "recording-summary-forum") {
-        await handleRecordingSummaryForum(interaction, guildConfigStore);
+        await handleRecordingSummaryForum(interaction, guildConfigStore, text);
       } else if (interaction.commandName === "record") {
-        await handleRecord(interaction, guildConfigStore, coordinator);
+        await handleRecord(interaction, guildConfigStore, coordinator, text);
       } else if (interaction.commandName === "stop") {
-        await handleStop(interaction, guildConfigStore, coordinator);
+        await handleStop(interaction, guildConfigStore, coordinator, text);
       }
     } catch (error) {
       logger.error(
         { commandName: interaction.commandName, errorType: getErrorType(error) },
         "Falha ao executar comando",
       );
-      await sendError(interaction, "Não foi possível concluir o comando. Tente novamente.");
+      await sendError(interaction, text.commandFailed);
     }
   });
 }
@@ -53,8 +57,9 @@ export function installInteractionHandler(
 async function handleRecordingSummaryForum(
   interaction: ChatInputCommandInteraction,
   store: GuildConfigurationStore,
+  text: InteractionText,
 ): Promise<void> {
-  const context = await resolveGuildContext(interaction);
+  const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
     return;
   }
@@ -67,7 +72,7 @@ async function handleRecordingSummaryForum(
       recordingRoleIds,
     })
   ) {
-    await interaction.reply(createEphemeralReply("Você não pode configurar o fórum de resumos."));
+    await interaction.reply(createEphemeralReply(text.cannotConfigureSummaryForum));
     return;
   }
 
@@ -76,27 +81,21 @@ async function handleRecordingSummaryForum(
     const configured = await store.getSummaryForum(context.guildId);
     const content =
       configured === undefined
-        ? "Nenhum fórum de resumos está configurado neste servidor."
-        : `Fórum de resumos: <#${configured.forumId}>${
-            configured.tagId === undefined ? "" : `\nTag configurada: \`${configured.tagId}\``
-          }`;
+        ? text.noSummaryForum
+        : text.forumDisplay(configured.forumId, configured.tagId);
     await interaction.reply(createEphemeralReply(content));
     return;
   }
 
   if (subcommand === "clear") {
     await store.clearSummaryForum(context.guildId);
-    await interaction.reply(
-      createEphemeralReply(
-        "Configuração removida. Novas gravações ficarão bloqueadas até que outro fórum seja configurado. Reuniões ainda não publicadas permanecerão pendentes.",
-      ),
-    );
+    await interaction.reply(createEphemeralReply(text.summaryForumCleared));
     return;
   }
 
   const selectedChannel = interaction.options.getChannel("forum", true, [ChannelType.GuildForum]);
   if (selectedChannel.type !== ChannelType.GuildForum) {
-    await interaction.reply(createEphemeralReply("Selecione um canal de fórum válido."));
+    await interaction.reply(createEphemeralReply(text.invalidForum));
     return;
   }
   const forum: ForumChannel = selectedChannel;
@@ -114,11 +113,7 @@ async function handleRecordingSummaryForum(
       PermissionFlagsBits.ReadMessageHistory,
     ])
   ) {
-    await interaction.reply(
-      createEphemeralReply(
-        "O Summyz não possui todas as permissões necessárias nesse fórum: visualizar, criar posts, responder, ler mensagens e anexar arquivos.",
-      ),
-    );
+    await interaction.reply(createEphemeralReply(text.insufficientForumPermissions));
     return;
   }
 
@@ -129,18 +124,14 @@ async function handleRecordingSummaryForum(
       : forum.availableTags.find(
           (candidate) =>
             candidate.id === tagInput ||
-            candidate.name.localeCompare(tagInput, "pt-BR", { sensitivity: "accent" }) === 0,
+            candidate.name.localeCompare(tagInput, text.locale, { sensitivity: "accent" }) === 0,
         );
   if (tagInput !== undefined && tag === undefined) {
-    await interaction.reply(
-      createEphemeralReply("A tag informada não existe no fórum selecionado."),
-    );
+    await interaction.reply(createEphemeralReply(text.tagNotFound));
     return;
   }
   if (forum.flags.has(ChannelFlags.RequireTag) && tag === undefined) {
-    await interaction.reply(
-      createEphemeralReply("Este fórum exige uma tag. Informe a opção `tag` no comando."),
-    );
+    await interaction.reply(createEphemeralReply(text.forumRequiresTag));
     return;
   }
 
@@ -148,20 +139,15 @@ async function handleRecordingSummaryForum(
     forumId: forum.id,
     ...(tag === undefined ? {} : { tagId: tag.id }),
   });
-  await interaction.reply(
-    createEphemeralReply(
-      `Fórum de resumos configurado: <#${forum.id}>${
-        tag === undefined ? "" : ` com a tag **${tag.name}**`
-      }.`,
-    ),
-  );
+  await interaction.reply(createEphemeralReply(text.forumConfigured(forum.id, tag?.name)));
 }
 
 async function handleRecordingRole(
   interaction: ChatInputCommandInteraction,
   store: GuildConfigurationStore,
+  text: InteractionText,
 ): Promise<void> {
-  const context = await resolveGuildContext(interaction);
+  const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
     return;
   }
@@ -171,19 +157,14 @@ async function handleRecordingRole(
       isAdministrator: context.member.permissions.has(PermissionFlagsBits.Administrator),
     })
   ) {
-    await interaction.reply(
-      createEphemeralReply("Você não pode configurar os cargos de gravação."),
-    );
+    await interaction.reply(createEphemeralReply(text.cannotConfigureRecordingRoles));
     return;
   }
 
   const subcommand = interaction.options.getSubcommand(true);
   if (subcommand === "list") {
     const roleIds = await store.listRecordingRoles(context.guildId);
-    const content =
-      roleIds.length === 0
-        ? "Nenhum cargo foi autorizado. Apenas administradores podem controlar gravações."
-        : `Cargos autorizados:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`;
+    const content = roleIds.length === 0 ? text.noAuthorizedRoles : text.authorizedRoles(roleIds);
     await interaction.reply(createEphemeralReply(content));
     return;
   }
@@ -191,42 +172,35 @@ async function handleRecordingRole(
   const role = interaction.options.getRole("role", true);
   if (subcommand === "add") {
     await store.addRecordingRole(context.guildId, role.id);
-    await interaction.reply(createEphemeralReply(`${role} agora pode controlar gravações.`));
+    await interaction.reply(createEphemeralReply(text.roleAuthorized(String(role))));
     return;
   }
 
   await store.removeRecordingRole(context.guildId, role.id);
-  await interaction.reply(createEphemeralReply(`${role} não pode mais controlar gravações.`));
+  await interaction.reply(createEphemeralReply(text.roleRemoved(String(role))));
 }
 
 async function handleRecord(
   interaction: ChatInputCommandInteraction,
   store: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
+  text: InteractionText,
 ): Promise<void> {
-  const context = await resolveGuildContext(interaction);
+  const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
     return;
   }
   if (!(await isRecordingAuthorized(context.member, context.guildId, store))) {
-    await interaction.reply(
-      createEphemeralReply("Você não possui um cargo autorizado para gravar."),
-    );
+    await interaction.reply(createEphemeralReply(text.cannotRecord));
     return;
   }
   if ((await store.getSummaryForum(context.guildId)) === undefined) {
-    await interaction.reply(
-      createEphemeralReply(
-        "Configure um fórum com `/recording-summary-forum set` antes de iniciar uma gravação.",
-      ),
-    );
+    await interaction.reply(createEphemeralReply(text.configureForumFirst));
     return;
   }
   const voiceChannel = context.member.voice.channel;
   if (voiceChannel?.type !== ChannelType.GuildVoice) {
-    await interaction.reply(
-      createEphemeralReply("Entre em um canal de voz antes de usar `/record`."),
-    );
+    await interaction.reply(createEphemeralReply(text.joinVoiceFirst));
     return;
   }
 
@@ -239,12 +213,11 @@ async function handleRecord(
       voiceChannelName: voiceChannel.name,
     });
     await interaction.editReply(
-      `🔴 Gravação iniciada em **${voiceChannel.name}** por ${interaction.user}. ` +
-        `O áudio dos participantes será gravado. ID: \`${handle.meetingId}\``,
+      text.recordingStarted(voiceChannel.name, String(interaction.user), handle.meetingId),
     );
   } catch (error) {
     if (error instanceof RecordingAlreadyActiveError) {
-      await interaction.editReply("Já existe uma gravação ativa neste servidor.");
+      await interaction.editReply(text.recordingAlreadyActive);
       return;
     }
     throw error;
@@ -255,26 +228,23 @@ async function handleStop(
   interaction: ChatInputCommandInteraction,
   store: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
+  text: InteractionText,
 ): Promise<void> {
-  const context = await resolveGuildContext(interaction);
+  const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
     return;
   }
   const activeRecording = coordinator.get(context.guildId);
   if (activeRecording === undefined) {
-    await interaction.reply(createEphemeralReply("Não existe uma gravação ativa neste servidor."));
+    await interaction.reply(createEphemeralReply(text.noActiveRecording));
     return;
   }
   if (context.member.voice.channelId !== activeRecording.voiceChannelId) {
-    await interaction.reply(
-      createEphemeralReply("Você precisa estar no canal que está sendo gravado para usar `/stop`."),
-    );
+    await interaction.reply(createEphemeralReply(text.userMustBeInRecordedChannel));
     return;
   }
   if (!(await isRecordingAuthorized(context.member, context.guildId, store))) {
-    await interaction.reply(
-      createEphemeralReply("Você não possui um cargo autorizado para encerrar."),
-    );
+    await interaction.reply(createEphemeralReply(text.cannotStop));
     return;
   }
 
@@ -283,14 +253,15 @@ async function handleStop(
     reason: "command",
     stoppedByUserId: interaction.user.id,
   });
-  await interaction.editReply(
-    `✅ Comando processado. A gravação foi encerrada em <#${activeRecording.notificationChannelId}>.`,
-  );
+  await interaction.editReply(text.stopProcessed(activeRecording.notificationChannelId));
 }
 
-async function resolveGuildContext(interaction: ChatInputCommandInteraction) {
+async function resolveGuildContext(
+  interaction: ChatInputCommandInteraction,
+  text: InteractionText,
+) {
   if (interaction.guild === null || interaction.guildId === null) {
-    await interaction.reply(createEphemeralReply("Este comando só pode ser usado em um servidor."));
+    await interaction.reply(createEphemeralReply(text.guildOnly));
     return undefined;
   }
   const member = await interaction.guild.members.fetch(interaction.user.id);

@@ -1,6 +1,6 @@
 import type { MeetingContentStore } from "./meeting-finalizer.js";
 
-// Os arquivos produzidos pelo pipeline já são a persistência de conteúdo no modo local.
+// Files produced by the pipeline already provide content persistence in local mode.
 export class LocalMeetingContentStore implements MeetingContentStore {
   public async persist(): Promise<boolean> {
     return true;
