@@ -8,15 +8,17 @@ post de fórum do Discord.
 
 1. Use um servidor exclusivo de teste e avise todos os participantes sobre a gravação.
 2. Configure `.env` com `DISCORD_GUILD_ID` para o servidor de teste.
-3. Execute `npm run dev` e preserve a saída do terminal.
-4. Autorize o cargo de teste com `/recording-role add`.
-5. Crie um fórum de teste e configure-o com `/recording-summary-forum set`. Se o fórum exigir tag,
+3. Comece com `STORAGE_MODE=local`, `PERSIST_MEETING_CONTENT=true` e
+   `PERSIST_MEETING_AUDIO=false`. O modo PostgreSQL será validado separadamente.
+4. Execute `npm run dev` e preserve a saída do terminal.
+5. Autorize o cargo de teste com `/recording-role add`.
+6. Crie um fórum de teste e configure-o com `/recording-summary-forum set`. Se o fórum exigir tag,
    informe uma tag existente no comando.
-6. Configure `OPENROUTER_API_KEY` e um `OPENROUTER_TRANSCRIPTION_MODEL` que possua uma entrada
+7. Configure `OPENROUTER_API_KEY` e um `OPENROUTER_TRANSCRIPTION_MODEL` que possua uma entrada
    correspondente em `config/transcription-model-profiles.json`.
-7. Configure `OPENROUTER_REFINEMENT_MODEL` e `OPENROUTER_SUMMARY_MODEL` com modelos que aceitem
+8. Configure `OPENROUTER_REFINEMENT_MODEL` e `OPENROUTER_SUMMARY_MODEL` com modelos que aceitem
    saída estruturada.
-8. Confirme que o bot possui as permissões Ver canal, Enviar mensagens, Enviar mensagens em
+9. Confirme que o bot possui as permissões Ver canal, Enviar mensagens, Enviar mensagens em
    threads, Ler histórico de mensagens e Anexar arquivos no fórum de teste.
 
 ## Cenários
@@ -88,7 +90,8 @@ Isso verifica simultaneamente se o VAD preserva intervenções curtas e se o mod
 para áudio não verbal.
 
 Encerre primeiro com `/stop` e repita em outra reunião saindo do canal sem usar o comando. Nos dois
-casos, aguarde o log `Transcrição da reunião concluída` e confira:
+casos, acompanhe os arquivos antes da publicação e aguarde o log `Transcrição da reunião concluída`
+para conferir:
 
 - existência de `data/recordings/<meetingId>/transcript.txt`;
 - existência de `data/recordings/<meetingId>/transcript.raw.txt` após o refinamento;
@@ -99,6 +102,7 @@ casos, aguarde o log `Transcrição da reunião concluída` e confira:
 - ausência de `userId`, detalhes internos, conteúdo inventado ou falas atribuídas à pessoa errada;
 - presença da resposta curta real e ausência de texto para o ruído sem fala;
 - coerência do texto com o áudio ouvido pelos participantes.
+- exclusão do diretório `participants` logo depois da transcrição completa;
 
 Compare `transcript.raw.txt` com `transcript.txt` e confirme que o refinamento alterou somente erros
 textuais evidentes. A quantidade e a ordem das linhas, os nomes e todos os timestamps devem ser
@@ -152,7 +156,8 @@ Para exercitar a divisão e a consolidação sem fazer uma call de duas horas, r
 `SUMMARY_CHUNK_MAX_CHARACTERS` para que o roteiro ocupe mais de um bloco. Restaure o valor normal
 depois do teste e confirme que nenhuma fala foi dividida entre blocos.
 
-Confirme que `summary.json` e `publication.json` terminam com estado `completed`. Reinicie o bot
+Confirme nos logs que resumo e publicação terminam. Com a persistência local de conteúdo habilitada,
+o workspace deve permanecer e conter transcrições, resumo, publicação e manifesto. Reinicie o bot
 depois da publicação e verifique que ele não cria outro post para a mesma reunião.
 
 O fallback após três falhas do refinamento deve ser validado pelos testes automatizados com um
@@ -165,6 +170,43 @@ Ele deve criar o post `Transcrição — DD/MM/AAAA HH:mm — Nome do canal de v
 mensagem que o resumo está indisponível e anexar `transcript.txt`. Não envie uma transcrição real
 deliberadamente a um modelo inválido apenas para provocar essa falha.
 
+## Recuperação e fila durável
+
+1. Inicie uma gravação, fale por alguns minutos e reinicie o processo mantendo pelo menos uma
+   pessoa no canal. Confirme o aviso e a retomada automática; depois esvazie o canal e verifique a
+   publicação de uma única reunião contendo os trechos anteriores e posteriores ao reinício.
+2. Repita, mas esvazie o canal enquanto o processo estiver parado. Ao iniciar, confirme que a call
+   parcial é finalizada, entra na fila e é publicada sem intervenção.
+3. Reinicie o processo depois de encerrar a call, durante transcrição, refinamento e publicação.
+   Em cada ponto, confirme que o lease expirado ou o job pendente retoma o estágio, sem perder o
+   processamento nem criar outro post.
+4. Em ambiente descartável, interrompa temporariamente o acesso ao provedor depois da gravação.
+   Inspecione `processing.json` no modo local ou `processing_jobs` no modo PostgreSQL e confirme as
+   tentativas duráveis após 1 minuto, 5 minutos, 15 minutos, 1 hora e 6 horas. Restaure o provedor
+   antes da última execução e confirme a conclusão.
+5. Repita o reinício durante e depois da call nas quatro combinações de
+   `PERSIST_MEETING_CONTENT`/`PERSIST_MEETING_AUDIO`. Com áudio desabilitado, confirme a exclusão
+   após transcrição válida e após falha definitiva; com áudio habilitado, confirme a permanência de
+   `participants` e do catálogo.
+6. Mude `STORAGE_MODE` enquanto existir uma reunião pendente. Confirme que uma reunião iniciada em
+   `local` continua no disco e uma iniciada em `postgres` continua no banco, sem migração.
+
+## Validação do modo PostgreSQL
+
+1. Configure `STORAGE_MODE=postgres`, `DATABASE_URL`, `PERSIST_MEETING_CONTENT=true` e
+   `PERSIST_MEETING_AUDIO=true`. Suba o banco com
+   `docker compose --profile postgres up -d postgres` antes do bot.
+2. Conclua uma reunião e valide `meetings`, `processing_jobs`, `meeting_contents` e
+   `meeting_audio_segments`. Os caminhos de áudio devem ser relativos e os bytes devem existir
+   somente em `DATA_DIR`, nunca no banco.
+3. Reinicie durante a gravação e durante cada estágio do processamento. Confirme uma única reunião
+   e uma única publicação.
+4. Com `PERSIST_MEETING_CONTENT=false`, confirme a ausência de `meeting_contents`; a reunião mínima
+   e o histórico dos jobs permanecem no PostgreSQL.
+5. Pare o PostgreSQL e inicie o bot. O processo deve encerrar antes do login no Discord com mensagem
+   clara, sem imprimir senha, URL ou stack trace. Repita em `STORAGE_MODE=local` sem reunião
+   PostgreSQL pendente e confirme que o bot inicia sem banco.
+
 ## Cenário de falha controlada
 
 1. configure temporariamente um modelo sem entrada no arquivo de perfis;
@@ -174,6 +216,6 @@ deliberadamente a um modelo inválido apenas para provocar essa falha.
 Retries e falhas terminais do provedor são validados por testes automatizados com dados sintéticos,
 sem enviar uma call real deliberadamente para uma configuração inválida.
 
-A exclusão automática após 24 horas pode ser validada em ambiente descartável reduzindo
-temporariamente `FAILED_RECORDING_RETENTION_HOURS`; não reduza a retenção no ambiente que contém
-gravações reais.
+Depois que todas as tentativas duráveis de uma transcrição falharem, confirme o aviso genérico. Com
+`PERSIST_MEETING_AUDIO=false`, os áudios devem ser excluídos; com `true`, devem permanecer. Não
+provoque esse cenário com uma call real que precise ser preservada.

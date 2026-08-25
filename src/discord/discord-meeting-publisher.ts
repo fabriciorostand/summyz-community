@@ -9,7 +9,7 @@ import {
 } from "discord.js";
 import type { Logger } from "pino";
 
-import type { GuildConfigStore, SummaryForumConfiguration } from "../guild-config-store.js";
+import type { GuildConfigurationStore, SummaryForumConfiguration } from "../guild-config-store.js";
 import type { RecordingManifest } from "../recording/manifest.js";
 import { createPublicationState, type PublicationState } from "../summary/publication-state.js";
 import type { PublicationStore } from "../summary/publication-store.js";
@@ -20,7 +20,7 @@ const PUBLICATION_FAILURE_MESSAGE =
 
 interface DiscordMeetingPublisherOptions {
   client: Client;
-  guildConfigStore: GuildConfigStore;
+  guildConfigStore: GuildConfigurationStore;
   logger: Logger;
   now?: () => Date;
   store: PublicationStore;
@@ -38,7 +38,7 @@ export interface MeetingPublisher {
 
 export class DiscordMeetingPublisher implements MeetingPublisher {
   readonly #client: Client;
-  readonly #guildConfigStore: GuildConfigStore;
+  readonly #guildConfigStore: GuildConfigurationStore;
   readonly #logger: Logger;
   readonly #now: () => Date;
   readonly #store: PublicationStore;

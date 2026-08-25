@@ -32,8 +32,8 @@ preservados e que serão processados. Gravações antigas sem o nome salvo usam 
 “canal de voz”.
 
 Depois de um encerramento por `/stop` ou canal vazio, a transcrição e o resumo começam em segundo
-plano. O arquivo completo é salvo localmente como `transcript.txt` e publicado como anexo em um post
-no fórum configurado.
+plano por uma fila durável. O arquivo completo é publicado como anexo em um post no fórum
+configurado.
 Antes de enviar áudio ao provedor configurado, o servidor do bot descarta localmente trechos sem voz
 e consolida falas próximas da mesma pessoa sem misturar participantes.
 Se a reunião não puder ser transcrita integralmente, o canal onde `/record` foi executado recebe
@@ -94,5 +94,10 @@ pendentes até que outro fórum seja configurado. Possui as mesmas regras de ace
   que `/record` foi executado, formando um único histórico da sessão.
 - Se o processo reiniciar, o áudio já capturado é preservado e a gravação é retomada quando ainda
   houver pessoas no canal.
-- Gravações encerradas por desligamento, reinício ou esgotamento da reconexão não são transcritas
-  automaticamente nesta etapa.
+- Se o canal estiver vazio após o reinício, o Summyz finaliza e processa a gravação parcial.
+- Falhas transitórias são repetidas internamente; não existem comandos públicos de status, retry ou
+  exclusão nesta etapa.
+- Com `PERSIST_MEETING_AUDIO=false`, os áudios são excluídos após transcrição válida ou falha
+  definitiva; com `true`, permanecem no disco até exclusão manual do administrador.
+- O modo de armazenamento e as políticas de conteúdo e áudio são fixados quando `/record` inicia;
+  alterações posteriores no `.env` valem somente para novas reuniões.

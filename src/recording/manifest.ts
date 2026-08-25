@@ -2,6 +2,12 @@ import { isAbsolute, normalize } from "node:path";
 
 import { z } from "zod";
 
+const storageIdentifierSchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
+
 export const manifestStatusSchema = z.enum(["recording", "interrupted", "completed"]);
 export type ManifestStatus = z.infer<typeof manifestStatusSchema>;
 
@@ -15,26 +21,32 @@ export const segmentSchema = z.object({
   durationMs: z.number().nonnegative(),
   endedAtMs: z.number().nonnegative(),
   estimatedPacketLossPercent: z.number().min(0).max(100).optional(),
-  file: z.string().min(1),
+  file: z
+    .string()
+    .min(1)
+    .refine(isRelativeSafePath, "O caminho do segmento deve permanecer dentro da reunião"),
   format: z.enum(["ogg_opus", "pcm_s16le"]).default("ogg_opus"),
   receivedOpusPackets: z.number().int().nonnegative().optional(),
-  segmentId: z.string().min(1),
+  segmentId: storageIdentifierSchema,
   startedAtMs: z.number().nonnegative(),
   status: z.enum(["ready", "conversion_failed"]).default("ready"),
   userDisplayName: z.string().min(1),
-  userId: z.string().min(1),
+  userId: storageIdentifierSchema,
 });
 
 export const recordingManifestSchema = z.object({
   completedAt: z.iso.datetime().optional(),
   guildId: z.string().min(1),
   interruptions: z.array(interruptionSchema),
-  meetingId: z.string().min(1),
+  meetingId: storageIdentifierSchema,
   notificationChannelId: z.string().min(1),
+  persistMeetingAudio: z.boolean().default(false),
+  persistMeetingContent: z.boolean().default(false),
   schemaVersion: z.literal(1),
   segments: z.array(segmentSchema),
   startedAt: z.iso.datetime(),
   status: manifestStatusSchema,
+  storageMode: z.enum(["local", "postgres"]).default("local"),
   voiceChannelId: z.string().min(1),
   voiceChannelName: z.string().min(1).max(100).optional(),
 });
@@ -51,7 +63,8 @@ export type CreateManifestInput = Pick<
   | "startedAt"
   | "voiceChannelId"
   | "voiceChannelName"
->;
+> &
+  Partial<Pick<RecordingManifest, "persistMeetingAudio" | "persistMeetingContent" | "storageMode">>;
 
 export function createManifest(input: CreateManifestInput): RecordingManifest {
   return recordingManifestSchema.parse({
@@ -113,8 +126,12 @@ export function markManifestCompleted(
 }
 
 function assertRelativeSafePath(filePath: string): void {
-  const normalized = normalize(filePath).replaceAll("\\", "/");
-  if (isAbsolute(filePath) || normalized === ".." || normalized.startsWith("../")) {
+  if (!isRelativeSafePath(filePath)) {
     throw new Error("O caminho do segmento deve permanecer dentro da reunião");
   }
+}
+
+function isRelativeSafePath(filePath: string): boolean {
+  const normalized = normalize(filePath).replaceAll("\\", "/");
+  return !isAbsolute(filePath) && normalized !== ".." && !normalized.startsWith("../");
 }

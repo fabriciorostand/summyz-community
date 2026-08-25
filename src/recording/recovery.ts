@@ -1,4 +1,9 @@
-import type { ManifestStatus } from "./manifest.js";
+import {
+  markManifestCompleted,
+  markManifestInterrupted,
+  type ManifestStatus,
+  type RecordingManifest,
+} from "./manifest.js";
 
 export type RecoveryDecision = "finalize_interrupted" | "ignore" | "resume";
 
@@ -13,4 +18,15 @@ export function decideRecovery(input: RecoveryInput): RecoveryDecision {
   }
 
   return input.humanCount > 0 ? "resume" : "finalize_interrupted";
+}
+
+export function finalizeInterruptedRecovery(
+  manifest: RecordingManifest,
+  completedAt: string,
+): RecordingManifest {
+  const interrupted =
+    manifest.status === "recording"
+      ? markManifestInterrupted(manifest, completedAt, "process_restart")
+      : manifest;
+  return markManifestCompleted(interrupted, completedAt);
 }

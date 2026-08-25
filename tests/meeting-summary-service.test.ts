@@ -202,6 +202,32 @@ describe("MeetingSummaryService", () => {
     );
   });
 
+  it("mantém o resumo pendente enquanto ainda restam tentativas duráveis", async () => {
+    const context = await createContext();
+    const failure = new Error("provedor indisponível");
+    const service = new MeetingSummaryService({
+      generator: {
+        generate: vi.fn(async () => {
+          throw failure;
+        }),
+      },
+      logger: createLogger("silent"),
+      publisher: context.publisher,
+      refinementStore: context.refinementStore,
+      summaryStore: context.summaryStore,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await expect(
+      service.process(context.manifest, { fallbackOnProviderFailure: false }),
+    ).rejects.toBe(failure);
+
+    await expect(context.summaryStore.load("meeting-1")).resolves.toMatchObject({
+      status: "processing",
+    });
+    expect(context.publishTranscriptOnly).not.toHaveBeenCalled();
+  });
+
   it("retoma publicação a partir de estados terminais sem chamar novamente o modelo", async () => {
     const completedContext = await createContext();
     const generate = vi.fn(async () => generated);

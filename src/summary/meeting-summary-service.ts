@@ -23,6 +23,10 @@ interface MeetingSummaryServiceOptions {
   transcriptionStore: TranscriptionStore;
 }
 
+interface SummaryProcessingOptions {
+  fallbackOnProviderFailure?: boolean;
+}
+
 export class MeetingSummaryService {
   readonly #generator: SummaryGenerator;
   readonly #logger: Logger;
@@ -42,7 +46,10 @@ export class MeetingSummaryService {
     this.#transcriptionStore = options.transcriptionStore;
   }
 
-  public async process(manifest: RecordingManifest): Promise<void> {
+  public async process(
+    manifest: RecordingManifest,
+    options: SummaryProcessingOptions = {},
+  ): Promise<void> {
     if (manifest.status !== "completed") {
       throw new Error("Somente uma gravação concluída pode gerar resumo");
     }
@@ -78,6 +85,9 @@ export class MeetingSummaryService {
     try {
       generated = await this.#generator.generate(refinement.entries);
     } catch (error) {
+      if (!(options.fallbackOnProviderFailure ?? true)) {
+        throw error;
+      }
       const failed = markSummaryFailed(
         state,
         "provider_failed",

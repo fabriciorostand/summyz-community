@@ -2,26 +2,31 @@ import { describe, expect, it } from "vitest";
 
 import { loadConfig } from "../src/config.js";
 
+const requiredEnvironment = {
+  DISCORD_CLIENT_ID: "client-id",
+  DISCORD_TOKEN: "token",
+  OPENROUTER_API_KEY: "openrouter-key",
+  OPENROUTER_REFINEMENT_MODEL: "google/gemini-3.7-flash",
+  OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
+  OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-1",
+} satisfies NodeJS.ProcessEnv;
+
 describe("loadConfig", () => {
   it("carrega os padrões seguros do MVP", () => {
     const config = loadConfig({
-      DISCORD_CLIENT_ID: "client-id",
-      DISCORD_TOKEN: "token",
-      OPENROUTER_API_KEY: "openrouter-key",
-      OPENROUTER_REFINEMENT_MODEL: "google/gemini-3.7-flash",
-      OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
-      OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-1",
+      ...requiredEnvironment,
     });
 
     expect(config).toMatchObject({
       dataDir: "./data",
       discordClientId: "client-id",
       discordToken: "token",
-      failedRecordingRetentionHours: 24,
       openRouterApiKey: "openrouter-key",
       openRouterRefinementModel: "google/gemini-3.7-flash",
       openRouterSummaryModel: "google/gemini-3.7-flash",
       openRouterTranscriptionModel: "openai/whisper-1",
+      persistMeetingContent: false,
+      persistMeetingAudio: false,
       segmentMaxSeconds: 60,
       segmentSilenceMs: 1_000,
       refinementChunkMaxCharacters: 500_000,
@@ -35,6 +40,7 @@ describe("loadConfig", () => {
       summaryRetryMaxMs: 30_000,
       summaryTimeZone: "America/Sao_Paulo",
       summaryTimeoutMs: 120_000,
+      storageMode: "local",
       transcriptionConcurrency: 2,
       transcriptionMergeMaxGapMs: 2_000,
       transcriptionModelProfilesFile: "./config/transcription-model-profiles.json",
@@ -52,26 +58,14 @@ describe("loadConfig", () => {
   it("rejeita durações de segmento inválidas", () => {
     expect(() =>
       loadConfig({
-        DISCORD_CLIENT_ID: "client-id",
-        DISCORD_TOKEN: "token",
-        OPENROUTER_API_KEY: "openrouter-key",
-        OPENROUTER_REFINEMENT_MODEL: "google/gemini-3.7-flash",
-        OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
-        OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-1",
+        ...requiredEnvironment,
         SEGMENT_MAX_SECONDS: "0",
       }),
     ).toThrow(/SEGMENT_MAX_SECONDS/);
   });
 
   it("rejeita parâmetros inválidos do VAD e da consolidação", () => {
-    const base = {
-      DISCORD_CLIENT_ID: "client-id",
-      DISCORD_TOKEN: "token",
-      OPENROUTER_API_KEY: "openrouter-key",
-      OPENROUTER_REFINEMENT_MODEL: "google/gemini-3.7-flash",
-      OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
-      OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-1",
-    };
+    const base = requiredEnvironment;
 
     expect(() => loadConfig({ ...base, TRANSCRIPTION_VAD_THRESHOLD: "1.1" })).toThrow();
     expect(() => loadConfig({ ...base, TRANSCRIPTION_VAD_MIN_SPEECH_MS: "31" })).toThrow();
@@ -80,16 +74,16 @@ describe("loadConfig", () => {
   });
 
   it("exige credenciais e modelos de transcrição, refinamento e resumo", () => {
-    expect(() => loadConfig({ DISCORD_CLIENT_ID: "client-id", DISCORD_TOKEN: "token" })).toThrow(
-      /OPENROUTER_API_KEY|OPENROUTER_TRANSCRIPTION_MODEL|OPENROUTER_SUMMARY_MODEL/,
-    );
     expect(() =>
       loadConfig({
         DISCORD_CLIENT_ID: "client-id",
         DISCORD_TOKEN: "token",
-        OPENROUTER_API_KEY: "openrouter-key",
-        OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
-        OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-1",
+      }),
+    ).toThrow(/OPENROUTER_API_KEY|OPENROUTER_TRANSCRIPTION_MODEL|OPENROUTER_SUMMARY_MODEL/);
+    expect(() =>
+      loadConfig({
+        ...requiredEnvironment,
+        OPENROUTER_REFINEMENT_MODEL: undefined,
       }),
     ).toThrow(/OPENROUTER_REFINEMENT_MODEL/);
   });
@@ -97,30 +91,58 @@ describe("loadConfig", () => {
   it("preserva o escopo de registro por servidor", () => {
     expect(
       loadConfig({
-        DISCORD_CLIENT_ID: "client-id",
+        ...requiredEnvironment,
         DISCORD_GUILD_ID: "guild-1",
-        DISCORD_TOKEN: "token",
-        OPENROUTER_API_KEY: "openrouter-key",
-        OPENROUTER_REFINEMENT_MODEL: "google/gemini-3.7-flash",
-        OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
-        OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-1",
       }).discordGuildId,
     ).toBe("guild-1");
   });
 
   it("rejeita limites e fusos inválidos do resumo", () => {
-    const base = {
-      DISCORD_CLIENT_ID: "client-id",
-      DISCORD_TOKEN: "token",
-      OPENROUTER_API_KEY: "openrouter-key",
-      OPENROUTER_REFINEMENT_MODEL: "google/gemini-3.7-flash",
-      OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
-      OPENROUTER_TRANSCRIPTION_MODEL: "openai/whisper-1",
-    };
+    const base = requiredEnvironment;
 
     expect(() => loadConfig({ ...base, SUMMARY_CHUNK_MAX_CHARACTERS: "999" })).toThrow();
     expect(() => loadConfig({ ...base, SUMMARY_MAX_ATTEMPTS: "0" })).toThrow();
     expect(() => loadConfig({ ...base, SUMMARY_TIME_ZONE: "Fuso/Inexistente" })).toThrow();
     expect(() => loadConfig({ ...base, REFINEMENT_MAX_ATTEMPTS: "0" })).toThrow();
+  });
+
+  it("exige PostgreSQL somente no modo postgres", () => {
+    expect(() => loadConfig({ ...requiredEnvironment, STORAGE_MODE: "postgres" })).toThrow(
+      /DATABASE_URL/,
+    );
+    expect(() =>
+      loadConfig({
+        ...requiredEnvironment,
+        DATABASE_URL: "mongodb://localhost/summyz",
+        STORAGE_MODE: "postgres",
+      }),
+    ).toThrow(/DATABASE_URL/);
+    expect(
+      loadConfig({
+        ...requiredEnvironment,
+        DATABASE_URL: "postgresql://summyz:secret@localhost:5432/summyz",
+        STORAGE_MODE: "postgres",
+      }),
+    ).toMatchObject({
+      databaseUrl: "postgresql://summyz:secret@localhost:5432/summyz",
+      storageMode: "postgres",
+    });
+  });
+
+  it("valida independentemente as opções de persistência", () => {
+    expect(() => loadConfig({ ...requiredEnvironment, PERSIST_MEETING_CONTENT: "sim" })).toThrow(
+      /PERSIST_MEETING_CONTENT/,
+    );
+    expect(() => loadConfig({ ...requiredEnvironment, PERSIST_MEETING_AUDIO: "sim" })).toThrow(
+      /PERSIST_MEETING_AUDIO/,
+    );
+
+    expect(
+      loadConfig({
+        ...requiredEnvironment,
+        PERSIST_MEETING_AUDIO: "true",
+        PERSIST_MEETING_CONTENT: "true",
+      }),
+    ).toMatchObject({ persistMeetingAudio: true, persistMeetingContent: true });
   });
 });

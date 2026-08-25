@@ -23,12 +23,21 @@ export type SummaryForumConfiguration = NonNullable<
   z.infer<typeof guildConfigurationSchema>["summaryForum"]
 >;
 
+export interface GuildConfigurationStore {
+  addRecordingRole(guildId: string, roleId: string): Promise<void>;
+  clearSummaryForum(guildId: string): Promise<void>;
+  getSummaryForum(guildId: string): Promise<SummaryForumConfiguration | undefined>;
+  listRecordingRoles(guildId: string): Promise<string[]>;
+  removeRecordingRole(guildId: string, roleId: string): Promise<void>;
+  setSummaryForum(guildId: string, summaryForum: SummaryForumConfiguration): Promise<void>;
+}
+
 const EMPTY_CONFIGURATION: PersistedConfiguration = {
   guilds: {},
   schemaVersion: 1,
 };
 
-export class GuildConfigStore {
+export class GuildConfigStore implements GuildConfigurationStore {
   readonly #filePath: string;
   #writeQueue: Promise<void> = Promise.resolve();
 

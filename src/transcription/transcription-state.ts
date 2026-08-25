@@ -185,3 +185,20 @@ export function markTranscriptionFailed(
     updatedAt: now,
   });
 }
+
+export function retryFailedTranscription(
+  state: TranscriptionState,
+  now: string,
+): TranscriptionState {
+  if (state.status !== "failed" || state.failureCode !== "provider_failed") {
+    throw new Error("Somente uma falha do provedor pode entrar em retry durável");
+  }
+  return transcriptionStateSchema.parse({
+    meetingId: state.meetingId,
+    schemaVersion: state.schemaVersion,
+    segments: state.segments,
+    startedAt: state.startedAt,
+    status: "processing",
+    updatedAt: now,
+  });
+}

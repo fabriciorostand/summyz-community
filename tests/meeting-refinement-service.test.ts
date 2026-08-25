@@ -95,9 +95,8 @@ describe("MeetingRefinementService", () => {
     expect(generate).not.toHaveBeenCalled();
   });
 
-  it("preserva o bruto, grava o refinado e sinaliza o resumo", async () => {
+  it("preserva o bruto e grava o refinado", async () => {
     const context = await createContext();
-    const onCompleted = vi.fn();
     const service = new MeetingRefinementService({
       generator: {
         generate: vi.fn(async (entries: readonly RefinementEntry[]) => ({
@@ -106,7 +105,6 @@ describe("MeetingRefinementService", () => {
         })),
       },
       logger: createLogger("silent"),
-      onCompleted,
       refinementStore: context.refinementStore,
       transcriptionStore: context.transcriptionStore,
     });
@@ -122,12 +120,10 @@ describe("MeetingRefinementService", () => {
     await expect(context.refinementStore.load("meeting-1")).resolves.toMatchObject({
       status: "completed",
     });
-    expect(onCompleted).toHaveBeenCalledWith(context.manifest);
   });
 
   it("restaura o bruto e continua após três falhas do refinamento", async () => {
     const context = await createContext();
-    const onCompleted = vi.fn();
     const service = new MeetingRefinementService({
       generator: {
         generate: vi.fn(async () => {
@@ -135,7 +131,6 @@ describe("MeetingRefinementService", () => {
         }),
       },
       logger: createLogger("silent"),
-      onCompleted,
       refinementStore: context.refinementStore,
       transcriptionStore: context.transcriptionStore,
     });
@@ -150,7 +145,31 @@ describe("MeetingRefinementService", () => {
       failureCode: "provider_failed",
       status: "fallback",
     });
-    expect(onCompleted).toHaveBeenCalledWith(context.manifest);
+  });
+
+  it("mantém o refinamento pendente enquanto ainda restam tentativas duráveis", async () => {
+    const context = await createContext();
+    const service = new MeetingRefinementService({
+      generator: {
+        generate: vi.fn(async () => {
+          throw new RefinementProviderFailureError(3, new Error("indisponível"));
+        }),
+      },
+      logger: createLogger("silent"),
+      refinementStore: context.refinementStore,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await expect(
+      service.process(context.manifest, { fallbackOnProviderFailure: false }),
+    ).rejects.toBeInstanceOf(RefinementProviderFailureError);
+
+    await expect(context.refinementStore.load("meeting-1")).resolves.toMatchObject({
+      status: "processing",
+    });
+    await expect(
+      readFile(context.transcriptionStore.transcriptPath("meeting-1"), "utf8"),
+    ).resolves.toBe(context.raw);
   });
 
   it("não mascara uma falha interna como indisponibilidade do modelo", async () => {
@@ -175,11 +194,9 @@ describe("MeetingRefinementService", () => {
   it("não chama novamente o modelo ao retomar um estado terminal", async () => {
     const context = await createContext();
     const generate = vi.fn(async (entries) => ({ attempts: 1, entries }));
-    const onCompleted = vi.fn();
     const service = new MeetingRefinementService({
       generator: { generate },
       logger: createLogger("silent"),
-      onCompleted,
       refinementStore: context.refinementStore,
       transcriptionStore: context.transcriptionStore,
     });
@@ -187,6 +204,5 @@ describe("MeetingRefinementService", () => {
     await service.process(context.manifest);
 
     expect(generate).toHaveBeenCalledOnce();
-    expect(onCompleted).toHaveBeenCalledTimes(2);
   });
 });

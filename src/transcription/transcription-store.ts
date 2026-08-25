@@ -1,8 +1,11 @@
-import type { Dirent } from "node:fs";
-import { link, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { isAbsolute, relative, resolve } from "node:path";
 
-import { type TranscriptionState, transcriptionStateSchema } from "./transcription-state.js";
+import {
+  retryFailedTranscription,
+  type TranscriptionState,
+  transcriptionStateSchema,
+} from "./transcription-state.js";
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -43,6 +46,14 @@ export class TranscriptionStore {
 
   public rawTranscriptPath(meetingId: string): string {
     return this.resolveMeetingFile(meetingId, "transcript.raw.txt");
+  }
+
+  public async readTranscript(meetingId: string): Promise<string> {
+    return readFile(this.transcriptPath(meetingId), "utf8");
+  }
+
+  public async readRawTranscript(meetingId: string): Promise<string> {
+    return readFile(this.rawTranscriptPath(meetingId), "utf8");
   }
 
   public async preserveRawTranscript(meetingId: string): Promise<string> {
@@ -127,27 +138,9 @@ export class TranscriptionStore {
     await rm(this.transcriptPath(meetingId), { force: true });
   }
 
-  public async listFailuresBefore(cutoff: string): Promise<string[]> {
-    let entries: Dirent<string>[];
-    try {
-      entries = await readdir(this.#rootDirectory, { withFileTypes: true, encoding: "utf8" });
-    } catch (error) {
-      if (isFileNotFound(error)) {
-        return [];
-      }
-      throw error;
-    }
-    const expired: string[] = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory() || !SAFE_IDENTIFIER.test(entry.name)) {
-        continue;
-      }
-      const state = await this.tryLoad(entry.name);
-      if (state?.status === "failed" && state.failedAt !== undefined && state.failedAt <= cutoff) {
-        expired.push(state.meetingId);
-      }
-    }
-    return expired.sort();
+  public async prepareRetry(meetingId: string, now: string): Promise<void> {
+    const state = await this.load(meetingId);
+    await this.save(retryFailedTranscription(state, now));
   }
 
   public async deleteMeeting(meetingId: string): Promise<void> {

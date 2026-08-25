@@ -30,6 +30,7 @@ import {
 } from "./manifest.js";
 import type { ManifestStore } from "./manifest-store.js";
 import { createRecordingStopNotification } from "./recording-notification.js";
+import { finalizeInterruptedRecovery } from "./recovery.js";
 import { calculateProcessCpuPercent, estimatePacketLossPercent } from "./recording-metrics.js";
 import {
   shouldStartTranscription,
@@ -51,14 +52,14 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #config: AppConfig;
   readonly #logger: Logger;
   readonly #manifestStore: ManifestStore;
-  readonly #onCompleted: ((manifest: RecordingManifest) => void) | undefined;
+  readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
 
   public constructor(
     client: Client,
     config: AppConfig,
     manifestStore: ManifestStore,
     logger: Logger,
-    onCompleted?: (manifest: RecordingManifest) => void,
+    onCompleted?: (manifest: RecordingManifest) => Promise<void>,
   ) {
     this.#client = client;
     this.#config = config;
@@ -72,7 +73,10 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       guildId: input.guildId,
       meetingId: randomUUID(),
       notificationChannelId: input.notificationChannelId,
+      persistMeetingAudio: this.#config.persistMeetingAudio,
+      persistMeetingContent: this.#config.persistMeetingContent,
       startedAt: new Date().toISOString(),
+      storageMode: this.#config.storageMode,
       voiceChannelId: input.voiceChannelId,
       voiceChannelName: input.voiceChannelName,
     });
@@ -101,14 +105,12 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   ): Promise<RecordingHandle | undefined> {
     const voiceChannel = await this.#resolveVoiceChannel(manifest.guildId, manifest.voiceChannelId);
     if (countHumans(voiceChannel) === 0) {
-      const interrupted =
-        manifest.status === "recording"
-          ? markManifestInterrupted(manifest, new Date().toISOString(), "process_restart")
-          : manifest;
-      await this.#manifestStore.save(interrupted);
+      const completed = finalizeInterruptedRecovery(manifest, new Date().toISOString());
+      await this.#manifestStore.save(completed);
+      await this.#enqueueCompleted(completed);
       await this.#notify(
         manifest.notificationChannelId,
-        "⚠️ A gravação anterior ficou interrompida e não foi retomada porque o canal está vazio.",
+        "⚠️ A call estava vazia após o reinício. A gravação parcial foi finalizada e será processada.",
       );
       return undefined;
     }
@@ -212,6 +214,18 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       );
     }
   }
+
+  async #enqueueCompleted(manifest: RecordingManifest): Promise<void> {
+    if (this.#onCompleted === undefined) return;
+    try {
+      await this.#onCompleted(manifest);
+    } catch (error) {
+      this.#logger.error(
+        { errorType: getErrorType(error), meetingId: manifest.meetingId },
+        "Falha ao enfileirar reunião concluída",
+      );
+    }
+  }
 }
 
 interface DiscordVoiceRecordingInput {
@@ -222,7 +236,7 @@ interface DiscordVoiceRecordingInput {
   manifest: RecordingManifest;
   manifestStore: ManifestStore;
   notify(message: string): Promise<void>;
-  onCompleted?: (manifest: RecordingManifest) => void;
+  onCompleted?: (manifest: RecordingManifest) => Promise<void>;
   onEnded?: () => void;
 }
 
@@ -238,7 +252,7 @@ class DiscordVoiceRecording implements RecordingHandle {
   readonly #logger: Logger;
   readonly #manifestStore: ManifestStore;
   readonly #notify: (message: string) => Promise<void>;
-  readonly #onCompleted: ((manifest: RecordingManifest) => void) | undefined;
+  readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
   readonly #onEnded: (() => void) | undefined;
   #ended = false;
   #manifest: RecordingManifest;
@@ -575,6 +589,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     const now = new Date().toISOString();
     if (shouldStartTranscription(reason)) {
       await this.#updateManifest((manifest) => markManifestCompleted(manifest, now));
+      await this.#enqueueCompleted();
     } else {
       await this.#updateManifest((manifest) =>
         manifest.status === "recording" ? markManifestInterrupted(manifest, now, reason) : manifest,
@@ -596,15 +611,17 @@ class DiscordVoiceRecording implements RecordingHandle {
       "Gravação encerrada",
     );
     this.#onEnded?.();
-    if (shouldStartTranscription(reason)) {
-      try {
-        this.#onCompleted?.(this.#manifest);
-      } catch (error) {
-        this.#logger.error(
-          { errorType: getErrorType(error), meetingId: this.meetingId },
-          "Falha ao iniciar processamento da transcrição",
-        );
-      }
+  }
+
+  async #enqueueCompleted(): Promise<void> {
+    if (this.#onCompleted === undefined) return;
+    try {
+      await this.#onCompleted(this.#manifest);
+    } catch (error) {
+      this.#logger.error(
+        { errorType: getErrorType(error), meetingId: this.meetingId },
+        "Falha ao enfileirar reunião concluída",
+      );
     }
   }
 

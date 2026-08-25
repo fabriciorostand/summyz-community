@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
 import { ManifestStore } from "../src/recording/manifest-store.js";
@@ -68,6 +68,7 @@ describe("ManifestStore", () => {
 
     await expect(store.listRecoverable()).resolves.toEqual([]);
     await expect(store.listCompleted()).resolves.toEqual([]);
+    await expect(store.tryLoad("missing")).resolves.toBeUndefined();
   });
 
   it("ignora arquivos e diretórios sem manifesto", async () => {
@@ -119,5 +120,45 @@ describe("ManifestStore", () => {
     const store = new ManifestStore(root);
 
     await expect(store.listRecoverable()).rejects.toBeInstanceOf(SyntaxError);
+  });
+
+  it("rejeita um manifesto cujo ID não corresponde ao diretório lido", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-manifests-"));
+    const manifest = createManifest({
+      guildId: "guild-1",
+      meetingId: "meeting-other",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    await mkdir(join(root, "meeting-1"));
+    await writeFile(join(root, "meeting-1", "manifest.json"), JSON.stringify(manifest), "utf8");
+
+    await expect(new ManifestStore(root).load("meeting-1")).rejects.toThrow(/corresponde/i);
+  });
+
+  it("usa o disco para descoberta e o grava antes do índice externo", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-manifests-"));
+    const manifest = createManifest({
+      guildId: "guild-1",
+      meetingId: "indexed",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-24T10:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const index = {
+      save: vi.fn(async () => {
+        await expect(readFile(join(root, "indexed", "manifest.json"), "utf8")).resolves.toContain(
+          "indexed",
+        );
+      }),
+    };
+    const store = new ManifestStore(root, index);
+
+    await store.save(manifest);
+    await expect(store.listRecoverable()).resolves.toEqual([manifest]);
+
+    expect(index.save).toHaveBeenCalledWith(manifest);
+    expect(await readFile(join(root, "indexed", "manifest.json"), "utf8")).toContain("indexed");
   });
 });

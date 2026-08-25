@@ -14,6 +14,8 @@ decisões, as tarefas e a transcrição completa.
 
 - Node.js 22.12 ou superior;
 - npm;
+- Docker com Compose para executar o bot e, no modo PostgreSQL, o banco;
+- PostgreSQL 18 somente quando `STORAGE_MODE=postgres`;
 - uma aplicação de bot criada no Discord Developer Portal;
 - uma conta no OpenRouter com créditos e uma chave de API;
 - FFmpeg não precisa ser instalado separadamente: o projeto usa um binário empacotado.
@@ -25,11 +27,61 @@ decisões, as tarefas e a transcrição completa.
 3. Preencha `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `OPENROUTER_API_KEY`,
    `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_REFINEMENT_MODEL` e
    `OPENROUTER_SUMMARY_MODEL`.
-4. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
+4. Escolha `STORAGE_MODE=local` para operar sem banco. Para `STORAGE_MODE=postgres`, defina
+   `POSTGRES_PASSWORD` e `DATABASE_URL`; use o host `postgres` no Compose ou `localhost` no npm.
+5. Defina `PERSIST_MEETING_CONTENT` e `PERSIST_MEETING_AUDIO` conforme a política desejada.
+6. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
-5. Execute `npm run dev`.
+7. Execute `npm run dev`. Para usar containers no modo local, execute
+   `docker compose up -d --build bot`. No modo PostgreSQL, suba primeiro o banco com
+   `docker compose --profile postgres up -d postgres` e, quando estiver saudável, suba o bot.
+
+Se a porta local `5432` já estiver ocupada, altere `POSTGRES_PORT` e ajuste a porta de
+`DATABASE_URL`. O PostgreSQL é publicado somente em `127.0.0.1`; entre containers, a conexão
+continua usando `postgres:5432`.
 
 Nunca versione o arquivo `.env` nem publique o token do bot.
+
+No modo local, o bot não cria conexão nem exige um PostgreSQL. No modo PostgreSQL, migrações e
+conexão são validadas antes do login no Discord; se o banco estiver indisponível ou a URL for
+inválida, o processo encerra com uma mensagem segura. O mesmo ocorre se houver no disco uma reunião
+PostgreSQL pendente de recuperação e `DATABASE_URL` não estiver disponível. Os volumes
+`postgres_data` e `summyz_data` preservam o banco e os arquivos necessários após reinício.
+
+## Persistência e privacidade
+
+- `STORAGE_MODE=local` é o padrão e guarda manifesto, fila, tentativas e estados operacionais em
+  arquivos atômicos dentro de `DATA_DIR`, sem exigir banco;
+- `STORAGE_MODE=postgres` guarda configuração, reunião mínima, fila e tentativas no PostgreSQL;
+  `DATABASE_URL` passa a ser obrigatória;
+- `PERSIST_MEETING_CONTENT=false` é o padrão. Depois do estado terminal, transcrições, resumo e
+  estados locais são removidos. O backend mantém somente o mínimo operacional necessário à fila e
+  ao diagnóstico de sua conclusão;
+- com `PERSIST_MEETING_CONTENT=true`, o modo local conserva os arquivos da etapa 3; o modo
+  PostgreSQL conserva transcrição bruta e refinada, resumo, publicação e manifesto em
+  `meeting_contents`;
+- `PERSIST_MEETING_AUDIO=false` é o padrão: os áudios são excluídos depois de uma transcrição
+  integralmente validada ou depois de esgotar as tentativas duráveis;
+- com `PERSIST_MEETING_AUDIO=true`, os áudios permanecem indefinidamente em `DATA_DIR`. No modo
+  local, `audio-manifest.json` cataloga os segmentos; no modo PostgreSQL, a tabela
+  `meeting_audio_segments` guarda metadados e caminhos relativos;
+- áudio nunca é armazenado como BLOB no PostgreSQL. Mesmo nesse modo, os bytes ficam no volume
+  durável montado em `DATA_DIR`;
+- no modo PostgreSQL, o `manifest.json` local funciona como registro temporário de recuperação junto
+  dos áudios; o processamento o sincroniza com o banco antes de reservar o job;
+- não há expiração automática para conteúdo ou áudio preservado. A exclusão é uma operação manual
+  do administrador no disco ou banco.
+
+As três escolhas são copiadas para o manifesto no início da reunião. Alterar o `.env` depois não
+migra nem redireciona uma reunião já iniciada: uma reunião local continua local e uma reunião
+PostgreSQL continua dependente do PostgreSQL até chegar ao estado terminal.
+
+O processamento usa uma fila durável em `processing.json` no modo local ou no PostgreSQL no outro
+modo. A entrega é *at least once*: se o processo cair depois de reservar um job e antes de confirmar
+o resultado, esse job pode executar novamente após o reinício ou vencimento do lease. As etapas e a
+publicação são idempotentes para que a repetição não crie intencionalmente outra reunião. Além dos
+retries rápidos dos provedores, uma falha transitória agenda execuções duráveis após 1 minuto,
+5 minutos, 15 minutos, 1 hora e 6 horas (seis execuções no total, contando a inicial).
 
 ## Configuração no Discord Developer Portal
 
@@ -91,8 +143,6 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout de cada tentativa; padrão `90000` ms;
 - `TRANSCRIPTION_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
 - `TRANSCRIPTION_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
-- `FAILED_RECORDING_RETENTION_HOURS`: retenção de reuniões cuja transcrição foi perdida; padrão
-  `24` horas.
 
 O modelo configurado precisa possuir uma entrada com o mesmo slug em
 [`config/transcription-model-profiles.json`](./config/transcription-model-profiles.json). O Summyz
@@ -197,9 +247,9 @@ automática de expressões como “amanhã” ou “até sexta-feira”.
 
 ## Resultado da transcrição
 
-A transcrição começa automaticamente somente quando `/stop` conclui a gravação ou quando todas as
-pessoas saem do canal. Gravações interrompidas por desligamento ou falha de conexão não são
-processadas nesta etapa.
+A transcrição começa automaticamente quando `/stop` conclui a gravação ou quando todas as pessoas
+saem do canal. Após um reinício, o bot retoma a gravação se ainda houver pessoas; se o canal estiver
+vazio, finaliza o áudio parcial e o processa normalmente.
 
 O resultado é escrito atomicamente em:
 
@@ -230,7 +280,9 @@ algum segmento continuar impossível de analisar/processar ou o provedor esgotar
 - nenhum `transcript.txt` é disponibilizado;
 - a falha é persistida em `transcription.json`;
 - o Discord recebe somente um aviso genérico, sem detalhes internos;
-- a reunião completa é preservada por 24 horas e depois excluída automaticamente.
+- os áudios são preservados entre tentativas duráveis;
+- depois da última tentativa, o Discord recebe o aviso genérico e os artefatos temporários são
+  excluídos.
 
 ## Publicação no Discord
 
@@ -261,13 +313,17 @@ o aviso identifica o canal de voz quando seu nome está disponível e informa qu
 processados. Se o fórum for alterado antes de uma publicação começar, a reunião usa o destino mais
 recente; uma publicação já iniciada ou concluída permanece no post original.
 
-Os estados ficam em `refinement.json`, `summary.json` e `publication.json`. IDs de mensagem e thread
-são persistidos a cada passo e as respostas usam nonces determinísticos, permitindo retomar a
-publicação após reinício e reduzir duplicações. A criação inicial de posts de fórum não oferece
+Enquanto o job está em andamento, os estados ficam no volume durável em `refinement.json`,
+`summary.json` e `publication.json`. IDs de mensagem e thread são persistidos a cada passo e as
+respostas usam nonces determinísticos, permitindo retomar a publicação após reinício e reduzir
+duplicações. A criação inicial de posts de fórum não oferece
 nonce pela API do Discord; portanto, a garantia é de idempotência nas condições normais, não de
-atomicidade absoluta entre o filesystem e o Discord.
+atomicidade absoluta entre o volume e o Discord.
 
-Os áudios correspondentes a transcrições concluídas ainda não são excluídos automaticamente.
+Quando `PERSIST_MEETING_AUDIO=false`, os áudios são excluídos assim que a transcrição completa é
+validada e persistida, ou após a falha definitiva. Depois da publicação, os demais arquivos
+temporários são excluídos se `PERSIST_MEETING_CONTENT=false`. As cópias habilitadas permanecem no
+backend escolhido no início da reunião até intervenção do administrador.
 
 ## Qualidade
 

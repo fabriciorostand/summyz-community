@@ -6,6 +6,7 @@ import {
   markManifestCompleted,
   markManifestInterrupted,
   markManifestRecording,
+  recordingManifestSchema,
 } from "../src/recording/manifest.js";
 
 describe("manifesto da gravação", () => {
@@ -20,8 +21,30 @@ describe("manifesto da gravação", () => {
 
     expect(manifest).toMatchObject({
       schemaVersion: 1,
+      storageMode: "local",
+      persistMeetingAudio: false,
+      persistMeetingContent: false,
       status: "recording",
       segments: [],
+    });
+  });
+
+  it("captura as opções de armazenamento no início da reunião", () => {
+    const manifest = createManifest({
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      persistMeetingAudio: true,
+      persistMeetingContent: true,
+      startedAt: "2026-08-16T20:00:00.000Z",
+      storageMode: "postgres",
+      voiceChannelId: "voice-1",
+    });
+
+    expect(manifest).toMatchObject({
+      persistMeetingAudio: true,
+      persistMeetingContent: true,
+      storageMode: "postgres",
     });
   });
 
@@ -128,5 +151,23 @@ describe("manifesto da gravação", () => {
 
     expect(() => addSegment(manifest, { ...segment, file: "../outside.ogg" })).toThrow(/caminho/i);
     expect(() => addSegment(manifest, { ...segment, file: "C:\\outside.ogg" })).toThrow(/caminho/i);
+    expect(() =>
+      recordingManifestSchema.parse({
+        ...manifest,
+        segments: [{ ...segment, file: "../outside.ogg" }],
+      }),
+    ).toThrow(/caminho/i);
+  });
+
+  it("rejeita identificadores usados na montagem de caminhos", () => {
+    expect(() =>
+      createManifest({
+        guildId: "guild-1",
+        meetingId: "../outside",
+        notificationChannelId: "text-1",
+        startedAt: "2026-08-16T20:00:00.000Z",
+        voiceChannelId: "voice-1",
+      }),
+    ).toThrow();
   });
 });

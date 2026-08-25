@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   completeTranscriptionGroup,
   createTranscriptionState,
+  markTranscriptionFailed,
+  retryFailedTranscription,
 } from "../src/transcription/transcription-state.js";
 
 describe("completeTranscriptionGroup", () => {
@@ -40,5 +42,29 @@ describe("completeTranscriptionGroup", () => {
       },
       { attempts: 0, pieces: [], segmentId: "merged", status: "completed" },
     ]);
+  });
+});
+
+describe("retryFailedTranscription", () => {
+  it("reabre somente uma falha do provedor e preserva segmentos concluídos", () => {
+    const initial = createTranscriptionState(
+      "meeting-1",
+      ["segment-1"],
+      "2026-08-24T10:00:00.000Z",
+    );
+    const failed = markTranscriptionFailed(initial, "provider_failed", "2026-08-24T10:01:00.000Z");
+
+    expect(retryFailedTranscription(failed, "2026-08-24T10:02:00.000Z")).toMatchObject({
+      segments: initial.segments,
+      startedAt: initial.startedAt,
+      status: "processing",
+      updatedAt: "2026-08-24T10:02:00.000Z",
+    });
+    expect(() =>
+      retryFailedTranscription(
+        markTranscriptionFailed(initial, "storage_failed", "2026-08-24T10:01:00.000Z"),
+        "2026-08-24T10:02:00.000Z",
+      ),
+    ).toThrow(/retry/i);
   });
 });

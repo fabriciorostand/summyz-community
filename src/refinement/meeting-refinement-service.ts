@@ -26,16 +26,18 @@ interface MeetingRefinementServiceOptions {
   generator: RefinementGenerator;
   logger: Logger;
   now?: () => Date;
-  onCompleted?: (manifest: RecordingManifest) => void;
   refinementStore: RefinementStore;
   transcriptionStore: TranscriptionStore;
+}
+
+interface RefinementProcessingOptions {
+  fallbackOnProviderFailure?: boolean;
 }
 
 export class MeetingRefinementService {
   readonly #generator: RefinementGenerator;
   readonly #logger: Logger;
   readonly #now: () => Date;
-  readonly #onCompleted: ((manifest: RecordingManifest) => void) | undefined;
   readonly #refinementStore: RefinementStore;
   readonly #transcriptionStore: TranscriptionStore;
 
@@ -43,12 +45,14 @@ export class MeetingRefinementService {
     this.#generator = options.generator;
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
-    this.#onCompleted = options.onCompleted;
     this.#refinementStore = options.refinementStore;
     this.#transcriptionStore = options.transcriptionStore;
   }
 
-  public async process(manifest: RecordingManifest): Promise<void> {
+  public async process(
+    manifest: RecordingManifest,
+    options: RefinementProcessingOptions = {},
+  ): Promise<void> {
     if (manifest.status !== "completed") {
       throw new Error("Somente uma gravação concluída pode ter a transcrição refinada");
     }
@@ -57,7 +61,6 @@ export class MeetingRefinementService {
 
     let state = await this.#refinementStore.tryLoad(manifest.meetingId);
     if (state?.status === "completed" || state?.status === "fallback") {
-      this.#notifyCompleted(manifest);
       return;
     }
 
@@ -73,6 +76,9 @@ export class MeetingRefinementService {
     } catch (error) {
       if (!(error instanceof RefinementProviderFailureError)) throw error;
       await this.#transcriptionStore.writeTranscript(manifest.meetingId, rawTranscript);
+      if (!(options.fallbackOnProviderFailure ?? true)) {
+        throw error;
+      }
       const fallback = markRefinementFallback(
         state,
         entries,
@@ -84,7 +90,6 @@ export class MeetingRefinementService {
         { attempts: error.attempts, errorType: error.name, meetingId: manifest.meetingId },
         "Refinamento indisponível; a transcrição original será utilizada",
       );
-      this.#notifyCompleted(manifest);
       return;
     }
 
@@ -103,18 +108,6 @@ export class MeetingRefinementService {
       { attempts: generated.attempts, meetingId: manifest.meetingId },
       "Refinamento da transcrição concluído",
     );
-    this.#notifyCompleted(manifest);
-  }
-
-  #notifyCompleted(manifest: RecordingManifest): void {
-    try {
-      this.#onCompleted?.(manifest);
-    } catch (error) {
-      this.#logger.error(
-        { errorType: getErrorType(error), meetingId: manifest.meetingId },
-        "Falha ao iniciar processamento do resumo",
-      );
-    }
   }
 }
 
@@ -134,8 +127,4 @@ function toTranscribedSegments(state: TranscriptionState): TranscribedSegment[] 
         : { timelineStartedAtMs: segment.timelineStartedAtMs }),
     };
   });
-}
-
-function getErrorType(error: unknown): string {
-  return error instanceof Error ? error.name : typeof error;
 }

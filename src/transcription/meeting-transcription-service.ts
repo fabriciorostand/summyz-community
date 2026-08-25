@@ -42,13 +42,16 @@ interface MeetingTranscriptionServiceOptions {
   manifestStore: ManifestStore;
   notifyFailure(manifest: RecordingManifest): Promise<void>;
   now?: () => Date;
-  onCompleted?: (manifest: RecordingManifest) => void;
   provider: TranscriptionProvider;
   speechAnalyzer: SpeechAnalyzer;
   transcriptionStore: TranscriptionStore;
   transcriptionMergeMaxGapMs: number;
   transcriptionWindowMaxMs: number;
   writePcmAsWav?: (inputPath: string, outputPath: string) => Promise<void>;
+}
+
+interface TranscriptionProcessingOptions {
+  notifyTerminalFailure?: boolean;
 }
 
 class AudioPreparationError extends Error {
@@ -73,7 +76,6 @@ export class MeetingTranscriptionService {
   readonly #manifestStore: ManifestStore;
   readonly #notifyFailure: (manifest: RecordingManifest) => Promise<void>;
   readonly #now: () => Date;
-  readonly #onCompleted: ((manifest: RecordingManifest) => void) | undefined;
   readonly #provider: TranscriptionProvider;
   readonly #speechAnalyzer: SpeechAnalyzer;
   readonly #transcriptionStore: TranscriptionStore;
@@ -89,7 +91,6 @@ export class MeetingTranscriptionService {
     this.#manifestStore = options.manifestStore;
     this.#notifyFailure = options.notifyFailure;
     this.#now = options.now ?? (() => new Date());
-    this.#onCompleted = options.onCompleted;
     this.#provider = options.provider;
     this.#speechAnalyzer = options.speechAnalyzer;
     this.#transcriptionStore = options.transcriptionStore;
@@ -98,7 +99,10 @@ export class MeetingTranscriptionService {
     this.#writePcmAsWav = options.writePcmAsWav ?? defaultWritePcmAsWav;
   }
 
-  public async process(manifest: RecordingManifest): Promise<void> {
+  public async process(
+    manifest: RecordingManifest,
+    options: TranscriptionProcessingOptions = {},
+  ): Promise<void> {
     if (manifest.status !== "completed") {
       throw new Error("Somente uma gravação concluída normalmente pode ser transcrita");
     }
@@ -259,14 +263,6 @@ export class MeetingTranscriptionService {
         { meetingId: manifest.meetingId, segmentCount: manifest.segments.length },
         "Transcrição da reunião concluída",
       );
-      try {
-        this.#onCompleted?.(manifest);
-      } catch (error) {
-        this.#logger.error(
-          { errorType: getErrorType(error), meetingId: manifest.meetingId },
-          "Falha ao iniciar processamento do resumo",
-        );
-      }
     } catch (error) {
       const failureCode = getFailureCode(error);
       try {
@@ -297,13 +293,15 @@ export class MeetingTranscriptionService {
         },
         "Falha ao transcrever reunião",
       );
-      try {
-        await this.#notifyFailure(manifest);
-      } catch (notificationError) {
-        this.#logger.warn(
-          { errorType: getErrorType(notificationError), meetingId: manifest.meetingId },
-          "Não foi possível avisar sobre a falha da transcrição",
-        );
+      if ((options.notifyTerminalFailure ?? true) || failureCode !== "provider_failed") {
+        try {
+          await this.#notifyFailure(manifest);
+        } catch (notificationError) {
+          this.#logger.warn(
+            { errorType: getErrorType(notificationError), meetingId: manifest.meetingId },
+            "Não foi possível avisar sobre a falha da transcrição",
+          );
+        }
       }
     }
   }

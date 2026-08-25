@@ -6,12 +6,18 @@ import { type RecordingManifest, recordingManifestSchema } from "./manifest.js";
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
+export interface ManifestIndex {
+  save(manifest: RecordingManifest): Promise<void>;
+}
+
 export class ManifestStore {
+  readonly #index: ManifestIndex | undefined;
   readonly #rootDirectory: string;
   readonly #writeQueues = new Map<string, Promise<void>>();
 
-  public constructor(rootDirectory: string) {
+  public constructor(rootDirectory: string, index?: ManifestIndex) {
     this.#rootDirectory = resolve(rootDirectory);
+    this.#index = index;
   }
 
   public meetingDirectory(meetingId: string): string {
@@ -55,7 +61,10 @@ export class ManifestStore {
   public async save(manifest: RecordingManifest): Promise<void> {
     const validated = recordingManifestSchema.parse(manifest);
     const previous = this.#writeQueues.get(validated.meetingId) ?? Promise.resolve();
-    const operation = previous.then(() => this.#write(validated));
+    const operation = previous.then(async () => {
+      await this.#write(validated);
+      await this.#index?.save(validated);
+    });
     const queuedOperation = operation.catch(() => undefined);
     this.#writeQueues.set(validated.meetingId, queuedOperation);
 
@@ -74,7 +83,20 @@ export class ManifestStore {
       await currentWrite;
     }
     const content = await readFile(join(this.meetingDirectory(meetingId), "manifest.json"), "utf8");
-    return recordingManifestSchema.parse(JSON.parse(content));
+    const manifest = recordingManifestSchema.parse(JSON.parse(content));
+    if (manifest.meetingId !== meetingId) {
+      throw new Error("O ID do manifesto não corresponde ao diretório da reunião");
+    }
+    return manifest;
+  }
+
+  public async tryLoad(meetingId: string): Promise<RecordingManifest | undefined> {
+    try {
+      return await this.load(meetingId);
+    } catch (error) {
+      if (isFileNotFound(error)) return undefined;
+      throw error;
+    }
   }
 
   public async listRecoverable(): Promise<RecordingManifest[]> {

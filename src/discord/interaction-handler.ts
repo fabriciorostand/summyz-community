@@ -12,7 +12,7 @@ import {
 import type { Logger } from "pino";
 
 import { canConfigureSummaryForum, canManageRecordingRoles, canRecord } from "../authorization.js";
-import type { GuildConfigStore } from "../guild-config-store.js";
+import type { GuildConfigurationStore } from "../guild-config-store.js";
 import {
   RecordingAlreadyActiveError,
   type RecordingCoordinator,
@@ -21,7 +21,7 @@ import { createEphemeralReply } from "./responses.js";
 
 export function installInteractionHandler(
   client: Client,
-  guildConfigStore: GuildConfigStore,
+  guildConfigStore: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
   logger: Logger,
 ): void {
@@ -52,7 +52,7 @@ export function installInteractionHandler(
 
 async function handleRecordingSummaryForum(
   interaction: ChatInputCommandInteraction,
-  store: GuildConfigStore,
+  store: GuildConfigurationStore,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction);
   if (context === undefined) {
@@ -159,7 +159,7 @@ async function handleRecordingSummaryForum(
 
 async function handleRecordingRole(
   interaction: ChatInputCommandInteraction,
-  store: GuildConfigStore,
+  store: GuildConfigurationStore,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction);
   if (context === undefined) {
@@ -201,7 +201,7 @@ async function handleRecordingRole(
 
 async function handleRecord(
   interaction: ChatInputCommandInteraction,
-  store: GuildConfigStore,
+  store: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction);
@@ -253,7 +253,7 @@ async function handleRecord(
 
 async function handleStop(
   interaction: ChatInputCommandInteraction,
-  store: GuildConfigStore,
+  store: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction);
@@ -300,7 +300,7 @@ async function resolveGuildContext(interaction: ChatInputCommandInteraction) {
 async function isRecordingAuthorized(
   member: GuildMember,
   guildId: string,
-  store: GuildConfigStore,
+  store: GuildConfigurationStore,
 ): Promise<boolean> {
   return canRecord({
     isAdministrator: member.permissions.has(PermissionFlagsBits.Administrator),

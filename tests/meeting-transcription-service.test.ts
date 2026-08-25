@@ -68,7 +68,6 @@ function createService(input: {
   logger?: Logger;
   manifestStore: ManifestStore;
   notifyFailure?: (manifest: RecordingManifest) => Promise<void>;
-  onCompleted?: (manifest: RecordingManifest) => void;
   provider: TranscriptionProvider;
   speechAnalyzer?: SpeechAnalyzer;
   transcriptionStore: TranscriptionStore;
@@ -82,7 +81,6 @@ function createService(input: {
     logger: input.logger ?? createLogger("silent"),
     manifestStore: input.manifestStore,
     notifyFailure: input.notifyFailure ?? vi.fn(async () => undefined),
-    ...(input.onCompleted === undefined ? {} : { onCompleted: input.onCompleted }),
     now: () => new Date("2026-08-16T20:02:00.000Z"),
     provider: input.provider,
     speechAnalyzer:
@@ -126,8 +124,7 @@ describe("MeetingTranscriptionService", () => {
         ],
       })),
     };
-    const onCompleted = vi.fn();
-    const service = createService({ ...context, onCompleted, provider });
+    const service = createService({ ...context, provider });
 
     await service.process(context.manifest);
 
@@ -141,8 +138,6 @@ describe("MeetingTranscriptionService", () => {
     });
     await service.process(context.manifest);
     expect(provider.transcribe).toHaveBeenCalledTimes(2);
-    expect(onCompleted).toHaveBeenCalledOnce();
-    expect(onCompleted).toHaveBeenCalledWith(context.manifest);
   });
 
   it("não cria o txt, preserva os áudios e notifica uma falha terminal", async () => {
@@ -172,6 +167,29 @@ describe("MeetingTranscriptionService", () => {
       ),
     ).resolves.toBeUndefined();
     expect(notifyFailure).toHaveBeenCalledOnce();
+  });
+
+  it("adia o aviso da falha enquanto ainda restam tentativas duráveis", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-meeting-"));
+    const context = await createMeeting(root);
+    const notifyFailure = vi.fn(async () => undefined);
+    const service = createService({
+      ...context,
+      notifyFailure,
+      provider: {
+        transcribe: vi.fn(async () => {
+          throw new Error("provedor indisponível");
+        }),
+      },
+    });
+
+    await service.process(context.manifest, { notifyTerminalFailure: false });
+
+    await expect(context.transcriptionStore.load("meeting-1")).resolves.toMatchObject({
+      failureCode: "provider_failed",
+      status: "failed",
+    });
+    expect(notifyFailure).not.toHaveBeenCalled();
   });
 
   it("registra somente a categoria estrutural segura da resposta incompatível", async () => {
@@ -311,7 +329,7 @@ describe("MeetingTranscriptionService", () => {
       }),
     });
 
-    await service.process(manifest);
+    await service.process(manifest, { notifyTerminalFailure: false });
 
     expect(provider.transcribe).not.toHaveBeenCalled();
     expect(notifyFailure).toHaveBeenCalledOnce();

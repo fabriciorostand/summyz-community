@@ -80,21 +80,6 @@ describe("TranscriptionStore", () => {
     );
   });
 
-  it("lista somente falhas cuja retenção expirou", async () => {
-    const root = await mkdtemp(join(tmpdir(), "summyz-transcriptions-"));
-    const store = new TranscriptionStore(root);
-    const first = createTranscriptionState("expired", ["segment-1"], "2026-08-15T00:00:00.000Z");
-    const second = createTranscriptionState("recent", ["segment-2"], "2026-08-16T19:00:00.000Z");
-    await store.save(markTranscriptionFailed(first, "provider_failed", "2026-08-15T01:00:00.000Z"));
-    await store.save(
-      markTranscriptionFailed(second, "provider_failed", "2026-08-16T19:30:00.000Z"),
-    );
-
-    await expect(store.listFailuresBefore("2026-08-16T00:00:00.000Z")).resolves.toEqual([
-      "expired",
-    ]);
-  });
-
   it("rejeita identificadores e caminhos que escapam do diretório", async () => {
     const root = await mkdtemp(join(tmpdir(), "summyz-transcriptions-"));
     const store = new TranscriptionStore(root);
@@ -110,10 +95,25 @@ describe("TranscriptionStore", () => {
     const store = new TranscriptionStore(join(root, "missing"));
 
     await expect(store.tryLoad("meeting-1")).resolves.toBeUndefined();
-    await expect(store.listFailuresBefore("2026-08-16T00:00:00.000Z")).resolves.toEqual([]);
   });
 
-  it("propaga arquivos inválidos e ignora entradas inseguras ao listar falhas", async () => {
+  it("prepara uma falha de provedor para nova execução durável", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-transcriptions-"));
+    const store = new TranscriptionStore(root);
+    await store.save(
+      markTranscriptionFailed(
+        createTranscriptionState("meeting-1", ["segment-1"], "2026-08-24T10:00:00.000Z"),
+        "provider_failed",
+        "2026-08-24T10:01:00.000Z",
+      ),
+    );
+
+    await store.prepareRetry("meeting-1", "2026-08-24T10:02:00.000Z");
+
+    await expect(store.load("meeting-1")).resolves.toMatchObject({ status: "processing" });
+  });
+
+  it("propaga arquivos inválidos", async () => {
     const root = await mkdtemp(join(tmpdir(), "summyz-transcriptions-"));
     const store = new TranscriptionStore(root);
     await mkdir(store.meetingDirectory("meeting-1"), { recursive: true });
@@ -124,10 +124,6 @@ describe("TranscriptionStore", () => {
     );
     await expect(store.tryLoad("meeting-1")).rejects.toThrow();
     await rm(store.meetingDirectory("meeting-1"), { recursive: true });
-
-    await writeFile(join(root, "arquivo-ignorado"), "texto", "utf8");
-    await mkdir(join(root, ".diretorio-inseguro"));
-    await expect(store.listFailuresBefore("2026-08-16T00:00:00.000Z")).resolves.toEqual([]);
 
     await store.writeTranscript("meeting-2", "texto bruto\n");
     await mkdir(store.rawTranscriptPath("meeting-2"));
