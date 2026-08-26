@@ -24,7 +24,7 @@ import {
   type TranscriptionState,
 } from "./transcription-state.js";
 import type { TranscriptionStore } from "./transcription-store.js";
-import { IncompatibleTranscriptionResponseError } from "./openrouter-transcription-provider.js";
+import { IncompatibleTranscriptionResponseError } from "./transcription-provider.js";
 import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
 import { writePcmAsWav as defaultWritePcmAsWav } from "./wav.js";
 
@@ -42,7 +42,8 @@ interface MeetingTranscriptionServiceOptions {
   manifestStore: ManifestStore;
   notifyFailure(manifest: RecordingManifest): Promise<void>;
   now?: () => Date;
-  provider: TranscriptionProvider;
+  provider?: TranscriptionProvider;
+  resolveProvider?: (manifest: RecordingManifest) => Promise<TranscriptionProvider>;
   speechAnalyzer: SpeechAnalyzer;
   transcriptionStore: TranscriptionStore;
   transcriptionMergeMaxGapMs: number;
@@ -76,7 +77,10 @@ export class MeetingTranscriptionService {
   readonly #manifestStore: ManifestStore;
   readonly #notifyFailure: (manifest: RecordingManifest) => Promise<void>;
   readonly #now: () => Date;
-  readonly #provider: TranscriptionProvider;
+  readonly #provider: TranscriptionProvider | undefined;
+  readonly #resolveProvider:
+    | ((manifest: RecordingManifest) => Promise<TranscriptionProvider>)
+    | undefined;
   readonly #speechAnalyzer: SpeechAnalyzer;
   readonly #transcriptionStore: TranscriptionStore;
   readonly #transcriptionMergeMaxGapMs: number;
@@ -92,11 +96,15 @@ export class MeetingTranscriptionService {
     this.#notifyFailure = options.notifyFailure;
     this.#now = options.now ?? (() => new Date());
     this.#provider = options.provider;
+    this.#resolveProvider = options.resolveProvider;
     this.#speechAnalyzer = options.speechAnalyzer;
     this.#transcriptionStore = options.transcriptionStore;
     this.#transcriptionMergeMaxGapMs = options.transcriptionMergeMaxGapMs;
     this.#transcriptionWindowMaxMs = options.transcriptionWindowMaxMs;
     this.#writePcmAsWav = options.writePcmAsWav ?? defaultWritePcmAsWav;
+    if (this.#provider === undefined && this.#resolveProvider === undefined) {
+      throw new Error("A transcription provider or resolver is required");
+    }
   }
 
   public async process(
@@ -123,9 +131,13 @@ export class MeetingTranscriptionService {
       await this.#transcriptionStore.save(processingState);
       this.#logger.info(
         { meetingId: manifest.meetingId, segmentCount: manifest.segments.length },
-        "Processamento da transcrição iniciado",
+        "Meeting transcription processing started",
       );
       const pending = processingState.segments.filter((segment) => segment.status === "pending");
+      const provider = this.#resolveProvider
+        ? await this.#resolveProvider(manifest)
+        : this.#provider;
+      if (provider === undefined) throw new Error("The transcription provider is unavailable");
       const prepared = await this.#prepareAllAudio(
         manifest,
         new Set(pending.map((segment) => segment.segmentId)),
@@ -207,7 +219,7 @@ export class MeetingTranscriptionService {
             });
             this.#logger.info(
               { meetingId: manifest.meetingId, segmentCount: silentSegments.length },
-              "Segmentos sem voz descartados da transcrição",
+              "Segments without speech discarded from transcription",
             );
           }
           const speechGroups = createAnalyzedTranscriptionGroups(analyzed, {
@@ -223,10 +235,13 @@ export class MeetingTranscriptionService {
             if (batch === undefined) {
               throw new AudioAnalysisError();
             }
-            const result = await this.#provider.transcribe({
+            const result = await provider.transcribe({
               audio: batch.audio,
               audioDurationMs: batch.audioDurationMs,
               format: "wav",
+              ...(manifest.aiConfiguration === undefined
+                ? {}
+                : { language: manifest.aiConfiguration.transcription.language }),
             });
             await persistGroup(
               speechGroup.map((item) => item.segment),
@@ -241,7 +256,7 @@ export class MeetingTranscriptionService {
                 meetingId: manifest.meetingId,
                 segmentCount: speechGroup.length,
               },
-              "Lote de áudio transcrito",
+              "Audio batch transcribed",
             );
           }
         });
@@ -261,7 +276,7 @@ export class MeetingTranscriptionService {
       await this.#transcriptionStore.save(processingState);
       this.#logger.info(
         { meetingId: manifest.meetingId, segmentCount: manifest.segments.length },
-        "Transcrição da reunião concluída",
+        "Meeting transcription completed",
       );
     } catch (error) {
       const failureCode = getFailureCode(error);
@@ -279,7 +294,7 @@ export class MeetingTranscriptionService {
       } catch (storageError) {
         this.#logger.error(
           { errorType: getErrorType(storageError), meetingId: manifest.meetingId },
-          "Falha ao persistir o estado perdido da transcrição",
+          "Failed to persist lost transcription state",
         );
       }
       const incompatibilityReason =
@@ -291,7 +306,7 @@ export class MeetingTranscriptionService {
           ...(incompatibilityReason === undefined ? {} : { incompatibilityReason }),
           meetingId: manifest.meetingId,
         },
-        "Falha ao transcrever reunião",
+        "Meeting transcription failed",
       );
       if ((options.notifyTerminalFailure ?? true) || failureCode !== "provider_failed") {
         try {
@@ -299,7 +314,7 @@ export class MeetingTranscriptionService {
         } catch (notificationError) {
           this.#logger.warn(
             { errorType: getErrorType(notificationError), meetingId: manifest.meetingId },
-            "Não foi possível avisar sobre a falha da transcrição",
+            "Unable to notify transcription failure",
           );
         }
       }
@@ -366,7 +381,7 @@ export class MeetingTranscriptionService {
           meetingId: manifest.meetingId,
           segmentId: segment.segmentId,
         },
-        "Nova tentativa de conversão para Ogg falhou; usando fallback WAV",
+        "Ogg conversion retry failed; using WAV fallback",
       );
     }
 

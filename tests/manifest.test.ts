@@ -48,6 +48,86 @@ describe("manifesto da gravação", () => {
     });
   });
 
+  it("fixa provedores, modelos e idiomas no início da reunião", () => {
+    const manifest = createManifest({
+      aiConfiguration: {
+        refinement: {
+          model: "qwen3:4b",
+          provider: "ollama",
+          requestedModel: "auto",
+          status: "selected",
+        },
+        selectorVersion: 1,
+        summary: {
+          language: "auto",
+          model: "qwen3:8b",
+          provider: "ollama",
+          requestedModel: "auto",
+          status: "selected",
+        },
+        transcription: {
+          language: "es",
+          model: "small",
+          provider: "faster-whisper",
+          requestedModel: "auto",
+          status: "selected",
+        },
+      },
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+
+    expect(manifest.aiConfiguration).toMatchObject({
+      refinement: { model: "qwen3:4b", provider: "ollama" },
+      summary: { language: "auto", model: "qwen3:8b", provider: "ollama" },
+      transcription: { language: "es", model: "small", provider: "faster-whisper" },
+    });
+  });
+
+  it("persiste o menor modelo selecionado junto ao aviso de hardware", () => {
+    const manifest = createManifest({
+      aiConfiguration: {
+        refinement: {
+          hardwareWarning: true,
+          model: "qwen3:1.7b",
+          provider: "ollama",
+          requestedModel: "auto",
+          status: "selected",
+        },
+        selectorVersion: 1,
+        summary: {
+          hardwareWarning: true,
+          language: "auto",
+          model: "qwen3:4b",
+          provider: "ollama",
+          requestedModel: "auto",
+          status: "selected",
+        },
+        transcription: {
+          language: "auto",
+          model: "tiny",
+          provider: "faster-whisper",
+          requestedModel: "auto",
+          status: "selected",
+        },
+      },
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+
+    expect(manifest.aiConfiguration?.summary).toMatchObject({
+      hardwareWarning: true,
+      model: "qwen3:4b",
+      status: "selected",
+    });
+  });
+
   it("adiciona segmentos sem alterar o manifesto anterior", () => {
     const manifest = createManifest({
       guildId: "guild-1",

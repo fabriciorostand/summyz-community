@@ -17,7 +17,7 @@ export class MeetingArtifactRetention {
 
   public async deleteAudio(manifest: RecordingManifest): Promise<void> {
     if (manifest.persistMeetingAudio) {
-      this.#logger.info({ meetingId: manifest.meetingId }, "Áudios da reunião preservados");
+      this.#logger.info({ meetingId: manifest.meetingId }, "Meeting audio preserved");
       return;
     }
     const participantsDirectory = this.#store.resolveMeetingFile(
@@ -27,7 +27,7 @@ export class MeetingArtifactRetention {
     await rm(participantsDirectory, { force: true, recursive: true });
     this.#logger.info(
       { meetingId: manifest.meetingId, segmentCount: manifest.segments.length },
-      "Áudios temporários da reunião excluídos",
+      "Temporary meeting audio deleted",
     );
   }
 
@@ -35,14 +35,14 @@ export class MeetingArtifactRetention {
     const { meetingId, persistMeetingAudio: retainAudio } = manifest;
     const retainLocalContent = manifest.storageMode === "local" && manifest.persistMeetingContent;
     if (retainAudio && retainLocalContent) {
-      this.#logger.info({ meetingId }, "Conteúdo e áudios da reunião preservados");
+      this.#logger.info({ meetingId }, "Meeting content and audio preserved");
       return;
     }
     const directory = this.#store.meetingDirectory(meetingId);
     if (retainLocalContent) {
       await rm(resolve(directory, "participants"), { force: true, recursive: true });
       await rm(resolve(directory, "audio-manifest.json"), { force: true });
-      this.#logger.info({ meetingId }, "Áudios da reunião excluídos; conteúdo preservado");
+      this.#logger.info({ meetingId }, "Meeting audio deleted; content preserved");
       return;
     }
 
@@ -59,11 +59,11 @@ export class MeetingArtifactRetention {
     // Remove the manifest last so the same policy can run again after a crash.
     await rm(resolve(directory, "manifest.json"), { force: true });
     if (retainAudio) {
-      this.#logger.info({ meetingId }, "Conteúdo temporário excluído; áudios preservados");
+      this.#logger.info({ meetingId }, "Temporary content deleted; audio preserved");
       return;
     }
     await rm(directory, { force: true, recursive: true });
-    this.#logger.info({ meetingId }, "Artefatos temporários da reunião excluídos");
+    this.#logger.info({ meetingId }, "Temporary meeting artifacts deleted");
   }
 }
 

@@ -34,6 +34,7 @@ interface InteractionOptions {
   forum?: object;
   guildAvailable?: boolean;
   guildId?: string | null;
+  insufficientLocalHardware?: boolean;
   manageGuild?: boolean;
   memberRoleIds?: string[];
   replied?: boolean;
@@ -66,11 +67,13 @@ async function createHarness(options: InteractionOptions = {}) {
     coordinator,
     createLogger("silent"),
     options.botLanguage ?? "pt-br",
+    () => options.insufficientLocalHardware ?? false,
   );
 
   const reply = vi.fn(async () => undefined);
   const editReply = vi.fn(async () => undefined);
   const deferReply = vi.fn(async () => undefined);
+  const followUp = vi.fn(async () => undefined);
   const member = {
     permissions: {
       has: (permission: bigint) =>
@@ -100,6 +103,7 @@ async function createHarness(options: InteractionOptions = {}) {
     deferred: options.deferred ?? false,
     deferReply,
     editReply,
+    followUp,
     guild,
     guildId: options.guildId === undefined ? "guild-1" : options.guildId,
     isChatInputCommand: () => options.chatInput ?? true,
@@ -117,7 +121,7 @@ async function createHarness(options: InteractionOptions = {}) {
   if (listener === undefined) {
     throw new Error("O handler de interações não foi instalado");
   }
-  return { deferReply, editReply, get, interaction, listener, reply, start, stop, store };
+  return { deferReply, editReply, followUp, get, interaction, listener, reply, start, stop, store };
 }
 
 describe("fluxo de comandos do Discord", () => {
@@ -492,6 +496,26 @@ describe("fluxo de comandos do Discord", () => {
     expect(context.deferReply).toHaveBeenCalledOnce();
     expect(context.editReply).toHaveBeenCalledWith(
       expect.stringMatching(/Gravação iniciada.*Lobby.*meeting-1/),
+    );
+  });
+
+  it("avisa somente o autor do /record quando o hardware local é insuficiente", async () => {
+    const context = await createHarness({
+      administrator: true,
+      insufficientLocalHardware: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(context.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringMatching(
+          /hardware.*processamento será tentado.*qualidade.*OpenRouter/i,
+        ),
+        flags: MessageFlags.Ephemeral,
+      }),
     );
   });
 

@@ -36,6 +36,11 @@ plano por uma fila durável. O arquivo completo é publicado como anexo em um po
 configurado.
 Antes de enviar áudio ao provedor configurado, o servidor do bot descarta localmente trechos sem voz
 e consolida falas próximas da mesma pessoa sem misturar participantes.
+Quando o hardware fica abaixo da recomendação para a configuração 100% local selecionada, somente
+quem executou `/record` recebe um aviso efêmero sugerindo OpenRouter. O terminal também registra o
+aviso; o canal público não recebe detalhes de hardware. A gravação continua e o Summyz tenta o
+processamento com os menores modelos locais compatíveis, mesmo que ele possa ser lento e produzir
+qualidade abaixo do desejado.
 Se a reunião não puder ser transcrita integralmente, o canal onde `/record` foi executado recebe
 somente um aviso genérico.
 
@@ -101,3 +106,5 @@ pendentes até que outro fórum seja configurado. Possui as mesmas regras de ace
   definitiva; com `true`, permanecem no disco até exclusão manual do administrador.
 - O modo de armazenamento e as políticas de conteúdo e áudio são fixados quando `/record` inicia;
   alterações posteriores no `.env` valem somente para novas reuniões.
+- Provedor, modelo resolvido e idioma de cada fase também são fixados nesse momento. Uma fase local
+  nunca usa OpenRouter como fallback.

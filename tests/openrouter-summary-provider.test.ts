@@ -73,8 +73,27 @@ describe("OpenRouterSummaryProvider", () => {
       temperature: 0,
     });
     expect(JSON.stringify(body)).toContain("segment-a:000000");
-    expect(JSON.stringify(body)).toContain("não confiáveis");
+    expect(JSON.stringify(body)).toContain("untrusted data");
+    expect(JSON.stringify(body)).toContain("predominant language");
     expect(init?.headers).toMatchObject({ Authorization: "Bearer segredo" });
+  });
+
+  it("instrui um idioma de saída explícito quando configurado", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => successResponse());
+    const provider = new OpenRouterSummaryProvider({
+      apiKey: "segredo",
+      fetch,
+      language: "es",
+      maxAttempts: 4,
+      model: "google/gemini-3.7-flash",
+      retryBaseMs: 1_000,
+      retryMaxMs: 30_000,
+      timeoutMs: 120_000,
+    });
+
+    await provider.summarize([]);
+
+    expect(String(fetch.mock.calls[0]?.[1].body)).toContain("BCP 47 code es");
   });
 
   it("retenta falhas transitórias, respeita Retry-After e não retenta credencial inválida", async () => {

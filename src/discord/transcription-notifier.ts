@@ -40,7 +40,7 @@ export async function notifyTranscriptionFailure(
         errorType: error instanceof Error ? error.name : typeof error,
         meetingId: manifest.meetingId,
       },
-      "Não foi possível enviar aviso de falha da transcrição",
+      "Unable to send transcription failure notification",
     );
   }
 }

@@ -18,7 +18,6 @@ describe("perfis de modelos de transcrição", () => {
       ),
     ).resolves.toEqual({
       interSpeechSilenceMs: 0,
-      language: "pt-BR",
       temperature: 0,
       timestampMode: "word",
     });
@@ -32,7 +31,6 @@ describe("perfis de modelos de transcrição", () => {
       ),
     ).resolves.toEqual({
       interSpeechSilenceMs: 350,
-      language: "pt",
       mergeMaxGapMs: 0,
       temperature: 0,
       timestampMode: "batch",
@@ -47,10 +45,9 @@ describe("perfis de modelos de transcrição", () => {
       ),
     ).resolves.toEqual({
       interSpeechSilenceMs: 0,
-      language: "pt",
       mergeMaxGapMs: 0,
       prompt:
-        "Conversa informal em português brasileiro. Preserve a fala literalmente, incluindo hesitações, repetições e frases interrompidas. Não traduza, resuma, corrija, complete ou invente conteúdo.",
+        "Transcribe the conversation literally in its original language. Preserve hesitations, repetitions, and interrupted sentences. Do not translate, summarize, correct, complete, or invent content.",
       temperature: 0,
       timestampMode: "batch",
     });

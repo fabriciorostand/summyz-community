@@ -6,6 +6,15 @@ import type {
   TranscriptionProvider,
   TranscriptionProviderResult,
 } from "./transcription-provider.js";
+import {
+  IncompatibleTranscriptionResponseError,
+  TranscriptionRequestError,
+} from "./transcription-provider.js";
+export {
+  IncompatibleTranscriptionResponseError,
+  TranscriptionRequestError,
+} from "./transcription-provider.js";
+export type { TranscriptionIncompatibilityReason } from "./transcription-provider.js";
 import type { TranscriptionModelProfile } from "./transcription-model-profile.js";
 
 const OPENROUTER_TRANSCRIPTION_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
@@ -29,6 +38,7 @@ type Sleep = (milliseconds: number) => Promise<void>;
 export interface OpenRouterTranscriptionProviderOptions {
   apiKey: string;
   fetch?: Fetch;
+  language?: string;
   logger?: Logger;
   maxAttempts: number;
   model: string;
@@ -40,50 +50,12 @@ export interface OpenRouterTranscriptionProviderOptions {
   timeoutMs: number;
 }
 
-export class TranscriptionRequestError extends Error {
-  public readonly retryAfterMs: number | undefined;
-  public readonly retryable: boolean;
-  public readonly status: number | undefined;
-
-  public constructor(input: {
-    retryAfterMs?: number;
-    retryable: boolean;
-    status?: number;
-  }) {
-    super(
-      input.status === undefined
-        ? "A requisição de transcrição falhou"
-        : `A requisição de transcrição falhou com status ${String(input.status)}`,
-    );
-    this.name = "TranscriptionRequestError";
-    this.retryAfterMs = input.retryAfterMs;
-    this.retryable = input.retryable;
-    this.status = input.status;
-  }
-}
-
-export class IncompatibleTranscriptionResponseError extends Error {
-  public readonly reason: TranscriptionIncompatibilityReason;
-
-  public constructor(reason: TranscriptionIncompatibilityReason) {
-    super("O modelo configurado não retornou timestamps compatíveis");
-    this.name = "IncompatibleTranscriptionResponseError";
-    this.reason = reason;
-  }
-}
-
-export type TranscriptionIncompatibilityReason =
-  | "invalid_audio_duration"
-  | "invalid_json"
-  | "invalid_response_shape"
-  | "invalid_timestamps"
-  | "missing_timestamps";
-
 export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
   readonly #apiKey: string;
   readonly #fetch: Fetch;
   readonly #maxAttempts: number;
   readonly #logger: Logger | undefined;
+  readonly #language: string | undefined;
   readonly #model: string;
   readonly #profile: TranscriptionModelProfile;
   readonly #random: () => number;
@@ -97,6 +69,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
     this.#fetch = options.fetch ?? fetch;
     this.#maxAttempts = options.maxAttempts;
     this.#logger = options.logger;
+    this.#language = options.language;
     this.#model = options.model;
     this.#profile = options.profile;
     this.#random = options.random ?? Math.random;
@@ -133,7 +106,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
               error instanceof IncompatibleTranscriptionResponseError ? error.reason : undefined,
             status: error instanceof TranscriptionRequestError ? error.status : undefined,
           },
-          "Tentativa de transcrição falhou; uma nova tentativa será realizada",
+          "Transcription attempt failed; another attempt will be made",
         );
         await this.#sleep(delayMs);
       }
@@ -145,6 +118,8 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
     input: Parameters<TranscriptionProvider["transcribe"]>[0],
   ): Promise<TranscriptPiece[]> {
     const acceptsUntimedText = this.#profile.timestampMode === "batch";
+    const selectedLanguage = input.language ?? this.#language ?? this.#profile.language;
+    const language = selectedLanguage === "auto" ? undefined : selectedLanguage;
     const inputAudio = {
       data: Buffer.from(input.audio).toString("base64"),
       format: input.format,
@@ -154,7 +129,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
       response = await this.#fetch(OPENROUTER_TRANSCRIPTION_URL, {
         body: JSON.stringify({
           input_audio: inputAudio,
-          ...(this.#profile.language === undefined ? {} : { language: this.#profile.language }),
+          ...(language === undefined ? {} : { language }),
           model: this.#model,
           ...(this.#profile.prompt === undefined ? {} : { prompt: this.#profile.prompt }),
           ...(this.#profile.providerOptions === undefined

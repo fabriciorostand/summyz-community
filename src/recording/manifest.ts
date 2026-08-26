@@ -17,6 +17,30 @@ const interruptionSchema = z.object({
   resumedAt: z.iso.datetime().optional(),
 });
 
+const selectedModelSchema = z.object({
+  hardwareWarning: z.literal(true).optional(),
+  model: z.string().min(1),
+  requestedModel: z.string().min(1),
+  status: z.literal("selected"),
+});
+
+export const meetingAiConfigurationSchema = z.object({
+  refinement: selectedModelSchema.and(z.object({ provider: z.enum(["openrouter", "ollama"]) })),
+  selectorVersion: z.literal(1),
+  summary: selectedModelSchema.and(
+    z.object({
+      language: z.string().min(1),
+      provider: z.enum(["openrouter", "ollama"]),
+    }),
+  ),
+  transcription: selectedModelSchema.and(
+    z.object({
+      language: z.string().min(1),
+      provider: z.enum(["openrouter", "faster-whisper"]),
+    }),
+  ),
+});
+
 export const segmentSchema = z.object({
   durationMs: z.number().nonnegative(),
   endedAtMs: z.number().nonnegative(),
@@ -35,6 +59,7 @@ export const segmentSchema = z.object({
 });
 
 export const recordingManifestSchema = z.object({
+  aiConfiguration: meetingAiConfigurationSchema.optional(),
   completedAt: z.iso.datetime().optional(),
   guildId: z.string().min(1),
   interruptions: z.array(interruptionSchema),
@@ -52,6 +77,7 @@ export const recordingManifestSchema = z.object({
 });
 
 export type RecordingManifest = z.infer<typeof recordingManifestSchema>;
+export type MeetingAiConfiguration = z.infer<typeof meetingAiConfigurationSchema>;
 export type RecordingSegment = z.infer<typeof segmentSchema>;
 export type RecordingSegmentInput = z.input<typeof segmentSchema>;
 
@@ -64,7 +90,12 @@ export type CreateManifestInput = Pick<
   | "voiceChannelId"
   | "voiceChannelName"
 > &
-  Partial<Pick<RecordingManifest, "persistMeetingAudio" | "persistMeetingContent" | "storageMode">>;
+  Partial<
+    Pick<
+      RecordingManifest,
+      "aiConfiguration" | "persistMeetingAudio" | "persistMeetingContent" | "storageMode"
+    >
+  >;
 
 export function createManifest(input: CreateManifestInput): RecordingManifest {
   return recordingManifestSchema.parse({

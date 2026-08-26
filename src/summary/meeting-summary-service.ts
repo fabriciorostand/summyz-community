@@ -14,11 +14,12 @@ export interface SummaryGenerator {
 }
 
 interface MeetingSummaryServiceOptions {
-  generator: SummaryGenerator;
+  generator?: SummaryGenerator;
   logger: Logger;
   now?: () => Date;
   publisher: MeetingPublisher;
   refinementStore: RefinementStore;
+  resolveGenerator?: (manifest: RecordingManifest) => SummaryGenerator;
   summaryStore: SummaryStore;
   transcriptionStore: TranscriptionStore;
 }
@@ -28,11 +29,12 @@ interface SummaryProcessingOptions {
 }
 
 export class MeetingSummaryService {
-  readonly #generator: SummaryGenerator;
+  readonly #generator: SummaryGenerator | undefined;
   readonly #logger: Logger;
   readonly #now: () => Date;
   readonly #publisher: MeetingPublisher;
   readonly #refinementStore: RefinementStore;
+  readonly #resolveGenerator: ((manifest: RecordingManifest) => SummaryGenerator) | undefined;
   readonly #summaryStore: SummaryStore;
   readonly #transcriptionStore: TranscriptionStore;
 
@@ -42,8 +44,12 @@ export class MeetingSummaryService {
     this.#now = options.now ?? (() => new Date());
     this.#publisher = options.publisher;
     this.#refinementStore = options.refinementStore;
+    this.#resolveGenerator = options.resolveGenerator;
     this.#summaryStore = options.summaryStore;
     this.#transcriptionStore = options.transcriptionStore;
+    if (this.#generator === undefined && this.#resolveGenerator === undefined) {
+      throw new Error("A summary generator or resolver is required");
+    }
   }
 
   public async process(
@@ -79,11 +85,13 @@ export class MeetingSummaryService {
 
     state ??= createSummaryState(manifest.meetingId, this.#now().toISOString());
     await this.#summaryStore.save(state);
-    this.#logger.info({ meetingId: manifest.meetingId }, "Processamento do resumo iniciado");
+    this.#logger.info({ meetingId: manifest.meetingId }, "Meeting summary processing started");
 
     let generated: MeetingSummaryGenerationResult;
     try {
-      generated = await this.#generator.generate(refinement.entries);
+      const generator = this.#resolveGenerator?.(manifest) ?? this.#generator;
+      if (generator === undefined) throw new Error("The summary generator is unavailable");
+      generated = await generator.generate(refinement.entries);
     } catch (error) {
       if (!(options.fallbackOnProviderFailure ?? true)) {
         throw error;
@@ -97,7 +105,7 @@ export class MeetingSummaryService {
       await this.#summaryStore.save(failed);
       this.#logger.error(
         { errorType: getErrorType(error), meetingId: manifest.meetingId },
-        "Falha ao gerar resumo da reunião",
+        "Meeting summary generation failed",
       );
       await this.#publisher.publishTranscriptOnly(manifest, transcriptPath);
       return;
@@ -112,7 +120,7 @@ export class MeetingSummaryService {
     await this.#summaryStore.save(completed);
     this.#logger.info(
       { attempts: generated.attempts, meetingId: manifest.meetingId },
-      "Resumo da reunião concluído",
+      "Meeting summary completed",
     );
     await this.#publisher.publishSummary(
       manifest,

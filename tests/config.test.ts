@@ -26,6 +26,11 @@ describe("loadConfig", () => {
       openRouterRefinementModel: "google/gemini-3.7-flash",
       openRouterSummaryModel: "google/gemini-3.7-flash",
       openRouterTranscriptionModel: "openai/whisper-1",
+      refinementProvider: "openrouter",
+      summaryLanguage: "auto",
+      summaryProvider: "openrouter",
+      transcriptionLanguage: "auto",
+      transcriptionProvider: "openrouter",
       persistMeetingContent: false,
       persistMeetingAudio: false,
       segmentMaxSeconds: 60,
@@ -97,6 +102,70 @@ describe("loadConfig", () => {
         OPENROUTER_REFINEMENT_MODEL: undefined,
       }),
     ).toThrow(/OPENROUTER_REFINEMENT_MODEL/);
+  });
+
+  it("permite escolher provedores locais independentemente por fase", () => {
+    const config = loadConfig({
+      DISCORD_CLIENT_ID: "client-id",
+      DISCORD_TOKEN: "token",
+      FASTER_WHISPER_MODEL: "auto",
+      OLLAMA_REFINEMENT_MODEL: "qwen3:4b",
+      OLLAMA_SUMMARY_MODEL: "auto",
+      REFINEMENT_PROVIDER: "ollama",
+      SUMMARY_PROVIDER: "ollama",
+      TRANSCRIPTION_PROVIDER: "faster-whisper",
+    });
+
+    expect(config).toMatchObject({
+      fasterWhisperModel: "auto",
+      ollamaRefinementModel: "qwen3:4b",
+      ollamaSummaryModel: "auto",
+      refinementProvider: "ollama",
+      summaryProvider: "ollama",
+      transcriptionProvider: "faster-whisper",
+    });
+    expect(config.openRouterApiKey).toBeUndefined();
+  });
+
+  it("exige apenas as configurações OpenRouter das fases que usam o provedor", () => {
+    expect(() =>
+      loadConfig({
+        DISCORD_CLIENT_ID: "client-id",
+        DISCORD_TOKEN: "token",
+        OPENROUTER_API_KEY: "key",
+        OPENROUTER_SUMMARY_MODEL: "google/gemini-3.7-flash",
+        REFINEMENT_PROVIDER: "ollama",
+        SUMMARY_PROVIDER: "openrouter",
+        TRANSCRIPTION_PROVIDER: "faster-whisper",
+      }),
+    ).not.toThrow();
+
+    expect(() =>
+      loadConfig({
+        DISCORD_CLIENT_ID: "client-id",
+        DISCORD_TOKEN: "token",
+        REFINEMENT_PROVIDER: "ollama",
+        SUMMARY_PROVIDER: "openrouter",
+        TRANSCRIPTION_PROVIDER: "faster-whisper",
+      }),
+    ).toThrow(/OPENROUTER_API_KEY|OPENROUTER_SUMMARY_MODEL/);
+  });
+
+  it("usa idiomas automáticos por padrão e aceita códigos explícitos", () => {
+    expect(loadConfig(requiredEnvironment)).toMatchObject({
+      summaryLanguage: "auto",
+      transcriptionLanguage: "auto",
+    });
+    expect(
+      loadConfig({
+        ...requiredEnvironment,
+        SUMMARY_LANGUAGE: "pt-BR",
+        TRANSCRIPTION_LANGUAGE: "es",
+      }),
+    ).toMatchObject({ summaryLanguage: "pt-BR", transcriptionLanguage: "es" });
+    expect(() =>
+      loadConfig({ ...requiredEnvironment, TRANSCRIPTION_LANGUAGE: "português" }),
+    ).toThrow(/TRANSCRIPTION_LANGUAGE/);
   });
 
   it("preserva o escopo de registro por servidor", () => {

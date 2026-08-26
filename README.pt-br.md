@@ -22,7 +22,7 @@
 ---
 
 O Summyz grava cada participante separadamente e, depois do encerramento normal da call, transcreve
-os segmentos por meio do OpenRouter e monta um arquivo único preservando falantes, timestamps e
+os segmentos pelo provedor configurado e monta um arquivo único preservando falantes, timestamps e
 falas sobrepostas. Uma segunda etapa revisa apenas o texto da transcrição, sem
 permitir que o modelo altere IDs, falantes, timestamps ou ordem. Em seguida, gera um resumo
 estruturado e publica em um post de fórum do Discord o resumo executivo, os tópicos discutidos, as
@@ -35,24 +35,26 @@ decisões, as tarefas e a transcrição completa.
 - Docker com Compose para executar o bot e, no modo PostgreSQL, o banco;
 - PostgreSQL 18 somente quando `STORAGE_MODE=postgres`;
 - uma aplicação de bot criada no Discord Developer Portal;
-- uma conta no OpenRouter com créditos e uma chave de API;
+- uma conta no OpenRouter com créditos e uma chave de API somente para as fases configuradas com
+  `openrouter`;
 - FFmpeg não precisa ser instalado separadamente: o projeto usa um binário empacotado.
 
 ## Configuração local
 
 1. Instale as dependências com `npm install`.
 2. Copie `.env.example` para `.env`.
-3. Preencha `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `OPENROUTER_API_KEY`,
-   `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_REFINEMENT_MODEL` e
-   `OPENROUTER_SUMMARY_MODEL`.
+3. Preencha `DISCORD_TOKEN` e `DISCORD_CLIENT_ID`. Escolha separadamente os provedores de
+   transcrição, refinamento e resumo. Preencha a chave e os modelos OpenRouter somente nas fases que
+   o utilizarem.
 4. Escolha `STORAGE_MODE=local` para operar sem banco. Para `STORAGE_MODE=postgres`, defina
    `POSTGRES_PASSWORD` e `DATABASE_URL`; use o host `postgres` no Compose ou `localhost` no npm.
 5. Defina `PERSIST_MEETING_CONTENT` e `PERSIST_MEETING_AUDIO` conforme a política desejada.
 6. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
-7. Execute `npm run dev`. Para usar containers no modo local, execute
-   `docker compose up -d --build bot`. No modo PostgreSQL, suba primeiro o banco com
-   `docker compose --profile postgres up -d postgres` e, quando estiver saudável, suba o bot.
+7. Execute `docker compose up -d --build`. O Compose sobe o bot, Ollama e faster-whisper; apenas os
+   modelos locais selecionados são baixados. No modo PostgreSQL, acrescente `--profile postgres`.
+   `npm run dev` continua disponível para desenvolvimento, mas os serviços locais permanecem no
+   Compose.
 
 Se a porta local `5432` já estiver ocupada, altere `POSTGRES_PORT` e ajuste a porta de
 `DATABASE_URL`. O PostgreSQL é publicado somente em `127.0.0.1`; entre containers, a conexão
@@ -64,7 +66,8 @@ No modo local, o bot não cria conexão nem exige um PostgreSQL. No modo Postgre
 conexão são validadas antes do login no Discord; se o banco estiver indisponível ou a URL for
 inválida, o processo encerra com uma mensagem segura. O mesmo ocorre se houver no disco uma reunião
 PostgreSQL pendente de recuperação e `DATABASE_URL` não estiver disponível. Os volumes
-`postgres_data` e `summyz_data` preservam o banco e os arquivos necessários após reinício.
+`postgres_data`, `summyz_data`, `ollama_models` e `faster_whisper_models` preservam o banco, os
+arquivos e os modelos gerenciados após reinício.
 
 ## Persistência e privacidade
 
@@ -90,9 +93,9 @@ PostgreSQL pendente de recuperação e `DATABASE_URL` não estiver disponível. 
 - não há expiração automática para conteúdo ou áudio preservado. A exclusão é uma operação manual
   do administrador no disco ou banco.
 
-As três escolhas são copiadas para o manifesto no início da reunião. Alterar o `.env` depois não
-migra nem redireciona uma reunião já iniciada: uma reunião local continua local e uma reunião
-PostgreSQL continua dependente do PostgreSQL até chegar ao estado terminal.
+As escolhas de armazenamento, persistência, provedores, modelos resolvidos e idiomas são copiadas
+para o manifesto no início da reunião. Alterar o `.env` depois não migra nem redireciona uma reunião
+já iniciada.
 
 O processamento usa uma fila durável em `processing.json` no modo local ou no PostgreSQL no outro
 modo. A entrega é *at least once*: se o processo cair depois de reservar um job e antes de confirmar
@@ -149,8 +152,11 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 
 ## Configurações de transcrição
 
-- `OPENROUTER_API_KEY`: chave usada nos endpoints de transcrição, refinamento e resumo;
-- `OPENROUTER_TRANSCRIPTION_MODEL`: modelo STT escolhido no OpenRouter, sem padrão implícito;
+- `TRANSCRIPTION_PROVIDER`: `openrouter` ou `faster-whisper`; padrão `openrouter`;
+- `TRANSCRIPTION_LANGUAGE`: `auto` ou código BCP 47; padrão `auto`;
+- `FASTER_WHISPER_MODEL`: modelo local exato ou `auto`; padrão `auto`;
+- `OPENROUTER_API_KEY`: chave exigida somente quando alguma fase usa OpenRouter;
+- `OPENROUTER_TRANSCRIPTION_MODEL`: modelo STT exigido quando a transcrição usa OpenRouter;
 - `TRANSCRIPTION_MODEL_PROFILES_FILE`: arquivo JSON com a configuração individual de cada modelo;
   padrão `./config/transcription-model-profiles.json`;
 - `TRANSCRIPTION_CONCURRENCY`: lotes processados simultaneamente; padrão `2`;
@@ -164,7 +170,7 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 - `TRANSCRIPTION_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
 - `TRANSCRIPTION_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
 
-O modelo configurado precisa possuir uma entrada com o mesmo slug em
+Um modelo OpenRouter configurado precisa possuir uma entrada com o mesmo slug em
 [`config/transcription-model-profiles.json`](./config/transcription-model-profiles.json). O Summyz
 valida todos os perfis e falha antes de se conectar ao Discord se o arquivo for inválido ou o modelo
 ativo não tiver perfil. O modelo continua sendo escolhido pelo `.env`; nenhuma configuração de um
@@ -172,7 +178,6 @@ perfil é herdada por outro.
 
 Cada perfil define:
 
-- `language`: idioma enviado ao provedor; quando omitido, usa detecção automática;
 - `temperature`: temperatura da transcrição;
 - `timestampMode`: `word` para timestamps detalhados ou `batch` para texto sem timestamps;
 - `interSpeechSilenceMs`: silêncio WAV inserido somente entre intervalos reais de voz do lote;
@@ -182,9 +187,10 @@ Cada perfil define:
 - `providerOptions`: opções específicas opcionais, agrupadas pelo slug do provedor conforme o
   contrato do OpenRouter.
 
-Os perfis do Whisper mantêm `pt-BR`, `temperature: 0`, timestamps por palavra e nenhuma pausa
-sintética, preservando o comportamento anterior. O perfil `deepgram/nova-3` também usa `pt-BR` e
-timestamps por palavra, mas insere 350 ms entre intervalos de voz. Esse valor foi escolhido em um
+Os perfis não fixam idioma: `TRANSCRIPTION_LANGUAGE` controla essa decisão. Com `auto`, o Summyz
+usa detecção automática e a seleção local considera a melhor qualidade multilíngue geral. Com um
+idioma explícito, suporte e qualidade nesse idioma participam do ranking. O perfil
+`deepgram/nova-3` insere 350 ms entre intervalos de voz. Esse valor foi escolhido em um
 teste controlado: 200 e 500 ms perderam a palavra “não”, enquanto 350 ms preservou “Não, concordo.
 Realmente.”. As opções `smart_format` e `utterances` não foram ativadas porque pioraram esse áudio.
 
@@ -194,9 +200,9 @@ ele, o Summyz usa detecção automática de idioma e representa cada resposta co
 lote real de voz enviado. Assim, falantes e sobreposições continuam preservados, mas os timestamps
 são precisos por lote, não por palavra ou frase.
 
-Os perfis `openai/gpt-transcribe` e `openai/gpt-4o-transcribe` usam `language: "pt"`,
-`temperature: 0`, resposta JSON por lote e não unem segmentos distintos. O perfil
-`openai/gpt-transcribe` usa um prompt genérico para orientar transcrição literal e preservação de
+Os perfis `openai/gpt-transcribe` e `openai/gpt-4o-transcribe` usam `temperature: 0`, resposta JSON
+por lote e não unem segmentos distintos. O perfil `openai/gpt-transcribe` usa um prompt neutro para
+orientar transcrição literal no idioma original e preservação de
 hesitações, sem pausa sintética. O perfil `openai/gpt-4o-transcribe` não usa prompt e insere 350 ms
 entre intervalos internos de voz. Nenhum deles configura `keywords`, nomes, termos específicos ou
 outro vocabulário controlado.
@@ -217,11 +223,26 @@ intervalos para preservar fronteiras de enunciados. Um mapa temporal exclui essa
 cada trecho no relógio original depois da transcrição, sem misturar participantes.
 
 O OpenRouter pode rotear uma requisição entre provedores compatíveis com o modelo selecionado. O
-Summyz aceita esse roteamento automático. Para requisitos de privacidade mais restritos, use as
-configurações de privacidade da conta do OpenRouter ou um provedor local em uma evolução futura.
+Summyz aceita esse roteamento dentro da fase OpenRouter. Uma fase configurada como local nunca envia
+seu conteúdo ao OpenRouter e não possui fallback cruzado.
+
+O Compose mantém Ollama e faster-whisper apenas na rede privada. Downloads e validações acontecem
+em segundo plano e não bloqueiam o login no Discord. Ollama usa saída JSON estruturada; modelos que
+não cumprem o contrato são descarregados e, quando nenhuma outra fase válida os utiliza, removidos
+do volume gerenciado. faster-whisper tenta CUDA quando disponível e recua para CPU sem trocar de
+provedor. Para disponibilizar GPU aos containers, execute
+`docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d --build`.
+
+Se o hardware ficar abaixo da recomendação para uma configuração 100% local, o Summyz ainda escolhe
+os menores modelos locais compatíveis e tenta processar a reunião. O processamento pode ser lento e
+a qualidade pode ficar abaixo do desejado. Somente o terminal e o usuário que executou `/record`
+recebem o aviso, com a sugestão de configurar OpenRouter. A fila durável continua responsável apenas
+pelas indisponibilidades e falhas transitórias reais dos serviços locais.
 
 ## Configurações de refinamento
 
+- `REFINEMENT_PROVIDER`: `openrouter` ou `ollama`; padrão `openrouter`;
+- `OLLAMA_REFINEMENT_MODEL`: modelo Ollama exato ou `auto`; padrão `auto`;
 - `OPENROUTER_REFINEMENT_MODEL`: modelo de texto que revisa a saída do STT; o exemplo recomenda
   `google/gemini-3.7-flash`;
 - `REFINEMENT_CHUNK_MAX_CHARACTERS`: tamanho máximo aproximado de cada bloco, sempre dividido entre
@@ -231,11 +252,11 @@ configurações de privacidade da conta do OpenRouter ou um provedor local em um
 - `REFINEMENT_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
 - `REFINEMENT_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms.
 
-O refinamento recebe os blocos estruturados produzidos pelo Whisper e devolve somente pares de
+O refinamento recebe os blocos estruturados produzidos pelo STT e devolve somente pares de
 `id` e `text`. O código rejeita qualquer resposta que remova, acrescente ou reordene IDs e sempre
 reutiliza falante e timestamps do Whisper. O prompt pede uma revisão conservadora de erros
-ortográficos, fonéticos e contextuais evidentes; ele não contém lista de nomes, palavras-chave ou
-vocabulário controlado.
+ortográficos, fonéticos e contextuais evidentes, preservando o idioma original de cada fala; ele não
+contém lista de nomes, palavras-chave ou vocabulário controlado e nunca traduz a reunião.
 
 Antes da primeira chamada, o Summyz preserva atomicamente a saída original em
 `transcript.raw.txt`. Se o modelo ou a resposta estruturada falhar nas três tentativas, restaura o
@@ -245,6 +266,10 @@ transcrição original continua disponível.
 
 ## Configurações de resumo
 
+- `SUMMARY_PROVIDER`: `openrouter` ou `ollama`; padrão `openrouter`;
+- `SUMMARY_LANGUAGE`: `auto` ou código BCP 47; padrão `auto`. Em `auto`, a saída usa o idioma
+  predominante da reunião;
+- `OLLAMA_SUMMARY_MODEL`: modelo Ollama exato ou `auto`; padrão `auto`;
 - `OPENROUTER_SUMMARY_MODEL`: modelo de texto usado no resumo, configurado separadamente do modelo
   de transcrição; o exemplo recomenda `google/gemini-3.7-flash`;
 - `SUMMARY_CHUNK_MAX_CHARACTERS`: tamanho máximo aproximado de cada bloco de transcrição; padrão
@@ -352,8 +377,9 @@ Use `npm run check` antes de enviar mudanças. Esse comando valida formatação,
 cobertura. Use `npm run security:audit` para verificar as dependências.
 
 O decodificador Opus do MVP é `opusscript`, evitando a cadeia vulnerável encontrada na dependência
-nativa avaliada. O procedimento para validar desempenho com até cinco participantes está em
-[SMOKE_TEST.md](./SMOKE_TEST.md).
+nativa avaliada. O smoke test dos serviços locais é automatizado e executado dentro da rede privada
+com `docker compose --profile smoke run --rm smoke`; ele baixa modelos pequenos e pode demorar na
+primeira execução. Interações reais no Discord não são apresentadas como teste automatizado.
 
 ## Contribuição
 

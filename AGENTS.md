@@ -36,8 +36,8 @@ O projeto deve usar configuração estrita do TypeScript.
 - Cobertura **≥ 85%** (regras de domínio, gerenciamento de sessões, criação e validação do manifesto,
   montagem da transcrição, retenção, retries, integrações por meio de adapters testáveis). Glue de infra pode ter cobertura menor, mas caminhos de erro relevantes têm teste.
 - Teste que **falha se segredo ou credenciais vazarem nos logs**.
-- Integrações reais com voz do Discord exigem smoke test manual, além dos testes automatizados das
-  regras e adapters ao redor da integração.
+- Integrações locais de IA devem possuir smoke tests automatizados e isolados da suíte rápida.
+  Cenários que não podem ser reproduzidos por código não fazem parte dos critérios automatizados.
 
 ## Qualidade
 

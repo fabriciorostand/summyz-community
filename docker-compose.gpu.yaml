@@ -1,0 +1,6 @@
+services:
+  ollama:
+    gpus: all
+
+  faster-whisper:
+    gpus: all

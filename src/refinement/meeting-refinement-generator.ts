@@ -1,7 +1,4 @@
-import {
-  type RefinementProvider,
-  RefinementProviderFailureError,
-} from "./openrouter-refinement-provider.js";
+import { type RefinementProvider, RefinementProviderFailureError } from "./refinement-provider.js";
 import { refinementEntrySchema, type RefinementEntry } from "./refinement-result.js";
 
 interface MeetingRefinementGeneratorOptions {

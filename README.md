@@ -22,7 +22,7 @@
 ---
 
 Summyz records each participant separately and, after the voice call ends normally, transcribes the
-segments through OpenRouter and assembles a single file while preserving speakers, timestamps, and
+segments through the configured provider and assembles a single file while preserving speakers, timestamps, and
 overlapping speech. A second stage reviews only the transcript text without allowing the model to
 change IDs, speakers, timestamps, or order. It then generates a structured summary and publishes the
 executive summary, discussed topics, decisions, tasks, and full transcript in a Discord forum post.
@@ -34,26 +34,24 @@ executive summary, discussed topics, decisions, tasks, and full transcript in a 
 - Docker with Compose to run the bot and, in PostgreSQL mode, the database;
 - PostgreSQL 18 only when `STORAGE_MODE=postgres`;
 - a bot application created in the Discord Developer Portal;
-- an OpenRouter account with credits and an API key;
+- an OpenRouter account with credits and an API key only for stages configured with `openrouter`;
 - FFmpeg does not need to be installed separately: the project uses a bundled binary.
 
 ## Local setup
 
 1. Install the dependencies with `npm install`.
 2. Copy `.env.example` to `.env`.
-3. Fill in `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `OPENROUTER_API_KEY`,
-   `OPENROUTER_TRANSCRIPTION_MODEL`, `OPENROUTER_REFINEMENT_MODEL`, and
-   `OPENROUTER_SUMMARY_MODEL`.
+3. Fill in `DISCORD_TOKEN` and `DISCORD_CLIENT_ID`. Select the provider for each AI stage. Fill in
+   OpenRouter credentials and models only for stages that use it.
 4. Choose `STORAGE_MODE=local` to run without a database. For `STORAGE_MODE=postgres`, set
    `POSTGRES_PASSWORD` and `DATABASE_URL`; use the `postgres` host with Compose or `localhost`
    with npm.
 5. Set `PERSIST_MEETING_CONTENT` and `PERSIST_MEETING_AUDIO` according to the desired policy.
 6. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
-7. Run `npm run dev`. To use containers in local mode, run
-   `docker compose up -d --build bot`. In PostgreSQL mode, start the database first with
-   `docker compose --profile postgres up -d postgres`, then start the bot once the database is
-   healthy.
+7. Run `docker compose up -d --build`. Compose starts the bot, Ollama, and faster-whisper; it only
+   downloads local models selected by the configuration. Add `--profile postgres` for PostgreSQL.
+   `npm run dev` remains available for development while local AI services run in Compose.
 
 If local port `5432` is already in use, change `POSTGRES_PORT` and adjust the port in
 `DATABASE_URL`. PostgreSQL is exposed only on `127.0.0.1`; the connection between containers
@@ -185,9 +183,10 @@ Each profile defines:
 - `providerOptions`: optional provider-specific options grouped by provider slug according to the
   OpenRouter contract.
 
-The Whisper profiles retain `pt-BR`, `temperature: 0`, word-level timestamps, and no synthetic
-pause, preserving the previous behavior. The `deepgram/nova-3` profile also uses `pt-BR` and
-word-level timestamps, but inserts 350 ms between speech intervals. This value was selected in a
+Profiles do not pin a language: `TRANSCRIPTION_LANGUAGE` controls that decision. With `auto`,
+Summyz uses automatic detection and local selection prioritizes the best overall multilingual
+quality. With an explicit language, support and quality for that language participate in ranking.
+The `deepgram/nova-3` profile inserts 350 ms between speech intervals. This value was selected in a
 controlled test: 200 and 500 ms dropped the negation, while 350 ms preserved the full utterance,
 “No, I agree. Really.” The `smart_format` and `utterances` options were not enabled because they
 produced worse results for this audio.
@@ -198,9 +197,9 @@ timestamps. For this model, Summyz uses automatic language detection and represe
 with the start and end of the actual speech batch sent. Speakers and overlaps therefore remain
 preserved, but timestamps are precise per batch rather than per word or sentence.
 
-The `openai/gpt-transcribe` and `openai/gpt-4o-transcribe` profiles use `language: "pt"`,
-`temperature: 0`, one JSON response per batch, and do not merge distinct segments. The
-`openai/gpt-transcribe` profile uses a generic prompt to guide literal transcription and preserve
+The `openai/gpt-transcribe` and `openai/gpt-4o-transcribe` profiles use `temperature: 0`, one JSON
+response per batch, and do not merge distinct segments. The `openai/gpt-transcribe` profile uses a
+language-neutral prompt to guide literal transcription in the original language and preserve
 hesitations, with no synthetic pause. The `openai/gpt-4o-transcribe` profile uses no prompt and
 inserts 350 ms between internal speech intervals. Neither configures `keywords`, names, specific
 terms, or any other controlled vocabulary.
@@ -223,8 +222,14 @@ pauses and places each excerpt back on the original clock after transcription, w
 participants.
 
 OpenRouter may route a request among providers compatible with the selected model. Summyz accepts
-this automatic routing. For stricter privacy requirements, use the OpenRouter account's privacy
-settings or a local provider in a future version.
+this routing within an OpenRouter stage. A stage configured as local never sends its content to
+OpenRouter and has no cross-provider fallback. Local services stay on the private Compose network;
+downloads and validation run in the background without blocking Discord startup.
+
+If the machine is below the hardware recommendation for a fully local setup, Summyz still selects
+the smallest compatible local models and attempts processing. It warns only the terminal and the
+person who ran `/record`; processing may be slow and output quality may be lower than desired. The
+durable queue remains responsible for actual service unavailability and transient failures.
 
 ## Refinement settings
 
@@ -358,8 +363,9 @@ Run `npm run check` before submitting changes. This command validates formatting
 tests, and coverage. Run `npm run security:audit` to check dependencies.
 
 The MVP's Opus decoder is `opusscript`, avoiding the vulnerable dependency chain found in the
-native dependency that was evaluated. The procedure for validating performance with up to five
-participants is documented in [SMOKE_TEST.md](./SMOKE_TEST.md).
+native dependency that was evaluated. The local-service smoke test is automated inside the private
+Compose network with `docker compose --profile smoke run --rm smoke`; it downloads small models and
+may take a while on its first run. Real Discord interactions are not presented as automated tests.
 
 ## Contributing
 
@@ -367,7 +373,7 @@ Contributions are welcome.
 
 1. Fork the repo and create a feature branch.
 2. Keep modules small and single-purpose; follow the existing structure.
-3. Add tests for new logic — `npm test` and the sidecar `pytest` must pass.
+3. Add tests for new logic — `npm test` must pass.
 4. Open a pull request describing the change and the reasoning.
 
 For bugs and feature requests, please open an issue.

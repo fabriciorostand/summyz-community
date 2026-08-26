@@ -27,6 +27,7 @@ export function installInteractionHandler(
   coordinator: RecordingCoordinator,
   logger: Logger,
   language: AppConfig["botLanguage"],
+  hasInsufficientLocalHardware: () => boolean = () => false,
 ): void {
   const text = getInteractionText(language);
   client.on(Events.InteractionCreate, async (interaction) => {
@@ -40,14 +41,20 @@ export function installInteractionHandler(
       } else if (interaction.commandName === "recording-summary-forum") {
         await handleRecordingSummaryForum(interaction, guildConfigStore, text);
       } else if (interaction.commandName === "record") {
-        await handleRecord(interaction, guildConfigStore, coordinator, text);
+        await handleRecord(
+          interaction,
+          guildConfigStore,
+          coordinator,
+          text,
+          hasInsufficientLocalHardware,
+        );
       } else if (interaction.commandName === "stop") {
         await handleStop(interaction, guildConfigStore, coordinator, text);
       }
     } catch (error) {
       logger.error(
         { commandName: interaction.commandName, errorType: getErrorType(error) },
-        "Falha ao executar comando",
+        "Command execution failed",
       );
       await sendError(interaction, text.commandFailed);
     }
@@ -185,6 +192,7 @@ async function handleRecord(
   store: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
   text: InteractionText,
+  hasInsufficientLocalHardware: () => boolean,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
@@ -215,6 +223,9 @@ async function handleRecord(
     await interaction.editReply(
       text.recordingStarted(voiceChannel.name, String(interaction.user), handle.meetingId),
     );
+    if (hasInsufficientLocalHardware()) {
+      await interaction.followUp(createEphemeralReply(text.insufficientLocalHardware));
+    }
   } catch (error) {
     if (error instanceof RecordingAlreadyActiveError) {
       await interaction.editReply(text.recordingAlreadyActive);

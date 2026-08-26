@@ -7,6 +7,11 @@ COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN npm run build
 
+FROM build AS test
+COPY tests ./tests
+COPY vitest.config.ts vitest.smoke.config.ts ./
+CMD ["npm", "run", "test:smoke:local-ai"]
+
 FROM node:22-bookworm-slim AS runtime
 
 ENV NODE_ENV=production

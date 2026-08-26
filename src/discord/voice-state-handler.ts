@@ -32,7 +32,7 @@ export function installVoiceStateHandler(
     } catch (error) {
       logger.error(
         { errorType: error instanceof Error ? error.name : typeof error, guildId },
-        "Falha ao reagir à mudança no canal de voz",
+        "Failed to handle voice channel state change",
       );
     }
   });

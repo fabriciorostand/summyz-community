@@ -18,6 +18,7 @@
     "start": "node dist/main.js",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
+    "test:smoke:local-ai": "vitest run --config vitest.smoke.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit"
   },

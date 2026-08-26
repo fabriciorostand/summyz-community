@@ -123,7 +123,7 @@ export class DurableJobWorker {
     } catch (error) {
       this.#logger.error(
         { errorType: getErrorType(error) },
-        "Falha ao consultar ou atualizar a fila durável",
+        "Failed to query or update the durable queue",
       );
     }
   }
@@ -133,7 +133,7 @@ export class DurableJobWorker {
       void this.#queue.renew(job, this.#workerId).catch((error: unknown) => {
         this.#logger.error(
           { errorType: getErrorType(error), jobId: job.jobId, meetingId: job.meetingId },
-          "Falha ao renovar o lease do processamento",
+          "Failed to renew the processing lease",
         );
       });
     }, this.#heartbeatMs);
@@ -174,7 +174,7 @@ export class DurableJobWorker {
     } catch (error) {
       this.#logger.error(
         { errorType: getErrorType(error), meetingId },
-        "Falha ao excluir artefatos temporários após estado terminal",
+        "Failed to delete temporary artifacts after a terminal state",
       );
     }
   }

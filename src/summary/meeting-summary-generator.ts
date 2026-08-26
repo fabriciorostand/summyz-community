@@ -2,7 +2,7 @@ import {
   type SummaryProvider,
   type SummaryProviderResult,
   SummaryProviderFailureError,
-} from "./openrouter-summary-provider.js";
+} from "./summary-provider.js";
 import {
   type SummaryDraft,
   type SummaryTranscriptEntry,

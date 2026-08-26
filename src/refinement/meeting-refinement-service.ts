@@ -9,7 +9,7 @@ import type { TranscribedSegment } from "../transcription/transcription-provider
 import type { TranscriptionState } from "../transcription/transcription-state.js";
 import type { TranscriptionStore } from "../transcription/transcription-store.js";
 import type { MeetingRefinementGenerationResult } from "./meeting-refinement-generator.js";
-import { RefinementProviderFailureError } from "./openrouter-refinement-provider.js";
+import { RefinementProviderFailureError } from "./refinement-provider.js";
 import {
   createRefinementState,
   markRefinementCompleted,
@@ -23,10 +23,11 @@ export interface RefinementGenerator {
 }
 
 interface MeetingRefinementServiceOptions {
-  generator: RefinementGenerator;
+  generator?: RefinementGenerator;
   logger: Logger;
   now?: () => Date;
   refinementStore: RefinementStore;
+  resolveGenerator?: (manifest: RecordingManifest) => RefinementGenerator;
   transcriptionStore: TranscriptionStore;
 }
 
@@ -35,10 +36,11 @@ interface RefinementProcessingOptions {
 }
 
 export class MeetingRefinementService {
-  readonly #generator: RefinementGenerator;
+  readonly #generator: RefinementGenerator | undefined;
   readonly #logger: Logger;
   readonly #now: () => Date;
   readonly #refinementStore: RefinementStore;
+  readonly #resolveGenerator: ((manifest: RecordingManifest) => RefinementGenerator) | undefined;
   readonly #transcriptionStore: TranscriptionStore;
 
   public constructor(options: MeetingRefinementServiceOptions) {
@@ -46,7 +48,11 @@ export class MeetingRefinementService {
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
     this.#refinementStore = options.refinementStore;
+    this.#resolveGenerator = options.resolveGenerator;
     this.#transcriptionStore = options.transcriptionStore;
+    if (this.#generator === undefined && this.#resolveGenerator === undefined) {
+      throw new Error("A refinement generator or resolver is required");
+    }
   }
 
   public async process(
@@ -68,11 +74,13 @@ export class MeetingRefinementService {
     const rawTranscript = await this.#transcriptionStore.preserveRawTranscript(manifest.meetingId);
     state ??= createRefinementState(manifest.meetingId, this.#now().toISOString());
     await this.#refinementStore.save(state);
-    this.#logger.info({ meetingId: manifest.meetingId }, "Refinamento da transcrição iniciado");
+    this.#logger.info({ meetingId: manifest.meetingId }, "Transcript refinement started");
 
     let generated: MeetingRefinementGenerationResult;
     try {
-      generated = await this.#generator.generate(entries);
+      const generator = this.#resolveGenerator?.(manifest) ?? this.#generator;
+      if (generator === undefined) throw new Error("The refinement generator is unavailable");
+      generated = await generator.generate(entries);
     } catch (error) {
       if (!(error instanceof RefinementProviderFailureError)) throw error;
       await this.#transcriptionStore.writeTranscript(manifest.meetingId, rawTranscript);
@@ -88,7 +96,7 @@ export class MeetingRefinementService {
       await this.#refinementStore.save(fallback);
       this.#logger.error(
         { attempts: error.attempts, errorType: error.name, meetingId: manifest.meetingId },
-        "Refinamento indisponível; a transcrição original será utilizada",
+        "Refinement unavailable; the original transcript will be used",
       );
       return;
     }
@@ -106,7 +114,7 @@ export class MeetingRefinementService {
     await this.#refinementStore.save(completed);
     this.#logger.info(
       { attempts: generated.attempts, meetingId: manifest.meetingId },
-      "Refinamento da transcrição concluído",
+      "Transcript refinement completed",
     );
   }
 }

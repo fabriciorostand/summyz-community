@@ -318,7 +318,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
           errorType: getErrorType(error),
           meetingId: manifest.meetingId,
         },
-        "Não foi possível enviar aviso de falha da publicação",
+        "Unable to send publication failure notification",
       );
     }
   }

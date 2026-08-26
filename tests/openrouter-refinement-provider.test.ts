@@ -49,6 +49,8 @@ describe("OpenRouterRefinementProvider", () => {
       temperature: 0,
     });
     expect(JSON.stringify(body)).not.toContain("keywords");
+    expect(JSON.stringify(body)).toContain("original language");
+    expect(JSON.stringify(body)).not.toContain("português brasileiro");
   });
 
   it("retenta resposta que altera ids e não registra texto ou segredo", async () => {

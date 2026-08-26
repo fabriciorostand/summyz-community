@@ -27,6 +27,7 @@ import {
   markManifestCompleted,
   type RecordingManifest,
   type RecordingSegment,
+  type MeetingAiConfiguration,
 } from "./manifest.js";
 import type { ManifestStore } from "./manifest-store.js";
 import {
@@ -55,6 +56,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #client: Client;
   readonly #config: AppConfig;
   readonly #logger: Logger;
+  readonly #meetingAiConfiguration: MeetingAiConfiguration | undefined;
   readonly #manifestStore: ManifestStore;
   readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
   readonly #text: RecordingText;
@@ -65,17 +67,22 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     manifestStore: ManifestStore,
     logger: Logger,
     onCompleted?: (manifest: RecordingManifest) => Promise<void>,
+    meetingAiConfiguration?: MeetingAiConfiguration,
   ) {
     this.#client = client;
     this.#config = config;
     this.#manifestStore = manifestStore;
     this.#logger = logger;
+    this.#meetingAiConfiguration = meetingAiConfiguration;
     this.#onCompleted = onCompleted;
     this.#text = getRecordingText(config.botLanguage);
   }
 
   public async create(input: StartRecordingInput, onEnded?: () => void): Promise<RecordingHandle> {
     const manifest = createManifest({
+      ...(this.#meetingAiConfiguration === undefined
+        ? {}
+        : { aiConfiguration: this.#meetingAiConfiguration }),
       guildId: input.guildId,
       meetingId: randomUUID(),
       notificationChannelId: input.notificationChannelId,
@@ -138,7 +145,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
           guildId: manifest.guildId,
           meetingId: manifest.meetingId,
         },
-        "Falha ao retomar gravação após reinício",
+        "Failed to resume recording after restart",
       );
       await this.#notify(manifest.notificationChannelId, this.#text.resumeFailed);
       return undefined;
@@ -201,7 +208,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     } catch (error) {
       this.#logger.warn(
         { channelId, errorType: getErrorType(error) },
-        "Não foi possível enviar aviso da gravação",
+        "Unable to send recording notification",
       );
     }
   }
@@ -213,7 +220,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     } catch (error) {
       this.#logger.error(
         { errorType: getErrorType(error), meetingId: manifest.meetingId },
-        "Falha ao enfileirar reunião concluída",
+        "Failed to enqueue completed meeting",
       );
     }
   }
@@ -283,13 +290,13 @@ class DiscordVoiceRecording implements RecordingHandle {
           meetingId: this.meetingId,
           ...this.#performanceMetrics(),
         },
-        "Métricas da gravação",
+        "Recording metrics",
       );
     }, 10_000);
     this.#metricsTimer.unref();
     this.#logger.info(
       { guildId: this.guildId, meetingId: this.meetingId, voiceChannelId: this.voiceChannelId },
-      "Gravação iniciada",
+      "Recording started",
     );
   }
 
@@ -406,7 +413,7 @@ class DiscordVoiceRecording implements RecordingHandle {
             meetingId: this.meetingId,
             userId: input.userId,
           },
-          "Falha ao capturar segmento de áudio",
+          "Audio segment capture failed",
         );
       }
     }
@@ -459,7 +466,7 @@ class DiscordVoiceRecording implements RecordingHandle {
           meetingId: this.meetingId,
           segmentId: input.segmentId,
         },
-        "Falha ao converter segmento para Ogg/Opus",
+        "Audio segment conversion to Ogg/Opus failed",
       );
       segment = {
         durationMs,
@@ -487,7 +494,7 @@ class DiscordVoiceRecording implements RecordingHandle {
         segmentId: segment.segmentId,
         userId: input.userId,
       },
-      "Segmento de áudio finalizado",
+      "Audio segment finalized",
     );
 
     if (streamFailed) {
@@ -540,7 +547,7 @@ class DiscordVoiceRecording implements RecordingHandle {
             guildId: this.guildId,
             meetingId: this.meetingId,
           },
-          "Tentativa de reconexão da gravação falhou",
+          "Recording reconnection attempt failed",
         );
         const remainingMs = deadline - Date.now();
         if (remainingMs <= 0) {
@@ -601,7 +608,7 @@ class DiscordVoiceRecording implements RecordingHandle {
         ...this.#performanceMetrics(),
         reason,
       },
-      "Gravação encerrada",
+      "Recording stopped",
     );
     this.#onEnded?.();
   }
@@ -613,7 +620,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     } catch (error) {
       this.#logger.error(
         { errorType: getErrorType(error), meetingId: this.meetingId },
-        "Falha ao enfileirar reunião concluída",
+        "Failed to enqueue completed meeting",
       );
     }
   }

@@ -37,6 +37,11 @@ summarization begin in the background through a durable queue. The complete file
 attachment in the configured forum.
 Before sending audio to the configured provider, the bot server locally discards sections without
 speech and merges nearby speech from the same person without mixing participants.
+When the selected fully local setup exceeds the recommended hardware, only the person who ran
+`/record` receives an ephemeral warning suggesting OpenRouter. The terminal also logs the warning;
+the public channel receives no hardware details. Recording continues and Summyz attempts processing
+with the smallest compatible local models, even though it may be slow and produce lower-than-desired
+quality.
 If the meeting cannot be fully transcribed, the channel where `/record` was run receives only a
 generic warning.
 
@@ -104,3 +109,5 @@ remain pending until another forum is configured. It follows the same access rul
   permanent failure; with `true`, they remain on disk until manually deleted by an administrator.
 - The storage mode and content and audio policies are fixed when `/record` starts; subsequent
   changes to `.env` apply only to new meetings.
+- The provider, resolved model, and language for each phase are also pinned then. A local phase never
+  uses OpenRouter as fallback.

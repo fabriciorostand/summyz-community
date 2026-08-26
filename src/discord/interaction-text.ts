@@ -13,6 +13,7 @@ export interface InteractionText {
   forumRequiresTag: string;
   guildOnly: string;
   insufficientForumPermissions: string;
+  insufficientLocalHardware: string;
   invalidForum: string;
   joinVoiceFirst: string;
   locale: string;
@@ -55,6 +56,8 @@ const texts = {
     guildOnly: "This command can only be used in a server.",
     insufficientForumPermissions:
       "Summyz does not have all required permissions in this forum: view, create posts, reply, read messages, and attach files.",
+    insufficientLocalHardware:
+      "This machine is below the hardware recommendation for the selected fully local setup. Summyz will still process the recording with the smallest compatible local models, but processing may be slow and output quality may be lower than desired. Consider configuring OpenRouter.",
     invalidForum: "Select a valid forum channel.",
     joinVoiceFirst: "Join a voice channel before using `/record`.",
     locale: "en",
@@ -104,6 +107,8 @@ const texts = {
     guildOnly: "Este comando só pode ser usado em um servidor.",
     insufficientForumPermissions:
       "O Summyz não possui todas as permissões necessárias nesse fórum: visualizar, criar posts, responder, ler mensagens e anexar arquivos.",
+    insufficientLocalHardware:
+      "Este computador está abaixo da recomendação de hardware para a configuração 100% local selecionada. O processamento será tentado com os menores modelos locais compatíveis, mas pode ser lento e a qualidade do resultado pode ficar abaixo do desejado. Considere configurar o OpenRouter.",
     invalidForum: "Selecione um canal de fórum válido.",
     joinVoiceFirst: "Entre em um canal de voz antes de usar `/record`.",
     locale: "pt-BR",

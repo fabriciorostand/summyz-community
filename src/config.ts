@@ -19,12 +19,22 @@ const environmentSchema = z
     LOG_LEVEL: z
       .enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"])
       .default("info"),
-    OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY é obrigatório"),
-    OPENROUTER_REFINEMENT_MODEL: z.string().min(1, "OPENROUTER_REFINEMENT_MODEL é obrigatório"),
-    OPENROUTER_SUMMARY_MODEL: z.string().min(1, "OPENROUTER_SUMMARY_MODEL é obrigatório"),
+    FASTER_WHISPER_MODEL: z.string().min(1).default("auto"),
+    OLLAMA_REFINEMENT_MODEL: z.string().min(1).default("auto"),
+    OLLAMA_SUMMARY_MODEL: z.string().min(1).default("auto"),
+    OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY é obrigatório").optional(),
+    OPENROUTER_REFINEMENT_MODEL: z
+      .string()
+      .min(1, "OPENROUTER_REFINEMENT_MODEL é obrigatório")
+      .optional(),
+    OPENROUTER_SUMMARY_MODEL: z
+      .string()
+      .min(1, "OPENROUTER_SUMMARY_MODEL é obrigatório")
+      .optional(),
     OPENROUTER_TRANSCRIPTION_MODEL: z
       .string()
-      .min(1, "OPENROUTER_TRANSCRIPTION_MODEL é obrigatório"),
+      .min(1, "OPENROUTER_TRANSCRIPTION_MODEL é obrigatório")
+      .optional(),
     PERSIST_MEETING_CONTENT: z
       .enum(["true", "false"], {
         error: "PERSIST_MEETING_CONTENT deve ser true ou false",
@@ -60,6 +70,7 @@ const environmentSchema = z
       .min(1_000)
       .max(10_000_000)
       .default(500_000),
+    REFINEMENT_PROVIDER: z.enum(["openrouter", "ollama"]).default("openrouter"),
     REFINEMENT_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
     REFINEMENT_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
     REFINEMENT_RETRY_MAX_MS: z.coerce.number().int().min(100).max(300_000).default(30_000),
@@ -70,6 +81,11 @@ const environmentSchema = z
       .min(1_000)
       .max(10_000_000)
       .default(500_000),
+    SUMMARY_LANGUAGE: z
+      .string()
+      .refine(isSupportedLanguageSetting, "SUMMARY_LANGUAGE deve ser auto ou um código BCP 47")
+      .default("auto"),
+    SUMMARY_PROVIDER: z.enum(["openrouter", "ollama"]).default("openrouter"),
     SUMMARY_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(4),
     SUMMARY_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
     SUMMARY_RETRY_MAX_MS: z.coerce.number().int().min(100).max(300_000).default(30_000),
@@ -80,6 +96,13 @@ const environmentSchema = z
       .default("America/Sao_Paulo"),
     SUMMARY_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
     TRANSCRIPTION_CONCURRENCY: z.coerce.number().int().min(1).max(10).default(2),
+    TRANSCRIPTION_LANGUAGE: z
+      .string()
+      .refine(
+        isSupportedLanguageSetting,
+        "TRANSCRIPTION_LANGUAGE deve ser auto ou um código BCP 47",
+      )
+      .default("auto"),
     TRANSCRIPTION_MERGE_MAX_GAP_MS: z.coerce.number().int().min(0).max(30_000).default(2_000),
     TRANSCRIPTION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(4),
     TRANSCRIPTION_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
@@ -88,6 +111,7 @@ const environmentSchema = z
     TRANSCRIPTION_VAD_THRESHOLD: z.coerce.number().min(0.15).max(1).default(0.5),
     TRANSCRIPTION_VAD_MIN_SPEECH_MS: z.coerce.number().int().min(32).max(2_000).default(96),
     TRANSCRIPTION_WINDOW_MAX_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
+    TRANSCRIPTION_PROVIDER: z.enum(["openrouter", "faster-whisper"]).default("openrouter"),
     VOICE_RECONNECT_MAX_MS: z.coerce
       .number()
       .int("VOICE_RECONNECT_MAX_MS deve ser inteiro")
@@ -103,6 +127,36 @@ const environmentSchema = z
         path: ["DATABASE_URL"],
       });
     }
+
+    const openRouterRequirements = [
+      environment.TRANSCRIPTION_PROVIDER === "openrouter"
+        ? (["OPENROUTER_TRANSCRIPTION_MODEL", environment.OPENROUTER_TRANSCRIPTION_MODEL] as const)
+        : undefined,
+      environment.REFINEMENT_PROVIDER === "openrouter"
+        ? (["OPENROUTER_REFINEMENT_MODEL", environment.OPENROUTER_REFINEMENT_MODEL] as const)
+        : undefined,
+      environment.SUMMARY_PROVIDER === "openrouter"
+        ? (["OPENROUTER_SUMMARY_MODEL", environment.OPENROUTER_SUMMARY_MODEL] as const)
+        : undefined,
+    ].filter((requirement) => requirement !== undefined);
+
+    if (openRouterRequirements.length > 0 && environment.OPENROUTER_API_KEY === undefined) {
+      context.addIssue({
+        code: "custom",
+        message: "OPENROUTER_API_KEY é obrigatória quando alguma fase usa OpenRouter",
+        path: ["OPENROUTER_API_KEY"],
+      });
+    }
+
+    for (const [name, value] of openRouterRequirements) {
+      if (value === undefined) {
+        context.addIssue({
+          code: "custom",
+          message: `${name} é obrigatório para a fase configurada com OpenRouter`,
+          path: [name],
+        });
+      }
+    }
   });
 
 export interface AppConfig {
@@ -112,30 +166,38 @@ export interface AppConfig {
   discordClientId: string;
   discordGuildId?: string;
   discordToken: string;
+  fasterWhisperModel: string;
   logLevel: z.infer<typeof environmentSchema>["LOG_LEVEL"];
-  openRouterApiKey: string;
-  openRouterRefinementModel: string;
-  openRouterSummaryModel: string;
-  openRouterTranscriptionModel: string;
+  ollamaRefinementModel: string;
+  ollamaSummaryModel: string;
+  openRouterApiKey?: string;
+  openRouterRefinementModel?: string;
+  openRouterSummaryModel?: string;
+  openRouterTranscriptionModel?: string;
   persistMeetingContent: boolean;
   persistMeetingAudio: boolean;
   segmentMaxSeconds: number;
   segmentSilenceMs: number;
   refinementChunkMaxCharacters: number;
   refinementMaxAttempts: number;
+  refinementProvider: z.infer<typeof environmentSchema>["REFINEMENT_PROVIDER"];
   refinementRetryBaseMs: number;
   refinementRetryMaxMs: number;
   refinementTimeoutMs: number;
   summaryChunkMaxCharacters: number;
+  summaryLanguage: string;
   summaryMaxAttempts: number;
+  summaryProvider: z.infer<typeof environmentSchema>["SUMMARY_PROVIDER"];
   summaryRetryBaseMs: number;
   summaryRetryMaxMs: number;
   summaryTimeZone: string;
   summaryTimeoutMs: number;
   storageMode: z.infer<typeof environmentSchema>["STORAGE_MODE"];
   transcriptionConcurrency: number;
+  transcriptionLanguage: string;
   transcriptionMergeMaxGapMs: number;
   transcriptionModelProfilesFile: string;
+  transcriptionProvider: z.infer<typeof environmentSchema>["TRANSCRIPTION_PROVIDER"];
   transcriptionMaxAttempts: number;
   transcriptionRetryBaseMs: number;
   transcriptionRetryMaxMs: number;
@@ -156,30 +218,46 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
     discordClientId: parsed.DISCORD_CLIENT_ID,
     ...(parsed.DISCORD_GUILD_ID === undefined ? {} : { discordGuildId: parsed.DISCORD_GUILD_ID }),
     discordToken: parsed.DISCORD_TOKEN,
+    fasterWhisperModel: parsed.FASTER_WHISPER_MODEL,
     logLevel: parsed.LOG_LEVEL,
-    openRouterApiKey: parsed.OPENROUTER_API_KEY,
-    openRouterRefinementModel: parsed.OPENROUTER_REFINEMENT_MODEL,
-    openRouterSummaryModel: parsed.OPENROUTER_SUMMARY_MODEL,
-    openRouterTranscriptionModel: parsed.OPENROUTER_TRANSCRIPTION_MODEL,
+    ollamaRefinementModel: parsed.OLLAMA_REFINEMENT_MODEL,
+    ollamaSummaryModel: parsed.OLLAMA_SUMMARY_MODEL,
+    ...(parsed.OPENROUTER_API_KEY === undefined
+      ? {}
+      : { openRouterApiKey: parsed.OPENROUTER_API_KEY }),
+    ...(parsed.OPENROUTER_REFINEMENT_MODEL === undefined
+      ? {}
+      : { openRouterRefinementModel: parsed.OPENROUTER_REFINEMENT_MODEL }),
+    ...(parsed.OPENROUTER_SUMMARY_MODEL === undefined
+      ? {}
+      : { openRouterSummaryModel: parsed.OPENROUTER_SUMMARY_MODEL }),
+    ...(parsed.OPENROUTER_TRANSCRIPTION_MODEL === undefined
+      ? {}
+      : { openRouterTranscriptionModel: parsed.OPENROUTER_TRANSCRIPTION_MODEL }),
     persistMeetingContent: parsed.PERSIST_MEETING_CONTENT,
     persistMeetingAudio: parsed.PERSIST_MEETING_AUDIO,
     segmentMaxSeconds: parsed.SEGMENT_MAX_SECONDS,
     segmentSilenceMs: parsed.SEGMENT_SILENCE_MS,
     refinementChunkMaxCharacters: parsed.REFINEMENT_CHUNK_MAX_CHARACTERS,
     refinementMaxAttempts: parsed.REFINEMENT_MAX_ATTEMPTS,
+    refinementProvider: parsed.REFINEMENT_PROVIDER,
     refinementRetryBaseMs: parsed.REFINEMENT_RETRY_BASE_MS,
     refinementRetryMaxMs: parsed.REFINEMENT_RETRY_MAX_MS,
     refinementTimeoutMs: parsed.REFINEMENT_TIMEOUT_MS,
     summaryChunkMaxCharacters: parsed.SUMMARY_CHUNK_MAX_CHARACTERS,
+    summaryLanguage: parsed.SUMMARY_LANGUAGE,
     summaryMaxAttempts: parsed.SUMMARY_MAX_ATTEMPTS,
+    summaryProvider: parsed.SUMMARY_PROVIDER,
     summaryRetryBaseMs: parsed.SUMMARY_RETRY_BASE_MS,
     summaryRetryMaxMs: parsed.SUMMARY_RETRY_MAX_MS,
     summaryTimeZone: parsed.SUMMARY_TIME_ZONE,
     summaryTimeoutMs: parsed.SUMMARY_TIMEOUT_MS,
     storageMode: parsed.STORAGE_MODE,
     transcriptionConcurrency: parsed.TRANSCRIPTION_CONCURRENCY,
+    transcriptionLanguage: parsed.TRANSCRIPTION_LANGUAGE,
     transcriptionMergeMaxGapMs: parsed.TRANSCRIPTION_MERGE_MAX_GAP_MS,
     transcriptionModelProfilesFile: parsed.TRANSCRIPTION_MODEL_PROFILES_FILE,
+    transcriptionProvider: parsed.TRANSCRIPTION_PROVIDER,
     transcriptionMaxAttempts: parsed.TRANSCRIPTION_MAX_ATTEMPTS,
     transcriptionRetryBaseMs: parsed.TRANSCRIPTION_RETRY_BASE_MS,
     transcriptionRetryMaxMs: parsed.TRANSCRIPTION_RETRY_MAX_MS,
@@ -198,4 +276,8 @@ function isValidTimeZone(timeZone: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isSupportedLanguageSetting(language: string): boolean {
+  return language === "auto" || /^[a-z]{2,3}(?:-[A-Za-z]{2}|-[0-9]{3})?$/.test(language);
 }
