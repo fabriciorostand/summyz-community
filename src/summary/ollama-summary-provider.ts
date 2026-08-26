@@ -1,4 +1,5 @@
 import { requestOllamaStructured } from "../local-ai/ollama-client.js";
+import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 import {
   type SummaryProvider,
   SummaryProviderFailureError,
@@ -59,6 +60,7 @@ type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 interface OllamaSummaryProviderOptions {
   baseUrl?: string;
+  costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   language: string;
   model: string;
@@ -90,6 +92,8 @@ export class OllamaSummaryProvider implements SummaryProvider {
   }
 
   async #generate(input: unknown, instruction: string): Promise<SummaryProviderResult> {
+    const costAttempt = await this.#options.costRecorder?.beginLocal("ollama", this.#options.model);
+    let result: SummaryProviderResult;
     try {
       const summary = await requestOllamaStructured({
         ...(this.#options.baseUrl === undefined ? {} : { baseUrl: this.#options.baseUrl }),
@@ -104,10 +108,17 @@ export class OllamaSummaryProvider implements SummaryProvider {
         outputSchema: summaryDraftSchema,
         timeoutMs: this.#options.timeoutMs,
       });
-      return { attempts: 1, summary };
+      result = { attempts: 1, summary };
     } catch (error) {
+      if (costAttempt !== undefined) {
+        await this.#options.costRecorder?.finishLocal(costAttempt, "failure");
+      }
       throw new SummaryProviderFailureError(1, error);
     }
+    if (costAttempt !== undefined) {
+      await this.#options.costRecorder?.finishLocal(costAttempt, "success");
+    }
+    return result;
   }
 }
 

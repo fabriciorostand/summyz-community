@@ -44,6 +44,9 @@ describe("PostgresDatabase", () => {
     expect(queries.some((query) => query.includes("CREATE TABLE meeting_contents"))).toBe(true);
     expect(queries.some((query) => query.includes("persist_audio boolean"))).toBe(true);
     expect(queries.some((query) => query.includes("storage_mode text"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE provider_cost_attempts"))).toBe(
+      true,
+    );
     expect(queries.at(-1)).toBe("COMMIT");
     expect(client.release).toHaveBeenCalledOnce();
   });
@@ -55,6 +58,9 @@ describe("PostgresDatabase", () => {
     await database.initialize();
 
     expect(queries.some((query) => query.includes("CREATE TABLE meetings"))).toBe(false);
+    expect(queries.some((query) => query.includes("CREATE TABLE provider_cost_attempts"))).toBe(
+      true,
+    );
     expect(queries.at(-1)).toBe("COMMIT");
   });
 

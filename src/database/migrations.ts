@@ -84,4 +84,58 @@ CREATE TABLE guild_configurations (
 );
 `,
   },
+  {
+    version: 2,
+    sql: `
+ALTER TABLE meetings
+  ADD CONSTRAINT meetings_id_guild_unique UNIQUE (meeting_id, guild_id);
+
+CREATE TABLE provider_cost_attempts (
+  attempt_id text PRIMARY KEY,
+  meeting_id text NOT NULL,
+  guild_id text NOT NULL,
+  phase text NOT NULL CHECK (phase IN ('transcription', 'refinement', 'summary')),
+  execution text NOT NULL CHECK (execution IN ('api', 'local')),
+  provider text NOT NULL,
+  model text,
+  started_at timestamptz NOT NULL,
+  ended_at timestamptz,
+  outcome text NOT NULL CHECK (outcome IN ('pending', 'success', 'failure')),
+  financial_status text NOT NULL CHECK (
+    financial_status IN ('pending', 'confirmed', 'unattributed', 'not_applicable')
+  ),
+  cost numeric,
+  currency char(3),
+  generation_id text,
+  confirmation_source text CHECK (confirmation_source IN ('response', 'generation')),
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (meeting_id, guild_id)
+    REFERENCES meetings(meeting_id, guild_id)
+    ON DELETE RESTRICT,
+  CHECK (
+    (financial_status = 'confirmed' AND cost IS NOT NULL AND currency IS NOT NULL)
+    OR
+    (financial_status <> 'confirmed' AND cost IS NULL AND currency IS NULL)
+  ),
+  CHECK (execution <> 'local' OR financial_status = 'not_applicable'),
+  CHECK (
+    (outcome = 'pending' AND ended_at IS NULL)
+    OR
+    (outcome <> 'pending' AND ended_at IS NOT NULL)
+  )
+);
+
+CREATE INDEX provider_cost_attempts_meeting_phase_idx
+  ON provider_cost_attempts (meeting_id, phase, started_at);
+CREATE INDEX provider_cost_attempts_guild_started_at_idx
+  ON provider_cost_attempts (guild_id, started_at);
+CREATE INDEX provider_cost_attempts_reconciliation_idx
+  ON provider_cost_attempts (financial_status, provider)
+  WHERE financial_status = 'pending';
+CREATE INDEX provider_cost_attempts_generation_id_idx
+  ON provider_cost_attempts (generation_id)
+  WHERE generation_id IS NOT NULL;
+`,
+  },
 ] as const;

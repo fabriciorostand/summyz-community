@@ -92,6 +92,30 @@ arquivos e os modelos gerenciados após reinício.
   dos áudios; o processamento o sincroniza com o banco antes de reservar o job;
 - não há expiração automática para conteúdo ou áudio preservado. A exclusão é uma operação manual
   do administrador no disco ou banco.
+- registros de custos de provedores nunca expiram automaticamente e são independentes da retenção
+  de conteúdo e áudio. O modo local os mantém em
+  `DATA_DIR/costs/guilds/<guildId>/meetings/<meetingId>`; o modo PostgreSQL usa
+  `provider_cost_attempts`, com relacionamentos protegidos para reunião e servidor.
+
+## Medição de custos dos provedores
+
+Cada execução de modelo é registrada antes de ser enviada. Respostas do OpenRouter usam o
+`usage.cost` em USD informado pelo próprio provedor; o Summyz não calcula estimativas de preço.
+Retries da aplicação são tentativas separadas, e uma chamada que falhou é incluída sempre que o
+OpenRouter confirma uma cobrança. O `generation_id` é preservado e consultado para reconciliar
+respostas sem metadados completos de custo ou modelo efetivo.
+
+Se uma falha de transporte impedir que a resposta e o identificador da geração cheguem ao Summyz,
+a tentativa será marcada como não confirmável automaticamente, nunca como gratuita. Os relatórios
+expõem essa condição e não apresentam o subtotal confirmado como necessariamente completo.
+Chamadas locais ao Ollama e faster-whisper preservam o modelo efetivo com o campo de custo externo
+como `null`, pois o custo computacional não faz parte desta etapa.
+
+Administradores podem consultar uma reunião concluída com `/recording-cost meeting` ou agregar
+reuniões concluídas pela data em que começaram com `/recording-cost period`; reuniões em andamento
+ficam fora do relatório. As respostas são efêmeras e sempre limitadas ao servidor atual do Discord.
+Os limites de data usam `SUMMARY_TIME_ZONE`; valores financeiros são armazenados e exibidos sem
+arredondamento.
 
 As escolhas de armazenamento, persistência, provedores, modelos resolvidos e idiomas são copiadas
 para o manifesto no início da reunião. Alterar o `.env` depois não migra nem redireciona uma reunião
@@ -138,7 +162,7 @@ para ver todos os comandos e regras de acesso.
 
 ## Configurações de gravação
 
-- `BOT_LANGUAGE`: idioma dos textos fixos e das descrições de comandos no Discord; `en` ou `pt-br`;
+- `BOT_LANGUAGE`: idioma dos textos fixos e das descrições de comandos no Discord; `en` ou `pt-BR`;
   padrão `en`. Essa configuração não altera o idioma dos modelos;
 - `DATA_DIR`: diretório dos arquivos; padrão `./data`;
 - `SEGMENT_SILENCE_MS`: silêncio que encerra um segmento; padrão `1000` ms;
@@ -278,7 +302,8 @@ transcrição original continua disponível.
 - `SUMMARY_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
 - `SUMMARY_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
 - `SUMMARY_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
-- `SUMMARY_TIME_ZONE`: fuso IANA usado no título do post; padrão `America/Sao_Paulo`.
+- `SUMMARY_TIME_ZONE`: fuso IANA usado no título do post e nos filtros de data dos relatórios de
+  custo; padrão `America/Sao_Paulo`.
 
 O resumo usa saída estruturada validada. Transcrições maiores que o limite configurado são divididas
 somente entre falas, resumidas por blocos e consolidadas. O Summyz mantém internamente as referências
@@ -333,7 +358,7 @@ algum segmento continuar impossível de analisar/processar ou o provedor esgotar
 
 Depois da transcrição e do resumo, o Summyz consulta a configuração mais recente do servidor e cria
 um post no fórum escolhido. Com `BOT_LANGUAGE=en`, o post de sucesso usa o nome
-`Summary — MM/DD/YYYY HH:mm — Voice channel name`; com `BOT_LANGUAGE=pt-br`, usa
+`Summary — MM/DD/YYYY HH:mm — Voice channel name`; com `BOT_LANGUAGE=pt-BR`, usa
 `Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz`. O post contém:
 
 - ID da reunião e resumo executivo na primeira mensagem;

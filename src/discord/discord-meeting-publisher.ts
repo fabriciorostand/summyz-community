@@ -54,7 +54,7 @@ const publicationTexts = {
     tasks: "Tasks",
     transcript: "Transcript",
   },
-  "pt-br": {
+  "pt-BR": {
     assignee: "Responsável",
     auditReason: "Publicação do resultado da reunião",
     deadline: "Prazo",

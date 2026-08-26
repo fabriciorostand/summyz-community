@@ -87,6 +87,29 @@ Mostra o fórum e a tag configurados no servidor. Possui as mesmas regras de ace
 Remove o destino. Novas gravações ficam bloqueadas e reuniões ainda não publicadas permanecem
 pendentes até que outro fórum seja configurado. Possui as mesmas regras de acesso do `set`.
 
+## `/recording-cost meeting id:<ID da reunião>`
+
+Mostra os custos de uma reunião concluída. Somente administradores do servidor podem usar o
+comando, e a resposta é efêmera. Um ID só pode ser consultado no servidor em que a reunião foi
+gravada.
+
+Para cada fase, o relatório informa se a execução usou uma API externa ou um serviço local, o
+modelo efetivo informado pelo provedor e a quantidade de requisições externas. Fases locais mostram
+o modelo, mas não apresentam custo: o custo computacional local não é medido. Valores externos são
+os montantes exatos em USD informados pelo OpenRouter e aparecem sem arredondamento.
+
+O relatório inclui tentativas cobradas que falharam, reconciliações pendentes e tentativas cuja
+cobrança não pôde ser confirmada automaticamente. Uma reunião em andamento é recusada com uma
+mensagem efêmera; aguarde a gravação terminar antes de consultá-la.
+
+## `/recording-cost period from:<AAAA-MM-DD> to:<AAAA-MM-DD>`
+
+Mostra os custos agregados das reuniões concluídas e iniciadas no intervalo inclusivo. Reuniões em
+andamento não entram no relatório. As datas são interpretadas com `SUMMARY_TIME_ZONE`. O relatório
+inclui quantidade e duração das reuniões, requisições aos provedores, execuções locais, totais por
+fase, médias confirmadas, falhas cobradas e reconciliações não concluídas. Somente administradores
+do servidor podem usar o comando, e a resposta é efêmera.
+
 ## Avisos importantes
 
 - Administradores sempre podem controlar gravações.
@@ -108,3 +131,5 @@ pendentes até que outro fórum seja configurado. Possui as mesmas regras de ace
   alterações posteriores no `.env` valem somente para novas reuniões.
 - Provedor, modelo resolvido e idioma de cada fase também são fixados nesse momento. Uma fase local
   nunca usa OpenRouter como fallback.
+- Registros financeiros são mantidos indefinidamente, independentemente da retenção de áudio e
+  transcrições.

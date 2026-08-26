@@ -27,7 +27,7 @@ const recordingTexts = {
     resumingAfterRestart: "⚠️ Summyz was interrupted. Trying to resume this voice call's recording.",
     startFailed: "⚠️ Unable to start recording. No audio is being captured.",
   },
-  "pt-br": {
+  "pt-BR": {
     connectionInterrupted:
       "⚠️ A gravação foi interrompida por um problema de conexão. Tentando retomar automaticamente.",
     emptyAfterRestart:

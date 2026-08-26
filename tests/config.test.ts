@@ -61,9 +61,9 @@ describe("loadConfig", () => {
     });
   });
 
-  it("aceita pt-br e rejeita idiomas não suportados", () => {
-    expect(loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "pt-br" }).botLanguage).toBe("pt-br");
-    expect(() => loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "pt-BR" })).toThrow(
+  it("aceita pt-BR e rejeita variantes não padronizadas ou não suportadas", () => {
+    expect(loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "pt-BR" }).botLanguage).toBe("pt-BR");
+    expect(() => loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "pt-Br" })).toThrow(
       /BOT_LANGUAGE/,
     );
     expect(() => loadConfig({ ...requiredEnvironment, BOT_LANGUAGE: "es" })).toThrow(

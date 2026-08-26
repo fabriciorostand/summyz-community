@@ -11,7 +11,7 @@ describe("notificações terminais da gravação", () => {
       createRecordingStopNotification(
         { voiceChannelName: "Lobby" },
         { reason: "command", stoppedByUserId: "user-1" },
-        "pt-br",
+        "pt-BR",
       ),
     ).toBe("⏹️ Gravação encerrada por <@user-1>. Os segmentos de áudio foram preservados.");
   });
@@ -21,7 +21,7 @@ describe("notificações terminais da gravação", () => {
       createRecordingStopNotification(
         { voiceChannelName: "Lobby" },
         { reason: "channel_empty" },
-        "pt-br",
+        "pt-BR",
       ),
     ).toBe(
       "⏹️ Todos os participantes saíram de **Lobby**. A gravação foi encerrada automaticamente. " +
@@ -34,13 +34,13 @@ describe("notificações terminais da gravação", () => {
       createRecordingStopNotification(
         { voiceChannelName: "Lobby **teste**" },
         { reason: "channel_empty" },
-        "pt-br",
+        "pt-BR",
       ),
     ).toContain("de **Lobby \\*\\*teste\\*\\***");
   });
 
   it("usa uma mensagem compatível com manifestos antigos sem nome do canal", () => {
-    expect(createRecordingStopNotification({}, { reason: "channel_empty" }, "pt-br")).toBe(
+    expect(createRecordingStopNotification({}, { reason: "channel_empty" }, "pt-BR")).toBe(
       "⏹️ Todos os participantes saíram do canal de voz. A gravação foi encerrada automaticamente. " +
         "Os segmentos de áudio foram preservados e serão processados.",
     );
@@ -51,7 +51,7 @@ describe("notificações terminais da gravação", () => {
       createRecordingStopNotification(
         { voiceChannelName: "Lobby" },
         { reason: "shutdown" },
-        "pt-br",
+        "pt-BR",
       ),
     ).toBe(
       "⚠️ O Summyz foi desligado durante a call. O áudio foi preservado e a retomada ocorrerá no próximo início.",
@@ -63,7 +63,7 @@ describe("notificações terminais da gravação", () => {
       createRecordingStopNotification(
         { voiceChannelName: "Lobby" },
         { reason: "reconnect_exhausted" },
-        "pt-br",
+        "pt-BR",
       ),
     ).toBeUndefined();
   });

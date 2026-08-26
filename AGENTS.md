@@ -1,103 +1,103 @@
-# Sobre o projeto
+# About the project
 
-Summyz é um bot para Discord que grava calls sob comando, transcreve o áudio de cada participante 
-e publica resumos com decisões e tarefas.
+Summyz is a Discord bot that records calls on command, transcribes each participant's audio,
+and publishes summaries with decisions and tasks.
 
-# Regras
+# Rules
 
-Fonte da verdade das convenções. Todo agente de IA e todo desenvolvedor **deve** seguir estas
-regras.
+Source of truth for conventions. Every AI agent and every developer **must** follow these rules.
 
 ## TypeScript
 
-O projeto deve usar configuração estrita do TypeScript.
+The project must use strict TypeScript configuration.
 
-- Não usar `any` sem justificativa registrada.
-- Preferir `unknown` em fronteiras externas e validar antes de usar.
-- Validar dados vindos do Discord, ambiente, arquivos e APIs.
-- Evitar type assertions que apenas silenciem erros.
-- Evitar non-null assertions quando o estado puder ser modelado corretamente.
-- Funções assíncronas devem tratar rejeições explicitamente.
-- Recursos como streams, conexões e arquivos devem possuir ciclo de vida claro.
+- Do not use `any` without a recorded justification.
+- Prefer `unknown` at external boundaries and validate it before use.
+- Validate data from Discord, the environment, files, and APIs.
+- Avoid type assertions that merely silence errors.
+- Avoid non-null assertions when the state can be modeled correctly.
+- Asynchronous functions must handle rejections explicitly.
+- Resources such as streams, connections, and files must have a clear lifecycle.
 
-## Idioma e nomenclatura
+## Language and naming
 
-- **Identificadores de código** (funções, variáveis, tipos, nomes de arquivo/módulo) → **inglês**.
-- **Identificadores de banco de dados** (nomes de **tabelas, colunas e enums** no SQL) → **inglês**,
-  sem acento, `snake_case` ASCII.
-- **Comentários de código** → **inglês**.
-- **Artefatos textuais** (README, documentação) → **pt-br**.
+- **Code identifiers** (functions, variables, types, file/module names) → **English**.
+- **Database identifiers** (**table, column, and enum** names in SQL) → **English**,
+  unaccented ASCII `snake_case`.
+- **Code comments** → **English**.
+- **Textual artifacts** (README, documentation) → **pt-BR**.
 
-## Metodologia
+## Methodology
 
-### TDD — estrito (red-green-refactor)
-- **vitest**. Escrever o **teste falhando primeiro**, implementação mínima,
-  depois refatorar.
-- Cobertura **≥ 85%** (regras de domínio, gerenciamento de sessões, criação e validação do manifesto,
-  montagem da transcrição, retenção, retries, integrações por meio de adapters testáveis). Glue de infra pode ter cobertura menor, mas caminhos de erro relevantes têm teste.
-- Teste que **falha se segredo ou credenciais vazarem nos logs**.
-- Integrações locais de IA devem possuir smoke tests automatizados e isolados da suíte rápida.
-  Cenários que não podem ser reproduzidos por código não fazem parte dos critérios automatizados.
+### Strict TDD (red-green-refactor)
+- **vitest**. Write the **failing test first**, implement the minimum, then refactor.
+- Coverage **≥ 85%** (domain rules, session management, manifest creation and validation,
+  transcript assembly, retention, retries, and integrations through testable adapters). Infrastructure
+  glue may have lower coverage, but relevant error paths must be tested.
+- Include a test that **fails if secrets or credentials leak into logs**.
+- Local AI integrations must have automated smoke tests isolated from the fast suite.
+  Scenarios that cannot be reproduced through code are not part of the automated criteria.
 
-## Qualidade
+## Quality
 
-Antes de considerar uma mudança concluída, executar os scripts aplicáveis:
+Before considering a change complete, run the applicable scripts:
 
-- testes;
-- cobertura;
+- tests;
+- coverage;
 - typecheck;
 - lint;
-- formatação.
+- formatting.
 
-Código não utilizado, comentários obsoletos e arquivos temporários devem ser removidos.
+Unused code, obsolete comments, and temporary files must be removed.
 
-Não adicionar abstrações especulativas. Criar interfaces apenas em fronteiras que já precisam ser
-substituíveis, testáveis ou isoladas.
+Do not add speculative abstractions. Create interfaces only at boundaries that already need to be
+replaceable, testable, or isolated.
 
-## Segurança e privacidade
+## Security and privacy
 
-Tokens, chaves e credenciais nunca devem ser versionados.
+Tokens, keys, and credentials must never be committed.
 
-- Usar variáveis de ambiente para segredos.
-- Manter `.env` fora do Git.
-- Fornecer apenas `.env.example`, sem valores reais.
-- Nunca registrar tokens, cabeçalhos de autorização ou conteúdo bruto de áudio.
-- Tratar áudio e transcrições como dados sensíveis.
-- Evitar nomes de arquivo construídos diretamente com conteúdo fornecido pelo usuário.
-- Validar caminhos para impedir path traversal.
-- Aplicar limites de tamanho, duração e concorrência.
-- Não enviar áudio ou transcrição a provedores diferentes dos configurados.
+- Use environment variables for secrets.
+- Keep `.env` out of Git.
+- Provide only `.env.example`, without real values.
+- Never log tokens, authorization headers, or raw audio content.
+- Treat audio and transcripts as sensitive data.
+- Avoid file names built directly from user-provided content.
+- Validate paths to prevent path traversal.
+- Enforce size, duration, and concurrency limits.
+- Do not send audio or transcripts to providers other than those configured.
 
-## Logs e erros
+## Logs and errors
 
-Logs devem ser estruturados e escritos em **inglês**.
+Logs must be structured and written in **English**.
 
-Registrar eventos relevantes, incluindo:
+Log relevant events, including:
 
-- inicialização e encerramento;
-- entrada e saída de canal;
-- início e fim de gravação;
-- criação e finalização de segmentos;
-- início e fim de processamento;
+- startup and shutdown;
+- joining and leaving channels;
+- recording start and end;
+- segment creation and finalization;
+- processing start and end;
 - retries;
-- exclusão de arquivos;
-- erros de Discord, áudio e provedores.
+- file deletion;
+- Discord, audio, and provider errors.
 
-Não ocultar erros com `catch` vazio. Toda falha deve ser tratada, propagada ou registrada com
-contexto suficiente para diagnóstico.
+Do not hide errors with empty `catch` blocks. Every failure must be handled, propagated, or logged
+with enough context for diagnosis.
 
-Mensagens enviadas ao Discord não devem revelar stack traces, caminhos internos ou segredos.
+Messages sent to Discord must not reveal stack traces, internal paths, or secrets.
 
 ## Git
 
-### Commits e Autoria
+### Commits and authorship
 
-- **Conventional Commits no formato `<tipo>(<escopo>): <descrição>`:** tipo/prefixo em
-  inglês + escopo nomeado conforme o projeto + descrição em inglês. O escopo indica a área afetada.
-  
-  Exemplos:
+- **Conventional Commits in the `<type>(<scope>): <description>` format:** type/prefix in
+  English + scope named according to the project + description in English. The scope indicates the
+  affected area.
+
+  Examples:
   - `feat(recording): add session creation by channel`
   - `fix(audio): preserve timestamps of simultaneous segments`
   - `test(manifest): cover recovery after interrupted write`
   - `docs(readme): document initial setup`
-- **NUNCA** se adicione como coautor nos commits (não utilize `Co-Authored-By: Codex`).
+- **NEVER** add yourself as a co-author to commits (do not use `Co-Authored-By: Codex`).

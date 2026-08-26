@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
+
 import { requestOllamaStructured } from "../local-ai/ollama-client.js";
 import {
   IncompatibleRefinementResponseError,
@@ -34,6 +36,7 @@ type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 interface OllamaRefinementProviderOptions {
   baseUrl?: string;
+  costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   model: string;
   onIncompatibleModel?: (model: string) => Promise<void>;
@@ -50,6 +53,8 @@ export class OllamaRefinementProvider implements RefinementProvider {
   public async refine(
     entries: Parameters<RefinementProvider["refine"]>[0],
   ): Promise<RefinementProviderResult> {
+    const costAttempt = await this.#options.costRecorder?.beginLocal("ollama", this.#options.model);
+    let result: RefinementProviderResult;
     try {
       const output = await requestOllamaStructured({
         ...(this.#options.baseUrl === undefined ? {} : { baseUrl: this.#options.baseUrl }),
@@ -65,17 +70,24 @@ export class OllamaRefinementProvider implements RefinementProvider {
         timeoutMs: this.#options.timeoutMs,
       });
       try {
-        return { attempts: 1, entries: applyRefinement(entries, output.blocks) };
+        result = { attempts: 1, entries: applyRefinement(entries, output.blocks) };
       } catch {
         await this.#options.onIncompatibleModel?.(this.#options.model);
         throw new IncompatibleRefinementResponseError();
       }
     } catch (error) {
+      if (costAttempt !== undefined) {
+        await this.#options.costRecorder?.finishLocal(costAttempt, "failure");
+      }
       throw new RefinementProviderFailureError(
         1,
         error instanceof z.ZodError ? new IncompatibleRefinementResponseError() : error,
       );
     }
+    if (costAttempt !== undefined) {
+      await this.#options.costRecorder?.finishLocal(costAttempt, "success");
+    }
+    return result;
   }
 }
 

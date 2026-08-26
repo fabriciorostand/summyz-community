@@ -1,6 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { createLogger } from "../src/logger.js";
+import type { CostAttempt, CostLedgerStore } from "../src/cost/cost-ledger.js";
+import { ProviderCostRecorder } from "../src/cost/provider-cost-recorder.js";
 import { OpenRouterSummaryProvider } from "../src/summary/openrouter-summary-provider.js";
 import type { SummaryTranscriptEntry } from "../src/summary/summary-result.js";
 
@@ -43,6 +45,51 @@ function successResponse(): Response {
 }
 
 describe("OpenRouterSummaryProvider", () => {
+  it("registra custo, modelo efetivo e generation id antes de concluir a tentativa", async () => {
+    const attempts: CostAttempt[] = [];
+    const store: CostLedgerStore = {
+      getMeeting: async () => undefined,
+      listMeetings: async () => [],
+      saveAttempt: vi.fn(async (attempt) => {
+        const index = attempts.findIndex((item) => item.attemptId === attempt.attemptId);
+        if (index === -1) attempts.push(attempt);
+        else attempts[index] = attempt;
+      }),
+      saveMeeting: vi.fn(async () => undefined),
+    };
+    const recorder = new ProviderCostRecorder({
+      context: { guildId: "guild-1", meetingId: "meeting-1", phase: "summary" },
+      id: () => "attempt-1",
+      store,
+    });
+    const responseBody = await successResponse().json();
+    const provider = new OpenRouterSummaryProvider({
+      apiKey: "segredo",
+      costRecorder: recorder,
+      fetch: async () =>
+        Response.json(
+          { ...responseBody, model: "google/gemini-2.5-flash", usage: { cost: 0.0000007 } },
+          { headers: { "x-generation-id": "gen-1" } },
+        ),
+      maxAttempts: 4,
+      model: "openrouter/auto",
+      retryBaseMs: 1_000,
+      retryMaxMs: 30_000,
+      timeoutMs: 120_000,
+    });
+
+    await provider.summarize(entries);
+
+    expect(attempts).toEqual([
+      expect.objectContaining({
+        cost: "0.0000007",
+        generationId: "gen-1",
+        model: "google/gemini-2.5-flash",
+        outcome: "success",
+      }),
+    ]);
+  });
+
   it("solicita saída estruturada e envia a transcrição como dados não confiáveis", async () => {
     const fetch = vi.fn(async (_url: string, _init: RequestInit) => successResponse());
     const provider = new OpenRouterSummaryProvider({

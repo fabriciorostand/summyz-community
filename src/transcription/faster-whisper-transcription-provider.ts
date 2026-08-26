@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
+
 import {
   IncompatibleTranscriptionResponseError,
   type TranscriptPiece,
@@ -25,6 +27,7 @@ type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 export interface FasterWhisperTranscriptionProviderOptions {
   baseUrl?: string;
+  costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   language: string;
   model: string;
@@ -33,6 +36,7 @@ export interface FasterWhisperTranscriptionProviderOptions {
 
 export class FasterWhisperTranscriptionProvider implements TranscriptionProvider {
   readonly #baseUrl: string;
+  readonly #costRecorder: ProviderCostRecorder | undefined;
   readonly #fetch: Fetch;
   readonly #language: string;
   readonly #model: string;
@@ -40,6 +44,7 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
 
   public constructor(options: FasterWhisperTranscriptionProviderOptions) {
     this.#baseUrl = options.baseUrl ?? "http://faster-whisper:8000";
+    this.#costRecorder = options.costRecorder;
     this.#fetch = options.fetch ?? fetch;
     this.#language = options.language;
     this.#model = options.model;
@@ -47,6 +52,25 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
   }
 
   public async transcribe(
+    input: Parameters<TranscriptionProvider["transcribe"]>[0],
+  ): Promise<TranscriptionProviderResult> {
+    const costAttempt = await this.#costRecorder?.beginLocal("faster-whisper", this.#model);
+    let result: TranscriptionProviderResult;
+    try {
+      result = await this.#transcribe(input);
+    } catch (error) {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishLocal(costAttempt, "failure");
+      }
+      throw error;
+    }
+    if (costAttempt !== undefined) {
+      await this.#costRecorder?.finishLocal(costAttempt, "success");
+    }
+    return result;
+  }
+
+  async #transcribe(
     input: Parameters<TranscriptionProvider["transcribe"]>[0],
   ): Promise<TranscriptionProviderResult> {
     const form = new FormData();

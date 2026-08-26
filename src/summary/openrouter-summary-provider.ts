@@ -1,6 +1,9 @@
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
+import { getOpenRouterGenerationId, readOpenRouterResponse } from "../cost/openrouter-response.js";
+
 import {
   type SummaryDraft,
   type SummaryTranscriptEntry,
@@ -86,6 +89,7 @@ type Sleep = (milliseconds: number) => Promise<void>;
 
 export interface OpenRouterSummaryProviderOptions {
   apiKey: string;
+  costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   logger?: Logger;
   language?: string;
@@ -100,6 +104,7 @@ export interface OpenRouterSummaryProviderOptions {
 
 export class OpenRouterSummaryProvider implements SummaryProvider {
   readonly #apiKey: string;
+  readonly #costRecorder: ProviderCostRecorder | undefined;
   readonly #fetch: Fetch;
   readonly #logger: Logger | undefined;
   readonly #language: string;
@@ -113,6 +118,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
 
   public constructor(options: OpenRouterSummaryProviderOptions) {
     this.#apiKey = options.apiKey;
+    this.#costRecorder = options.costRecorder;
     this.#fetch = options.fetch ?? fetch;
     this.#logger = options.logger;
     this.#language = options.language ?? "auto";
@@ -174,6 +180,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
   }
 
   async #request(input: unknown, instruction: string): Promise<SummaryDraft> {
+    const costAttempt = await this.#costRecorder?.beginApi("openrouter");
     let response: Response;
     try {
       response = await this.#fetch(OPENROUTER_SUMMARY_URL, {
@@ -204,15 +211,29 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
         headers: {
           Authorization: `Bearer ${this.#apiKey}`,
           "Content-Type": "application/json",
+          "X-OpenRouter-Metadata": "enabled",
         },
         method: "POST",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishUnattributed(costAttempt, "failure");
+      }
       throw new SummaryRequestError({ retryable: true });
     }
 
     if (!response.ok) {
+      const parsedResponse = await readOpenRouterResponse(response);
+      const generationId = getOpenRouterGenerationId(response);
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body: parsedResponse.body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
+      }
       const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
       throw new SummaryRequestError({
         ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
@@ -221,18 +242,38 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
       });
     }
 
+    const parsedResponse = await readOpenRouterResponse(response);
+    const body = parsedResponse.body;
+    const generationId = getOpenRouterGenerationId(response);
+    let summary: SummaryDraft;
     try {
-      const body: unknown = await response.json();
       const parsed = responseSchema.parse(body);
       const content = parsed.choices[0]?.message.content;
       if (content === undefined) {
         throw new IncompatibleSummaryResponseError();
       }
       const result: unknown = JSON.parse(content);
-      return summaryDraftSchema.parse(result);
+      summary = summaryDraftSchema.parse(result);
     } catch {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
+      }
       throw new IncompatibleSummaryResponseError();
     }
+    if (costAttempt !== undefined) {
+      await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+        body,
+        exactCost: parsedResponse.exactCost,
+        ...(generationId === undefined ? {} : { generationId }),
+        outcome: "success",
+      });
+    }
+    return summary;
   }
 }
 

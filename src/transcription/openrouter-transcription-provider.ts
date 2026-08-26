@@ -1,6 +1,9 @@
 import { z } from "zod";
 import type { Logger } from "pino";
 
+import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
+import { getOpenRouterGenerationId, readOpenRouterResponse } from "../cost/openrouter-response.js";
+
 import type {
   TranscriptPiece,
   TranscriptionProvider,
@@ -27,8 +30,10 @@ const timedTextSchema = z.object({
 });
 
 const responseSchema = z.object({
+  model: z.string().min(1).optional(),
   segments: z.array(timedTextSchema).optional(),
   text: z.string(),
+  usage: z.object({ cost: z.number().nonnegative() }).passthrough().optional(),
   words: z.array(timedTextSchema).optional(),
 });
 
@@ -37,6 +42,7 @@ type Sleep = (milliseconds: number) => Promise<void>;
 
 export interface OpenRouterTranscriptionProviderOptions {
   apiKey: string;
+  costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   language?: string;
   logger?: Logger;
@@ -52,6 +58,7 @@ export interface OpenRouterTranscriptionProviderOptions {
 
 export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
   readonly #apiKey: string;
+  readonly #costRecorder: ProviderCostRecorder | undefined;
   readonly #fetch: Fetch;
   readonly #maxAttempts: number;
   readonly #logger: Logger | undefined;
@@ -66,6 +73,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
 
   public constructor(options: OpenRouterTranscriptionProviderOptions) {
     this.#apiKey = options.apiKey;
+    this.#costRecorder = options.costRecorder;
     this.#fetch = options.fetch ?? fetch;
     this.#maxAttempts = options.maxAttempts;
     this.#logger = options.logger;
@@ -117,6 +125,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
   async #request(
     input: Parameters<TranscriptionProvider["transcribe"]>[0],
   ): Promise<TranscriptPiece[]> {
+    const costAttempt = await this.#costRecorder?.beginApi("openrouter");
     const acceptsUntimedText = this.#profile.timestampMode === "batch";
     const selectedLanguage = input.language ?? this.#language ?? this.#profile.language;
     const language = selectedLanguage === "auto" ? undefined : selectedLanguage;
@@ -142,15 +151,29 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
         headers: {
           Authorization: `Bearer ${this.#apiKey}`,
           "Content-Type": "application/json",
+          "X-OpenRouter-Metadata": "enabled",
         },
         method: "POST",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishUnattributed(costAttempt, "failure");
+      }
       throw new TranscriptionRequestError({ retryable: true });
     }
 
     if (!response.ok) {
+      const parsedResponse = await readOpenRouterResponse(response);
+      const generationId = getOpenRouterGenerationId(response);
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body: parsedResponse.body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
+      }
       const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
       throw new TranscriptionRequestError({
         ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
@@ -159,48 +182,76 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
       });
     }
 
-    let body: unknown;
-    try {
-      body = await response.json();
-    } catch {
-      throw new IncompatibleTranscriptionResponseError("invalid_json");
-    }
+    const parsedResponse = await readOpenRouterResponse(response);
+    const body = parsedResponse.body;
+    const generationId = getOpenRouterGenerationId(response);
     const result = responseSchema.safeParse(body);
     if (!result.success) {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
+      }
+      if (body === undefined) throw new IncompatibleTranscriptionResponseError("invalid_json");
       throw new IncompatibleTranscriptionResponseError("invalid_response_shape");
     }
     const parsed = result.data;
-
-    const wordsResult = parseTimedItems(parsed.words, true);
-    if (wordsResult?.success === true) {
-      return wordsResult.pieces;
-    }
-    const segmentsResult = parseTimedItems(parsed.segments, false);
-    if (segmentsResult?.success === true) {
-      return segmentsResult.pieces;
-    }
-
-    if (wordsResult === undefined && segmentsResult === undefined) {
-      const text = parsed.text.trim();
-      if (text.length === 0) {
-        return [];
+    let pieces: TranscriptPiece[];
+    try {
+      pieces = parseTranscriptPieces(parsed, acceptsUntimedText, input.audioDurationMs);
+    } catch (error) {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
       }
-      if (!acceptsUntimedText) {
-        throw new IncompatibleTranscriptionResponseError("missing_timestamps");
-      }
-      if (
-        input.audioDurationMs === undefined ||
-        !Number.isFinite(input.audioDurationMs) ||
-        input.audioDurationMs <= 0
-      ) {
-        throw new IncompatibleTranscriptionResponseError("invalid_audio_duration");
-      }
-      return [{ endedAtMs: Math.round(input.audioDurationMs), startedAtMs: 0, text }];
+      throw error;
     }
-    throw new IncompatibleTranscriptionResponseError(
-      selectIncompatibilityReason(wordsResult, segmentsResult),
-    );
+    if (costAttempt !== undefined) {
+      await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+        body,
+        exactCost: parsedResponse.exactCost,
+        ...(generationId === undefined ? {} : { generationId }),
+        outcome: "success",
+      });
+    }
+    return pieces;
   }
+}
+
+function parseTranscriptPieces(
+  parsed: z.infer<typeof responseSchema>,
+  acceptsUntimedText: boolean,
+  audioDurationMs: number | undefined,
+): TranscriptPiece[] {
+  const wordsResult = parseTimedItems(parsed.words, true);
+  if (wordsResult?.success === true) return wordsResult.pieces;
+  const segmentsResult = parseTimedItems(parsed.segments, false);
+  if (segmentsResult?.success === true) return segmentsResult.pieces;
+  if (wordsResult === undefined && segmentsResult === undefined) {
+    const text = parsed.text.trim();
+    if (text.length === 0) return [];
+    if (!acceptsUntimedText) {
+      throw new IncompatibleTranscriptionResponseError("missing_timestamps");
+    }
+    if (
+      audioDurationMs === undefined ||
+      !Number.isFinite(audioDurationMs) ||
+      audioDurationMs <= 0
+    ) {
+      throw new IncompatibleTranscriptionResponseError("invalid_audio_duration");
+    }
+    return [{ endedAtMs: Math.round(audioDurationMs), startedAtMs: 0, text }];
+  }
+  throw new IncompatibleTranscriptionResponseError(
+    selectIncompatibilityReason(wordsResult, segmentsResult),
+  );
 }
 
 type TimedItemsResult =

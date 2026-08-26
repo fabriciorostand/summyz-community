@@ -4,6 +4,7 @@ export interface InteractionText {
   authorizedRoles(roleIds: readonly string[]): string;
   cannotConfigureRecordingRoles: string;
   cannotConfigureSummaryForum: string;
+  cannotViewCosts: string;
   cannotRecord: string;
   cannotStop: string;
   commandFailed: string;
@@ -20,6 +21,9 @@ export interface InteractionText {
   noActiveRecording: string;
   noAuthorizedRoles: string;
   noSummaryForum: string;
+  costInvalidPeriod: string;
+  costMeetingInProgress: string;
+  costMeetingNotFound: string;
   recordingAlreadyActive: string;
   recordingStarted(voiceChannelName: string, userMention: string, meetingId: string): string;
   roleAuthorized(roleMention: string): string;
@@ -36,6 +40,7 @@ const texts = {
       `Authorized roles:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`,
     cannotConfigureRecordingRoles: "You cannot configure recording roles.",
     cannotConfigureSummaryForum: "You cannot configure the summary forum.",
+    cannotViewCosts: "Only server administrators can view recording costs.",
     cannotRecord: "You do not have an authorized role to start recordings.",
     cannotStop: "You do not have an authorized role to stop recordings.",
     commandFailed: "Unable to complete the command. Please try again.",
@@ -64,6 +69,10 @@ const texts = {
     noActiveRecording: "There is no active recording in this server.",
     noAuthorizedRoles: "No roles have been authorized. Only administrators can control recordings.",
     noSummaryForum: "No summary forum is configured in this server.",
+    costInvalidPeriod: "Use valid dates in YYYY-MM-DD format, with the first date before the last.",
+    costMeetingInProgress:
+      "Wait for the meeting to end before checking its costs. Processing costs are available after recording ends.",
+    costMeetingNotFound: "This completed meeting was not found in this server.",
     recordingAlreadyActive: "There is already an active recording in this server.",
     recordingStarted: (voiceChannelName, userMention, meetingId) =>
       "🔴 Recording started in **" +
@@ -82,11 +91,12 @@ const texts = {
     tagNotFound: "The provided tag does not exist in the selected forum.",
     userMustBeInRecordedChannel: "You must be in the channel being recorded to use `/stop`.",
   },
-  "pt-br": {
+  "pt-BR": {
     authorizedRoles: (roleIds) =>
       `Cargos autorizados:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`,
     cannotConfigureRecordingRoles: "Você não pode configurar os cargos de gravação.",
     cannotConfigureSummaryForum: "Você não pode configurar o fórum de resumos.",
+    cannotViewCosts: "Somente administradores do servidor podem consultar custos de gravações.",
     cannotRecord: "Você não possui um cargo autorizado para gravar.",
     cannotStop: "Você não possui um cargo autorizado para encerrar.",
     commandFailed: "Não foi possível concluir o comando. Tente novamente.",
@@ -116,6 +126,11 @@ const texts = {
     noAuthorizedRoles:
       "Nenhum cargo foi autorizado. Apenas administradores podem controlar gravações.",
     noSummaryForum: "Nenhum fórum de resumos está configurado neste servidor.",
+    costInvalidPeriod:
+      "Informe datas válidas no formato AAAA-MM-DD, com a data inicial anterior à final.",
+    costMeetingInProgress:
+      "Aguarde a reunião terminar para consultar os custos. Os dados ficam disponíveis após o encerramento da gravação.",
+    costMeetingNotFound: "Essa reunião concluída não foi encontrada neste servidor.",
     recordingAlreadyActive: "Já existe uma gravação ativa neste servidor.",
     recordingStarted: (voiceChannelName, userMention, meetingId) =>
       "🔴 Gravação iniciada em **" +

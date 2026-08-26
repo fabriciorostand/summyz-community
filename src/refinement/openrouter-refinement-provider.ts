@@ -1,6 +1,9 @@
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
+import { getOpenRouterGenerationId, readOpenRouterResponse } from "../cost/openrouter-response.js";
+
 import {
   applyRefinement,
   type RefinementEntry,
@@ -53,6 +56,7 @@ type Sleep = (milliseconds: number) => Promise<void>;
 
 export interface OpenRouterRefinementProviderOptions {
   apiKey: string;
+  costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   logger?: Logger;
   maxAttempts: number;
@@ -66,6 +70,7 @@ export interface OpenRouterRefinementProviderOptions {
 
 export class OpenRouterRefinementProvider implements RefinementProvider {
   readonly #apiKey: string;
+  readonly #costRecorder: ProviderCostRecorder | undefined;
   readonly #fetch: Fetch;
   readonly #logger: Logger | undefined;
   readonly #maxAttempts: number;
@@ -78,6 +83,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
 
   public constructor(options: OpenRouterRefinementProviderOptions) {
     this.#apiKey = options.apiKey;
+    this.#costRecorder = options.costRecorder;
     this.#fetch = options.fetch ?? fetch;
     this.#logger = options.logger;
     this.#maxAttempts = options.maxAttempts;
@@ -123,6 +129,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
   }
 
   async #request(entries: readonly RefinementEntry[]): Promise<RefinementEntry[]> {
+    const costAttempt = await this.#costRecorder?.beginApi("openrouter");
     let response: Response;
     try {
       response = await this.#fetch(OPENROUTER_REFINEMENT_URL, {
@@ -147,14 +154,28 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
         headers: {
           Authorization: `Bearer ${this.#apiKey}`,
           "Content-Type": "application/json",
+          "X-OpenRouter-Metadata": "enabled",
         },
         method: "POST",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
     } catch {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishUnattributed(costAttempt, "failure");
+      }
       throw new RefinementRequestError({ retryable: true });
     }
     if (!response.ok) {
+      const parsedResponse = await readOpenRouterResponse(response);
+      const generationId = getOpenRouterGenerationId(response);
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body: parsedResponse.body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
+      }
       const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
       throw new RefinementRequestError({
         ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
@@ -162,8 +183,11 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
         status: response.status,
       });
     }
+    const parsedResponse = await readOpenRouterResponse(response);
+    const body = parsedResponse.body;
+    const generationId = getOpenRouterGenerationId(response);
+    let refined: RefinementEntry[];
     try {
-      const body: unknown = await response.json();
       const parsed = responseSchema.parse(body);
       const content = parsed.choices[0]?.message.content;
       if (content === undefined) {
@@ -171,10 +195,27 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
       }
       const result: unknown = JSON.parse(content);
       const output = refinementResponseSchema.parse(result);
-      return applyRefinement(entries, output.blocks);
+      refined = applyRefinement(entries, output.blocks);
     } catch {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
+      }
       throw new IncompatibleRefinementResponseError();
     }
+    if (costAttempt !== undefined) {
+      await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+        body,
+        exactCost: parsedResponse.exactCost,
+        ...(generationId === undefined ? {} : { generationId }),
+        outcome: "success",
+      });
+    }
+    return refined;
   }
 }
 

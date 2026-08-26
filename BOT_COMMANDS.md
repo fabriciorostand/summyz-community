@@ -89,6 +89,28 @@ Shows the forum and tag configured for the server. It follows the same access ru
 Removes the destination. New recordings are blocked, and meetings that have not yet been published
 remain pending until another forum is configured. It follows the same access rules as `set`.
 
+## `/recording-cost meeting id:<meeting ID>`
+
+Shows the cost of a completed meeting. Only server administrators can use it, and the response is
+ephemeral. A meeting ID can be queried only in the server where that meeting was recorded.
+
+For every phase, the report shows whether execution used an external API or a local service, the
+effective model reported by the provider, and the number of external requests. Local phases show
+their model but no cost: local computational cost is not measured. External values are the exact
+USD amounts reported by OpenRouter and are displayed without rounding.
+
+The report includes charged failed attempts, pending reconciliations, and attempts whose charge
+could not be confirmed automatically. An active meeting is rejected with an ephemeral message;
+wait until recording has ended before querying it.
+
+## `/recording-cost period from:<YYYY-MM-DD> to:<YYYY-MM-DD>`
+
+Shows aggregate costs for completed meetings that started in the inclusive date interval. Meetings
+still in progress are excluded. Dates are interpreted with `SUMMARY_TIME_ZONE`. The report includes
+the number and duration of meetings, external provider requests, local executions, phase totals,
+confirmed averages, charged failures, and unresolved reconciliation counts. Only server
+administrators can use it, and the response is ephemeral.
+
 ## Important Notes
 
 - Administrators can always control recordings.
@@ -111,3 +133,4 @@ remain pending until another forum is configured. It follows the same access rul
   changes to `.env` apply only to new meetings.
 - The provider, resolved model, and language for each phase are also pinned then. A local phase never
   uses OpenRouter as fallback.
+- Financial records are retained indefinitely, independently of audio and transcript retention.

@@ -26,8 +26,8 @@ describe("textos das interações do Discord", () => {
     );
   });
 
-  it("mantém as mensagens em português quando pt-br é selecionado", () => {
-    const text = getInteractionText("pt-br");
+  it("mantém as mensagens em português quando pt-BR é selecionado", () => {
+    const text = getInteractionText("pt-BR");
 
     expect(text.guildOnly).toBe("Este comando só pode ser usado em um servidor.");
     expect(text.forumConfigured("forum-1", "Reunião")).toContain("com a tag **Reunião**");

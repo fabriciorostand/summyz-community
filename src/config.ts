@@ -3,7 +3,7 @@ import { z } from "zod";
 const environmentSchema = z
   .object({
     BOT_LANGUAGE: z
-      .enum(["en", "pt-br"], { error: "BOT_LANGUAGE must be en or pt-br" })
+      .enum(["en", "pt-BR"], { error: "BOT_LANGUAGE must be en or pt-BR" })
       .default("en"),
     DATA_DIR: z.string().min(1).default("./data"),
     DATABASE_URL: z

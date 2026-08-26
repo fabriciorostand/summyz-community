@@ -13,6 +13,7 @@ import type { Logger } from "pino";
 
 import { canConfigureSummaryForum, canManageRecordingRoles, canRecord } from "../authorization.js";
 import type { AppConfig } from "../config.js";
+import { CostReportError } from "../cost/cost-report.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
 import {
   RecordingAlreadyActiveError,
@@ -28,6 +29,7 @@ export function installInteractionHandler(
   logger: Logger,
   language: AppConfig["botLanguage"],
   hasInsufficientLocalHardware: () => boolean = () => false,
+  costReport?: CostReportReader,
 ): void {
   const text = getInteractionText(language);
   client.on(Events.InteractionCreate, async (interaction) => {
@@ -40,6 +42,8 @@ export function installInteractionHandler(
         await handleRecordingRole(interaction, guildConfigStore, text);
       } else if (interaction.commandName === "recording-summary-forum") {
         await handleRecordingSummaryForum(interaction, guildConfigStore, text);
+      } else if (interaction.commandName === "recording-cost") {
+        await handleRecordingCost(interaction, coordinator, costReport, text);
       } else if (interaction.commandName === "record") {
         await handleRecord(
           interaction,
@@ -59,6 +63,54 @@ export function installInteractionHandler(
       await sendError(interaction, text.commandFailed);
     }
   });
+}
+
+export interface CostReportReader {
+  meeting(guildId: string, meetingId: string): Promise<string>;
+  period(guildId: string, from: string, to: string): Promise<string>;
+}
+
+async function handleRecordingCost(
+  interaction: ChatInputCommandInteraction,
+  coordinator: RecordingCoordinator,
+  report: CostReportReader | undefined,
+  text: InteractionText,
+): Promise<void> {
+  const context = await resolveGuildContext(interaction, text);
+  if (context === undefined) return;
+  if (!context.member.permissions.has(PermissionFlagsBits.Administrator)) {
+    await interaction.reply(createEphemeralReply(text.cannotViewCosts));
+    return;
+  }
+  if (report === undefined) throw new Error("The cost report service is unavailable");
+  const subcommand = interaction.options.getSubcommand(true);
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
+  try {
+    if (subcommand === "meeting") {
+      const meetingId = interaction.options.getString("id", true);
+      if (coordinator.get(context.guildId)?.meetingId === meetingId) {
+        await interaction.editReply(text.costMeetingInProgress);
+        return;
+      }
+      await interaction.editReply(await report.meeting(context.guildId, meetingId));
+      return;
+    }
+    const from = interaction.options.getString("from", true);
+    const to = interaction.options.getString("to", true);
+    await interaction.editReply(await report.period(context.guildId, from, to));
+  } catch (error) {
+    if (error instanceof CostReportError) {
+      const message =
+        error.code === "meeting_in_progress"
+          ? text.costMeetingInProgress
+          : error.code === "invalid_period"
+            ? text.costInvalidPeriod
+            : text.costMeetingNotFound;
+      await interaction.editReply(message);
+      return;
+    }
+    throw error;
+  }
 }
 
 async function handleRecordingSummaryForum(

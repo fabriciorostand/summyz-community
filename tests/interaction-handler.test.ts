@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { installInteractionHandler } from "../src/discord/interaction-handler.js";
 import { GuildConfigStore } from "../src/guild-config-store.js";
 import { createLogger } from "../src/logger.js";
+import { CostReportError } from "../src/cost/cost-report.js";
 import type { RecordingCoordinator } from "../src/recording/recording-coordinator.js";
 import { RecordingAlreadyActiveError } from "../src/recording/recording-coordinator.js";
 
@@ -25,7 +26,7 @@ afterEach(async () => {
 
 interface InteractionOptions {
   administrator?: boolean;
-  botLanguage?: "en" | "pt-br";
+  botLanguage?: "en" | "pt-BR";
   botMemberAvailable?: boolean;
   channelId?: string;
   chatInput?: boolean;
@@ -40,6 +41,7 @@ interface InteractionOptions {
   replied?: boolean;
   subcommand?: string;
   tag?: string;
+  strings?: Record<string, string>;
   voiceChannel?: { id: string; name: string; type: ChannelType };
 }
 
@@ -55,6 +57,10 @@ async function createHarness(options: InteractionOptions = {}) {
     start,
     stop,
   } as unknown as RecordingCoordinator;
+  const costReport = {
+    meeting: vi.fn(async () => "RELATÓRIO DA REUNIÃO"),
+    period: vi.fn(async () => "RELATÓRIO DO PERÍODO"),
+  };
   let listener: ((interaction: unknown) => Promise<void>) | undefined;
   const client = {
     on: vi.fn((_event: string, received: (interaction: unknown) => Promise<void>) => {
@@ -66,8 +72,9 @@ async function createHarness(options: InteractionOptions = {}) {
     store,
     coordinator,
     createLogger("silent"),
-    options.botLanguage ?? "pt-br",
+    options.botLanguage ?? "pt-BR",
     () => options.insufficientLocalHardware ?? false,
+    costReport,
   );
 
   const reply = vi.fn(async () => undefined);
@@ -110,7 +117,7 @@ async function createHarness(options: InteractionOptions = {}) {
     options: {
       getChannel: vi.fn(() => options.forum),
       getRole: vi.fn(() => ({ id: "role-option", toString: () => "<@&role-option>" })),
-      getString: vi.fn(() => options.tag),
+      getString: vi.fn((name: string) => options.strings?.[name] ?? options.tag),
       getSubcommand: vi.fn(() => options.subcommand ?? "set"),
     },
     replied: options.replied ?? false,
@@ -121,10 +128,69 @@ async function createHarness(options: InteractionOptions = {}) {
   if (listener === undefined) {
     throw new Error("O handler de interações não foi instalado");
   }
-  return { deferReply, editReply, followUp, get, interaction, listener, reply, start, stop, store };
+  return {
+    costReport,
+    deferReply,
+    editReply,
+    followUp,
+    get,
+    interaction,
+    listener,
+    reply,
+    start,
+    stop,
+    store,
+  };
 }
 
 describe("fluxo de comandos do Discord", () => {
+  it("permite somente administradores consultarem custos por reunião", async () => {
+    const denied = await createHarness({
+      commandName: "recording-cost",
+      strings: { id: "meeting-1" },
+      subcommand: "meeting",
+    });
+    await denied.listener(denied.interaction);
+    expect(denied.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringMatching(/administradores/i) }),
+    );
+    expect(denied.costReport.meeting).not.toHaveBeenCalled();
+
+    const allowed = await createHarness({
+      administrator: true,
+      commandName: "recording-cost",
+      strings: { id: "meeting-1" },
+      subcommand: "meeting",
+    });
+    await allowed.listener(allowed.interaction);
+    expect(allowed.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
+    expect(allowed.costReport.meeting).toHaveBeenCalledWith("guild-1", "meeting-1");
+    expect(allowed.editReply).toHaveBeenCalledWith("RELATÓRIO DA REUNIÃO");
+  });
+
+  it("consulta custos por período e informa reunião em andamento de forma amigável", async () => {
+    const period = await createHarness({
+      administrator: true,
+      commandName: "recording-cost",
+      strings: { from: "2026-08-01", to: "2026-08-31" },
+      subcommand: "period",
+    });
+    await period.listener(period.interaction);
+    expect(period.costReport.period).toHaveBeenCalledWith("guild-1", "2026-08-01", "2026-08-31");
+
+    const active = await createHarness({
+      administrator: true,
+      commandName: "recording-cost",
+      strings: { id: "meeting-1" },
+      subcommand: "meeting",
+    });
+    active.costReport.meeting.mockRejectedValueOnce(new CostReportError("meeting_in_progress"));
+    await active.listener(active.interaction);
+    expect(active.editReply).toHaveBeenCalledWith(
+      expect.stringMatching(/reunião terminar.*custos/i),
+    );
+  });
+
   it("responde em inglês quando esse é o idioma configurado", async () => {
     const unauthorized = await createHarness({ botLanguage: "en" });
     await unauthorized.listener(unauthorized.interaction);

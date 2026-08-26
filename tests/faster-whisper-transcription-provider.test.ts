@@ -1,5 +1,8 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { CostAttempt, CostLedgerStore } from "../src/cost/cost-ledger.js";
+import { ProviderCostRecorder } from "../src/cost/provider-cost-recorder.js";
+
 import { FasterWhisperTranscriptionProvider } from "../src/transcription/faster-whisper-transcription-provider.js";
 import {
   IncompatibleTranscriptionResponseError,
@@ -7,6 +10,44 @@ import {
 } from "../src/transcription/transcription-provider.js";
 
 describe("FasterWhisperTranscriptionProvider", () => {
+  it("registra execução local com modelo e sem custo externo", async () => {
+    const attempts: CostAttempt[] = [];
+    const store: CostLedgerStore = {
+      getMeeting: async () => undefined,
+      listMeetings: async () => [],
+      saveAttempt: vi.fn(async (attempt) => {
+        const index = attempts.findIndex((item) => item.attemptId === attempt.attemptId);
+        if (index === -1) attempts.push(attempt);
+        else attempts[index] = attempt;
+      }),
+      saveMeeting: vi.fn(async () => undefined),
+    };
+    const recorder = new ProviderCostRecorder({
+      context: { guildId: "guild-1", meetingId: "meeting-1", phase: "transcription" },
+      id: () => "attempt-1",
+      store,
+    });
+    const provider = new FasterWhisperTranscriptionProvider({
+      costRecorder: recorder,
+      fetch: async () =>
+        Response.json({ text: "Olá.", words: [{ end: 1, start: 0, word: "Olá." }] }),
+      language: "pt",
+      model: "small",
+      timeoutMs: 1_000,
+    });
+
+    await provider.transcribe({ audio: Buffer.from("audio"), format: "wav" });
+
+    expect(attempts).toEqual([
+      expect.objectContaining({
+        cost: null,
+        financialStatus: "not_applicable",
+        model: "small",
+        outcome: "success",
+      }),
+    ]);
+  });
+
   it("envia áudio e modelo ao sidecar privado e converte timestamps", async () => {
     const fetch = vi.fn(
       async (_url: string, _init: RequestInit) =>

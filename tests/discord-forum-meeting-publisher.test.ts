@@ -174,7 +174,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -221,7 +221,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -255,7 +255,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -303,7 +303,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -345,7 +345,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -394,7 +394,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -428,7 +428,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client: { channels: { fetch: vi.fn() } } as unknown as Client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -461,7 +461,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const publisher = new DiscordMeetingPublisher({
       client: { channels: { fetch: vi.fn(async () => thread) } } as unknown as Client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -491,7 +491,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         },
       } as unknown as Client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store,
       timeZone: "America/Sao_Paulo",
@@ -511,7 +511,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         channels: { fetch: vi.fn(async () => ({ isSendable: () => false })) },
       } as unknown as Client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",
@@ -534,7 +534,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         },
       } as unknown as Client,
       guildConfigStore: context.configStore,
-      language: "pt-br",
+      language: "pt-BR",
       logger: createLogger("silent"),
       store: new PublicationStore(context.root),
       timeZone: "America/Sao_Paulo",

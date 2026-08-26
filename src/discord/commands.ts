@@ -7,6 +7,12 @@ type BotLanguage = AppConfig["botLanguage"];
 const descriptions = {
   en: {
     record: "Starts recording the voice channel you are in",
+    recordingCost: "Shows confirmed AI processing costs",
+    recordingCostFrom: "First meeting date (YYYY-MM-DD)",
+    recordingCostMeeting: "Shows costs for a completed meeting",
+    recordingCostMeetingId: "Meeting ID",
+    recordingCostPeriod: "Shows costs for meetings started in a period",
+    recordingCostTo: "Last meeting date (YYYY-MM-DD)",
     recordingRole: "Configures the roles that can control recordings",
     recordingRoleAdd: "Allows a role to start and stop recordings",
     recordingRoleAddOption: "Role that will be authorized",
@@ -21,8 +27,14 @@ const descriptions = {
     summaryForumShow: "Shows the forum configured in this server",
     stop: "Stops recording the voice channel you are in",
   },
-  "pt-br": {
+  "pt-BR": {
     record: "Inicia a gravação do canal de voz em que você está",
+    recordingCost: "Mostra os custos confirmados do processamento por IA",
+    recordingCostFrom: "Primeira data de reunião (AAAA-MM-DD)",
+    recordingCostMeeting: "Mostra os custos de uma reunião concluída",
+    recordingCostMeetingId: "ID da reunião",
+    recordingCostPeriod: "Mostra os custos das reuniões iniciadas em um período",
+    recordingCostTo: "Última data de reunião (AAAA-MM-DD)",
     recordingRole: "Configura os cargos que podem controlar gravações",
     recordingRoleAdd: "Autoriza um cargo a iniciar e encerrar gravações",
     recordingRoleAddOption: "Cargo que será autorizado",
@@ -100,5 +112,36 @@ export function createCommandDefinitions(language: BotLanguage) {
       subcommand.setName("clear").setDescription(text.summaryForumClear),
     );
 
-  return [recordCommand, stopCommand, recordingRoleCommand, recordingSummaryForumCommand] as const;
+  const recordingCostCommand = new SlashCommandBuilder()
+    .setName("recording-cost")
+    .setDescription(text.recordingCost)
+    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .setDMPermission(false)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("meeting")
+        .setDescription(text.recordingCostMeeting)
+        .addStringOption((option) =>
+          option.setName("id").setDescription(text.recordingCostMeetingId).setRequired(true),
+        ),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName("period")
+        .setDescription(text.recordingCostPeriod)
+        .addStringOption((option) =>
+          option.setName("from").setDescription(text.recordingCostFrom).setRequired(true),
+        )
+        .addStringOption((option) =>
+          option.setName("to").setDescription(text.recordingCostTo).setRequired(true),
+        ),
+    );
+
+  return [
+    recordCommand,
+    stopCommand,
+    recordingRoleCommand,
+    recordingSummaryForumCommand,
+    recordingCostCommand,
+  ] as const;
 }

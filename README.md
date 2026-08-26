@@ -4,7 +4,7 @@
 
 <p align="center">
   <a href="./README.md">English</a> |
-  <a href="./README.pt-br.md">Português</a>
+  <a href="./README.pt-BR.md">Português</a>
 </p>
 
 <p align="center">
@@ -89,6 +89,28 @@ restarts.
   audio; processing synchronizes it with the database before reserving the job;
 - preserved content and audio do not expire automatically. Deletion is a manual administrator
   operation on disk or in the database.
+- provider-cost records never expire automatically and are independent of content and audio
+  retention. Local mode keeps them under `DATA_DIR/costs/guilds/<guildId>/meetings/<meetingId>`;
+  PostgreSQL mode uses `provider_cost_attempts` with protected meeting and server relationships.
+
+## Provider cost accounting
+
+Every model invocation is recorded before it is sent. OpenRouter responses use the provider's
+reported `usage.cost` in USD; Summyz does not calculate a price estimate. Application retries are
+separate attempts, and a failed call is included whenever OpenRouter confirms a charge. A
+`generation_id` is retained and queried to reconcile responses that did not contain complete cost
+or effective-model metadata.
+
+If a transport failure prevents both the response and generation ID from reaching Summyz, the
+attempt is marked as not automatically attributable instead of being treated as free. Reports show
+this condition and never present the confirmed subtotal as necessarily complete. Local Ollama and
+faster-whisper calls retain the effective model with a null external cost because computational
+cost is outside the current scope.
+
+Server administrators can query a completed meeting with `/recording-cost meeting` or aggregate
+completed meetings by their start date with `/recording-cost period`; meetings still in progress
+are excluded. Results are ephemeral and always scoped to the current Discord server. Date boundaries
+use `SUMMARY_TIME_ZONE`; financial values are stored and displayed without rounding.
 
 The three choices are copied to the manifest when the meeting starts. Changing `.env` afterward
 does not migrate or redirect a meeting already in progress: a local meeting remains local, and a
@@ -135,7 +157,7 @@ rules.
 
 ## Recording settings
 
-- `BOT_LANGUAGE`: language used for fixed Discord text and command descriptions; `en` or `pt-br`;
+- `BOT_LANGUAGE`: language used for fixed Discord text and command descriptions; `en` or `pt-BR`;
   default `en`. This setting does not change model language;
 - `DATA_DIR`: file directory; default `./data`;
 - `SEGMENT_SILENCE_MS`: silence that ends a segment; default `1000` ms;
@@ -263,7 +285,8 @@ the original transcript remains available.
 - `SUMMARY_TIMEOUT_MS`: timeout for each attempt; default `120000` ms;
 - `SUMMARY_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
 - `SUMMARY_RETRY_MAX_MS`: maximum delay between retries; default `30000` ms;
-- `SUMMARY_TIME_ZONE`: IANA time zone used in the post title; default `America/Sao_Paulo`.
+- `SUMMARY_TIME_ZONE`: IANA time zone used in the post title and cost-report date filters; default
+  `America/Sao_Paulo`.
 
 The summary uses validated structured output. Transcripts larger than the configured limit are
 split only between utterances, summarized in chunks, and consolidated. Summyz internally retains
@@ -319,7 +342,7 @@ WAV. If any segment remains impossible to analyze or process, or the provider ex
 
 After transcription and summarization, Summyz reads the server's latest configuration and creates a
 post in the selected forum. With `BOT_LANGUAGE=en`, a successful post is named
-`Summary — MM/DD/YYYY HH:mm — Voice channel name`; with `BOT_LANGUAGE=pt-br`, it uses
+`Summary — MM/DD/YYYY HH:mm — Voice channel name`; with `BOT_LANGUAGE=pt-BR`, it uses
 `Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz`. The post contains:
 
 - the meeting ID and executive summary in the first message;
