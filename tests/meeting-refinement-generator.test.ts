@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MeetingRefinementGenerator } from "../src/refinement/meeting-refinement-generator.js";
-import { RefinementProviderFailureError } from "../src/refinement/openrouter-refinement-provider.js";
+import {
+  IncompatibleRefinementResponseError,
+  RefinementProviderFailureError,
+} from "../src/refinement/refinement-provider.js";
 
 const entries = [
   { endedAtMs: 2_000, id: "a", speaker: "Ana", startedAtMs: 1_000, text: "um texto" },
@@ -51,5 +54,49 @@ describe("MeetingRefinementGenerator", () => {
     });
 
     await expect(generator.generate(entries)).rejects.toMatchObject({ attempts: 4 });
+  });
+
+  it("subdivide um lote quando o modelo não preserva sua estrutura", async () => {
+    const refine = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new RefinementProviderFailureError(1, new IncompatibleRefinementResponseError()),
+      )
+      .mockImplementation(async (chunk: typeof entries) => ({ attempts: 1, entries: chunk }));
+    const generator = new MeetingRefinementGenerator({
+      maxChunkCharacters: 10_000,
+      provider: { refine },
+    });
+
+    await expect(generator.generate(entries)).resolves.toEqual({ attempts: 3, entries });
+    expect(refine).toHaveBeenNthCalledWith(1, entries);
+    expect(refine).toHaveBeenNthCalledWith(2, [entries[0]]);
+    expect(refine).toHaveBeenNthCalledWith(3, [entries[1]]);
+  });
+
+  it("não subdivide indisponibilidade nem uma única entrada incompatível", async () => {
+    const firstEntry = entries[0];
+    if (firstEntry === undefined) throw new Error("Entrada de teste ausente");
+    const unavailable = vi.fn(async () => {
+      throw new RefinementProviderFailureError(1, new Error("offline"));
+    });
+    await expect(
+      new MeetingRefinementGenerator({
+        maxChunkCharacters: 10_000,
+        provider: { refine: unavailable },
+      }).generate(entries),
+    ).rejects.toMatchObject({ attempts: 1 });
+    expect(unavailable).toHaveBeenCalledOnce();
+
+    const incompatible = vi.fn(async () => {
+      throw new RefinementProviderFailureError(1, new IncompatibleRefinementResponseError());
+    });
+    await expect(
+      new MeetingRefinementGenerator({
+        maxChunkCharacters: 1,
+        provider: { refine: incompatible },
+      }).generate([firstEntry]),
+    ).rejects.toMatchObject({ attempts: 1 });
+    expect(incompatible).toHaveBeenCalledOnce();
   });
 });

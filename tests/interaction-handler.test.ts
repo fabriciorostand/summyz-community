@@ -12,6 +12,8 @@ import {
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { installInteractionHandler } from "../src/discord/interaction-handler.js";
+import { createInitialAiProfile } from "../src/ai-profile.js";
+import type { AiProfileCompatibilityStatus } from "../src/ai-profile.js";
 import { GuildConfigStore } from "../src/guild-config-store.js";
 import { createLogger } from "../src/logger.js";
 import { CostReportError } from "../src/cost/cost-report.js";
@@ -31,13 +33,17 @@ interface InteractionOptions {
   channelId?: string;
   chatInput?: boolean;
   commandName?: string;
+  compatibility?: AiProfileCompatibilityStatus[];
   deferred?: boolean;
   forum?: object;
   guildAvailable?: boolean;
   guildId?: string | null;
-  insufficientLocalHardware?: boolean;
+  guildOwner?: boolean;
   manageGuild?: boolean;
   memberRoleIds?: string[];
+  openRouterConfigured?: boolean;
+  openRouterProfile?: boolean;
+  profileComplete?: boolean;
   replied?: boolean;
   subcommand?: string;
   tag?: string;
@@ -61,6 +67,33 @@ async function createHarness(options: InteractionOptions = {}) {
     meeting: vi.fn(async () => "RELATÓRIO DA REUNIÃO"),
     period: vi.fn(async () => "RELATÓRIO DO PERÍODO"),
   };
+  const profile = createInitialAiProfile(
+    "guild-1",
+    options.profileComplete === false
+      ? {}
+      : {
+          refinement: {
+            model: options.openRouterProfile === true ? "vendor/refinement" : "qwen3:1.7b",
+            provider: options.openRouterProfile === true ? "openrouter" : "ollama",
+          },
+          summary: {
+            model: options.openRouterProfile === true ? "vendor/summary" : "qwen3:4b",
+            provider: options.openRouterProfile === true ? "openrouter" : "ollama",
+          },
+          transcription: {
+            model: options.openRouterProfile === true ? "vendor/transcription" : "medium",
+            provider: options.openRouterProfile === true ? "openrouter" : "faster-whisper",
+          },
+        },
+  );
+  const aiProfileStore = {
+    createProfile: vi.fn(async () => undefined),
+    ensureInitialProfile: vi.fn(async () => undefined),
+    getActiveProfile: vi.fn(async () => profile),
+    listProfiles: vi.fn(async () => [profile]),
+    setActiveProfile: vi.fn(async () => undefined),
+    updateProfile: vi.fn(async () => undefined),
+  };
   let listener: ((interaction: unknown) => Promise<void>) | undefined;
   const client = {
     on: vi.fn((_event: string, received: (interaction: unknown) => Promise<void>) => {
@@ -73,8 +106,10 @@ async function createHarness(options: InteractionOptions = {}) {
     coordinator,
     createLogger("silent"),
     options.botLanguage ?? "pt-BR",
-    () => options.insufficientLocalHardware ?? false,
     costReport,
+    aiProfileStore,
+    async () => options.compatibility ?? [],
+    () => options.openRouterConfigured ?? false,
   );
 
   const reply = vi.fn(async () => undefined);
@@ -97,6 +132,14 @@ async function createHarness(options: InteractionOptions = {}) {
     options.guildAvailable === false
       ? null
       : {
+          ownerId:
+            options.guildOwner === false
+              ? "owner-1"
+              : options.guildOwner === true ||
+                  options.administrator === true ||
+                  options.manageGuild === true
+                ? "user-1"
+                : "owner-1",
           members: {
             fetch: vi.fn(async () => member),
             fetchMe: vi.fn(async () =>
@@ -130,6 +173,7 @@ async function createHarness(options: InteractionOptions = {}) {
   }
   return {
     costReport,
+    aiProfileStore,
     deferReply,
     editReply,
     followUp,
@@ -144,7 +188,7 @@ async function createHarness(options: InteractionOptions = {}) {
 }
 
 describe("fluxo de comandos do Discord", () => {
-  it("permite somente administradores consultarem custos por reunião", async () => {
+  it("permite somente o dono do servidor consultar custos por reunião", async () => {
     const denied = await createHarness({
       commandName: "recording-cost",
       strings: { id: "meeting-1" },
@@ -152,7 +196,7 @@ describe("fluxo de comandos do Discord", () => {
     });
     await denied.listener(denied.interaction);
     expect(denied.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringMatching(/administradores/i) }),
+      expect.objectContaining({ content: expect.stringMatching(/dono do servidor/i) }),
     );
     expect(denied.costReport.meeting).not.toHaveBeenCalled();
 
@@ -295,7 +339,7 @@ describe("fluxo de comandos do Discord", () => {
     });
   });
 
-  it("permite que cargo de gravação configure fórum e tag existentes", async () => {
+  it("permite que o dono configure fórum e tag existentes", async () => {
     const forum = {
       availableTags: [{ id: "tag-1", name: "Reunião" }],
       flags: { has: vi.fn(() => false) },
@@ -306,6 +350,7 @@ describe("fluxo de comandos do Discord", () => {
     const context = await createHarness({
       commandName: "recording-summary-forum",
       forum,
+      guildOwner: true,
       memberRoleIds: ["role-1"],
       subcommand: "set",
       tag: "Reunião",
@@ -565,26 +610,6 @@ describe("fluxo de comandos do Discord", () => {
     );
   });
 
-  it("avisa somente o autor do /record quando o hardware local é insuficiente", async () => {
-    const context = await createHarness({
-      administrator: true,
-      insufficientLocalHardware: true,
-      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
-    });
-    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
-
-    await context.listener(context.interaction);
-
-    expect(context.followUp).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: expect.stringMatching(
-          /hardware.*processamento será tentado.*qualidade.*OpenRouter/i,
-        ),
-        flags: MessageFlags.Ephemeral,
-      }),
-    );
-  });
-
   it("edita uma interação já respondida ao tratar uma rejeição não Error", async () => {
     const context = await createHarness({
       administrator: true,
@@ -698,6 +723,119 @@ describe("fluxo de comandos do Discord", () => {
     await empty.listener(empty.interaction);
     expect(empty.reply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining("Nenhum cargo foi autorizado") }),
+    );
+  });
+
+  it("não concede gestão ao administrador que não é dono do servidor", async () => {
+    const roles = await createHarness({
+      administrator: true,
+      commandName: "recording-role",
+      guildOwner: false,
+      subcommand: "add",
+    });
+    await roles.listener(roles.interaction);
+    expect(roles.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "Você não pode configurar os cargos de gravação." }),
+    );
+
+    const costs = await createHarness({
+      administrator: true,
+      commandName: "recording-cost",
+      guildOwner: false,
+      subcommand: "meeting",
+    });
+    await costs.listener(costs.interaction);
+    expect(costs.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: "Somente o dono do servidor pode consultar custos de gravações.",
+      }),
+    );
+    expect(costs.costReport.meeting).not.toHaveBeenCalled();
+  });
+
+  it("não inicia gravação enquanto o perfil ativo estiver incompleto", async () => {
+    const context = await createHarness({
+      guildOwner: true,
+      profileComplete: false,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(context.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("perfil de processamento ativo"),
+      }),
+    );
+    expect(context.start).not.toHaveBeenCalled();
+  });
+
+  it("não inicia perfil OpenRouter sem a chave da API", async () => {
+    const context = await createHarness({
+      guildOwner: true,
+      openRouterProfile: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(context.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("OPENROUTER_API_KEY") }),
+    );
+    expect(context.start).not.toHaveBeenCalled();
+  });
+
+  it("inicia perfil OpenRouter completo quando a chave está configurada", async () => {
+    const context = await createHarness({
+      guildOwner: true,
+      openRouterConfigured: true,
+      openRouterProfile: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(context.start).toHaveBeenCalledOnce();
+  });
+
+  it("bloqueia modelo incompatível e apenas avisa sobre modelo acima da recomendação", async () => {
+    const incompatible = await createHarness({
+      compatibility: ["incompatible"],
+      guildOwner: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await incompatible.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    await incompatible.listener(incompatible.interaction);
+    expect(incompatible.start).not.toHaveBeenCalled();
+
+    const warning = await createHarness({
+      compatibility: ["above_recommended"],
+      guildOwner: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await warning.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    await warning.listener(warning.interaction);
+    expect(warning.start).toHaveBeenCalledOnce();
+    expect(warning.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringContaining("acima da capacidade recomendada"),
+        flags: MessageFlags.Ephemeral,
+      }),
+    );
+
+    const unknown = await createHarness({
+      compatibility: ["unknown"],
+      guildOwner: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await unknown.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    await unknown.listener(unknown.interaction);
+    expect(unknown.start).toHaveBeenCalledOnce();
+    expect(unknown.followUp).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("dados suficientes") }),
     );
   });
 });

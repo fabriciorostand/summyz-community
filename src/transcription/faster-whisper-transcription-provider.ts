@@ -26,8 +26,11 @@ const responseSchema = z.object({
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 export interface FasterWhisperTranscriptionProviderOptions {
+  batchSize?: number;
   baseUrl?: string;
   costRecorder?: ProviderCostRecorder;
+  device?: "auto" | "cpu" | "gpu";
+  fallback?: "cpu" | "none";
   fetch?: Fetch;
   language: string;
   model: string;
@@ -35,16 +38,22 @@ export interface FasterWhisperTranscriptionProviderOptions {
 }
 
 export class FasterWhisperTranscriptionProvider implements TranscriptionProvider {
+  readonly #batchSize: number;
   readonly #baseUrl: string;
   readonly #costRecorder: ProviderCostRecorder | undefined;
+  readonly #device: "auto" | "cpu" | "gpu";
+  readonly #fallback: "cpu" | "none";
   readonly #fetch: Fetch;
   readonly #language: string;
   readonly #model: string;
   readonly #timeoutMs: number;
 
   public constructor(options: FasterWhisperTranscriptionProviderOptions) {
+    this.#batchSize = options.batchSize ?? 0;
     this.#baseUrl = options.baseUrl ?? "http://faster-whisper:8000";
     this.#costRecorder = options.costRecorder;
+    this.#device = options.device ?? "auto";
+    this.#fallback = options.fallback ?? "none";
     this.#fetch = options.fetch ?? fetch;
     this.#language = options.language;
     this.#model = options.model;
@@ -79,6 +88,9 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
     form.set("audio", new Blob([audioBuffer]), `audio.${input.format}`);
     form.set("language", input.language ?? this.#language);
     form.set("model", this.#model);
+    form.set("device", this.#device);
+    form.set("fallback", this.#fallback);
+    form.set("batchSize", String(this.#batchSize));
 
     let response: Response;
     try {

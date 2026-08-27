@@ -1,4 +1,8 @@
-import { type RefinementProvider, RefinementProviderFailureError } from "./refinement-provider.js";
+import {
+  IncompatibleRefinementResponseError,
+  type RefinementProvider,
+  RefinementProviderFailureError,
+} from "./refinement-provider.js";
 import { refinementEntrySchema, type RefinementEntry } from "./refinement-result.js";
 
 interface MeetingRefinementGeneratorOptions {
@@ -34,7 +38,7 @@ export class MeetingRefinementGenerator {
     let attempts = 0;
     for (const chunk of createChunks(entries, this.#maxChunkCharacters)) {
       try {
-        const result = await this.#provider.refine(chunk);
+        const result = await this.#refineChunk(chunk);
         attempts += result.attempts;
         refined.push(...result.entries);
       } catch (error) {
@@ -46,6 +50,51 @@ export class MeetingRefinementGenerator {
     }
     return { attempts, entries: refined };
   }
+
+  async #refineChunk(
+    chunk: readonly RefinementEntry[],
+  ): Promise<MeetingRefinementGenerationResult> {
+    try {
+      return await this.#provider.refine(chunk);
+    } catch (error) {
+      if (
+        !(error instanceof RefinementProviderFailureError) ||
+        chunk.length < 2 ||
+        !isCausedByIncompatibleResponse(error)
+      ) {
+        throw error;
+      }
+
+      const middle = Math.ceil(chunk.length / 2);
+      const parts = [chunk.slice(0, middle), chunk.slice(middle)];
+      const entries: RefinementEntry[] = [];
+      let attempts = error.attempts;
+      for (const part of parts) {
+        try {
+          const result = await this.#refineChunk(part);
+          attempts += result.attempts;
+          entries.push(...result.entries);
+        } catch (partError) {
+          if (partError instanceof RefinementProviderFailureError) {
+            throw new RefinementProviderFailureError(attempts + partError.attempts, partError);
+          }
+          throw partError;
+        }
+      }
+      return { attempts, entries };
+    }
+  }
+}
+
+function isCausedByIncompatibleResponse(error: unknown): boolean {
+  const visited = new Set<Error>();
+  let current = error;
+  while (current instanceof Error && !visited.has(current)) {
+    if (current instanceof IncompatibleRefinementResponseError) return true;
+    visited.add(current);
+    current = current.cause;
+  }
+  return false;
 }
 
 function createChunks(

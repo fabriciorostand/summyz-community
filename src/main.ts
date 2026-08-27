@@ -1,10 +1,10 @@
 import { existsSync } from "node:fs";
-import { availableParallelism, totalmem } from "node:os";
 import { join } from "node:path";
 import { loadEnvFile } from "node:process";
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
 
+import { assessModelCompatibility, resolveAiProfile } from "./ai-profile.js";
 import { CombinedCostLedgerReader } from "./cost/combined-cost-ledger-reader.js";
 import { CostReconciler } from "./cost/cost-reconciler.js";
 import type { CostLedgerStore, CostPhase } from "./cost/cost-ledger.js";
@@ -14,6 +14,7 @@ import { PostgresCostLedgerStore } from "./cost/postgres-cost-ledger-store.js";
 import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
 
 import { loadConfig } from "./config.js";
+import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js";
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
 import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
 import { PostgresMeetingContentStore } from "./database/postgres-meeting-content-store.js";
@@ -24,10 +25,11 @@ import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
 import { notifyTranscriptionFailure } from "./discord/transcription-notifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
-import { GuildConfigStore } from "./guild-config-store.js";
 import { createLogger } from "./logger.js";
 import { LocalModelManager } from "./local-ai/local-model-manager.js";
-import { createMeetingAiConfiguration } from "./local-ai/meeting-ai-configuration.js";
+import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-size.js";
+import { detectLocalHardware } from "./local-ai/hardware-detection.js";
+import { resolveLocalExecutionPlan, type LocalAiPhase } from "./local-ai/local-execution-policy.js";
 import { DurableJobQueue } from "./processing/durable-job-queue.js";
 import { DurableJobWorker } from "./processing/durable-job-worker.js";
 import { LocalDurableJobQueue } from "./processing/local-durable-job-queue.js";
@@ -37,14 +39,17 @@ import { LocalMeetingStore } from "./processing/local-meeting-store.js";
 import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
 import { MeetingFinalizer } from "./processing/meeting-finalizer.js";
 import { MeetingProcessingHandler } from "./processing/meeting-processing-handler.js";
-import { requiresPostgres } from "./processing/storage-routing.js";
 import { MeetingRefinementGenerator } from "./refinement/meeting-refinement-generator.js";
 import { MeetingRefinementService } from "./refinement/meeting-refinement-service.js";
 import { OllamaRefinementProvider } from "./refinement/ollama-refinement-provider.js";
 import { OpenRouterRefinementProvider } from "./refinement/openrouter-refinement-provider.js";
 import { RefinementStore } from "./refinement/refinement-store.js";
 import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
-import type { MeetingAiConfiguration, RecordingManifest } from "./recording/manifest.js";
+import {
+  meetingAiConfigurationSchema,
+  type ResolvedMeetingAiConfiguration,
+  type RecordingManifest,
+} from "./recording/manifest.js";
 import { ManifestStore } from "./recording/manifest-store.js";
 import { RecordingCoordinator } from "./recording/recording-coordinator.js";
 import { MeetingSummaryGenerator } from "./summary/meeting-summary-generator.js";
@@ -58,10 +63,7 @@ import { MeetingTranscriptionService } from "./transcription/meeting-transcripti
 import { FasterWhisperTranscriptionProvider } from "./transcription/faster-whisper-transcription-provider.js";
 import { OpenRouterTranscriptionProvider } from "./transcription/openrouter-transcription-provider.js";
 import { SileroSpeechAnalyzer } from "./transcription/speech-analyzer.js";
-import {
-  loadTranscriptionModelProfile,
-  type TranscriptionModelProfile,
-} from "./transcription/transcription-model-profile.js";
+import type { TranscriptionModelProfile } from "./transcription/transcription-model-profile.js";
 import { TranscriptionStore } from "./transcription/transcription-store.js";
 import type { TranscriptionProvider } from "./transcription/transcription-provider.js";
 
@@ -88,107 +90,43 @@ if (!terminalEncoding.configured) {
   );
 }
 
-const meetingAiConfiguration = createMeetingAiConfiguration(config, {
-  cpuCores: availableParallelism(),
-  memoryBytes: totalmem(),
-});
-const localModelManager = new LocalModelManager({
-  configuration: meetingAiConfiguration,
-  logger,
-});
-localModelManager.start();
-
-let transcriptionModelProfile: TranscriptionModelProfile = {
-  interSpeechSilenceMs: 0,
-  temperature: 0,
-  timestampMode: "word",
-};
-if (
-  meetingAiConfiguration.transcription.provider === "openrouter" &&
-  meetingAiConfiguration.transcription.status === "selected"
-) {
-  try {
-    transcriptionModelProfile = await loadTranscriptionModelProfile(
-      config.transcriptionModelProfilesFile,
-      meetingAiConfiguration.transcription.model,
-    );
-  } catch (error) {
-    logger.fatal(
-      { errorType: getErrorType(error) },
-      "Unable to load the configured transcription model profile",
-    );
-    process.exit(1);
-  }
-}
+const localHardware = await detectLocalHardware();
 
 const recordingsDirectory = join(config.dataDir, "recordings");
-const discoveryManifestStore = new ManifestStore(recordingsDirectory);
-let startupManifests: RecordingManifest[];
+const database: PostgresDatabase = createPostgresDatabase(config.databaseUrl);
 try {
-  startupManifests = [
-    ...(await discoveryManifestStore.listRecoverable()),
-    ...(await discoveryManifestStore.listCompleted()),
-  ];
+  await database.initialize();
+  logger.info("PostgreSQL initialized");
 } catch (error) {
-  logger.fatal({ errorType: getErrorType(error) }, "Unable to read meetings stored on disk");
+  logger.fatal(
+    { errorType: getErrorType(error) },
+    "Unable to initialize PostgreSQL; check DATABASE_URL and database availability",
+  );
+  await database.close().catch(() => undefined);
   process.exit(1);
 }
 
-const postgresRequired = requiresPostgres(config.storageMode, startupManifests);
-let database: PostgresDatabase | undefined;
-if (postgresRequired) {
-  if (config.databaseUrl === undefined) {
-    logger.fatal(
-      "DATABASE_URL is required because PostgreSQL storage is active or a meeting is pending.",
-    );
-    process.exit(1);
-  }
-  const candidate = createPostgresDatabase(config.databaseUrl);
-  try {
-    await candidate.initialize();
-    database = candidate;
-    logger.info("PostgreSQL initialized");
-  } catch (error) {
-    logger.fatal(
-      { errorType: getErrorType(error) },
-      "Unable to initialize PostgreSQL; check DATABASE_URL and database availability",
-    );
-    await candidate.close().catch(() => undefined);
-    process.exit(1);
-  }
-} else {
-  logger.info("Local storage initialized without PostgreSQL");
-}
-
-const postgresMeetingStore =
-  database === undefined ? undefined : new PostgresMeetingStore(database);
+const postgresMeetingStore = new PostgresMeetingStore(database);
 const manifestStore = new ManifestStore(recordingsDirectory, postgresMeetingStore);
 const localCostLedger = new LocalCostLedgerStore(join(config.dataDir, "costs"));
-const postgresCostLedger =
-  database === undefined ? undefined : new PostgresCostLedgerStore(database);
+const postgresCostLedger = new PostgresCostLedgerStore(database);
 const costReconcilers =
   config.openRouterApiKey === undefined
     ? []
     : [
         new CostReconciler({ apiKey: config.openRouterApiKey, logger, store: localCostLedger }),
-        ...(postgresCostLedger === undefined
-          ? []
-          : [
-              new CostReconciler({
-                apiKey: config.openRouterApiKey,
-                logger,
-                store: postgresCostLedger,
-              }),
-            ]),
+        new CostReconciler({
+          apiKey: config.openRouterApiKey,
+          logger,
+          store: postgresCostLedger,
+        }),
       ];
 const costReport = createCostReportService({
   language: config.botLanguage,
   reconcile: async (guildId) => {
     await Promise.all(costReconcilers.map((reconciler) => reconciler.reconcile(guildId)));
   },
-  store: new CombinedCostLedgerReader(
-    postgresCostLedger === undefined ? [localCostLedger] : [localCostLedger, postgresCostLedger],
-  ),
+  store: new CombinedCostLedgerReader([localCostLedger, postgresCostLedger]),
   timeZone: config.summaryTimeZone,
 });
 const localQueue = new LocalDurableJobQueue(join(config.dataDir, "processing.json"));
@@ -196,17 +134,15 @@ try {
   await localQueue.initialize();
 } catch (error) {
   logger.fatal({ errorType: getErrorType(error) }, "Unable to initialize the local durable queue");
-  await database?.close().catch(() => undefined);
+  await database.close().catch(() => undefined);
   process.exit(1);
 }
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
 });
-const guildConfigStore =
-  config.storageMode === "postgres"
-    ? new PostgresGuildConfigStore(requireDatabase(database))
-    : new GuildConfigStore(join(config.dataDir, "guild-config.json"));
+const guildConfigStore = new PostgresGuildConfigStore(database);
+const aiProfileStore = new PostgresAiProfileStore(database);
 const transcriptionStore = new TranscriptionStore(recordingsDirectory);
 const refinementStore = new RefinementStore(recordingsDirectory);
 const summaryStore = new SummaryStore(recordingsDirectory);
@@ -230,14 +166,15 @@ const summaryService = new MeetingSummaryService({
       selection.provider === "ollama"
         ? new OllamaSummaryProvider({
             costRecorder,
+            generation: selection.generation,
             language: selection.language,
             model: selection.model,
-            onIncompatibleModel: (model) => localModelManager.rejectOllamaModel(model, "summary"),
             timeoutMs: config.summaryTimeoutMs,
           })
         : new OpenRouterSummaryProvider({
             apiKey: requireConfigured(config.openRouterApiKey, "OPENROUTER_API_KEY"),
             costRecorder,
+            generation: selection.generation,
             language: selection.language,
             logger,
             maxAttempts: config.summaryMaxAttempts,
@@ -247,7 +184,7 @@ const summaryService = new MeetingSummaryService({
             timeoutMs: config.summaryTimeoutMs,
           });
     const generator = new MeetingSummaryGenerator({
-      maxChunkCharacters: config.summaryChunkMaxCharacters,
+      maxChunkCharacters: selection.maxChunkCharacters,
       provider,
     });
     return generator;
@@ -265,14 +202,14 @@ const refinementService = new MeetingRefinementService({
       selection.provider === "ollama"
         ? new OllamaRefinementProvider({
             costRecorder,
+            generation: selection.generation,
             model: selection.model,
-            onIncompatibleModel: (model) =>
-              localModelManager.rejectOllamaModel(model, "refinement"),
             timeoutMs: config.refinementTimeoutMs,
           })
         : new OpenRouterRefinementProvider({
             apiKey: requireConfigured(config.openRouterApiKey, "OPENROUTER_API_KEY"),
             costRecorder,
+            generation: selection.generation,
             logger,
             maxAttempts: config.refinementMaxAttempts,
             model: selection.model,
@@ -281,7 +218,7 @@ const refinementService = new MeetingRefinementService({
             timeoutMs: config.refinementTimeoutMs,
           });
     const generator = new MeetingRefinementGenerator({
-      maxChunkCharacters: config.refinementChunkMaxCharacters,
+      maxChunkCharacters: selection.maxChunkCharacters,
       provider,
     });
     return generator;
@@ -295,7 +232,7 @@ const speechAnalyzer = new SileroSpeechAnalyzer({
 });
 const transcriptionService = new MeetingTranscriptionService({
   concurrency: config.transcriptionConcurrency,
-  interSpeechSilenceMs: transcriptionModelProfile.interSpeechSilenceMs,
+  interSpeechSilenceMs: 0,
   logger,
   manifestStore,
   notifyFailure: (manifest) =>
@@ -306,8 +243,7 @@ const transcriptionService = new MeetingTranscriptionService({
   },
   speechAnalyzer,
   transcriptionStore,
-  transcriptionMergeMaxGapMs:
-    transcriptionModelProfile.mergeMaxGapMs ?? config.transcriptionMergeMaxGapMs,
+  transcriptionMergeMaxGapMs: 2_000,
   transcriptionWindowMaxMs: config.transcriptionWindowMaxSeconds * 1_000,
 });
 
@@ -338,43 +274,37 @@ const workers = [
   new DurableJobWorker({ handler: localProcessingHandler, logger, queue: localQueue }),
 ];
 
-const postgresQueue = database === undefined ? undefined : new DurableJobQueue(database);
-let postgresProcessingHandler: MeetingProcessingHandler | undefined;
-if (database !== undefined && postgresMeetingStore !== undefined && postgresQueue !== undefined) {
-  const postgresFinalizer = new MeetingFinalizer({
-    contentStore: new PostgresMeetingContentStore(database),
-    manifestStore,
-    publicationStore,
-    retention,
-    summaryStore,
-    transcriptionStore,
-  });
-  postgresProcessingHandler = new MeetingProcessingHandler({
-    audioCatalog: new PostgresMeetingAudioCatalog(database),
-    finalizer: postgresFinalizer,
-    meetingStore: postgresMeetingStore,
-    queue: postgresQueue,
-    refinementStore,
-    refiner: refinementService,
-    retention,
-    summarizer: summaryService,
-    summaryStore,
-    transcriber: transcriptionService,
-    transcriptionStore,
-  });
-  workers.push(
-    new DurableJobWorker({ handler: postgresProcessingHandler, logger, queue: postgresQueue }),
-  );
-}
+const postgresQueue = new DurableJobQueue(database);
+const postgresFinalizer = new MeetingFinalizer({
+  contentStore: new PostgresMeetingContentStore(database),
+  manifestStore,
+  publicationStore,
+  retention,
+  summaryStore,
+  transcriptionStore,
+});
+const postgresProcessingHandler = new MeetingProcessingHandler({
+  audioCatalog: new PostgresMeetingAudioCatalog(database),
+  finalizer: postgresFinalizer,
+  meetingStore: postgresMeetingStore,
+  queue: postgresQueue,
+  refinementStore,
+  refiner: refinementService,
+  retention,
+  summarizer: summaryService,
+  summaryStore,
+  transcriber: transcriptionService,
+  transcriptionStore,
+});
+workers.push(
+  new DurableJobWorker({ handler: postgresProcessingHandler, logger, queue: postgresQueue }),
+);
 
 async function enqueueCompleted(manifest: RecordingManifest): Promise<void> {
   await selectCostLedger(manifest).saveMeeting(manifest);
   if (manifest.storageMode === "local") {
     await localQueue.enqueue(manifest.meetingId, "transcription");
     return;
-  }
-  if (postgresQueue === undefined) {
-    throw new Error("A fila PostgreSQL da reunião não está disponível");
   }
   await postgresQueue.enqueue(manifest.meetingId, "transcription");
 }
@@ -385,7 +315,7 @@ const recordingFactory = new DiscordRecordingFactory(
   manifestStore,
   logger,
   enqueueCompleted,
-  meetingAiConfiguration,
+  resolveAndPrepareMeetingAiConfiguration,
 );
 const coordinator = new RecordingCoordinator(recordingFactory);
 
@@ -395,13 +325,22 @@ installInteractionHandler(
   coordinator,
   logger,
   config.botLanguage,
-  () => localModelManager.hasInsufficientHardware(),
   costReport,
+  aiProfileStore,
+  assessActiveAiProfile,
+  () => config.openRouterApiKey !== undefined,
 );
 installVoiceStateHandler(client, coordinator, logger);
 
 client.once(Events.ClientReady, async (readyClient) => {
   logger.info({ botUserId: readyClient.user.id }, "Summyz connected to Discord");
+  try {
+    await Promise.all(
+      readyClient.guilds.cache.map((guild) => aiProfileStore.ensureInitialProfile(guild.id)),
+    );
+  } catch (error) {
+    logger.error({ errorType: getErrorType(error) }, "Unable to initialize guild AI profiles");
+  }
   try {
     await registerCommands(config);
     logger.info(
@@ -416,10 +355,8 @@ client.once(Events.ClientReady, async (readyClient) => {
     for (const meetingId of await localMeetingStore.listTerminalMeetingIds()) {
       await localProcessingHandler.cleanup(meetingId);
     }
-    if (postgresMeetingStore !== undefined && postgresProcessingHandler !== undefined) {
-      for (const meetingId of await postgresMeetingStore.listTerminalMeetingIds()) {
-        await postgresProcessingHandler.cleanup(meetingId);
-      }
+    for (const meetingId of await postgresMeetingStore.listTerminalMeetingIds()) {
+      await postgresProcessingHandler.cleanup(meetingId);
     }
     for (const manifest of await manifestStore.listRecoverable()) {
       await coordinator.resume(manifest);
@@ -447,7 +384,6 @@ let shuttingDown = false;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
-  localModelManager.shutdown();
   logger.info({ signal }, "Summyz shutdown requested");
   await coordinator.shutdown();
   await Promise.all(workers.map(async (worker) => worker.shutdown()));
@@ -457,7 +393,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     logger.error({ errorType: getErrorType(error) }, "Unable to close the local speech detector");
   }
   client.destroy();
-  await database?.close().catch((error: unknown) => {
+  await database.close().catch((error: unknown) => {
     logger.error({ errorType: getErrorType(error) }, "Unable to close the PostgreSQL connection");
   });
   logger.info("Summyz stopped");
@@ -476,36 +412,173 @@ try {
   logger.fatal({ errorType: getErrorType(error) }, "Unable to connect Summyz to Discord");
   await Promise.all(workers.map(async (worker) => worker.shutdown()));
   await speechAnalyzer.close().catch(() => undefined);
-  await database?.close().catch(() => undefined);
+  await database.close().catch(() => undefined);
   process.exitCode = 1;
 }
 
-function requireDatabase(value: PostgresDatabase | undefined): PostgresDatabase {
-  if (value === undefined) throw new Error("PostgreSQL não foi inicializado");
-  return value;
+function getMeetingAiConfiguration(manifest: RecordingManifest): ResolvedMeetingAiConfiguration {
+  if (manifest.aiConfiguration === undefined) {
+    throw new Error("The meeting does not have a pinned AI profile");
+  }
+  return meetingAiConfigurationSchema.parse(manifest.aiConfiguration);
 }
 
-function getMeetingAiConfiguration(manifest: RecordingManifest): MeetingAiConfiguration {
-  return manifest.aiConfiguration ?? meetingAiConfiguration;
+async function resolveAndPrepareMeetingAiConfiguration(
+  guildId: string,
+): Promise<ResolvedMeetingAiConfiguration> {
+  await aiProfileStore.ensureInitialProfile(guildId);
+  const profile = await aiProfileStore.getActiveProfile(guildId);
+  let configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
+  const localAiPhases = localPhases(configuration);
+  const executionPlan = resolveLocalExecutionPlan({
+    device: config.localAiDevice,
+    enabledPhases: localAiPhases,
+    fallback: config.localAiFallback,
+    hardware: localHardware,
+  });
+  for (const phase of localAiPhases) {
+    const execution = executionPlan[phase];
+    const details = {
+      device: execution.device,
+      fallback: execution.fallback,
+      fallbackApplied: execution.fallbackApplied,
+      ...(execution.gpuVendor === undefined ? {} : { gpuVendor: execution.gpuVendor }),
+      phase,
+    };
+    if (execution.fallbackApplied) {
+      logger.warn(
+        { ...details, event: "local_ai_cpu_fallback_applied" },
+        "Local AI CPU fallback applied",
+      );
+    } else {
+      logger.info(details, "Local AI execution device selected");
+    }
+  }
+  if (configuration.transcription.provider === "faster-whisper") {
+    const batchSize = resolveFasterWhisperBatchSize(
+      configuration.transcription.batchSize,
+      configuration.transcription.model,
+      executionPlan.transcription,
+      config.transcriptionConcurrency,
+    );
+    configuration = meetingAiConfigurationSchema.parse({
+      ...configuration,
+      transcription: { ...configuration.transcription, batchSize },
+    });
+  }
+  if (localAiPhases.length > 0) {
+    await new LocalModelManager({
+      batchSize:
+        configuration.transcription.provider === "faster-whisper" &&
+        typeof configuration.transcription.batchSize === "number"
+          ? configuration.transcription.batchSize
+          : 0,
+      configuration,
+      executionPlan,
+      logger,
+    }).prepare();
+  }
+  return configuration;
+}
+
+function localPhases(configuration: ResolvedMeetingAiConfiguration): LocalAiPhase[] {
+  return [
+    ...(configuration.refinement.provider === "ollama" ? (["refinement"] as const) : []),
+    ...(configuration.summary.provider === "ollama" ? (["summary"] as const) : []),
+    ...(configuration.transcription.provider === "faster-whisper"
+      ? (["transcription"] as const)
+      : []),
+  ];
+}
+
+async function assessActiveAiProfile(guildId: string) {
+  const profile = await aiProfileStore.getActiveProfile(guildId);
+  let configuration: ResolvedMeetingAiConfiguration;
+  try {
+    configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
+  } catch {
+    return [];
+  }
+  let executionPlan: ReturnType<typeof resolveLocalExecutionPlan>;
+  try {
+    executionPlan = resolveLocalExecutionPlan({
+      device: config.localAiDevice,
+      enabledPhases: localPhases(configuration),
+      fallback: config.localAiFallback,
+      hardware: localHardware,
+    });
+  } catch {
+    return ["incompatible" as const];
+  }
+  return [
+    ...(configuration.transcription.provider === "faster-whisper"
+      ? [
+          assessModelCompatibility({
+            device: executionPlan.transcription.device,
+            hardware: localHardware,
+            model: configuration.transcription.model,
+            phase: "transcription",
+            provider: "faster-whisper",
+          }),
+        ]
+      : []),
+    ...(configuration.refinement.provider === "ollama"
+      ? [
+          assessModelCompatibility({
+            device: executionPlan.refinement.device,
+            hardware: localHardware,
+            model: configuration.refinement.model,
+            phase: "refinement",
+            provider: "ollama",
+          }),
+        ]
+      : []),
+    ...(configuration.summary.provider === "ollama"
+      ? [
+          assessModelCompatibility({
+            device: executionPlan.summary.device,
+            hardware: localHardware,
+            model: configuration.summary.model,
+            phase: "summary",
+            provider: "ollama",
+          }),
+        ]
+      : []),
+  ];
 }
 
 async function createTranscriptionProvider(
-  selection: Extract<MeetingAiConfiguration["transcription"], { status: "selected" }>,
+  selection: ResolvedMeetingAiConfiguration["transcription"],
   manifest: RecordingManifest,
 ): Promise<TranscriptionProvider> {
   const costRecorder = createProviderCostRecorder(manifest, "transcription");
   if (selection.provider === "faster-whisper") {
+    const executionPlan = resolveLocalExecutionPlan({
+      device: config.localAiDevice,
+      enabledPhases: ["transcription"],
+      fallback: config.localAiFallback,
+      hardware: localHardware,
+    });
     return new FasterWhisperTranscriptionProvider({
+      batchSize: typeof selection.batchSize === "number" ? selection.batchSize : 0,
       costRecorder,
+      device: executionPlan.transcription.device,
+      fallback: executionPlan.transcription.fallback,
       language: selection.language,
       model: selection.model,
       timeoutMs: config.transcriptionTimeoutMs,
     });
   }
-  const profile = await loadTranscriptionModelProfile(
-    config.transcriptionModelProfilesFile,
-    selection.model,
-  );
+  const profile: TranscriptionModelProfile = {
+    interSpeechSilenceMs: selection.interSpeechSilenceMs,
+    ...(selection.mergeMaxGapMs === undefined ? {} : { mergeMaxGapMs: selection.mergeMaxGapMs }),
+    ...(selection.prompt === undefined ? {} : { prompt: selection.prompt }),
+    ...(selection.providerOptions === undefined
+      ? {}
+      : { providerOptions: selection.providerOptions }),
+    ...(selection.temperature === undefined ? {} : { temperature: selection.temperature }),
+    timestampMode: selection.timestampMode,
+  };
   return new OpenRouterTranscriptionProvider({
     apiKey: requireConfigured(config.openRouterApiKey, "OPENROUTER_API_KEY"),
     costRecorder,
@@ -535,9 +608,6 @@ function createProviderCostRecorder(
 
 function selectCostLedger(manifest: RecordingManifest): CostLedgerStore {
   if (manifest.storageMode === "local") return localCostLedger;
-  if (postgresCostLedger === undefined) {
-    throw new Error("The PostgreSQL cost ledger is unavailable for this meeting");
-  }
   return postgresCostLedger;
 }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { LocalModelManager } from "../src/local-ai/local-model-manager.js";
+import type { LocalExecutionPlan } from "../src/local-ai/local-execution-policy.js";
 import { createLogger } from "../src/logger.js";
 import type { MeetingAiConfiguration } from "../src/recording/manifest.js";
 
@@ -187,6 +188,127 @@ describe("LocalModelManager", () => {
     await expect(manager.prepare()).resolves.toBeUndefined();
   });
 
+  it("envia política e batching ao faster-whisper e registra o dispositivo efetivo", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
+      Response.json({
+        batchSize: 4,
+        computeType: "float16",
+        device: "cuda",
+        fallbackApplied: false,
+        model: "small",
+        status: "ready",
+      }),
+    );
+    const logger = createLogger("silent");
+    const manager = new LocalModelManager({
+      batchSize: 4,
+      configuration: fasterWhisperOnlyConfiguration(),
+      executionPlan: gpuExecutionPlan("cpu"),
+      fetch,
+      logger,
+    });
+
+    await manager.prepare();
+
+    expect(JSON.parse(String(fetch.mock.calls[0]?.[1].body))).toEqual({
+      batchSize: 4,
+      device: "gpu",
+      fallback: "cpu",
+      model: "invalid-whisper",
+    });
+  });
+
+  it("propaga falha de preparação quando aceleração é obrigatória", async () => {
+    const manager = new LocalModelManager({
+      configuration: fasterWhisperOnlyConfiguration(),
+      executionPlan: gpuExecutionPlan("none"),
+      fetch: vi.fn(async () => new Response("", { status: 422 })),
+      logger: createLogger("silent"),
+    });
+
+    await expect(manager.prepare()).rejects.toThrow(/FasterWhisperPreparationStatus422/);
+  });
+
+  it("rejeita dispositivo efetivo diferente da política estrita", async () => {
+    const manager = new LocalModelManager({
+      configuration: fasterWhisperOnlyConfiguration(),
+      executionPlan: gpuExecutionPlan("none"),
+      fetch: vi.fn(async () =>
+        Response.json({
+          batchSize: 0,
+          computeType: "int8",
+          device: "cpu",
+          fallbackApplied: false,
+          model: "invalid-whisper",
+          status: "ready",
+        }),
+      ),
+      logger: createLogger("silent"),
+    });
+
+    await expect(manager.prepare()).rejects.toThrow(/active device.*policy/i);
+  });
+
+  it("aceita CPU quando o fallback do faster-whisper foi explicitamente autorizado", async () => {
+    const manager = new LocalModelManager({
+      configuration: fasterWhisperOnlyConfiguration(),
+      executionPlan: gpuExecutionPlan("cpu"),
+      fetch: vi.fn(async () =>
+        Response.json({
+          batchSize: 0,
+          computeType: "int8",
+          device: "cpu",
+          fallbackApplied: true,
+          model: "invalid-whisper",
+          status: "ready",
+        }),
+      ),
+      logger: createLogger("silent"),
+    });
+
+    await expect(manager.prepare()).resolves.toBeUndefined();
+  });
+
+  it("interrompe quando Ollama executa na CPU sem fallback autorizado", async () => {
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/api/ps")) {
+        return Response.json({ models: [{ model: "qwen3:4b", size_vram: 0 }] });
+      }
+      if (url.endsWith("/api/chat")) {
+        const refinement = String(init.body).includes("block unchanged");
+        const content = refinement
+          ? { blocks: [{ id: "probe-1", text: "Hello world." }] }
+          : {
+              decisions: [],
+              discussedTopics: [],
+              executiveSummary: "Empty meeting.",
+              observations: [],
+              tasks: [],
+            };
+        return Response.json({ message: { content: JSON.stringify(content) } });
+      }
+      return new Response("", { status: 200 });
+    });
+    const ollamaConfiguration: MeetingAiConfiguration = {
+      ...configuration(),
+      transcription: {
+        language: "auto",
+        model: "remote-transcription",
+        provider: "openrouter",
+        requestedModel: "remote-transcription",
+        status: "selected",
+      },
+    };
+    const manager = new LocalModelManager({
+      configuration: ollamaConfiguration,
+      executionPlan: allGpuExecutionPlan("none"),
+      fetch,
+      logger: createLogger("silent"),
+    });
+
+    await expect(manager.prepare()).rejects.toThrow(/Ollama.*GPU/i);
+  });
+
   it("trata status HTTP Ollama como indisponibilidade e não apaga pesos válidos", async () => {
     const fetch = vi.fn(
       async (_url: string, _init: RequestInit) => new Response("", { status: 503 }),
@@ -226,4 +348,32 @@ function fasterWhisperOnlyConfiguration(): MeetingAiConfiguration {
       status: "selected",
     },
   };
+}
+
+function gpuExecutionPlan(fallback: "cpu" | "none"): LocalExecutionPlan {
+  const cpu = { device: "cpu" as const, fallback: "none" as const, fallbackApplied: false };
+  return {
+    refinement: cpu,
+    summary: cpu,
+    transcription: {
+      device: "gpu",
+      fallback,
+      fallbackApplied: false,
+      gpuId: "gpu-0",
+      gpuMemoryBytes: 6 * 1_024 ** 3,
+      gpuVendor: "nvidia",
+    },
+  };
+}
+
+function allGpuExecutionPlan(fallback: "cpu" | "none"): LocalExecutionPlan {
+  const gpu = {
+    device: "gpu" as const,
+    fallback,
+    fallbackApplied: false,
+    gpuId: "gpu-0",
+    gpuMemoryBytes: 6 * 1_024 ** 3,
+    gpuVendor: "nvidia" as const,
+  };
+  return { refinement: gpu, summary: gpu, transcription: gpu };
 }

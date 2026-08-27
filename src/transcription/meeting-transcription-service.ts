@@ -138,6 +138,11 @@ export class MeetingTranscriptionService {
         ? await this.#resolveProvider(manifest)
         : this.#provider;
       if (provider === undefined) throw new Error("The transcription provider is unavailable");
+      const transcriptionConfiguration = manifest.aiConfiguration?.transcription;
+      const interSpeechSilenceMs =
+        transcriptionConfiguration?.interSpeechSilenceMs ?? this.#interSpeechSilenceMs;
+      const transcriptionMergeMaxGapMs =
+        transcriptionConfiguration?.mergeMaxGapMs ?? this.#transcriptionMergeMaxGapMs;
       const prepared = await this.#prepareAllAudio(
         manifest,
         new Set(pending.map((segment) => segment.segmentId)),
@@ -149,7 +154,7 @@ export class MeetingTranscriptionService {
       const groups = createTranscriptionGroups(
         manifest.segments.filter((segment) => pendingIds.has(segment.segmentId)),
         {
-          maxGapMs: this.#transcriptionMergeMaxGapMs,
+          maxGapMs: transcriptionMergeMaxGapMs,
           maxWindowMs: this.#transcriptionWindowMaxMs,
         },
       );
@@ -223,15 +228,11 @@ export class MeetingTranscriptionService {
             );
           }
           const speechGroups = createAnalyzedTranscriptionGroups(analyzed, {
-            maxGapMs: this.#transcriptionMergeMaxGapMs,
+            maxGapMs: transcriptionMergeMaxGapMs,
             maxWindowMs: this.#transcriptionWindowMaxMs,
           });
           for (const speechGroup of speechGroups) {
-            const batch = composeTranscriptionBatch(
-              speechGroup,
-              undefined,
-              this.#interSpeechSilenceMs,
-            );
+            const batch = composeTranscriptionBatch(speechGroup, undefined, interSpeechSilenceMs);
             if (batch === undefined) {
               throw new AudioAnalysisError();
             }

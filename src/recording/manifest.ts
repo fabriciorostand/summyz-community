@@ -24,19 +24,44 @@ const selectedModelSchema = z.object({
   status: z.literal("selected"),
 });
 
+const generationSchema = z
+  .object({
+    seed: z.number().int().optional(),
+    temperature: z.number().min(0).max(2).optional(),
+    think: z.boolean().optional(),
+  })
+  .default({});
+
 export const meetingAiConfigurationSchema = z.object({
-  refinement: selectedModelSchema.and(z.object({ provider: z.enum(["openrouter", "ollama"]) })),
-  selectorVersion: z.literal(1),
+  refinement: selectedModelSchema.and(
+    z.object({
+      generation: generationSchema,
+      maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
+      provider: z.enum(["openrouter", "ollama"]),
+    }),
+  ),
+  selectorVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
   summary: selectedModelSchema.and(
     z.object({
+      generation: generationSchema,
       language: z.string().min(1),
+      maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
       provider: z.enum(["openrouter", "ollama"]),
     }),
   ),
   transcription: selectedModelSchema.and(
     z.object({
+      batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
+      interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
       language: z.string().min(1),
+      mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
+      prompt: z.string().min(1).optional(),
       provider: z.enum(["openrouter", "faster-whisper"]),
+      providerOptions: z
+        .record(z.string().min(1), z.record(z.string().min(1), z.json()))
+        .optional(),
+      temperature: z.number().min(0).max(1).optional(),
+      timestampMode: z.enum(["batch", "word"]).default("word"),
     }),
   ),
 });
@@ -77,7 +102,8 @@ export const recordingManifestSchema = z.object({
 });
 
 export type RecordingManifest = z.infer<typeof recordingManifestSchema>;
-export type MeetingAiConfiguration = z.infer<typeof meetingAiConfigurationSchema>;
+export type MeetingAiConfiguration = z.input<typeof meetingAiConfigurationSchema>;
+export type ResolvedMeetingAiConfiguration = z.infer<typeof meetingAiConfigurationSchema>;
 export type RecordingSegment = z.infer<typeof segmentSchema>;
 export type RecordingSegmentInput = z.input<typeof segmentSchema>;
 
@@ -91,11 +117,10 @@ export type CreateManifestInput = Pick<
   | "voiceChannelName"
 > &
   Partial<
-    Pick<
-      RecordingManifest,
-      "aiConfiguration" | "persistMeetingAudio" | "persistMeetingContent" | "storageMode"
-    >
-  >;
+    Pick<RecordingManifest, "persistMeetingAudio" | "persistMeetingContent" | "storageMode">
+  > & {
+    aiConfiguration?: MeetingAiConfiguration;
+  };
 
 export function createManifest(input: CreateManifestInput): RecordingManifest {
   return recordingManifestSchema.parse({
@@ -104,6 +129,7 @@ export function createManifest(input: CreateManifestInput): RecordingManifest {
     schemaVersion: 1,
     segments: [],
     status: "recording",
+    storageMode: input.storageMode ?? "postgres",
   });
 }
 

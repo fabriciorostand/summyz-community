@@ -2,6 +2,7 @@ import type { Logger } from "pino";
 import { z } from "zod";
 
 import type { MeetingAiConfiguration } from "../recording/manifest.js";
+import type { LocalExecutionPlan, PhaseExecution } from "./local-execution-policy.js";
 import { hasInsufficientLocalHardware } from "./meeting-ai-configuration.js";
 import { IncompatibleOllamaModelError, requestOllamaStructured } from "./ollama-client.js";
 
@@ -18,6 +19,30 @@ const summaryProbeSchema = z.object({
   observations: z.array(z.string()),
   tasks: z.array(z.unknown()),
 });
+const fasterWhisperStatusSchema = z.object({
+  batchSize: z.number().int().nonnegative(),
+  computeType: z.string().min(1),
+  device: z.enum(["cpu", "cuda"]),
+  fallbackApplied: z.boolean(),
+  model: z.string().min(1),
+  status: z.literal("ready"),
+});
+const ollamaProcessesSchema = z.object({
+  models: z.array(
+    z.object({
+      model: z.string().optional(),
+      name: z.string().optional(),
+      size_vram: z.number().nonnegative(),
+    }),
+  ),
+});
+
+class LocalAiDevicePolicyError extends Error {
+  public constructor(message: string) {
+    super(message);
+    this.name = "LocalAiDevicePolicyError";
+  }
+}
 const refinementProbeJsonSchema = {
   additionalProperties: false,
   properties: {
@@ -50,7 +75,9 @@ const summaryProbeJsonSchema = {
 } as const;
 
 interface LocalModelManagerOptions {
+  batchSize?: number;
   configuration: MeetingAiConfiguration;
+  executionPlan?: LocalExecutionPlan;
   fasterWhisperBaseUrl?: string;
   fetch?: Fetch;
   logger: Logger;
@@ -58,7 +85,9 @@ interface LocalModelManagerOptions {
 }
 
 export class LocalModelManager {
+  readonly #batchSize: number;
   readonly #configuration: MeetingAiConfiguration;
+  readonly #executionPlan: LocalExecutionPlan | undefined;
   readonly #fasterWhisperBaseUrl: string;
   readonly #fetch: Fetch;
   readonly #logger: Logger;
@@ -70,7 +99,9 @@ export class LocalModelManager {
   #preparationTimer: NodeJS.Timeout | undefined;
 
   public constructor(options: LocalModelManagerOptions) {
+    this.#batchSize = options.batchSize ?? 0;
     this.#configuration = options.configuration;
+    this.#executionPlan = options.executionPlan;
     this.#fasterWhisperBaseUrl = options.fasterWhisperBaseUrl ?? "http://faster-whisper:8000";
     this.#fetch = options.fetch ?? fetch;
     this.#logger = options.logger;
@@ -88,9 +119,18 @@ export class LocalModelManager {
 
   public start(): void {
     if (this.#preparationTimer !== undefined || this.#isPreparationComplete()) return;
-    void this.prepare();
-    this.#preparationTimer = setInterval(() => void this.prepare(), 60_000);
+    this.#prepareInBackground();
+    this.#preparationTimer = setInterval(() => this.#prepareInBackground(), 60_000);
     this.#preparationTimer.unref();
+  }
+
+  #prepareInBackground(): void {
+    void this.prepare().catch((error: unknown) => {
+      this.#logger.error(
+        { errorType: getErrorType(error) },
+        "Local AI device policy validation failed during background preparation",
+      );
+    });
   }
 
   public shutdown(): void {
@@ -104,7 +144,7 @@ export class LocalModelManager {
     if (this.hasInsufficientHardware()) {
       this.#logger.warn(
         { event: "local_ai_hardware_insufficient" },
-        "Hardware is below the recommendation for the selected fully local configuration; Summyz will still process with the smallest compatible local models, but processing may be slow and output quality may be lower than desired. Consider OpenRouter.",
+        "The selected local model is above the detected hardware recommendation; Summyz will preserve the selection, but processing may be very slow or fail because of insufficient memory.",
       );
     }
 
@@ -158,6 +198,7 @@ export class LocalModelManager {
   }
 
   async #prepareOllamaModel(model: string): Promise<void> {
+    const phases = [...(this.#ollamaUses.get(model) ?? [])];
     try {
       await this.#requestOllama("/api/pull", { model, stream: false });
       this.#logger.info({ model }, "Ollama model is ready");
@@ -166,13 +207,14 @@ export class LocalModelManager {
         { errorType: getErrorType(error), model },
         "Ollama model preparation is unavailable; durable jobs will retry processing",
       );
+      if (phases.some((phase) => requiresAcceleration(this.#executionFor(phase)))) throw error;
       return;
     }
 
-    const phases = [...(this.#ollamaUses.get(model) ?? [])];
     for (const phase of phases) {
       try {
         await this.#validateOllamaModel(model, phase);
+        await this.#validateOllamaDevice(model, phase);
         this.#pendingOllamaPhases.delete(phase);
         this.#logger.info({ model, phase }, "Ollama model contract validated");
       } catch (error) {
@@ -181,12 +223,56 @@ export class LocalModelManager {
           this.#pendingOllamaPhases.delete(phase);
           continue;
         }
+        if (
+          error instanceof LocalAiDevicePolicyError ||
+          requiresAcceleration(this.#executionFor(phase))
+        ) {
+          throw error;
+        }
         this.#logger.warn(
           { errorType: getErrorType(error), model, phase },
           "Ollama model validation is unavailable; durable jobs will retry processing",
         );
       }
     }
+  }
+
+  async #validateOllamaDevice(model: string, phase: OllamaPhase): Promise<void> {
+    if (this.#executionPlan === undefined) return;
+    const response = await this.#fetch(`${this.#ollamaBaseUrl}/api/ps`, {
+      method: "GET",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new Error(`OllamaProcessesStatus${String(response.status)}`);
+    const parsed = ollamaProcessesSchema.safeParse(await response.json().catch(() => null));
+    if (!parsed.success) throw new Error("OllamaProcessesInvalidResponse");
+    const process = parsed.data.models.find(
+      (candidate) => candidate.model === model || candidate.name === model,
+    );
+    if (process === undefined) throw new Error("OllamaModelProcessUnavailable");
+
+    const activeDevice = process.size_vram > 0 ? "gpu" : "cpu";
+    const execution = this.#executionFor(phase);
+    this.#logger.info(
+      { device: activeDevice, model, phase, vramBytes: process.size_vram },
+      "Ollama execution device validated",
+    );
+    if (activeDevice === execution.device) return;
+    if (execution.device === "gpu" && execution.fallback === "cpu") {
+      this.#logger.warn(
+        { device: activeDevice, fallbackApplied: true, model, phase },
+        "Ollama GPU acceleration is unavailable; explicit CPU fallback was applied",
+      );
+      return;
+    }
+    if (execution.device === "gpu") {
+      throw new LocalAiDevicePolicyError("Ollama did not activate the required GPU");
+    }
+    throw new LocalAiDevicePolicyError("Ollama activated a GPU while CPU was required");
+  }
+
+  #executionFor(phase: OllamaPhase): PhaseExecution {
+    return this.#executionPlan?.[phase] ?? cpuExecution();
   }
 
   async #validateOllamaModel(model: string, phase: OllamaPhase): Promise<void> {
@@ -218,27 +304,67 @@ export class LocalModelManager {
   }
 
   async #prepareFasterWhisperModel(model: string): Promise<void> {
+    const execution = this.#executionPlan?.transcription ?? cpuExecution();
     try {
       const response = await this.#fetch(`${this.#fasterWhisperBaseUrl}/models/prepare`, {
-        body: JSON.stringify({ model }),
+        body: JSON.stringify({
+          batchSize: this.#batchSize,
+          device: execution.device,
+          fallback: execution.fallback,
+          model,
+        }),
         headers: { "Content-Type": "application/json" },
         method: "POST",
         signal: AbortSignal.timeout(30 * 60 * 1_000),
       });
       if (!response.ok) {
-        if (response.status >= 400 && response.status < 500) {
+        if (response.status === 422) {
           await this.#deleteFasterWhisperModel(model);
           this.#fasterWhisperPending = false;
         }
         throw new Error(`FasterWhisperPreparationStatus${String(response.status)}`);
       }
+      const status = fasterWhisperStatusSchema.safeParse(await response.json().catch(() => null));
+      if (!status.success && requiresAcceleration(execution)) {
+        throw new LocalAiDevicePolicyError("faster-whisper did not report its active device");
+      }
+      if (
+        status.success &&
+        ((execution.device === "gpu" &&
+          execution.fallback === "none" &&
+          status.data.device !== "cuda") ||
+          (execution.device === "cpu" && status.data.device !== "cpu"))
+      ) {
+        throw new LocalAiDevicePolicyError(
+          "faster-whisper active device violates the configured policy",
+        );
+      }
       this.#fasterWhisperPending = false;
-      this.#logger.info({ model }, "faster-whisper model is ready");
+      this.#logger.info(
+        status.success
+          ? {
+              batchSize: status.data.batchSize,
+              computeType: status.data.computeType,
+              device: status.data.device,
+              fallbackApplied: status.data.fallbackApplied,
+              model,
+              phase: "transcription",
+            }
+          : { model, phase: "transcription" },
+        "faster-whisper model is ready",
+      );
+      if (status.success && status.data.fallbackApplied) {
+        this.#logger.warn(
+          { device: status.data.device, fallbackApplied: true, model, phase: "transcription" },
+          "faster-whisper GPU acceleration is unavailable; explicit CPU fallback was applied",
+        );
+      }
     } catch (error) {
       this.#logger.warn(
         { errorType: getErrorType(error), model },
         "faster-whisper model preparation is unavailable; durable jobs will retry processing",
       );
+      if (requiresAcceleration(execution)) throw error;
     }
   }
 
@@ -271,6 +397,14 @@ export class LocalModelManager {
   #isPreparationComplete(): boolean {
     return this.#pendingOllamaPhases.size === 0 && !this.#fasterWhisperPending;
   }
+}
+
+function cpuExecution(): PhaseExecution {
+  return { device: "cpu", fallback: "none", fallbackApplied: false };
+}
+
+function requiresAcceleration(execution: PhaseExecution): boolean {
+  return execution.device === "gpu" && execution.fallback === "none";
 }
 
 function getErrorType(error: unknown): string {

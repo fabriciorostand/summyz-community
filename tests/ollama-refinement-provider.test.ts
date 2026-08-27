@@ -1,7 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { OllamaRefinementProvider } from "../src/refinement/ollama-refinement-provider.js";
-import { RefinementProviderFailureError } from "../src/refinement/refinement-provider.js";
+import {
+  IncompatibleRefinementResponseError,
+  RefinementProviderFailureError,
+} from "../src/refinement/refinement-provider.js";
 
 describe("OllamaRefinementProvider", () => {
   it("exige JSON estruturado e preserva metadados e idioma das entradas", async () => {
@@ -26,19 +29,20 @@ describe("OllamaRefinementProvider", () => {
     expect(JSON.stringify(request)).toContain("original language");
   });
 
-  it("rejeita saída incompatível e solicita remoção do modelo gerenciado", async () => {
-    const onIncompatibleModel = vi.fn(async () => undefined);
+  it("classifica uma saída incompatível sem condenar o modelo por uma única requisição", async () => {
     const provider = new OllamaRefinementProvider({
       fetch: vi.fn(
         async (_url: string, _init: RequestInit) =>
           new Response(JSON.stringify({ message: { content: "not-json" } }), { status: 200 }),
       ),
       model: "broken:latest",
-      onIncompatibleModel,
       timeoutMs: 120_000,
     });
 
-    await expect(provider.refine([])).rejects.toBeInstanceOf(RefinementProviderFailureError);
-    expect(onIncompatibleModel).toHaveBeenCalledWith("broken:latest");
+    const operation = provider.refine([]);
+    await expect(operation).rejects.toBeInstanceOf(RefinementProviderFailureError);
+    await expect(operation).rejects.toMatchObject({
+      cause: expect.any(IncompatibleRefinementResponseError),
+    });
   });
 });

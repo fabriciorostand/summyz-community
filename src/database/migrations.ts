@@ -138,4 +138,31 @@ CREATE INDEX provider_cost_attempts_generation_id_idx
   WHERE generation_id IS NOT NULL;
 `,
   },
+  {
+    version: 3,
+    sql: `
+ALTER TABLE guild_configurations
+  ADD COLUMN active_ai_profile_id text;
+
+CREATE TABLE ai_profiles (
+  profile_id text PRIMARY KEY,
+  guild_id text NOT NULL REFERENCES guild_configurations(guild_id) ON DELETE CASCADE,
+  name text NOT NULL,
+  transcription jsonb NOT NULL,
+  refinement jsonb NOT NULL,
+  summary jsonb NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  UNIQUE (profile_id, guild_id)
+);
+
+CREATE INDEX ai_profiles_guild_name_idx ON ai_profiles (guild_id, name);
+
+ALTER TABLE guild_configurations
+  ADD CONSTRAINT guild_configurations_active_ai_profile_fk
+  FOREIGN KEY (active_ai_profile_id, guild_id)
+  REFERENCES ai_profiles(profile_id, guild_id)
+  ON DELETE RESTRICT;
+`,
+  },
 ] as const;

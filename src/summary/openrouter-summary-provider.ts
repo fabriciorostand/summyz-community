@@ -91,6 +91,7 @@ export interface OpenRouterSummaryProviderOptions {
   apiKey: string;
   costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
+  generation?: { seed?: number | undefined; temperature?: number | undefined };
   logger?: Logger;
   language?: string;
   maxAttempts: number;
@@ -108,6 +109,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
   readonly #fetch: Fetch;
   readonly #logger: Logger | undefined;
   readonly #language: string;
+  readonly #generation: { seed?: number | undefined; temperature?: number | undefined };
   readonly #maxAttempts: number;
   readonly #model: string;
   readonly #random: () => number;
@@ -120,6 +122,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
     this.#apiKey = options.apiKey;
     this.#costRecorder = options.costRecorder;
     this.#fetch = options.fetch ?? fetch;
+    this.#generation = options.generation ?? {};
     this.#logger = options.logger;
     this.#language = options.language ?? "auto";
     this.#maxAttempts = options.maxAttempts;
@@ -205,8 +208,11 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
             },
             type: "json_schema",
           },
+          ...(this.#generation.seed === undefined ? {} : { seed: this.#generation.seed }),
           stream: false,
-          temperature: 0,
+          ...(this.#generation.temperature === undefined
+            ? {}
+            : { temperature: this.#generation.temperature }),
         }),
         headers: {
           Authorization: `Bearer ${this.#apiKey}`,

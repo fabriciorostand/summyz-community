@@ -58,6 +58,7 @@ export interface OpenRouterRefinementProviderOptions {
   apiKey: string;
   costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
+  generation?: { seed?: number | undefined; temperature?: number | undefined };
   logger?: Logger;
   maxAttempts: number;
   model: string;
@@ -73,6 +74,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
   readonly #costRecorder: ProviderCostRecorder | undefined;
   readonly #fetch: Fetch;
   readonly #logger: Logger | undefined;
+  readonly #generation: { seed?: number | undefined; temperature?: number | undefined };
   readonly #maxAttempts: number;
   readonly #model: string;
   readonly #random: () => number;
@@ -85,6 +87,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
     this.#apiKey = options.apiKey;
     this.#costRecorder = options.costRecorder;
     this.#fetch = options.fetch ?? fetch;
+    this.#generation = options.generation ?? {};
     this.#logger = options.logger;
     this.#maxAttempts = options.maxAttempts;
     this.#model = options.model;
@@ -148,8 +151,11 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
             },
             type: "json_schema",
           },
+          ...(this.#generation.seed === undefined ? {} : { seed: this.#generation.seed }),
           stream: false,
-          temperature: 0,
+          ...(this.#generation.temperature === undefined
+            ? {}
+            : { temperature: this.#generation.temperature }),
         }),
         headers: {
           Authorization: `Bearer ${this.#apiKey}`,

@@ -35,6 +35,55 @@ describe("OllamaSummaryProvider", () => {
     expect(JSON.stringify(request)).toContain("predominant language");
   });
 
+  it("instrui português brasileiro explicitamente e exige evidência factual", async () => {
+    const fetch = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(JSON.stringify({ message: { content: JSON.stringify(validSummary) } }), {
+          status: 200,
+        }),
+    );
+    const provider = new OllamaSummaryProvider({
+      fetch,
+      language: "pt-BR",
+      model: "qwen3:4b",
+      timeoutMs: 120_000,
+    });
+
+    await provider.summarize([]);
+
+    const requestBody = String(fetch.mock.calls[0]?.[1].body);
+    expect(requestBody).toContain("português brasileiro");
+    expect(requestBody).toContain("Não escreva em inglês");
+    expect(requestBody).toContain("Na dúvida, omita");
+    expect(requestBody).toContain("explicitamente assumida ou atribuída");
+  });
+
+  it("mantém a instrução explícita em outros idiomas e consolida em pt-BR", async () => {
+    const fetch = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(JSON.stringify({ message: { content: JSON.stringify(validSummary) } }), {
+          status: 200,
+        }),
+    );
+    const spanish = new OllamaSummaryProvider({
+      fetch,
+      language: "es",
+      model: "qwen3:4b",
+      timeoutMs: 120_000,
+    });
+    await spanish.summarize([]);
+    expect(String(fetch.mock.calls[0]?.[1].body)).toContain("BCP 47 code es");
+
+    const portuguese = new OllamaSummaryProvider({
+      fetch,
+      language: "PT-br",
+      model: "qwen3:4b",
+      timeoutMs: 120_000,
+    });
+    await portuguese.consolidate([validSummary]);
+    expect(String(fetch.mock.calls[1]?.[1].body)).toContain("Consolide os resumos parciais");
+  });
+
   it("rejeita modelo que não cumpre o contrato sem tentar outro provedor", async () => {
     const onIncompatibleModel = vi.fn(async () => undefined);
     const provider = new OllamaSummaryProvider({

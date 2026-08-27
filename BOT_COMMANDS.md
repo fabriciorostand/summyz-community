@@ -6,13 +6,13 @@ Starts recording the voice channel you are in.
 
 Who can use it:
 
-- server administrators;
+- the server owner;
 - members with one of the roles authorized to record.
 
 Summyz posts a message in the text channel where the command was used to announce that recording
 has started. Only one recording can be active per server. The command can be run in any server
-chat, but the user must be in a standard voice channel. A forum must also be configured beforehand
-with `/recording-summary-forum set`.
+chat, but the user must be in a standard voice channel. A forum and a complete active processing
+profile must also be configured beforehand. An incomplete or incompatible profile blocks recording.
 
 ## `/stop`
 
@@ -20,7 +20,7 @@ Stops the server's active recording.
 
 To use the command, you must:
 
-- be an administrator or have an authorized role;
+- be the server owner or have an authorized role;
 - be in the same voice channel that is being recorded.
 
 The person who runs `/stop` receives an ephemeral confirmation in the command's chat. The public
@@ -37,11 +37,9 @@ summarization begin in the background through a durable queue. The complete file
 attachment in the configured forum.
 Before sending audio to the configured provider, the bot server locally discards sections without
 speech and merges nearby speech from the same person without mixing participants.
-When the selected fully local setup exceeds the recommended hardware, only the person who ran
-`/record` receives an ephemeral warning suggesting OpenRouter. The terminal also logs the warning;
-the public channel receives no hardware details. Recording continues and Summyz attempts processing
-with the smallest compatible local models, even though it may be slow and produce lower-than-desired
-quality.
+When a selected local model exceeds the recommended hardware, only the person who ran `/record`
+receives an ephemeral warning. The public channel receives no hardware details. Summyz preserves
+the explicit choice and does not substitute a smaller model.
 If the meeting cannot be fully transcribed, the channel where `/record` was run receives only a
 generic warning.
 
@@ -54,19 +52,19 @@ complete transcript and reports that the summary is unavailable.
 
 Authorizes a role to start and stop recordings.
 
-Only administrators and members with the **Manage Server** permission can use this command.
+Only the server owner can use this command.
 
 ## `/recording-role remove role:<role>`
 
 Removes a role's authorization to record.
 
-Only administrators and members with the **Manage Server** permission can use this command.
+Only the server owner can use this command.
 
 ## `/recording-role list`
 
 Shows the roles authorized to control recordings on the server.
 
-Only administrators and members with the **Manage Server** permission can use this command.
+Only the server owner can use this command.
 
 ## `/recording-summary-forum set forum:<forum> tag:<optional tag>`
 
@@ -74,11 +72,7 @@ Sets the forum that will receive summaries and transcripts. The tag must exist i
 the forum requires tags, this option is mandatory. The command validates the bot's permissions
 before saving.
 
-Who can use it:
-
-- server administrators;
-- members with the **Manage Server** permission;
-- members with a role authorized to record.
+Only the server owner can use it.
 
 ## `/recording-summary-forum show`
 
@@ -91,7 +85,7 @@ remain pending until another forum is configured. It follows the same access rul
 
 ## `/recording-cost meeting id:<meeting ID>`
 
-Shows the cost of a completed meeting. Only server administrators can use it, and the response is
+Shows the cost of a completed meeting. Only the server owner can use it, and the response is
 ephemeral. A meeting ID can be queried only in the server where that meeting was recorded.
 
 For every phase, the report shows whether execution used an external API or a local service, the
@@ -108,12 +102,13 @@ wait until recording has ended before querying it.
 Shows aggregate costs for completed meetings that started in the inclusive date interval. Meetings
 still in progress are excluded. Dates are interpreted with `SUMMARY_TIME_ZONE`. The report includes
 the number and duration of meetings, external provider requests, local executions, phase totals,
-confirmed averages, charged failures, and unresolved reconciliation counts. Only server
-administrators can use it, and the response is ephemeral.
+confirmed averages, charged failures, and unresolved reconciliation counts. Only the server owner
+can use it, and the response is ephemeral.
 
 ## Important Notes
 
-- Administrators can always control recordings.
+- The server owner can always control recordings. Administrator and Manage Server permissions do
+  not grant Summyz management access by themselves.
 - Lack of authorization takes precedence over other `/record` errors; for authorized users, a
   missing forum configuration takes precedence over not being in a voice channel.
 - Bots are not recorded.
@@ -129,8 +124,8 @@ administrators can use it, and the response is ephemeral.
   at this stage.
 - With `PERSIST_MEETING_AUDIO=false`, audio files are deleted after a valid transcription or a
   permanent failure; with `true`, they remain on disk until manually deleted by an administrator.
-- The storage mode and content and audio policies are fixed when `/record` starts; subsequent
-  changes to `.env` apply only to new meetings.
-- The provider, resolved model, and language for each phase are also pinned then. A local phase never
-  uses OpenRouter as fallback.
+- Content and audio policies are fixed when `/record` starts; subsequent `.env` changes apply only
+  to new meetings.
+- The active profile, provider, explicit model, language, and phase parameters are also pinned then.
+  A local phase never uses OpenRouter as fallback.
 - Financial records are retained indefinitely, independently of audio and transcript retention.

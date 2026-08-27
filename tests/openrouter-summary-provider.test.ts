@@ -108,7 +108,7 @@ describe("OpenRouterSummaryProvider", () => {
     });
 
     const init = fetch.mock.calls[0]?.[1];
-    const body: unknown = JSON.parse(String(init?.body));
+    const body = JSON.parse(String(init?.body)) as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "google/gemini-3.7-flash",
       provider: { require_parameters: true },
@@ -117,8 +117,9 @@ describe("OpenRouterSummaryProvider", () => {
         type: "json_schema",
       },
       stream: false,
-      temperature: 0,
     });
+    expect(body).not.toHaveProperty("temperature");
+    expect(body).not.toHaveProperty("seed");
     expect(JSON.stringify(body)).toContain("segment-a:000000");
     expect(JSON.stringify(body)).toContain("untrusted data");
     expect(JSON.stringify(body)).toContain("predominant language");

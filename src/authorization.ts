@@ -1,20 +1,19 @@
 export interface RecordingAuthorizationInput {
-  isAdministrator: boolean;
+  isGuildOwner: boolean;
   memberRoleIds: readonly string[];
   recordingRoleIds: readonly string[];
 }
 
 export interface ManageRecordingRolesAuthorizationInput {
-  canManageGuild: boolean;
-  isAdministrator: boolean;
+  isGuildOwner: boolean;
 }
 
-export interface ConfigureSummaryForumAuthorizationInput extends RecordingAuthorizationInput {
-  canManageGuild: boolean;
+export interface ConfigureSummaryForumAuthorizationInput {
+  isGuildOwner: boolean;
 }
 
 export function canRecord(input: RecordingAuthorizationInput): boolean {
-  if (input.isAdministrator) {
+  if (input.isGuildOwner) {
     return true;
   }
 
@@ -23,9 +22,9 @@ export function canRecord(input: RecordingAuthorizationInput): boolean {
 }
 
 export function canManageRecordingRoles(input: ManageRecordingRolesAuthorizationInput): boolean {
-  return input.isAdministrator || input.canManageGuild;
+  return input.isGuildOwner;
 }
 
 export function canConfigureSummaryForum(input: ConfigureSummaryForumAuthorizationInput): boolean {
-  return input.canManageGuild || canRecord(input);
+  return input.isGuildOwner;
 }

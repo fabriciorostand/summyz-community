@@ -9,6 +9,7 @@ RUN npm run build
 
 FROM build AS test
 COPY tests ./tests
+COPY scripts ./scripts
 COPY vitest.config.ts vitest.smoke.config.ts ./
 CMD ["npm", "run", "test:smoke:local-ai"]
 

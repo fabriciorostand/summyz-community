@@ -5,20 +5,35 @@ const fasterWhisperUrl = process.env.FASTER_WHISPER_SMOKE_URL ?? "http://faster-
 const ollamaUrl = process.env.OLLAMA_SMOKE_URL ?? "http://ollama:11434";
 const whisperModel = process.env.SMOKE_WHISPER_MODEL ?? "tiny";
 const ollamaModel = process.env.SMOKE_OLLAMA_MODEL ?? "qwen3:1.7b";
+const localAiDevice = process.env.SMOKE_LOCAL_AI_DEVICE === "gpu" ? "gpu" : "cpu";
+const expectedWhisperDevice = localAiDevice === "gpu" ? "cuda" : "cpu";
 
 describe("serviços locais de IA", () => {
   it("prepara e executa faster-whisper com áudio sintético", async () => {
     const preparation = await fetch(`${fasterWhisperUrl}/models/prepare`, {
-      body: JSON.stringify({ model: whisperModel }),
+      body: JSON.stringify({
+        batchSize: 0,
+        device: localAiDevice,
+        fallback: "none",
+        model: whisperModel,
+      }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
     });
     expect(preparation.ok).toBe(true);
+    expect(
+      z
+        .object({ device: z.enum(["cpu", "cuda"]), fallbackApplied: z.boolean() })
+        .parse(await preparation.json()),
+    ).toMatchObject({ device: expectedWhisperDevice, fallbackApplied: false });
 
     const form = new FormData();
     form.set("audio", new Blob([createSilentWav(500)]), "synthetic.wav");
     form.set("language", "auto");
     form.set("model", whisperModel);
+    form.set("device", localAiDevice);
+    form.set("fallback", "none");
+    form.set("batchSize", "0");
     const response = await fetch(`${fasterWhisperUrl}/transcribe`, { body: form, method: "POST" });
     expect(response.ok).toBe(true);
     const result: unknown = await response.json();
@@ -60,6 +75,15 @@ describe("serviços locais de IA", () => {
     const content = z.object({ message: z.object({ content: z.string() }) }).parse(body)
       .message.content;
     expect(z.object({ ok: z.literal(true) }).parse(JSON.parse(content))).toEqual({ ok: true });
+
+    const processes = await fetch(`${ollamaUrl}/api/ps`);
+    expect(processes.ok).toBe(true);
+    const active = z
+      .object({ models: z.array(z.object({ model: z.string(), size_vram: z.number() })) })
+      .parse(await processes.json())
+      .models.find((model) => model.model === ollamaModel);
+    expect(active).toBeDefined();
+    expect((active?.size_vram ?? 0) > 0).toBe(localAiDevice === "gpu");
   });
 });
 

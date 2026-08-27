@@ -6,13 +6,14 @@ Inicia a gravação do canal de voz em que você está.
 
 Pode usar:
 
-- administrador do servidor;
+- dono do servidor;
 - membro com um dos cargos autorizados para gravação.
 
 O Summyz publica no canal de texto onde o comando foi usado que a gravação começou. Apenas uma
 gravação pode ficar ativa por servidor. O comando pode ser executado em qualquer chat do servidor,
-mas o usuário precisa estar em um canal de voz convencional. Também é necessário configurar antes
-um fórum com `/recording-summary-forum set`.
+mas o usuário precisa estar em um canal de voz convencional. Também é necessário configurar um
+fórum e completar o perfil de processamento ativo. Um perfil incompleto ou incompatível bloqueia a
+gravação.
 
 ## `/stop`
 
@@ -20,7 +21,7 @@ Encerra a gravação ativa do servidor.
 
 Para usar o comando, você precisa:
 
-- ser administrador ou possuir um cargo autorizado;
+- ser o dono do servidor ou possuir um cargo autorizado;
 - estar no mesmo canal de voz que está sendo gravado.
 
 Quem executa `/stop` recebe uma confirmação efêmera no chat do comando. O encerramento público,
@@ -36,11 +37,9 @@ plano por uma fila durável. O arquivo completo é publicado como anexo em um po
 configurado.
 Antes de enviar áudio ao provedor configurado, o servidor do bot descarta localmente trechos sem voz
 e consolida falas próximas da mesma pessoa sem misturar participantes.
-Quando o hardware fica abaixo da recomendação para a configuração 100% local selecionada, somente
-quem executou `/record` recebe um aviso efêmero sugerindo OpenRouter. O terminal também registra o
-aviso; o canal público não recebe detalhes de hardware. A gravação continua e o Summyz tenta o
-processamento com os menores modelos locais compatíveis, mesmo que ele possa ser lento e produzir
-qualidade abaixo do desejado.
+Quando um modelo local escolhido excede a recomendação de hardware, somente quem executou `/record`
+recebe um aviso efêmero. O canal público não recebe detalhes do hardware. O Summyz preserva a
+escolha explícita e não substitui o modelo por outro menor.
 Se a reunião não puder ser transcrita integralmente, o canal onde `/record` foi executado recebe
 somente um aviso genérico.
 
@@ -53,30 +52,26 @@ post com a transcrição completa e informa que o resumo está indisponível.
 
 Autoriza um cargo a iniciar e encerrar gravações.
 
-Somente administradores e membros com a permissão **Gerenciar servidor** podem usar este comando.
+Somente o dono do servidor pode usar este comando.
 
 ## `/recording-role remove role:<cargo>`
 
 Remove a autorização de gravação de um cargo.
 
-Somente administradores e membros com a permissão **Gerenciar servidor** podem usar este comando.
+Somente o dono do servidor pode usar este comando.
 
 ## `/recording-role list`
 
 Mostra os cargos autorizados a controlar gravações no servidor.
 
-Somente administradores e membros com a permissão **Gerenciar servidor** podem usar este comando.
+Somente o dono do servidor pode usar este comando.
 
 ## `/recording-summary-forum set forum:<fórum> tag:<tag opcional>`
 
 Define o fórum que receberá os resumos e as transcrições. A tag precisa existir no fórum; quando o
 fórum exige tags, a opção é obrigatória. O comando valida as permissões do bot antes de salvar.
 
-Pode usar:
-
-- administrador do servidor;
-- membro com a permissão **Gerenciar servidor**;
-- membro com um cargo autorizado para gravação.
+Somente o dono do servidor pode usar este comando.
 
 ## `/recording-summary-forum show`
 
@@ -89,7 +84,7 @@ pendentes até que outro fórum seja configurado. Possui as mesmas regras de ace
 
 ## `/recording-cost meeting id:<ID da reunião>`
 
-Mostra os custos de uma reunião concluída. Somente administradores do servidor podem usar o
+Mostra os custos de uma reunião concluída. Somente o dono do servidor pode usar o
 comando, e a resposta é efêmera. Um ID só pode ser consultado no servidor em que a reunião foi
 gravada.
 
@@ -107,12 +102,13 @@ mensagem efêmera; aguarde a gravação terminar antes de consultá-la.
 Mostra os custos agregados das reuniões concluídas e iniciadas no intervalo inclusivo. Reuniões em
 andamento não entram no relatório. As datas são interpretadas com `SUMMARY_TIME_ZONE`. O relatório
 inclui quantidade e duração das reuniões, requisições aos provedores, execuções locais, totais por
-fase, médias confirmadas, falhas cobradas e reconciliações não concluídas. Somente administradores
-do servidor podem usar o comando, e a resposta é efêmera.
+fase, médias confirmadas, falhas cobradas e reconciliações não concluídas. Somente o dono do
+servidor pode usar o comando, e a resposta é efêmera.
 
 ## Avisos importantes
 
-- Administradores sempre podem controlar gravações.
+- O dono do servidor sempre pode controlar gravações. As permissões Administrador e Gerenciar
+  servidor, isoladamente, não concedem gestão do Summyz.
 - A falta de autorização tem prioridade sobre os demais erros de `/record`; para usuários
   autorizados, a falta de fórum configurado tem prioridade sobre a ausência no canal de voz.
 - Bots não são gravados.
@@ -127,9 +123,9 @@ do servidor podem usar o comando, e a resposta é efêmera.
   exclusão nesta etapa.
 - Com `PERSIST_MEETING_AUDIO=false`, os áudios são excluídos após transcrição válida ou falha
   definitiva; com `true`, permanecem no disco até exclusão manual do administrador.
-- O modo de armazenamento e as políticas de conteúdo e áudio são fixados quando `/record` inicia;
-  alterações posteriores no `.env` valem somente para novas reuniões.
-- Provedor, modelo resolvido e idioma de cada fase também são fixados nesse momento. Uma fase local
-  nunca usa OpenRouter como fallback.
+- As políticas de conteúdo e áudio são fixadas quando `/record` inicia; alterações posteriores no
+  `.env` valem somente para novas reuniões.
+- O perfil ativo, o provedor, o modelo explícito, o idioma e os parâmetros de cada fase também ficam
+  fixos nesse momento. Uma fase local nunca usa OpenRouter como fallback.
 - Registros financeiros são mantidos indefinidamente, independentemente da retenção de áudio e
   transcrições.

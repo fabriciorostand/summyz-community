@@ -41,13 +41,14 @@ describe("OpenRouterRefinementProvider", () => {
       attempts: 1,
       entries: [{ ...entries[0], text: "conjuntivite" }],
     });
-    const body: unknown = JSON.parse(String(fetch.mock.calls[0]?.[1].body));
+    const body = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as Record<string, unknown>;
     expect(body).toMatchObject({
       model: "google/gemini-3.7-flash",
       provider: { require_parameters: true },
       response_format: { json_schema: { name: "transcript_refinement", strict: true } },
-      temperature: 0,
     });
+    expect(body).not.toHaveProperty("temperature");
+    expect(body).not.toHaveProperty("seed");
     expect(JSON.stringify(body)).not.toContain("keywords");
     expect(JSON.stringify(body)).toContain("original language");
     expect(JSON.stringify(body)).not.toContain("português brasileiro");

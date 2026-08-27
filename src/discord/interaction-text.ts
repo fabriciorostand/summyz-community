@@ -1,6 +1,7 @@
 import type { AppConfig } from "../config.js";
 
 export interface InteractionText {
+  aboveRecommendedAiProfile: string;
   authorizedRoles(roleIds: readonly string[]): string;
   cannotConfigureRecordingRoles: string;
   cannotConfigureSummaryForum: string;
@@ -8,19 +9,21 @@ export interface InteractionText {
   cannotRecord: string;
   cannotStop: string;
   commandFailed: string;
+  configureAiProfileFirst: string;
   configureForumFirst: string;
   forumConfigured(forumId: string, tagName?: string): string;
   forumDisplay(forumId: string, tagId?: string): string;
   forumRequiresTag: string;
   guildOnly: string;
   insufficientForumPermissions: string;
-  insufficientLocalHardware: string;
+  incompatibleAiProfile: string;
   invalidForum: string;
   joinVoiceFirst: string;
   locale: string;
   noActiveRecording: string;
   noAuthorizedRoles: string;
   noSummaryForum: string;
+  openRouterApiKeyMissing: string;
   costInvalidPeriod: string;
   costMeetingInProgress: string;
   costMeetingNotFound: string;
@@ -32,20 +35,25 @@ export interface InteractionText {
   summaryForumCleared: string;
   tagNotFound: string;
   userMustBeInRecordedChannel: string;
+  unknownAiProfileCompatibility: string;
 }
 
 const texts = {
   en: {
+    aboveRecommendedAiProfile:
+      "The selected model is above the recommended capacity for the detected hardware. Processing may be very slow or fail because of insufficient memory. Summyz will keep the selected model and will not replace it automatically.",
     authorizedRoles: (roleIds) =>
       `Authorized roles:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`,
     cannotConfigureRecordingRoles: "You cannot configure recording roles.",
     cannotConfigureSummaryForum: "You cannot configure the summary forum.",
-    cannotViewCosts: "Only server administrators can view recording costs.",
+    cannotViewCosts: "Only the server owner can view recording costs.",
     cannotRecord: "You do not have an authorized role to start recordings.",
     cannotStop: "You do not have an authorized role to stop recordings.",
     commandFailed: "Unable to complete the command. Please try again.",
     configureForumFirst:
       "Configure a forum with `/recording-summary-forum set` before starting a recording.",
+    configureAiProfileFirst:
+      "The active processing profile is incomplete. Choose a provider and model for transcription, refinement, and summary before recording.",
     forumConfigured: (forumId, tagName) =>
       "Summary forum configured: <#" +
       forumId +
@@ -61,14 +69,17 @@ const texts = {
     guildOnly: "This command can only be used in a server.",
     insufficientForumPermissions:
       "Summyz does not have all required permissions in this forum: view, create posts, reply, read messages, and attach files.",
-    insufficientLocalHardware:
-      "This machine is below the hardware recommendation for the selected fully local setup. Summyz will still process the recording with the smallest compatible local models, but processing may be slow and output quality may be lower than desired. Consider configuring OpenRouter.",
+    incompatibleAiProfile:
+      "The active processing profile contains a model that is incompatible with the selected device. Update the profile before recording.",
     invalidForum: "Select a valid forum channel.",
     joinVoiceFirst: "Join a voice channel before using `/record`.",
     locale: "en",
     noActiveRecording: "There is no active recording in this server.",
-    noAuthorizedRoles: "No roles have been authorized. Only administrators can control recordings.",
+    noAuthorizedRoles:
+      "No roles have been authorized. Only the server owner can control recordings.",
     noSummaryForum: "No summary forum is configured in this server.",
+    openRouterApiKeyMissing:
+      "The active profile uses OpenRouter, but OPENROUTER_API_KEY is not configured. Configure the key before recording.",
     costInvalidPeriod: "Use valid dates in YYYY-MM-DD format, with the first date before the last.",
     costMeetingInProgress:
       "Wait for the meeting to end before checking its costs. Processing costs are available after recording ends.",
@@ -90,18 +101,24 @@ const texts = {
       "Configuration removed. New recordings will remain blocked until another forum is configured. Meetings not yet published will remain pending.",
     tagNotFound: "The provided tag does not exist in the selected forum.",
     userMustBeInRecordedChannel: "You must be in the channel being recorded to use `/stop`.",
+    unknownAiProfileCompatibility:
+      "Summyz does not have enough data to evaluate one of the selected models on this hardware. The selection will be kept, but performance and compatibility are not guaranteed.",
   },
   "pt-BR": {
+    aboveRecommendedAiProfile:
+      "O modelo selecionado está acima da capacidade recomendada para o hardware detectado. O processamento pode ficar muito lento ou falhar por falta de memória. O Summyz manterá sua escolha e não trocará o modelo automaticamente.",
     authorizedRoles: (roleIds) =>
       `Cargos autorizados:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`,
     cannotConfigureRecordingRoles: "Você não pode configurar os cargos de gravação.",
     cannotConfigureSummaryForum: "Você não pode configurar o fórum de resumos.",
-    cannotViewCosts: "Somente administradores do servidor podem consultar custos de gravações.",
+    cannotViewCosts: "Somente o dono do servidor pode consultar custos de gravações.",
     cannotRecord: "Você não possui um cargo autorizado para gravar.",
     cannotStop: "Você não possui um cargo autorizado para encerrar.",
     commandFailed: "Não foi possível concluir o comando. Tente novamente.",
     configureForumFirst:
       "Configure um fórum com `/recording-summary-forum set` antes de iniciar uma gravação.",
+    configureAiProfileFirst:
+      "O perfil de processamento ativo está incompleto. Escolha um provedor e um modelo para transcrição, refinamento e resumo antes de gravar.",
     forumConfigured: (forumId, tagName) =>
       "Fórum de resumos configurado: <#" +
       forumId +
@@ -117,15 +134,17 @@ const texts = {
     guildOnly: "Este comando só pode ser usado em um servidor.",
     insufficientForumPermissions:
       "O Summyz não possui todas as permissões necessárias nesse fórum: visualizar, criar posts, responder, ler mensagens e anexar arquivos.",
-    insufficientLocalHardware:
-      "Este computador está abaixo da recomendação de hardware para a configuração 100% local selecionada. O processamento será tentado com os menores modelos locais compatíveis, mas pode ser lento e a qualidade do resultado pode ficar abaixo do desejado. Considere configurar o OpenRouter.",
+    incompatibleAiProfile:
+      "O perfil de processamento ativo contém um modelo incompatível com o dispositivo selecionado. Atualize o perfil antes de gravar.",
     invalidForum: "Selecione um canal de fórum válido.",
     joinVoiceFirst: "Entre em um canal de voz antes de usar `/record`.",
     locale: "pt-BR",
     noActiveRecording: "Não existe uma gravação ativa neste servidor.",
     noAuthorizedRoles:
-      "Nenhum cargo foi autorizado. Apenas administradores podem controlar gravações.",
+      "Nenhum cargo foi autorizado. Apenas o dono do servidor pode controlar gravações.",
     noSummaryForum: "Nenhum fórum de resumos está configurado neste servidor.",
+    openRouterApiKeyMissing:
+      "O perfil ativo usa OpenRouter, mas OPENROUTER_API_KEY não está configurada. Configure a chave antes de gravar.",
     costInvalidPeriod:
       "Informe datas válidas no formato AAAA-MM-DD, com a data inicial anterior à final.",
     costMeetingInProgress:
@@ -149,6 +168,8 @@ const texts = {
     tagNotFound: "A tag informada não existe no fórum selecionado.",
     userMustBeInRecordedChannel:
       "Você precisa estar no canal que está sendo gravado para usar `/stop`.",
+    unknownAiProfileCompatibility:
+      "O Summyz não possui dados suficientes para avaliar um dos modelos selecionados neste hardware. A escolha será mantida, mas desempenho e compatibilidade não são garantidos.",
   },
 } satisfies Record<AppConfig["botLanguage"], InteractionText>;
 

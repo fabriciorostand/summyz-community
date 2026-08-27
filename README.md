@@ -31,8 +31,8 @@ executive summary, discussed topics, decisions, tasks, and full transcript in a 
 
 - Node.js 22.12 or later;
 - npm;
-- Docker with Compose to run the bot and, in PostgreSQL mode, the database;
-- PostgreSQL 18 only when `STORAGE_MODE=postgres`;
+- Docker with Compose to run the bot, PostgreSQL, and local services;
+- PostgreSQL 18;
 - a bot application created in the Discord Developer Portal;
 - an OpenRouter account with credits and an API key only for stages configured with `openrouter`;
 - FFmpeg does not need to be installed separately: the project uses a bundled binary.
@@ -41,16 +41,15 @@ executive summary, discussed topics, decisions, tasks, and full transcript in a 
 
 1. Install the dependencies with `npm install`.
 2. Copy `.env.example` to `.env`.
-3. Fill in `DISCORD_TOKEN` and `DISCORD_CLIENT_ID`. Select the provider for each AI stage. Fill in
-   OpenRouter credentials and models only for stages that use it.
-4. Choose `STORAGE_MODE=local` to run without a database. For `STORAGE_MODE=postgres`, set
-   `POSTGRES_PASSWORD` and `DATABASE_URL`; use the `postgres` host with Compose or `localhost`
-   with npm.
+3. Fill in `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `POSTGRES_PASSWORD`, and `DATABASE_URL`; use the
+   `postgres` host with Compose or `localhost` when running the bot directly through npm.
+4. Fill in `OPENROUTER_API_KEY` only when a profile uses OpenRouter.
 5. Set `PERSIST_MEETING_CONTENT` and `PERSIST_MEETING_AUDIO` according to the desired policy.
 6. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
-7. Run `docker compose up -d --build`. Compose starts the bot, Ollama, and faster-whisper; it only
-   downloads local models selected by the configuration. Add `--profile postgres` for PostgreSQL.
+7. Run `npm run local-ai:up`. The launcher detects GPUs, selects the safe Compose overlays, and
+   starts the bot, PostgreSQL, Ollama, and faster-whisper. Selected local models are prepared when
+   needed.
    `npm run dev` remains available for development while local AI services run in Compose.
 
 If local port `5432` is already in use, change `POSTGRES_PORT` and adjust the port in
@@ -59,39 +58,33 @@ continues to use `postgres:5432`.
 
 Never commit the `.env` file or publish the bot token.
 
-In local mode, the bot neither creates a connection to nor requires PostgreSQL. In PostgreSQL mode,
-migrations and the connection are validated before the Discord login; if the database is
-unavailable or the URL is invalid, the process exits with a safe message. The same happens if a
-PostgreSQL meeting pending recovery exists on disk and `DATABASE_URL` is unavailable. The
+Migrations and the PostgreSQL connection are validated before the Discord login; if the database
+is unavailable or the URL is invalid, the process exits with a safe message. The
 `postgres_data` and `summyz_data` volumes preserve the database and required files across
 restarts.
 
 ## Persistence and privacy
 
-- `STORAGE_MODE=local` is the default and stores the manifest, queue, attempts, and operational
-  states in atomic files under `DATA_DIR`, without requiring a database;
-- `STORAGE_MODE=postgres` stores configuration, minimal meeting data, the queue, and attempts in
-  PostgreSQL; `DATABASE_URL` becomes required;
+- PostgreSQL stores configuration, profiles, meetings, the queue, and attempts; `DATABASE_URL` is
+  required;
 - `PERSIST_MEETING_CONTENT=false` is the default. After the terminal state, transcripts, the
   summary, and local states are removed. The backend retains only the operational minimum required
   for the queue and for diagnosing its completion;
-- with `PERSIST_MEETING_CONTENT=true`, local mode preserves the stage 3 files; PostgreSQL mode
-  preserves the raw and refined transcripts, summary, publication, and manifest in
-  `meeting_contents`;
+- with `PERSIST_MEETING_CONTENT=true`, PostgreSQL preserves the raw and refined transcripts,
+  summary, publication, and manifest in `meeting_contents`;
 - `PERSIST_MEETING_AUDIO=false` is the default: audio is deleted after a fully validated
   transcription or after all durable attempts are exhausted;
-- with `PERSIST_MEETING_AUDIO=true`, audio remains in `DATA_DIR` indefinitely. In local mode,
-  `audio-manifest.json` catalogs the segments; in PostgreSQL mode, the
+- with `PERSIST_MEETING_AUDIO=true`, audio remains in `DATA_DIR` indefinitely, while the
   `meeting_audio_segments` table stores metadata and relative paths;
 - audio is never stored as a BLOB in PostgreSQL. Even in this mode, the bytes remain in the durable
   volume mounted at `DATA_DIR`;
-- in PostgreSQL mode, the local `manifest.json` acts as a temporary recovery record alongside the
+- the local `manifest.json` acts as a temporary recovery record alongside the
   audio; processing synchronizes it with the database before reserving the job;
 - preserved content and audio do not expire automatically. Deletion is a manual administrator
   operation on disk or in the database.
 - provider-cost records never expire automatically and are independent of content and audio
-  retention. Local mode keeps them under `DATA_DIR/costs/guilds/<guildId>/meetings/<meetingId>`;
-  PostgreSQL mode uses `provider_cost_attempts` with protected meeting and server relationships.
+  retention. PostgreSQL uses `provider_cost_attempts` with protected meeting and server
+  relationships.
 
 ## Provider cost accounting
 
@@ -107,17 +100,17 @@ this condition and never present the confirmed subtotal as necessarily complete.
 faster-whisper calls retain the effective model with a null external cost because computational
 cost is outside the current scope.
 
-Server administrators can query a completed meeting with `/recording-cost meeting` or aggregate
+Only the server owner can query a completed meeting with `/recording-cost meeting` or aggregate
 completed meetings by their start date with `/recording-cost period`; meetings still in progress
 are excluded. Results are ephemeral and always scoped to the current Discord server. Date boundaries
 use `SUMMARY_TIME_ZONE`; financial values are stored and displayed without rounding.
 
-The three choices are copied to the manifest when the meeting starts. Changing `.env` afterward
-does not migrate or redirect a meeting already in progress: a local meeting remains local, and a
-PostgreSQL meeting continues to depend on PostgreSQL until it reaches a terminal state.
+The persistence choices and complete active profile — providers, models, languages, and parameters
+— are copied to the manifest when the meeting starts. Editing or activating another profile later
+does not change an in-progress meeting.
 
-Processing uses a durable queue in `processing.json` in local mode or in PostgreSQL in the other
-mode. Delivery is *at least once*: if the process stops after reserving a job and before confirming
+Processing uses a durable PostgreSQL queue. Delivery is *at least once*: if the process stops after
+reserving a job and before confirming
 the result, that job may run again after a restart or lease expiration. The stages and publication
 are idempotent so that a repeat does not intentionally create another meeting. In addition to fast
 provider retries, a transient failure schedules durable runs after 1 minute, 5 minutes, 15 minutes,
@@ -155,6 +148,27 @@ After adding the bot, use `/recording-role add` to authorize the desired roles a
 until a forum is configured. See [BOT_COMMANDS.md](./BOT_COMMANDS.md) for all commands and access
 rules.
 
+Only the literal Discord server owner can manage the forum, authorized roles, and costs.
+Administrator or Manage Server permissions do not grant management access. The owner and roles the
+owner authorizes may use `/record` and `/stop`; authorized roles receive no other powers.
+
+## Processing profiles
+
+Each server has multiple PostgreSQL profiles and exactly one active profile. On first startup,
+Summyz creates and activates `Profile 1` without selecting providers or models. Until
+transcription, refinement, and summary each have an explicit selection, `/record` shows an
+ephemeral warning and does not start. This stage provides the profile data model and execution;
+configuration UI will be implemented separately, so there is no Discord command or terminal
+configurator for editing profiles yet.
+
+There is no model `auto` or `openrouter/auto`. Model selection is unrestricted and Summyz never
+replaces a selected model. Local evaluation uses `recommended`, `compatible`,
+`above_recommended`, `unknown`, and `incompatible`; only `incompatible` blocks recording, while
+`above_recommended` and `unknown` produce private warnings. Each phase stores its own provider,
+model, language, and parameters, including STT batching/options, chunk sizing, and the generation
+options `temperature`, `seed`, and `think` where applicable. Unset values are not forced by Summyz,
+preserving provider defaults.
+
 ## Recording settings
 
 - `BOT_LANGUAGE`: language used for fixed Discord text and command descriptions; `en` or `pt-BR`;
@@ -172,30 +186,21 @@ Files are saved under
 ## Transcription settings
 
 - `OPENROUTER_API_KEY`: key used for the transcription, refinement, and summary endpoints;
-- `OPENROUTER_TRANSCRIPTION_MODEL`: STT model selected in OpenRouter, with no implicit default;
-- `TRANSCRIPTION_MODEL_PROFILES_FILE`: JSON file containing each model's individual
-  configuration; default `./config/transcription-model-profiles.json`;
 - `TRANSCRIPTION_CONCURRENCY`: batches processed simultaneously; default `2`;
 - `TRANSCRIPTION_VAD_THRESHOLD`: minimum speech probability in the local Silero detector;
   default `0.5`;
 - `TRANSCRIPTION_VAD_MIN_SPEECH_MS`: approximate minimum speech duration; default `96` ms;
-- `TRANSCRIPTION_MERGE_MAX_GAP_MS`: maximum gap for consolidating nearby utterances from the same
-  person; default `2000` ms;
 - `TRANSCRIPTION_WINDOW_MAX_SECONDS`: maximum duration of a consolidated batch; default `30` s;
 - `TRANSCRIPTION_MAX_ATTEMPTS`: total attempts per batch; default `4`;
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout for each attempt; default `90000` ms;
 - `TRANSCRIPTION_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
 - `TRANSCRIPTION_RETRY_MAX_MS`: maximum delay between retries; default `30000` ms.
 
-The configured model must have an entry with the same slug in
-[`config/transcription-model-profiles.json`](./config/transcription-model-profiles.json). Summyz
-validates every profile and fails before connecting to Discord if the file is invalid or the active
-model has no profile. The model is still selected through `.env`; no configuration from one
-profile is inherited by another.
+The transcription phase of each profile defines:
 
-Each profile defines:
-
-- `language`: language sent to the provider; when omitted, automatic detection is used;
+- `provider` and `model`, both required for a complete profile;
+- `language`: `auto` or an explicit language;
+- `batchSize`: `auto`, `0` to disable, or an integer from `1` to `64`;
 - `temperature`: transcription temperature;
 - `timestampMode`: `word` for detailed timestamps or `batch` for text without timestamps;
 - `interSpeechSilenceMs`: WAV silence inserted only between actual speech intervals in the batch;
@@ -204,35 +209,6 @@ Each profile defines:
 - `prompt`: optional text instruction to guide transcription style;
 - `providerOptions`: optional provider-specific options grouped by provider slug according to the
   OpenRouter contract.
-
-Profiles do not pin a language: `TRANSCRIPTION_LANGUAGE` controls that decision. With `auto`,
-Summyz uses automatic detection and local selection prioritizes the best overall multilingual
-quality. With an explicit language, support and quality for that language participate in ranking.
-The `deepgram/nova-3` profile inserts 350 ms between speech intervals. This value was selected in a
-controlled test: 200 and 500 ms dropped the negation, while 350 ms preserved the full utterance,
-“No, I agree. Really.” The `smart_format` and `utterances` options were not enabled because they
-produced worse results for this audio.
-
-The `mistralai/voxtral-mini-transcribe` model has a dedicated profile because its OpenRouter
-integration accepts only `response_format: "json"`, rejects `pt-BR`, and does not return
-timestamps. For this model, Summyz uses automatic language detection and represents each response
-with the start and end of the actual speech batch sent. Speakers and overlaps therefore remain
-preserved, but timestamps are precise per batch rather than per word or sentence.
-
-The `openai/gpt-transcribe` and `openai/gpt-4o-transcribe` profiles use `temperature: 0`, one JSON
-response per batch, and do not merge distinct segments. The `openai/gpt-transcribe` profile uses a
-language-neutral prompt to guide literal transcription in the original language and preserve
-hesitations, with no synthetic pause. The `openai/gpt-4o-transcribe` profile uses no prompt and
-inserts 350 ms between internal speech intervals. Neither configures `keywords`, names, specific
-terms, or any other controlled vocabulary.
-
-Although the direct OpenAI API documents detailed formats for `gpt-transcribe`, OpenRouter's
-current endpoint rejects word-level timestamp requests. Each line therefore represents a single
-segment and preserves the temporal order of utterances and overlaps.
-
-The `openai/gpt-transcribe` slug is already accepted by OpenRouter's transcription endpoint even
-though it does not appear in the public catalog returned by `/api/v1/models` at the time of this
-documentation.
 
 Before calling the API, Summyz decodes audio locally and uses Silero VAD to confirm that speech is
 present. Segments without speech are completed as silence with zero external attempts and do not
@@ -245,20 +221,28 @@ participants.
 
 OpenRouter may route a request among providers compatible with the selected model. Summyz accepts
 this routing within an OpenRouter stage. A stage configured as local never sends its content to
-OpenRouter and has no cross-provider fallback. Local services stay on the private Compose network;
-downloads and validation run in the background without blocking Discord startup.
+OpenRouter and has no cross-provider fallback. Local services stay on the private Compose network.
+`LOCAL_AI_DEVICE=auto|gpu|cpu` controls execution, while `LOCAL_AI_FALLBACK=none|cpu` separately
+authorizes CPU fallback. In `auto`, a detected GPU that is incompatible with a phase does not cause
+an implicit CPU switch. CPU mode always has an effective fallback of `none` and never receives GPU
+access. Required acceleration is warmed up and validated before processing; the active device is
+only emitted in structured logs.
 
-If the machine is below the hardware recommendation for a fully local setup, Summyz still selects
-the smallest compatible local models and attempts processing. It warns only the terminal and the
-person who ran `/record`; processing may be slow and output quality may be lower than desired. The
-durable queue remains responsible for actual service unavailability and transient failures.
+In this stage, faster-whisper GPU transcription supports NVIDIA/CUDA only. AMD is supported for
+Ollama on Linux through ROCm, but a profile requiring faster-whisper on an AMD GPU is incompatible
+and cannot start recording. AMD transcription through whisper.cpp/Vulkan or ROCm remains a future
+stage. Docker Desktop on Windows exposes NVIDIA GPUs, not AMD GPUs.
+
+If a selected model is above the hardware recommendation, Summyz keeps it and warns only the person
+who ran `/record`; it does not replace it with a smaller model. Incompatible models block recording.
+
+Summyz does not globally force `think=false`, `temperature=0`, or `seed=0`. That combination may be
+saved in a profile for hardware where it was validated; omitted values preserve the model and
+provider defaults.
 
 ## Refinement settings
 
-- `OPENROUTER_REFINEMENT_MODEL`: text model that reviews the STT output; the example recommends
-  `google/gemini-3.7-flash`;
-- `REFINEMENT_CHUNK_MAX_CHARACTERS`: approximate maximum size of each chunk, always split between
-  utterances; default `500000` characters;
+- `provider`, `model`, `maxChunkCharacters`, and generation options belong to the profile;
 - `REFINEMENT_MAX_ATTEMPTS`: total attempts per chunk; default `3`;
 - `REFINEMENT_TIMEOUT_MS`: timeout for each attempt; default `120000` ms;
 - `REFINEMENT_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
@@ -268,6 +252,9 @@ Refinement receives the structured chunks produced by Whisper and returns only `
 pairs. The code rejects any response that removes, adds, or reorders IDs and always reuses the
 speaker and timestamps from Whisper. The prompt requests a conservative review of clear spelling,
 phonetic, and contextual errors; it contains no list of names, keywords, or controlled vocabulary.
+When a model returns an incompatible structure for a chunk containing multiple utterances, Summyz
+automatically divides that chunk and retries the smaller parts. Service unavailability and an
+incompatible response for a single utterance are still propagated to the durable retry policy.
 
 Before the first call, Summyz atomically preserves the original output in `transcript.raw.txt`. If
 the model or structured response fails all three attempts, it restores the original to
@@ -277,10 +264,8 @@ the original transcript remains available.
 
 ## Summary settings
 
-- `OPENROUTER_SUMMARY_MODEL`: text model used for the summary, configured separately from the
-  transcription model; the example recommends `google/gemini-3.7-flash`;
-- `SUMMARY_CHUNK_MAX_CHARACTERS`: approximate maximum size of each transcript chunk; default
-  `500000` characters;
+- `provider`, `model`, `language`, `maxChunkCharacters`, and generation options belong to the
+  profile;
 - `SUMMARY_MAX_ATTEMPTS`: total attempts per model call; default `4`;
 - `SUMMARY_TIMEOUT_MS`: timeout for each attempt; default `120000` ms;
 - `SUMMARY_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
@@ -377,8 +362,8 @@ volume and Discord is not.
 
 When `PERSIST_MEETING_AUDIO=false`, audio is deleted as soon as the complete transcript is
 validated and persisted, or after a permanent failure. After publication, the remaining temporary
-files are deleted if `PERSIST_MEETING_CONTENT=false`. Enabled copies remain in the backend
-selected when the meeting started until an administrator intervenes.
+files are deleted if `PERSIST_MEETING_CONTENT=false`. Enabled copies remain in PostgreSQL or
+`DATA_DIR`, according to their type, until the operator deletes them.
 
 ## Quality
 

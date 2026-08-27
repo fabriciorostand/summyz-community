@@ -145,7 +145,9 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
             ? {}
             : { provider: { options: this.#profile.providerOptions } }),
           response_format: acceptsUntimedText ? "json" : "verbose_json",
-          temperature: this.#profile.temperature,
+          ...(this.#profile.temperature === undefined
+            ? {}
+            : { temperature: this.#profile.temperature }),
           ...(acceptsUntimedText ? {} : { timestamp_granularities: ["word", "segment"] }),
         }),
         headers: {

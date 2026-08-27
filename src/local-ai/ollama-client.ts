@@ -9,6 +9,11 @@ const responseSchema = z.object({
 export interface OllamaStructuredRequestOptions<T> {
   baseUrl?: string;
   fetch?: Fetch;
+  generation?: {
+    seed?: number | undefined;
+    temperature?: number | undefined;
+    think?: boolean | undefined;
+  };
   input: unknown;
   instruction: string;
   jsonSchema: Readonly<Record<string, unknown>>;
@@ -38,6 +43,12 @@ export class IncompatibleOllamaModelError extends Error {
 export async function requestOllamaStructured<T>(
   options: OllamaStructuredRequestOptions<T>,
 ): Promise<T> {
+  const generationOptions = {
+    ...(options.generation?.seed === undefined ? {} : { seed: options.generation.seed }),
+    ...(options.generation?.temperature === undefined
+      ? {}
+      : { temperature: options.generation.temperature }),
+  };
   let response: Response;
   try {
     response = await (options.fetch ?? fetch)(
@@ -51,8 +62,9 @@ export async function requestOllamaStructured<T>(
             { content: JSON.stringify(options.input), role: "user" },
           ],
           model: options.model,
-          options: { temperature: 0 },
+          ...(Object.keys(generationOptions).length === 0 ? {} : { options: generationOptions }),
           stream: false,
+          ...(options.generation?.think === undefined ? {} : { think: options.generation.think }),
         }),
         headers: { "Content-Type": "application/json" },
         method: "POST",

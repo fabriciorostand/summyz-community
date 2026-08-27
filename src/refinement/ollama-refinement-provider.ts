@@ -2,7 +2,10 @@ import { z } from "zod";
 
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 
-import { requestOllamaStructured } from "../local-ai/ollama-client.js";
+import {
+  IncompatibleOllamaModelError,
+  requestOllamaStructured,
+} from "../local-ai/ollama-client.js";
 import {
   IncompatibleRefinementResponseError,
   type RefinementProvider,
@@ -38,6 +41,11 @@ interface OllamaRefinementProviderOptions {
   baseUrl?: string;
   costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
+  generation?: {
+    seed?: number | undefined;
+    temperature?: number | undefined;
+    think?: boolean | undefined;
+  };
   model: string;
   onIncompatibleModel?: (model: string) => Promise<void>;
   timeoutMs: number;
@@ -59,6 +67,7 @@ export class OllamaRefinementProvider implements RefinementProvider {
       const output = await requestOllamaStructured({
         ...(this.#options.baseUrl === undefined ? {} : { baseUrl: this.#options.baseUrl }),
         ...(this.#options.fetch === undefined ? {} : { fetch: this.#options.fetch }),
+        ...(this.#options.generation === undefined ? {} : { generation: this.#options.generation }),
         input: { blocks: entries.map(({ id, text }) => ({ id, text })) },
         instruction,
         jsonSchema,
@@ -81,7 +90,9 @@ export class OllamaRefinementProvider implements RefinementProvider {
       }
       throw new RefinementProviderFailureError(
         1,
-        error instanceof z.ZodError ? new IncompatibleRefinementResponseError() : error,
+        error instanceof z.ZodError || error instanceof IncompatibleOllamaModelError
+          ? new IncompatibleRefinementResponseError()
+          : error,
       );
     }
     if (costAttempt !== undefined) {

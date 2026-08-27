@@ -58,5 +58,19 @@ describe("requestOllamaStructured", () => {
       requestOllamaStructured({ ...baseOptions, baseUrl: "http://ollama-test:11434", fetch }),
     ).resolves.toEqual({ ok: true });
     expect(fetch).toHaveBeenCalledWith("http://ollama-test:11434/api/chat", expect.any(Object));
+    const request = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as Record<string, unknown>;
+    expect(request).not.toHaveProperty("options");
+    expect(request).not.toHaveProperty("think");
+
+    await requestOllamaStructured({
+      ...baseOptions,
+      fetch,
+      generation: { seed: 0, temperature: 0, think: false },
+    });
+    const customized = JSON.parse(String(fetch.mock.calls[1]?.[1].body)) as Record<string, unknown>;
+    expect(customized).toMatchObject({
+      options: { seed: 0, temperature: 0 },
+      think: false,
+    });
   });
 });

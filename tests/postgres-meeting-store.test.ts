@@ -133,7 +133,7 @@ describe("PostgresMeetingStore", () => {
     const { database, query } = createDatabase();
     const store = new PostgresMeetingStore(database);
 
-    await store.save(activeManifest);
+    await store.save({ ...activeManifest, storageMode: "local" });
 
     expect(query).not.toHaveBeenCalled();
   });

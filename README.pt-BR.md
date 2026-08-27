@@ -32,8 +32,8 @@ decisões, as tarefas e a transcrição completa.
 
 - Node.js 22.12 ou superior;
 - npm;
-- Docker com Compose para executar o bot e, no modo PostgreSQL, o banco;
-- PostgreSQL 18 somente quando `STORAGE_MODE=postgres`;
+- Docker com Compose para executar o bot, o PostgreSQL e os serviços locais;
+- PostgreSQL 18;
 - uma aplicação de bot criada no Discord Developer Portal;
 - uma conta no OpenRouter com créditos e uma chave de API somente para as fases configuradas com
   `openrouter`;
@@ -43,16 +43,15 @@ decisões, as tarefas e a transcrição completa.
 
 1. Instale as dependências com `npm install`.
 2. Copie `.env.example` para `.env`.
-3. Preencha `DISCORD_TOKEN` e `DISCORD_CLIENT_ID`. Escolha separadamente os provedores de
-   transcrição, refinamento e resumo. Preencha a chave e os modelos OpenRouter somente nas fases que
-   o utilizarem.
-4. Escolha `STORAGE_MODE=local` para operar sem banco. Para `STORAGE_MODE=postgres`, defina
-   `POSTGRES_PASSWORD` e `DATABASE_URL`; use o host `postgres` no Compose ou `localhost` no npm.
+3. Preencha `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `POSTGRES_PASSWORD` e `DATABASE_URL`; use o host
+   `postgres` no Compose ou `localhost` ao executar o bot diretamente pelo npm.
+4. Preencha `OPENROUTER_API_KEY` somente se algum perfil utilizar OpenRouter.
 5. Defina `PERSIST_MEETING_CONTENT` e `PERSIST_MEETING_AUDIO` conforme a política desejada.
 6. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
-7. Execute `docker compose up -d --build`. O Compose sobe o bot, Ollama e faster-whisper; apenas os
-   modelos locais selecionados são baixados. No modo PostgreSQL, acrescente `--profile postgres`.
+7. Execute `npm run local-ai:up`. O inicializador detecta GPUs, escolhe os overlays seguros do
+   Compose e sobe o bot, PostgreSQL, Ollama e faster-whisper. Os modelos locais escolhidos nos
+   perfis são preparados quando necessários.
    `npm run dev` continua disponível para desenvolvimento, mas os serviços locais permanecem no
    Compose.
 
@@ -62,40 +61,33 @@ continua usando `postgres:5432`.
 
 Nunca versione o arquivo `.env` nem publique o token do bot.
 
-No modo local, o bot não cria conexão nem exige um PostgreSQL. No modo PostgreSQL, migrações e
-conexão são validadas antes do login no Discord; se o banco estiver indisponível ou a URL for
-inválida, o processo encerra com uma mensagem segura. O mesmo ocorre se houver no disco uma reunião
-PostgreSQL pendente de recuperação e `DATABASE_URL` não estiver disponível. Os volumes
+As migrações e a conexão PostgreSQL são validadas antes do login no Discord; se o banco estiver
+indisponível ou a URL for inválida, o processo encerra com uma mensagem segura. Os volumes
 `postgres_data`, `summyz_data`, `ollama_models` e `faster_whisper_models` preservam o banco, os
 arquivos e os modelos gerenciados após reinício.
 
 ## Persistência e privacidade
 
-- `STORAGE_MODE=local` é o padrão e guarda manifesto, fila, tentativas e estados operacionais em
-  arquivos atômicos dentro de `DATA_DIR`, sem exigir banco;
-- `STORAGE_MODE=postgres` guarda configuração, reunião mínima, fila e tentativas no PostgreSQL;
-  `DATABASE_URL` passa a ser obrigatória;
+- o PostgreSQL guarda configurações, perfis, reuniões, fila e tentativas; `DATABASE_URL` é
+  obrigatória;
 - `PERSIST_MEETING_CONTENT=false` é o padrão. Depois do estado terminal, transcrições, resumo e
   estados locais são removidos. O backend mantém somente o mínimo operacional necessário à fila e
   ao diagnóstico de sua conclusão;
-- com `PERSIST_MEETING_CONTENT=true`, o modo local conserva os arquivos da etapa 3; o modo
-  PostgreSQL conserva transcrição bruta e refinada, resumo, publicação e manifesto em
-  `meeting_contents`;
+- com `PERSIST_MEETING_CONTENT=true`, o PostgreSQL conserva transcrição bruta e refinada, resumo,
+  publicação e manifesto em `meeting_contents`;
 - `PERSIST_MEETING_AUDIO=false` é o padrão: os áudios são excluídos depois de uma transcrição
   integralmente validada ou depois de esgotar as tentativas duráveis;
-- com `PERSIST_MEETING_AUDIO=true`, os áudios permanecem indefinidamente em `DATA_DIR`. No modo
-  local, `audio-manifest.json` cataloga os segmentos; no modo PostgreSQL, a tabela
-  `meeting_audio_segments` guarda metadados e caminhos relativos;
+- com `PERSIST_MEETING_AUDIO=true`, os áudios permanecem indefinidamente em `DATA_DIR`, enquanto a
+  tabela `meeting_audio_segments` guarda metadados e caminhos relativos;
 - áudio nunca é armazenado como BLOB no PostgreSQL. Mesmo nesse modo, os bytes ficam no volume
   durável montado em `DATA_DIR`;
-- no modo PostgreSQL, o `manifest.json` local funciona como registro temporário de recuperação junto
+- o `manifest.json` local funciona como registro temporário de recuperação junto
   dos áudios; o processamento o sincroniza com o banco antes de reservar o job;
 - não há expiração automática para conteúdo ou áudio preservado. A exclusão é uma operação manual
   do administrador no disco ou banco.
 - registros de custos de provedores nunca expiram automaticamente e são independentes da retenção
-  de conteúdo e áudio. O modo local os mantém em
-  `DATA_DIR/costs/guilds/<guildId>/meetings/<meetingId>`; o modo PostgreSQL usa
-  `provider_cost_attempts`, com relacionamentos protegidos para reunião e servidor.
+  de conteúdo e áudio. O PostgreSQL usa `provider_cost_attempts`, com relacionamentos protegidos
+  para reunião e servidor.
 
 ## Medição de custos dos provedores
 
@@ -111,18 +103,18 @@ expõem essa condição e não apresentam o subtotal confirmado como necessariam
 Chamadas locais ao Ollama e faster-whisper preservam o modelo efetivo com o campo de custo externo
 como `null`, pois o custo computacional não faz parte desta etapa.
 
-Administradores podem consultar uma reunião concluída com `/recording-cost meeting` ou agregar
+Somente o dono do servidor pode consultar uma reunião concluída com `/recording-cost meeting` ou agregar
 reuniões concluídas pela data em que começaram com `/recording-cost period`; reuniões em andamento
 ficam fora do relatório. As respostas são efêmeras e sempre limitadas ao servidor atual do Discord.
 Os limites de data usam `SUMMARY_TIME_ZONE`; valores financeiros são armazenados e exibidos sem
 arredondamento.
 
-As escolhas de armazenamento, persistência, provedores, modelos resolvidos e idiomas são copiadas
-para o manifesto no início da reunião. Alterar o `.env` depois não migra nem redireciona uma reunião
-já iniciada.
+As escolhas de persistência e o perfil ativo completo — provedores, modelos, idiomas e parâmetros —
+são copiados para o manifesto no início da reunião. Alterar ou ativar outro perfil depois não muda
+uma reunião já iniciada.
 
-O processamento usa uma fila durável em `processing.json` no modo local ou no PostgreSQL no outro
-modo. A entrega é *at least once*: se o processo cair depois de reservar um job e antes de confirmar
+O processamento usa uma fila durável no PostgreSQL. A entrega é *at least once*: se o processo cair
+depois de reservar um job e antes de confirmar
 o resultado, esse job pode executar novamente após o reinício ou vencimento do lease. As etapas e a
 publicação são idempotentes para que a repetição não crie intencionalmente outra reunião. Além dos
 retries rápidos dos provedores, uma falha transitória agenda execuções duráveis após 1 minuto,
@@ -160,6 +152,27 @@ Depois de adicionar o bot, use `/recording-role add` para autorizar os cargos de
 bloqueadas enquanto não houver um fórum configurado. Consulte [BOT_COMMANDS.md](./BOT_COMMANDS.md)
 para ver todos os comandos e regras de acesso.
 
+Somente o dono literal do servidor Discord pode gerenciar fórum, cargos autorizados e custos.
+Permissões de Administrador ou Gerenciar servidor não concedem essa gestão. O dono e os cargos que
+ele autorizar podem usar `/record` e `/stop`; os cargos não recebem outros poderes.
+
+## Perfis de processamento
+
+Cada servidor possui múltiplos perfis no PostgreSQL e exatamente um perfil ativo. Na primeira
+inicialização, o Summyz cria e ativa `Profile 1`, mas não escolhe provedores nem modelos. Enquanto
+transcrição, refinamento e resumo não tiverem uma escolha explícita, `/record` mostra um aviso
+efêmero e não inicia a gravação. Esta etapa entrega o modelo de dados e a execução dos perfis; a
+interface de configuração será implementada separadamente, portanto ainda não há comando Discord
+nem configurador de terminal para editá-los.
+
+Não existe modelo `auto` nem `openrouter/auto`. A escolha é livre e o Summyz nunca substitui o
+modelo selecionado. A avaliação local usa os estados `recommended`, `compatible`,
+`above_recommended`, `unknown` e `incompatible`: somente `incompatible` bloqueia a gravação;
+`above_recommended` e `unknown` geram avisos privados. Um perfil guarda, por fase, o provedor,
+modelo, idioma e parâmetros próprios. Isso inclui batching e opções de STT, tamanho de chunks e as
+opções de geração `temperature`, `seed` e `think` quando aplicáveis. Valores não definidos não são
+forçados pelo Summyz, preservando os padrões do provedor.
+
 ## Configurações de gravação
 
 - `BOT_LANGUAGE`: idioma dos textos fixos e das descrições de comandos no Discord; `en` ou `pt-BR`;
@@ -176,67 +189,29 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 
 ## Configurações de transcrição
 
-- `TRANSCRIPTION_PROVIDER`: `openrouter` ou `faster-whisper`; padrão `openrouter`;
-- `TRANSCRIPTION_LANGUAGE`: `auto` ou código BCP 47; padrão `auto`;
-- `FASTER_WHISPER_MODEL`: modelo local exato ou `auto`; padrão `auto`;
 - `OPENROUTER_API_KEY`: chave exigida somente quando alguma fase usa OpenRouter;
-- `OPENROUTER_TRANSCRIPTION_MODEL`: modelo STT exigido quando a transcrição usa OpenRouter;
-- `TRANSCRIPTION_MODEL_PROFILES_FILE`: arquivo JSON com a configuração individual de cada modelo;
-  padrão `./config/transcription-model-profiles.json`;
 - `TRANSCRIPTION_CONCURRENCY`: lotes processados simultaneamente; padrão `2`;
 - `TRANSCRIPTION_VAD_THRESHOLD`: probabilidade mínima de voz no detector Silero local; padrão `0.5`;
 - `TRANSCRIPTION_VAD_MIN_SPEECH_MS`: duração mínima aproximada de voz; padrão `96` ms;
-- `TRANSCRIPTION_MERGE_MAX_GAP_MS`: intervalo máximo para consolidar falas próximas da mesma
-  pessoa; padrão `2000` ms;
 - `TRANSCRIPTION_WINDOW_MAX_SECONDS`: duração máxima de um lote consolidado; padrão `30` s;
 - `TRANSCRIPTION_MAX_ATTEMPTS`: total de tentativas por lote; padrão `4`;
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout de cada tentativa; padrão `90000` ms;
 - `TRANSCRIPTION_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
 - `TRANSCRIPTION_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
 
-Um modelo OpenRouter configurado precisa possuir uma entrada com o mesmo slug em
-[`config/transcription-model-profiles.json`](./config/transcription-model-profiles.json). O Summyz
-valida todos os perfis e falha antes de se conectar ao Discord se o arquivo for inválido ou o modelo
-ativo não tiver perfil. O modelo continua sendo escolhido pelo `.env`; nenhuma configuração de um
-perfil é herdada por outro.
+Na fase de transcrição, cada perfil define:
 
-Cada perfil define:
-
+- `provider` e `model`, ambos obrigatórios para o perfil ficar completo;
+- `language`: `auto` ou um idioma explícito;
+- `batchSize`: `auto`, `0` para desativar ou um inteiro de `1` a `64`;
 - `temperature`: temperatura da transcrição;
 - `timestampMode`: `word` para timestamps detalhados ou `batch` para texto sem timestamps;
 - `interSpeechSilenceMs`: silêncio WAV inserido somente entre intervalos reais de voz do lote;
 - `mergeMaxGapMs`: sobrescrita opcional do intervalo máximo global para consolidar falas da mesma
   pessoa;
 - `prompt`: instrução textual opcional para orientar o estilo da transcrição;
-- `providerOptions`: opções específicas opcionais, agrupadas pelo slug do provedor conforme o
-  contrato do OpenRouter.
-
-Os perfis não fixam idioma: `TRANSCRIPTION_LANGUAGE` controla essa decisão. Com `auto`, o Summyz
-usa detecção automática e a seleção local considera a melhor qualidade multilíngue geral. Com um
-idioma explícito, suporte e qualidade nesse idioma participam do ranking. O perfil
-`deepgram/nova-3` insere 350 ms entre intervalos de voz. Esse valor foi escolhido em um
-teste controlado: 200 e 500 ms perderam a palavra “não”, enquanto 350 ms preservou “Não, concordo.
-Realmente.”. As opções `smart_format` e `utterances` não foram ativadas porque pioraram esse áudio.
-
-O modelo `mistralai/voxtral-mini-transcribe` possui um perfil específico porque sua integração no
-OpenRouter aceita somente `response_format: "json"`, rejeita `pt-BR` e não devolve timestamps. Para
-ele, o Summyz usa detecção automática de idioma e representa cada resposta com o início e o fim do
-lote real de voz enviado. Assim, falantes e sobreposições continuam preservados, mas os timestamps
-são precisos por lote, não por palavra ou frase.
-
-Os perfis `openai/gpt-transcribe` e `openai/gpt-4o-transcribe` usam `temperature: 0`, resposta JSON
-por lote e não unem segmentos distintos. O perfil `openai/gpt-transcribe` usa um prompt neutro para
-orientar transcrição literal no idioma original e preservação de
-hesitações, sem pausa sintética. O perfil `openai/gpt-4o-transcribe` não usa prompt e insere 350 ms
-entre intervalos internos de voz. Nenhum deles configura `keywords`, nomes, termos específicos ou
-outro vocabulário controlado.
-
-Embora a API direta da OpenAI documente formatos detalhados para `gpt-transcribe`, o endpoint atual
-do OpenRouter rejeita a solicitação de timestamps por palavra. Assim, cada linha representa um único
-segmento e preserva a ordem temporal das falas e sobreposições.
-
-O slug `openai/gpt-transcribe` já é aceito pelo endpoint de transcrição do OpenRouter, ainda que não
-apareça no catálogo público retornado por `/api/v1/models` no momento desta documentação.
+- `providerOptions`: opções opcionais agrupadas pelo slug do provedor conforme o contrato do
+  OpenRouter.
 
 Antes da API, o Summyz decodifica o áudio localmente e usa Silero VAD para confirmar a presença de
 voz. Segmentos sem voz são concluídos como silêncio, com zero tentativas externas, e não aproximam
@@ -250,27 +225,48 @@ O OpenRouter pode rotear uma requisição entre provedores compatíveis com o mo
 Summyz aceita esse roteamento dentro da fase OpenRouter. Uma fase configurada como local nunca envia
 seu conteúdo ao OpenRouter e não possui fallback cruzado.
 
-O Compose mantém Ollama e faster-whisper apenas na rede privada. Downloads e validações acontecem
-em segundo plano e não bloqueiam o login no Discord. Ollama usa saída JSON estruturada; modelos que
-não cumprem o contrato são descarregados e, quando nenhuma outra fase válida os utiliza, removidos
-do volume gerenciado. faster-whisper tenta CUDA quando disponível e recua para CPU sem trocar de
-provedor. Para disponibilizar GPU aos containers, execute
-`docker compose -f docker-compose.yaml -f docker-compose.gpu.yaml up -d --build`.
+O Compose mantém Ollama e faster-whisper apenas na rede privada. Ollama usa saída JSON estruturada;
+modelos que não cumprem a validação de contrato feita na inicialização são descarregados e, quando
+nenhuma outra fase válida os utiliza, removidos do volume gerenciado. Uma resposta isolada
+incompatível durante uma reunião não condena o modelo: se o lote tiver várias falas, o Summyz o
+subdivide automaticamente e tenta novamente com partes menores. Indisponibilidade do serviço e uma
+resposta incompatível para uma única fala continuam sob a política de retry durável. O
+faster-whisper executa um warm-up real antes de declarar CUDA pronta, evitando descobrir bibliotecas
+ou VRAM incompatíveis somente na primeira reunião.
 
-Se o hardware ficar abaixo da recomendação para uma configuração 100% local, o Summyz ainda escolhe
-os menores modelos locais compatíveis e tenta processar a reunião. O processamento pode ser lento e
-a qualidade pode ficar abaixo do desejado. Somente o terminal e o usuário que executou `/record`
-recebem o aviso, com a sugestão de configurar OpenRouter. A fila durável continua responsável apenas
-pelas indisponibilidades e falhas transitórias reais dos serviços locais.
+O Summyz não força `think=false`, `temperature=0` nem `seed=0` globalmente. Essa combinação pode ser
+salva no perfil para o hardware em que foi validada; quando omitida, os padrões do modelo e do
+provedor são preservados.
+
+`LOCAL_AI_DEVICE` controla todas as fases locais:
+
+- `auto` detecta o hardware mais potente. Se houver GPU, mas ela for incompatível com a fase, não
+  troca implicitamente para CPU;
+- `gpu` exige uma GPU compatível para cada fase local configurada;
+- `cpu` nunca disponibiliza nem utiliza GPU.
+
+`LOCAL_AI_FALLBACK=none` é o padrão e não permite fallback implícito. Com o fallback `cpu`, uma GPU
+incompatível ou uma falha ao inicializá-la pode usar CPU e gera aviso estruturado. Quando
+`LOCAL_AI_DEVICE=cpu`, o fallback
+efetivo é sempre `none`, mesmo que outro valor tenha sido escrito. O dispositivo efetivamente ativo
+é exposto somente nos logs estruturados.
+
+Nesta etapa, a transcrição faster-whisper acelera somente em NVIDIA/CUDA. Uma máquina apenas com AMD
+pode usar a AMD no Ollama em Linux via ROCm, mas um perfil que exigir faster-whisper na GPU é
+incompatível e não inicia a gravação. AMD para transcrição via whisper.cpp/Vulkan ou ROCm fica para
+uma etapa futura.
+Docker Desktop no Windows expõe GPU NVIDIA, não AMD; por isso o inicializador interrompe uma fase
+Ollama/AMD nesse ambiente, salvo quando o fallback para CPU foi autorizado. GPUs Intel, Apple e de
+fabricante desconhecido são detectadas, mas sem um perfil de container compatível nesta etapa o
+mesmo princípio se aplica. Use `npm run local-ai:down` para encerrar a pilha iniciada pelo script.
+
+Se o modelo escolhido estiver acima da recomendação de hardware, o Summyz mantém a escolha e avisa
+somente o usuário que executou `/record`; não troca para um modelo menor. Modelos incompatíveis
+bloqueiam a gravação.
 
 ## Configurações de refinamento
 
-- `REFINEMENT_PROVIDER`: `openrouter` ou `ollama`; padrão `openrouter`;
-- `OLLAMA_REFINEMENT_MODEL`: modelo Ollama exato ou `auto`; padrão `auto`;
-- `OPENROUTER_REFINEMENT_MODEL`: modelo de texto que revisa a saída do STT; o exemplo recomenda
-  `google/gemini-3.7-flash`;
-- `REFINEMENT_CHUNK_MAX_CHARACTERS`: tamanho máximo aproximado de cada bloco, sempre dividido entre
-  falas; padrão `500000` caracteres;
+- `provider`, `model`, `maxChunkCharacters` e opções de geração pertencem ao perfil;
 - `REFINEMENT_MAX_ATTEMPTS`: total de tentativas por bloco; padrão `3`;
 - `REFINEMENT_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
 - `REFINEMENT_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
@@ -290,14 +286,7 @@ transcrição original continua disponível.
 
 ## Configurações de resumo
 
-- `SUMMARY_PROVIDER`: `openrouter` ou `ollama`; padrão `openrouter`;
-- `SUMMARY_LANGUAGE`: `auto` ou código BCP 47; padrão `auto`. Em `auto`, a saída usa o idioma
-  predominante da reunião;
-- `OLLAMA_SUMMARY_MODEL`: modelo Ollama exato ou `auto`; padrão `auto`;
-- `OPENROUTER_SUMMARY_MODEL`: modelo de texto usado no resumo, configurado separadamente do modelo
-  de transcrição; o exemplo recomenda `google/gemini-3.7-flash`;
-- `SUMMARY_CHUNK_MAX_CHARACTERS`: tamanho máximo aproximado de cada bloco de transcrição; padrão
-  `500000` caracteres;
+- `provider`, `model`, `language`, `maxChunkCharacters` e opções de geração pertencem ao perfil;
 - `SUMMARY_MAX_ATTEMPTS`: total de tentativas por chamada ao modelo; padrão `4`;
 - `SUMMARY_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
 - `SUMMARY_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
@@ -394,7 +383,7 @@ atomicidade absoluta entre o volume e o Discord.
 Quando `PERSIST_MEETING_AUDIO=false`, os áudios são excluídos assim que a transcrição completa é
 validada e persistida, ou após a falha definitiva. Depois da publicação, os demais arquivos
 temporários são excluídos se `PERSIST_MEETING_CONTENT=false`. As cópias habilitadas permanecem no
-backend escolhido no início da reunião até intervenção do administrador.
+PostgreSQL ou em `DATA_DIR`, conforme o tipo, até que o operador as exclua.
 
 ## Qualidade
 
@@ -405,6 +394,13 @@ O decodificador Opus do MVP é `opusscript`, evitando a cadeia vulnerável encon
 nativa avaliada. O smoke test dos serviços locais é automatizado e executado dentro da rede privada
 com `docker compose --profile smoke run --rm smoke`; ele baixa modelos pequenos e pode demorar na
 primeira execução. Interações reais no Discord não são apresentadas como teste automatizado.
+
+O benchmark de faster-whisper usa `transcript.raw.txt` como referência, calcula WER, CER, tempo e
+fator de tempo real, e não inclui o conteúdo das reuniões no relatório. Configure
+`BENCHMARK_DEVICE`, `BENCHMARK_BATCH_SIZE` e `BENCHMARK_MODEL`, depois execute
+`npx tsx scripts/local-ai-compose.ts --profile benchmark run --rm benchmark`. Ele só mede reuniões
+que ainda possuem todos os áudios. O inventário inicial está em
+[`docs/benchmarks.md`](./docs/benchmarks.md).
 
 ## Contribuição
 

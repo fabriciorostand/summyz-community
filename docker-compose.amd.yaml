@@ -1,0 +1,17 @@
+services:
+  ollama:
+    image: ollama/ollama:0.11.4-rocm
+    devices:
+      - /dev/kfd
+      - /dev/dri
+    environment:
+      OLLAMA_LLM_LIBRARY: ""
+    group_add:
+      - video
+      - render
+
+  bot:
+    environment:
+      SUMMYZ_DETECTED_GPU_MEMORY_BYTES: ${SUMMYZ_DETECTED_GPU_MEMORY_BYTES:-}
+      SUMMYZ_DETECTED_GPU_NAME: ${SUMMYZ_DETECTED_GPU_NAME:-AMD GPU}
+      SUMMYZ_DETECTED_GPU_VENDOR: ${SUMMYZ_DETECTED_GPU_VENDOR:-amd}

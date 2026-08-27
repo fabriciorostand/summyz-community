@@ -47,6 +47,8 @@ describe("PostgresDatabase", () => {
     expect(queries.some((query) => query.includes("CREATE TABLE provider_cost_attempts"))).toBe(
       true,
     );
+    expect(queries.some((query) => query.includes("CREATE TABLE ai_profiles"))).toBe(true);
+    expect(queries.some((query) => query.includes("active_ai_profile_id"))).toBe(true);
     expect(queries.at(-1)).toBe("COMMIT");
     expect(client.release).toHaveBeenCalledOnce();
   });

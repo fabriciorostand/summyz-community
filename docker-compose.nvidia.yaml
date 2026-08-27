@@ -1,0 +1,22 @@
+services:
+  ollama:
+    environment:
+      OLLAMA_LLM_LIBRARY: ""
+    gpus: all
+
+  faster-whisper:
+    build:
+      context: ./services/faster-whisper
+      target: cuda
+    gpus: all
+
+  bot:
+    gpus: all
+    environment:
+      SUMMYZ_DETECTED_GPU_MEMORY_BYTES: ${SUMMYZ_DETECTED_GPU_MEMORY_BYTES:-}
+      SUMMYZ_DETECTED_GPU_NAME: ${SUMMYZ_DETECTED_GPU_NAME:-NVIDIA GPU}
+      SUMMYZ_DETECTED_GPU_VENDOR: ${SUMMYZ_DETECTED_GPU_VENDOR:-nvidia}
+
+  smoke:
+    environment:
+      SMOKE_LOCAL_AI_DEVICE: gpu

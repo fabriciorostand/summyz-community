@@ -17,6 +17,7 @@ const manifest = markManifestCompleted(
       notificationChannelId: "text-1",
       persistMeetingAudio: true,
       startedAt: "2026-08-24T10:00:00.000Z",
+      storageMode: "local",
       voiceChannelId: "voice-1",
     }),
     {

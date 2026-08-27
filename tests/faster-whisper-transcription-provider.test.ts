@@ -63,6 +63,9 @@ describe("FasterWhisperTranscriptionProvider", () => {
         ),
     );
     const provider = new FasterWhisperTranscriptionProvider({
+      batchSize: 4,
+      device: "gpu",
+      fallback: "cpu",
       fetch,
       language: "auto",
       model: "small",
@@ -83,6 +86,9 @@ describe("FasterWhisperTranscriptionProvider", () => {
     expect(body).toBeInstanceOf(FormData);
     expect((body as FormData).get("model")).toBe("small");
     expect((body as FormData).get("language")).toBe("auto");
+    expect((body as FormData).get("device")).toBe("gpu");
+    expect((body as FormData).get("fallback")).toBe("cpu");
+    expect((body as FormData).get("batchSize")).toBe("4");
   });
 
   it("rejeita respostas sem timestamps em vez de aceitar um modelo incompatível", async () => {

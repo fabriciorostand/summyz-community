@@ -11,9 +11,13 @@ services:
       retries: 12
     volumes:
       - ollama_models:/root/.ollama
+    environment:
+      OLLAMA_LLM_LIBRARY: cpu
 
   faster-whisper:
-    build: ./services/faster-whisper
+    build:
+      context: ./services/faster-whisper
+      target: cpu
     restart: unless-stopped
     expose:
       - "8000"
@@ -21,7 +25,7 @@ services:
       test:
         [
           "CMD",
-          "python",
+          "python3",
           "-c",
           "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
         ]
@@ -33,7 +37,6 @@ services:
 
   postgres:
     image: postgres:18.4-alpine
-    profiles: ["postgres"]
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-summyz}
@@ -52,6 +55,13 @@ services:
   bot:
     build: .
     restart: unless-stopped
+    depends_on:
+      faster-whisper:
+        condition: service_healthy
+      ollama:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
     env_file:
       - .env
     environment:
@@ -69,6 +79,21 @@ services:
         condition: service_healthy
       ollama:
         condition: service_healthy
+
+  benchmark:
+    profiles: ["benchmark"]
+    build:
+      context: .
+      target: test
+    command: ["npm", "run", "benchmark:transcription"]
+    depends_on:
+      faster-whisper:
+        condition: service_healthy
+    environment:
+      BENCHMARK_DATA_DIR: /benchmark-data/recordings
+      FASTER_WHISPER_BENCHMARK_URL: http://faster-whisper:8000
+    volumes:
+      - ./data:/benchmark-data:ro
 
 volumes:
   faster_whisper_models:

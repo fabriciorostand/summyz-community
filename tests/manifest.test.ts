@@ -21,7 +21,7 @@ describe("manifesto da gravação", () => {
 
     expect(manifest).toMatchObject({
       schemaVersion: 1,
-      storageMode: "local",
+      storageMode: "postgres",
       persistMeetingAudio: false,
       persistMeetingContent: false,
       status: "recording",
@@ -84,6 +84,54 @@ describe("manifesto da gravação", () => {
       refinement: { model: "qwen3:4b", provider: "ollama" },
       summary: { language: "auto", model: "qwen3:8b", provider: "ollama" },
       transcription: { language: "es", model: "small", provider: "faster-whisper" },
+    });
+  });
+
+  it("fixa parâmetros personalizados do perfil versionado", () => {
+    const parsed = recordingManifestSchema.parse({
+      aiConfiguration: {
+        refinement: {
+          generation: { seed: 0, temperature: 0, think: false },
+          maxChunkCharacters: 3_000,
+          model: "qwen3:1.7b",
+          provider: "ollama",
+          requestedModel: "qwen3:1.7b",
+          status: "selected",
+        },
+        selectorVersion: 3,
+        summary: {
+          generation: { seed: 0, temperature: 0, think: false },
+          language: "pt-BR",
+          maxChunkCharacters: 3_000,
+          model: "qwen3:4b-instruct-2507-q4_K_M",
+          provider: "ollama",
+          requestedModel: "qwen3:4b-instruct-2507-q4_K_M",
+          status: "selected",
+        },
+        transcription: {
+          batchSize: 2,
+          language: "pt-BR",
+          model: "medium",
+          provider: "faster-whisper",
+          requestedModel: "medium",
+          status: "selected",
+        },
+      },
+      guildId: "guild-1",
+      interruptions: [],
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      schemaVersion: 1,
+      segments: [],
+      startedAt: "2026-08-16T20:00:00.000Z",
+      status: "recording",
+      storageMode: "postgres",
+      voiceChannelId: "voice-1",
+    });
+
+    expect(parsed.aiConfiguration?.summary).toMatchObject({
+      generation: { seed: 0, temperature: 0, think: false },
+      maxChunkCharacters: 3_000,
     });
   });
 

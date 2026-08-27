@@ -27,7 +27,7 @@ import {
   markManifestCompleted,
   type RecordingManifest,
   type RecordingSegment,
-  type MeetingAiConfiguration,
+  type ResolvedMeetingAiConfiguration,
 } from "./manifest.js";
 import type { ManifestStore } from "./manifest-store.js";
 import {
@@ -56,9 +56,11 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #client: Client;
   readonly #config: AppConfig;
   readonly #logger: Logger;
-  readonly #meetingAiConfiguration: MeetingAiConfiguration | undefined;
   readonly #manifestStore: ManifestStore;
   readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
+  readonly #resolveMeetingAiConfiguration:
+    | ((guildId: string) => Promise<ResolvedMeetingAiConfiguration>)
+    | undefined;
   readonly #text: RecordingText;
 
   public constructor(
@@ -67,29 +69,28 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     manifestStore: ManifestStore,
     logger: Logger,
     onCompleted?: (manifest: RecordingManifest) => Promise<void>,
-    meetingAiConfiguration?: MeetingAiConfiguration,
+    resolveMeetingAiConfiguration?: (guildId: string) => Promise<ResolvedMeetingAiConfiguration>,
   ) {
     this.#client = client;
     this.#config = config;
     this.#manifestStore = manifestStore;
     this.#logger = logger;
-    this.#meetingAiConfiguration = meetingAiConfiguration;
+    this.#resolveMeetingAiConfiguration = resolveMeetingAiConfiguration;
     this.#onCompleted = onCompleted;
     this.#text = getRecordingText(config.botLanguage);
   }
 
   public async create(input: StartRecordingInput, onEnded?: () => void): Promise<RecordingHandle> {
+    const aiConfiguration = await this.#resolveMeetingAiConfiguration?.(input.guildId);
     const manifest = createManifest({
-      ...(this.#meetingAiConfiguration === undefined
-        ? {}
-        : { aiConfiguration: this.#meetingAiConfiguration }),
+      ...(aiConfiguration === undefined ? {} : { aiConfiguration }),
       guildId: input.guildId,
       meetingId: randomUUID(),
       notificationChannelId: input.notificationChannelId,
       persistMeetingAudio: this.#config.persistMeetingAudio,
       persistMeetingContent: this.#config.persistMeetingContent,
       startedAt: new Date().toISOString(),
-      storageMode: this.#config.storageMode,
+      storageMode: "postgres",
       voiceChannelId: input.voiceChannelId,
       voiceChannelName: input.voiceChannelName,
     });
