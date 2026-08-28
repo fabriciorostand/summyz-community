@@ -8,6 +8,36 @@ function createDatabase(rows: Record<string, unknown>[] = []): PostgresExecutor 
 }
 
 describe("PostgresGuildConfigStore", () => {
+  it("uses content retention on and audio retention off for a new guild", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
+      rowCount: 0,
+      rows: [],
+    });
+    const store = new PostgresGuildConfigStore({ query });
+
+    await expect(store.getGuildSettings("guild-1")).resolves.toEqual({
+      botLanguage: "en",
+      persistMeetingAudio: false,
+      persistMeetingContent: true,
+    });
+  });
+
+  it("persists validated per-guild language and retention", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
+      rowCount: 1,
+      rows: [],
+    });
+    const store = new PostgresGuildConfigStore({ query });
+
+    await store.setGuildSettings("guild-1", {
+      botLanguage: "pt-BR",
+      persistMeetingAudio: true,
+      persistMeetingContent: false,
+    });
+
+    expect(query.mock.calls[0]?.[0]).toMatch(/persist_meeting_content/i);
+    expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", "pt-BR", false, true]);
+  });
   it("lê funções de gravação e fórum validando os dados do banco", async () => {
     const rolesDatabase = createDatabase([{ recording_role_ids: ["role-1", "role-2"] }]);
     const forumDatabase = createDatabase([

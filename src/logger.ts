@@ -1,9 +1,11 @@
 import pino, { type DestinationStream, type Logger } from "pino";
 
 const REDACTED_PATHS = [
+  "accessToken",
   "audio",
   "authorization",
   "blocks",
+  "clientSecret",
   "cookie",
   "discordToken",
   "entries",
@@ -14,6 +16,10 @@ const REDACTED_PATHS = [
   "prompt",
   "refinement",
   "response",
+  "refreshToken",
+  "secretsKey",
+  "setupToken",
+  "smtpPassword",
   "summary",
   "token",
   "transcript",

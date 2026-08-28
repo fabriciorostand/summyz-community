@@ -27,7 +27,9 @@ interface MeetingRefinementServiceOptions {
   logger: Logger;
   now?: () => Date;
   refinementStore: RefinementStore;
-  resolveGenerator?: (manifest: RecordingManifest) => RefinementGenerator;
+  resolveGenerator?: (
+    manifest: RecordingManifest,
+  ) => RefinementGenerator | Promise<RefinementGenerator>;
   transcriptionStore: TranscriptionStore;
 }
 
@@ -40,7 +42,9 @@ export class MeetingRefinementService {
   readonly #logger: Logger;
   readonly #now: () => Date;
   readonly #refinementStore: RefinementStore;
-  readonly #resolveGenerator: ((manifest: RecordingManifest) => RefinementGenerator) | undefined;
+  readonly #resolveGenerator:
+    | ((manifest: RecordingManifest) => RefinementGenerator | Promise<RefinementGenerator>)
+    | undefined;
   readonly #transcriptionStore: TranscriptionStore;
 
   public constructor(options: MeetingRefinementServiceOptions) {
@@ -78,7 +82,10 @@ export class MeetingRefinementService {
 
     let generated: MeetingRefinementGenerationResult;
     try {
-      const generator = this.#resolveGenerator?.(manifest) ?? this.#generator;
+      const generator =
+        this.#resolveGenerator === undefined
+          ? this.#generator
+          : await this.#resolveGenerator(manifest);
       if (generator === undefined) throw new Error("The refinement generator is unavailable");
       generated = await generator.generate(entries);
     } catch (error) {

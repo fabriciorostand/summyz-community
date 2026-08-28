@@ -49,6 +49,13 @@ describe("PostgresDatabase", () => {
     );
     expect(queries.some((query) => query.includes("CREATE TABLE ai_profiles"))).toBe(true);
     expect(queries.some((query) => query.includes("active_ai_profile_id"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE dashboard_users"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE dashboard_sessions"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE discord_connections"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE installation_secrets"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE discord_oauth_states"))).toBe(true);
+    expect(queries.some((query) => query.includes("persist_meeting_content boolean"))).toBe(true);
+    expect(queries.some((query) => query.includes("bot_language text"))).toBe(true);
     expect(queries.at(-1)).toBe("COMMIT");
     expect(client.release).toHaveBeenCalledOnce();
   });

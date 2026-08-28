@@ -35,15 +35,19 @@ export function installInteractionHandler(
   resolveAiProfileCompatibility?: (
     guildId: string,
   ) => Promise<readonly AiProfileCompatibilityStatus[]>,
-  isOpenRouterConfigured: () => boolean = () => false,
+  isOpenRouterConfigured: () => boolean | Promise<boolean> = () => false,
+  resolveBotLanguage: (guildId: string) => Promise<AppConfig["botLanguage"]> = async () => language,
 ): void {
-  const text = getInteractionText(language);
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) {
       return;
     }
 
+    let text = getInteractionText(language);
     try {
+      text = getInteractionText(
+        interaction.guildId === null ? language : await resolveBotLanguage(interaction.guildId),
+      );
       if (interaction.commandName === "recording-role") {
         await handleRecordingRole(interaction, guildConfigStore, text);
       } else if (interaction.commandName === "recording-summary-forum") {
@@ -251,7 +255,7 @@ async function handleRecord(
   resolveAiProfileCompatibility:
     | ((guildId: string) => Promise<readonly AiProfileCompatibilityStatus[]>)
     | undefined,
-  isOpenRouterConfigured: () => boolean,
+  isOpenRouterConfigured: () => boolean | Promise<boolean>,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
@@ -278,7 +282,7 @@ async function handleRecord(
       [profile.transcription, profile.refinement, profile.summary].some(
         (phase) => phase.provider === "openrouter",
       ) &&
-      !isOpenRouterConfigured()
+      !(await isOpenRouterConfigured())
     ) {
       await interaction.reply(createEphemeralReply(text.openRouterApiKeyMissing));
       return;

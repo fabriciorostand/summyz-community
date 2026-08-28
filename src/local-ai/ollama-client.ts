@@ -15,7 +15,7 @@ export interface OllamaStructuredRequestOptions<T> {
     think?: boolean | undefined;
   };
   input: unknown;
-  instruction: string;
+  instruction: string | null;
   jsonSchema: Readonly<Record<string, unknown>>;
   model: string;
   onIncompatibleModel?: (model: string) => Promise<void>;
@@ -58,7 +58,9 @@ export async function requestOllamaStructured<T>(
           format: options.jsonSchema,
           keep_alive: "10m",
           messages: [
-            { content: options.instruction, role: "system" },
+            ...(options.instruction === null
+              ? []
+              : [{ content: options.instruction, role: "system" as const }]),
             { content: JSON.stringify(options.input), role: "user" },
           ],
           model: options.model,

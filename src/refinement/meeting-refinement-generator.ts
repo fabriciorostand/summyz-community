@@ -2,6 +2,7 @@ import {
   IncompatibleRefinementResponseError,
   type RefinementProvider,
   RefinementProviderFailureError,
+  RefinementRequestError,
 } from "./refinement-provider.js";
 import { refinementEntrySchema, type RefinementEntry } from "./refinement-result.js";
 
@@ -60,7 +61,7 @@ export class MeetingRefinementGenerator {
       if (
         !(error instanceof RefinementProviderFailureError) ||
         chunk.length < 2 ||
-        !isCausedByIncompatibleResponse(error)
+        !isCausedBySplittableFailure(error)
       ) {
         throw error;
       }
@@ -86,11 +87,12 @@ export class MeetingRefinementGenerator {
   }
 }
 
-function isCausedByIncompatibleResponse(error: unknown): boolean {
+function isCausedBySplittableFailure(error: unknown): boolean {
   const visited = new Set<Error>();
   let current = error;
   while (current instanceof Error && !visited.has(current)) {
     if (current instanceof IncompatibleRefinementResponseError) return true;
+    if (current instanceof RefinementRequestError && current.timedOut) return true;
     visited.add(current);
     current = current.cause;
   }

@@ -34,6 +34,7 @@ export interface FasterWhisperTranscriptionProviderOptions {
   fetch?: Fetch;
   language: string;
   model: string;
+  prompt?: string | null;
   timeoutMs: number;
 }
 
@@ -46,6 +47,7 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
   readonly #fetch: Fetch;
   readonly #language: string;
   readonly #model: string;
+  readonly #prompt: string | null;
   readonly #timeoutMs: number;
 
   public constructor(options: FasterWhisperTranscriptionProviderOptions) {
@@ -57,6 +59,7 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
     this.#fetch = options.fetch ?? fetch;
     this.#language = options.language;
     this.#model = options.model;
+    this.#prompt = options.prompt ?? null;
     this.#timeoutMs = options.timeoutMs;
   }
 
@@ -91,6 +94,7 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
     form.set("device", this.#device);
     form.set("fallback", this.#fallback);
     form.set("batchSize", String(this.#batchSize));
+    if (this.#prompt !== null) form.set("prompt", this.#prompt);
 
     let response: Response;
     try {

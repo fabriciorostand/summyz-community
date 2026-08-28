@@ -174,6 +174,25 @@ describe("MeetingSummaryService", () => {
     expect(context.publishTranscriptOnly).not.toHaveBeenCalled();
   });
 
+  it("aceita resolver o gerador assincronamente no momento do processamento", async () => {
+    const context = await createContext();
+    const generate = vi.fn(async () => generated);
+    const resolveGenerator = vi.fn(async () => ({ generate }));
+    const service = new MeetingSummaryService({
+      logger: createLogger("silent"),
+      publisher: context.publisher,
+      refinementStore: context.refinementStore,
+      resolveGenerator,
+      summaryStore: context.summaryStore,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await service.process(context.manifest);
+
+    expect(resolveGenerator).toHaveBeenCalledWith(context.manifest);
+    expect(generate).toHaveBeenCalledOnce();
+  });
+
   it("persiste falha terminal e publica somente a transcrição", async () => {
     const context = await createContext();
     const generator: SummaryGenerator = {

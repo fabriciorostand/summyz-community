@@ -13,9 +13,10 @@ import { LocalCostLedgerStore } from "./cost/local-cost-ledger-store.js";
 import { PostgresCostLedgerStore } from "./cost/postgres-cost-ledger-store.js";
 import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
 
-import { loadConfig } from "./config.js";
+import { loadConfig, resolveBotConfig } from "./config.js";
 import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js";
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
+import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
 import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
 import { PostgresMeetingContentStore } from "./database/postgres-meeting-content-store.js";
 import { PostgresMeetingStore } from "./database/postgres-meeting-store.js";
@@ -26,6 +27,7 @@ import { registerCommands } from "./discord/register-commands.js";
 import { notifyTranscriptionFailure } from "./discord/transcription-notifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
 import { createLogger } from "./logger.js";
+import { SecretBox } from "./security/secret-box.js";
 import { LocalModelManager } from "./local-ai/local-model-manager.js";
 import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-size.js";
 import { detectLocalHardware } from "./local-ai/hardware-detection.js";
@@ -73,16 +75,16 @@ if (existsSync(".env")) {
   loadEnvFile(".env");
 }
 
-let config: ReturnType<typeof loadConfig>;
+let bootstrapConfig: ReturnType<typeof loadConfig>;
 try {
-  config = loadConfig(process.env);
+  bootstrapConfig = loadConfig(process.env);
 } catch {
   console.error("Invalid configuration. Review .env.");
   process.exitCode = 1;
   throw new Error("Invalid configuration");
 }
 
-const logger = createLogger(config.logLevel);
+const logger = createLogger(bootstrapConfig.logLevel);
 if (!terminalEncoding.configured) {
   logger.warn(
     { errorType: terminalEncoding.errorType },
@@ -90,10 +92,7 @@ if (!terminalEncoding.configured) {
   );
 }
 
-const localHardware = await detectLocalHardware();
-
-const recordingsDirectory = join(config.dataDir, "recordings");
-const database: PostgresDatabase = createPostgresDatabase(config.databaseUrl);
+const database: PostgresDatabase = createPostgresDatabase(bootstrapConfig.databaseUrl);
 try {
   await database.initialize();
   logger.info("PostgreSQL initialized");
@@ -106,25 +105,42 @@ try {
   process.exit(1);
 }
 
+const installationSettings = new PostgresInstallationSettingsStore({
+  database,
+  secretBox: new SecretBox(bootstrapConfig.secretsKey),
+});
+const storedSettings = await installationSettings.getSettings();
+let config: ReturnType<typeof resolveBotConfig>;
+try {
+  config = resolveBotConfig(bootstrapConfig, {
+    discordClientId: storedSettings.discordClientId,
+    discordToken: await installationSettings.getSecret("discord_bot_token"),
+  });
+} catch (error) {
+  logger.fatal(
+    { errorType: getErrorType(error) },
+    "Discord is not configured; complete the dashboard setup and restart the bot",
+  );
+  await database.close().catch(() => undefined);
+  process.exit(1);
+}
+
+const localHardware = await detectLocalHardware();
+const recordingsDirectory = join(config.dataDir, "recordings");
+
 const postgresMeetingStore = new PostgresMeetingStore(database);
 const manifestStore = new ManifestStore(recordingsDirectory, postgresMeetingStore);
 const localCostLedger = new LocalCostLedgerStore(join(config.dataDir, "costs"));
 const postgresCostLedger = new PostgresCostLedgerStore(database);
-const costReconcilers =
-  config.openRouterApiKey === undefined
-    ? []
-    : [
-        new CostReconciler({ apiKey: config.openRouterApiKey, logger, store: localCostLedger }),
-        new CostReconciler({
-          apiKey: config.openRouterApiKey,
-          logger,
-          store: postgresCostLedger,
-        }),
-      ];
 const costReport = createCostReportService({
   language: config.botLanguage,
   reconcile: async (guildId) => {
-    await Promise.all(costReconcilers.map((reconciler) => reconciler.reconcile(guildId)));
+    const apiKey = await resolveOpenRouterApiKey();
+    if (apiKey === undefined) return;
+    await Promise.all([
+      new CostReconciler({ apiKey, logger, store: localCostLedger }).reconcile(guildId),
+      new CostReconciler({ apiKey, logger, store: postgresCostLedger }).reconcile(guildId),
+    ]);
   },
   store: new CombinedCostLedgerReader([localCostLedger, postgresCostLedger]),
   timeZone: config.summaryTimeZone,
@@ -159,21 +175,27 @@ const summaryService = new MeetingSummaryService({
   logger,
   publisher: meetingPublisher,
   refinementStore,
-  resolveGenerator: (manifest) => {
+  resolveGenerator: async (manifest) => {
     const selection = getMeetingAiConfiguration(manifest).summary;
-    const costRecorder = createProviderCostRecorder(manifest, "summary");
+    const apiKey =
+      selection.provider === "openrouter" ? await requireOpenRouterApiKey() : undefined;
+    const costRecorder = createProviderCostRecorder(manifest, "summary", apiKey);
     const provider =
       selection.provider === "ollama"
         ? new OllamaSummaryProvider({
+            consolidationPrompt: selection.consolidationPrompt,
             costRecorder,
+            extractionPrompt: selection.extractionPrompt,
             generation: selection.generation,
             language: selection.language,
             model: selection.model,
             timeoutMs: config.summaryTimeoutMs,
           })
         : new OpenRouterSummaryProvider({
-            apiKey: requireConfigured(config.openRouterApiKey, "OPENROUTER_API_KEY"),
+            apiKey: requireConfigured(apiKey, "OpenRouter API key"),
+            consolidationPrompt: selection.consolidationPrompt,
             costRecorder,
+            extractionPrompt: selection.extractionPrompt,
             generation: selection.generation,
             language: selection.language,
             logger,
@@ -195,24 +217,28 @@ const summaryService = new MeetingSummaryService({
 const refinementService = new MeetingRefinementService({
   logger,
   refinementStore,
-  resolveGenerator: (manifest) => {
+  resolveGenerator: async (manifest) => {
     const selection = getMeetingAiConfiguration(manifest).refinement;
-    const costRecorder = createProviderCostRecorder(manifest, "refinement");
+    const apiKey =
+      selection.provider === "openrouter" ? await requireOpenRouterApiKey() : undefined;
+    const costRecorder = createProviderCostRecorder(manifest, "refinement", apiKey);
     const provider =
       selection.provider === "ollama"
         ? new OllamaRefinementProvider({
             costRecorder,
             generation: selection.generation,
             model: selection.model,
+            prompt: selection.prompt,
             timeoutMs: config.refinementTimeoutMs,
           })
         : new OpenRouterRefinementProvider({
-            apiKey: requireConfigured(config.openRouterApiKey, "OPENROUTER_API_KEY"),
+            apiKey: requireConfigured(apiKey, "OpenRouter API key"),
             costRecorder,
             generation: selection.generation,
             logger,
             maxAttempts: config.refinementMaxAttempts,
             model: selection.model,
+            prompt: selection.prompt,
             retryBaseMs: config.refinementRetryBaseMs,
             retryMaxMs: config.refinementRetryMaxMs,
             timeoutMs: config.refinementTimeoutMs,
@@ -236,7 +262,12 @@ const transcriptionService = new MeetingTranscriptionService({
   logger,
   manifestStore,
   notifyFailure: (manifest) =>
-    notifyTranscriptionFailure(client, logger, manifest, config.botLanguage),
+    notifyTranscriptionFailure(
+      client,
+      logger,
+      manifest,
+      manifest.botLanguage ?? config.botLanguage,
+    ),
   resolveProvider: (manifest) => {
     const selection = getMeetingAiConfiguration(manifest).transcription;
     return createTranscriptionProvider(selection, manifest);
@@ -316,6 +347,7 @@ const recordingFactory = new DiscordRecordingFactory(
   logger,
   enqueueCompleted,
   resolveAndPrepareMeetingAiConfiguration,
+  (guildId) => guildConfigStore.getGuildSettings(guildId),
 );
 const coordinator = new RecordingCoordinator(recordingFactory);
 
@@ -328,7 +360,8 @@ installInteractionHandler(
   costReport,
   aiProfileStore,
   assessActiveAiProfile,
-  () => config.openRouterApiKey !== undefined,
+  async () => (await resolveOpenRouterApiKey()) !== undefined,
+  async (guildId) => (await guildConfigStore.getGuildSettings(guildId)).botLanguage,
 );
 installVoiceStateHandler(client, coordinator, logger);
 
@@ -551,8 +584,8 @@ async function createTranscriptionProvider(
   selection: ResolvedMeetingAiConfiguration["transcription"],
   manifest: RecordingManifest,
 ): Promise<TranscriptionProvider> {
-  const costRecorder = createProviderCostRecorder(manifest, "transcription");
   if (selection.provider === "faster-whisper") {
+    const costRecorder = createProviderCostRecorder(manifest, "transcription");
     const executionPlan = resolveLocalExecutionPlan({
       device: config.localAiDevice,
       enabledPhases: ["transcription"],
@@ -566,21 +599,24 @@ async function createTranscriptionProvider(
       fallback: executionPlan.transcription.fallback,
       language: selection.language,
       model: selection.model,
+      prompt: selection.prompt,
       timeoutMs: config.transcriptionTimeoutMs,
     });
   }
   const profile: TranscriptionModelProfile = {
     interSpeechSilenceMs: selection.interSpeechSilenceMs,
     ...(selection.mergeMaxGapMs === undefined ? {} : { mergeMaxGapMs: selection.mergeMaxGapMs }),
-    ...(selection.prompt === undefined ? {} : { prompt: selection.prompt }),
+    ...(typeof selection.prompt === "string" ? { prompt: selection.prompt } : {}),
     ...(selection.providerOptions === undefined
       ? {}
       : { providerOptions: selection.providerOptions }),
     ...(selection.temperature === undefined ? {} : { temperature: selection.temperature }),
     timestampMode: selection.timestampMode,
   };
+  const apiKey = await requireOpenRouterApiKey();
+  const costRecorder = createProviderCostRecorder(manifest, "transcription", apiKey);
   return new OpenRouterTranscriptionProvider({
-    apiKey: requireConfigured(config.openRouterApiKey, "OPENROUTER_API_KEY"),
+    apiKey,
     costRecorder,
     language: selection.language,
     logger,
@@ -596,14 +632,22 @@ async function createTranscriptionProvider(
 function createProviderCostRecorder(
   manifest: RecordingManifest,
   phase: CostPhase,
+  openRouterApiKey?: string,
 ): ProviderCostRecorder {
-  const apiKey = config.openRouterApiKey;
   return new ProviderCostRecorder({
     context: { guildId: manifest.guildId, meetingId: manifest.meetingId, phase },
     logger,
-    ...(apiKey === undefined ? {} : { openRouter: { apiKey } }),
+    ...(openRouterApiKey === undefined ? {} : { openRouter: { apiKey: openRouterApiKey } }),
     store: selectCostLedger(manifest),
   });
+}
+
+async function resolveOpenRouterApiKey(): Promise<string | undefined> {
+  return installationSettings.getSecret("openrouter_api_key");
+}
+
+async function requireOpenRouterApiKey(): Promise<string> {
+  return requireConfigured(await resolveOpenRouterApiKey(), "OpenRouter API key");
 }
 
 function selectCostLedger(manifest: RecordingManifest): CostLedgerStore {
@@ -611,9 +655,9 @@ function selectCostLedger(manifest: RecordingManifest): CostLedgerStore {
   return postgresCostLedger;
 }
 
-function requireConfigured(value: string | undefined, variableName: string): string {
+function requireConfigured(value: string | undefined, settingName: string): string {
   if (value === undefined) {
-    throw new Error(`${variableName} is required by the provider pinned to this meeting`);
+    throw new Error(`${settingName} is required by the provider pinned to this meeting`);
   }
   return value;
 }

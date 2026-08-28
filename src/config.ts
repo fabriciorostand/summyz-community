@@ -1,9 +1,6 @@
 import { z } from "zod";
 
 const environmentSchema = z.object({
-  BOT_LANGUAGE: z
-    .enum(["en", "pt-BR"], { error: "BOT_LANGUAGE must be en or pt-BR" })
-    .default("en"),
   DATA_DIR: z.string().min(1).default("./data"),
   DATABASE_URL: z
     .url("DATABASE_URL deve ser uma URL válida")
@@ -11,25 +8,11 @@ const environmentSchema = z.object({
       (value) => value.startsWith("postgresql://") || value.startsWith("postgres://"),
       "DATABASE_URL deve usar o protocolo postgresql",
     ),
-  DISCORD_CLIENT_ID: z.string().min(1, "DISCORD_CLIENT_ID é obrigatório"),
   DISCORD_GUILD_ID: z.string().min(1).optional(),
-  DISCORD_TOKEN: z.string().min(1, "DISCORD_TOKEN é obrigatório"),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
   LOCAL_AI_DEVICE: z.enum(["auto", "gpu", "cpu"]).default("auto"),
   LOCAL_AI_FALLBACK: z.enum(["none", "cpu"]).default("none"),
-  OPENROUTER_API_KEY: z.string().min(1, "OPENROUTER_API_KEY é obrigatório").optional(),
-  PERSIST_MEETING_CONTENT: z
-    .enum(["true", "false"], {
-      error: "PERSIST_MEETING_CONTENT deve ser true ou false",
-    })
-    .default("false")
-    .transform((value) => value === "true"),
-  PERSIST_MEETING_AUDIO: z
-    .enum(["true", "false"], {
-      error: "PERSIST_MEETING_AUDIO deve ser true ou false",
-    })
-    .default("false")
-    .transform((value) => value === "true"),
+  SUMMYZ_SECRETS_KEY: z.string().refine(isThirtyTwoByteBase64Url),
   SEGMENT_MAX_SECONDS: z.coerce
     .number()
     .int("SEGMENT_MAX_SECONDS deve ser inteiro")
@@ -72,7 +55,7 @@ const environmentSchema = z.object({
 });
 
 export interface AppConfig {
-  botLanguage: z.infer<typeof environmentSchema>["BOT_LANGUAGE"];
+  botLanguage: "en" | "pt-BR";
   dataDir: string;
   databaseUrl: string;
   discordClientId: string;
@@ -81,7 +64,6 @@ export interface AppConfig {
   localAiDevice: z.infer<typeof environmentSchema>["LOCAL_AI_DEVICE"];
   localAiFallback: z.infer<typeof environmentSchema>["LOCAL_AI_FALLBACK"];
   logLevel: z.infer<typeof environmentSchema>["LOG_LEVEL"];
-  openRouterApiKey?: string;
   persistMeetingContent: boolean;
   persistMeetingAudio: boolean;
   segmentMaxSeconds: number;
@@ -106,24 +88,24 @@ export interface AppConfig {
   voiceReconnectMaxMs: number;
 }
 
-export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
+export type BootstrapConfig = Omit<AppConfig, "discordClientId" | "discordToken"> & {
+  secretsKey: string;
+};
+
+export function loadConfig(environment: NodeJS.ProcessEnv): BootstrapConfig {
   const parsed = environmentSchema.parse(environment);
 
   return {
-    botLanguage: parsed.BOT_LANGUAGE,
+    botLanguage: "en",
     dataDir: parsed.DATA_DIR,
     databaseUrl: parsed.DATABASE_URL,
-    discordClientId: parsed.DISCORD_CLIENT_ID,
     ...(parsed.DISCORD_GUILD_ID === undefined ? {} : { discordGuildId: parsed.DISCORD_GUILD_ID }),
-    discordToken: parsed.DISCORD_TOKEN,
     localAiDevice: parsed.LOCAL_AI_DEVICE,
     localAiFallback: parsed.LOCAL_AI_DEVICE === "cpu" ? "none" : parsed.LOCAL_AI_FALLBACK,
     logLevel: parsed.LOG_LEVEL,
-    ...(parsed.OPENROUTER_API_KEY === undefined
-      ? {}
-      : { openRouterApiKey: parsed.OPENROUTER_API_KEY }),
-    persistMeetingContent: parsed.PERSIST_MEETING_CONTENT,
-    persistMeetingAudio: parsed.PERSIST_MEETING_AUDIO,
+    persistMeetingContent: true,
+    persistMeetingAudio: false,
+    secretsKey: parsed.SUMMYZ_SECRETS_KEY,
     segmentMaxSeconds: parsed.SEGMENT_MAX_SECONDS,
     segmentSilenceMs: parsed.SEGMENT_SILENCE_MS,
     refinementMaxAttempts: parsed.REFINEMENT_MAX_ATTEMPTS,
@@ -147,6 +129,24 @@ export function loadConfig(environment: NodeJS.ProcessEnv): AppConfig {
   };
 }
 
+export function resolveBotConfig(
+  bootstrap: BootstrapConfig,
+  dashboard: {
+    discordClientId: string | null;
+    discordToken: string | undefined;
+  },
+): AppConfig {
+  if (dashboard.discordClientId === null || dashboard.discordToken === undefined) {
+    throw new Error("Discord is not configured in the dashboard");
+  }
+  const { secretsKey: _secretsKey, ...operational } = bootstrap;
+  return {
+    ...operational,
+    discordClientId: dashboard.discordClientId,
+    discordToken: dashboard.discordToken,
+  };
+}
+
 function isValidTimeZone(timeZone: string): boolean {
   try {
     new Intl.DateTimeFormat("pt-BR", { timeZone }).format();
@@ -154,4 +154,9 @@ function isValidTimeZone(timeZone: string): boolean {
   } catch {
     return false;
   }
+}
+
+function isThirtyTwoByteBase64Url(value: string): boolean {
+  const bytes = Buffer.from(value, "base64url");
+  return bytes.length === 32 && bytes.toString("base64url") === value;
 }

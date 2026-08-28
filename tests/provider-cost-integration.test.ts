@@ -91,6 +91,37 @@ describe("provider cost integration", () => {
     });
   });
 
+  it("finaliza o custo e classifica timeout durante a leitura do refinamento", async () => {
+    const context = createRecorder("refinement");
+    const response = Response.json({ choices: [] });
+    vi.spyOn(response, "text").mockRejectedValue(
+      Object.assign(new Error("response body timed out"), { name: "TimeoutError" }),
+    );
+    const fetch = vi.fn(async () => response);
+    const provider = new OpenRouterRefinementProvider({
+      apiKey: "secret",
+      costRecorder: context.recorder,
+      fetch,
+      maxAttempts: 3,
+      model: "openrouter/auto",
+      retryBaseMs: 1,
+      retryMaxMs: 1,
+      sleep: vi.fn(async () => undefined),
+      timeoutMs: 1_000,
+    });
+
+    await expect(provider.refine([])).rejects.toMatchObject({
+      attempts: 1,
+      cause: expect.objectContaining({ timedOut: true }),
+    });
+    expect(fetch).toHaveBeenCalledOnce();
+    expect(context.attempts[0]).toMatchObject({
+      endedAt: expect.any(String),
+      financialStatus: "unattributed",
+      outcome: "failure",
+    });
+  });
+
   it("registra modelos locais usados por refinamento e resumo sem custo", async () => {
     const refinement = createRecorder("refinement");
     const refinementProvider = new OllamaRefinementProvider({

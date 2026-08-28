@@ -13,13 +13,20 @@ export class RefinementRequestError extends Error {
   public readonly retryAfterMs: number | undefined;
   public readonly retryable: boolean;
   public readonly status: number | undefined;
+  public readonly timedOut: boolean;
 
-  public constructor(input: { retryAfterMs?: number; retryable: boolean; status?: number }) {
+  public constructor(input: {
+    retryAfterMs?: number;
+    retryable: boolean;
+    status?: number;
+    timedOut?: boolean;
+  }) {
     super("The refinement request failed");
     this.name = "RefinementRequestError";
     this.retryAfterMs = input.retryAfterMs;
     this.retryable = input.retryable;
     this.status = input.status;
+    this.timedOut = input.timedOut ?? false;
   }
 }
 

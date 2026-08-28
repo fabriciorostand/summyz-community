@@ -32,11 +32,14 @@ const generationSchema = z
   })
   .default({});
 
+const resolvedPromptSchema = z.string().min(1).max(20_000).nullable();
+
 export const meetingAiConfigurationSchema = z.object({
   refinement: selectedModelSchema.and(
     z.object({
       generation: generationSchema,
       maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
+      prompt: resolvedPromptSchema.default(null),
       provider: z.enum(["openrouter", "ollama"]),
     }),
   ),
@@ -46,6 +49,8 @@ export const meetingAiConfigurationSchema = z.object({
       generation: generationSchema,
       language: z.string().min(1),
       maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
+      consolidationPrompt: resolvedPromptSchema.default(null),
+      extractionPrompt: resolvedPromptSchema.default(null),
       provider: z.enum(["openrouter", "ollama"]),
     }),
   ),
@@ -55,7 +60,7 @@ export const meetingAiConfigurationSchema = z.object({
       interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
       language: z.string().min(1),
       mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
-      prompt: z.string().min(1).optional(),
+      prompt: resolvedPromptSchema.default(null),
       provider: z.enum(["openrouter", "faster-whisper"]),
       providerOptions: z
         .record(z.string().min(1), z.record(z.string().min(1), z.json()))
@@ -85,6 +90,7 @@ export const segmentSchema = z.object({
 
 export const recordingManifestSchema = z.object({
   aiConfiguration: meetingAiConfigurationSchema.optional(),
+  botLanguage: z.enum(["en", "pt-BR"]).optional(),
   completedAt: z.iso.datetime().optional(),
   guildId: z.string().min(1),
   interruptions: z.array(interruptionSchema),
@@ -117,7 +123,10 @@ export type CreateManifestInput = Pick<
   | "voiceChannelName"
 > &
   Partial<
-    Pick<RecordingManifest, "persistMeetingAudio" | "persistMeetingContent" | "storageMode">
+    Pick<
+      RecordingManifest,
+      "botLanguage" | "persistMeetingAudio" | "persistMeetingContent" | "storageMode"
+    >
   > & {
     aiConfiguration?: MeetingAiConfiguration;
   };

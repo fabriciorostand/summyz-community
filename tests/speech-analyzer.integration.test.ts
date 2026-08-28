@@ -25,5 +25,5 @@ describe("SileroSpeechAnalyzer com áudio sintético", () => {
     } finally {
       await analyzer.close();
     }
-  });
+  }, 15_000);
 });

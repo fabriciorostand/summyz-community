@@ -122,10 +122,10 @@ can use it, and the response is ephemeral.
 - If the channel is empty after a restart, Summyz finalizes and processes the partial recording.
 - Transient failures are retried internally; there are no public status, retry, or deletion commands
   at this stage.
-- With `PERSIST_MEETING_AUDIO=false`, audio files are deleted after a valid transcription or a
-  permanent failure; with `true`, they remain on disk until manually deleted by an administrator.
-- Content and audio policies are fixed when `/record` starts; subsequent `.env` changes apply only
-  to new meetings.
+- A retenção de conteúdo é ativada e a de áudio é desativada por padrão em novos servidores. Ambas
+  podem ser alteradas no dashboard.
+- As políticas de conteúdo e áudio são fixadas quando `/record` começa; alterações posteriores no
+  dashboard valem somente para novas reuniões.
 - The active profile, provider, explicit model, language, and phase parameters are also pinned then.
   A local phase never uses OpenRouter as fallback.
 - Financial records are retained indefinitely, independently of audio and transcript retention.

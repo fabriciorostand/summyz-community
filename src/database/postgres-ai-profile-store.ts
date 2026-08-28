@@ -15,6 +15,7 @@ const rowSchema = z.object({
 
 export interface AiProfileStore {
   createProfile(profile: AiProfile): Promise<void>;
+  deleteProfile(guildId: string, profileId: string, replacementProfileId?: string): Promise<void>;
   ensureInitialProfile(guildId: string): Promise<void>;
   getActiveProfile(guildId: string): Promise<AiProfile>;
   listProfiles(guildId: string): Promise<AiProfile[]>;
@@ -37,6 +38,62 @@ export class PostgresAiProfileStore implements AiProfileStore {
        ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)`,
       serializeProfile(profile),
     );
+  }
+
+  public async deleteProfile(
+    guildId: string,
+    profileId: string,
+    replacementProfileId?: string,
+  ): Promise<void> {
+    const validatedGuildId = identifierSchema.parse(guildId);
+    const validatedProfileId = identifierSchema.parse(profileId);
+    const validatedReplacementProfileId = replacementProfileId
+      ? identifierSchema.parse(replacementProfileId)
+      : null;
+    const result = await this.#database.query(
+      `WITH profile_count AS (
+         SELECT count(*) AS total
+         FROM ai_profiles
+         WHERE guild_id = $1
+       ), target AS (
+         SELECT profile_id
+         FROM ai_profiles
+         WHERE guild_id = $1 AND profile_id = $2
+       ), replacement AS (
+         SELECT profile_id
+         FROM ai_profiles
+         WHERE guild_id = $1 AND profile_id = $3 AND profile_id <> $2
+       ), prepared_guild AS (
+         UPDATE guild_configurations
+         SET active_ai_profile_id = CASE
+               WHEN active_ai_profile_id = $2 THEN (SELECT profile_id FROM replacement)
+               ELSE active_ai_profile_id
+             END,
+             updated_at = now()
+         WHERE guild_id = $1
+           AND EXISTS (SELECT 1 FROM target)
+           AND (SELECT total FROM profile_count) > 1
+           AND (
+             active_ai_profile_id <> $2
+             OR EXISTS (SELECT 1 FROM replacement)
+           )
+         RETURNING guild_id
+       ), deleted_profile AS (
+         DELETE FROM ai_profiles
+         WHERE guild_id = $1
+           AND profile_id = $2
+           AND EXISTS (SELECT 1 FROM prepared_guild)
+         RETURNING profile_id
+       )
+       SELECT EXISTS (SELECT 1 FROM deleted_profile) AS deleted`,
+      [validatedGuildId, validatedProfileId, validatedReplacementProfileId],
+    );
+    const deletionResult = z.object({ deleted: z.boolean() }).safeParse(result.rows[0]);
+    if (!deletionResult.success || !deletionResult.data.deleted) {
+      throw new Error(
+        "AI profile cannot be deleted; keep one profile and replace the active profile first",
+      );
+    }
   }
 
   public async ensureInitialProfile(guildId: string): Promise<void> {

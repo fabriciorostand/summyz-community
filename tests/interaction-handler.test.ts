@@ -41,7 +41,7 @@ interface InteractionOptions {
   guildOwner?: boolean;
   manageGuild?: boolean;
   memberRoleIds?: string[];
-  openRouterConfigured?: boolean;
+  openRouterConfigured?: boolean | (() => Promise<boolean>);
   openRouterProfile?: boolean;
   profileComplete?: boolean;
   replied?: boolean;
@@ -88,6 +88,7 @@ async function createHarness(options: InteractionOptions = {}) {
   );
   const aiProfileStore = {
     createProfile: vi.fn(async () => undefined),
+    deleteProfile: vi.fn(async () => undefined),
     ensureInitialProfile: vi.fn(async () => undefined),
     getActiveProfile: vi.fn(async () => profile),
     listProfiles: vi.fn(async () => [profile]),
@@ -100,6 +101,7 @@ async function createHarness(options: InteractionOptions = {}) {
       listener = received;
     }),
   } as unknown as Client;
+  const openRouterConfigured = options.openRouterConfigured;
   installInteractionHandler(
     client,
     store,
@@ -109,7 +111,9 @@ async function createHarness(options: InteractionOptions = {}) {
     costReport,
     aiProfileStore,
     async () => options.compatibility ?? [],
-    () => options.openRouterConfigured ?? false,
+    typeof openRouterConfigured === "function"
+      ? openRouterConfigured
+      : () => openRouterConfigured ?? false,
   );
 
   const reply = vi.fn(async () => undefined);
@@ -782,7 +786,7 @@ describe("fluxo de comandos do Discord", () => {
     await context.listener(context.interaction);
 
     expect(context.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringContaining("OPENROUTER_API_KEY") }),
+      expect.objectContaining({ content: expect.stringContaining("dashboard") }),
     );
     expect(context.start).not.toHaveBeenCalled();
   });
@@ -799,6 +803,39 @@ describe("fluxo de comandos do Discord", () => {
     await context.listener(context.interaction);
 
     expect(context.start).toHaveBeenCalledOnce();
+  });
+
+  it("consulta assincronamente a chave atual antes de iniciar o OpenRouter", async () => {
+    const resolveOpenRouterConfiguration = vi.fn(async () => true);
+    const context = await createHarness({
+      guildOwner: true,
+      openRouterConfigured: resolveOpenRouterConfiguration,
+      openRouterProfile: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(resolveOpenRouterConfiguration).toHaveBeenCalledOnce();
+    expect(context.start).toHaveBeenCalledOnce();
+  });
+
+  it("bloqueia o OpenRouter quando a consulta atual da chave resolve como ausente", async () => {
+    const context = await createHarness({
+      guildOwner: true,
+      openRouterConfigured: async () => false,
+      openRouterProfile: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(context.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringContaining("dashboard") }),
+    );
+    expect(context.start).not.toHaveBeenCalled();
   });
 
   it("bloqueia modelo incompatível e apenas avisa sobre modelo acima da recomendação", async () => {

@@ -62,6 +62,7 @@ export interface OpenRouterRefinementProviderOptions {
   logger?: Logger;
   maxAttempts: number;
   model: string;
+  prompt?: string | null;
   random?: () => number;
   retryBaseMs: number;
   retryMaxMs: number;
@@ -77,6 +78,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
   readonly #generation: { seed?: number | undefined; temperature?: number | undefined };
   readonly #maxAttempts: number;
   readonly #model: string;
+  readonly #prompt: string | null;
   readonly #random: () => number;
   readonly #retryBaseMs: number;
   readonly #retryMaxMs: number;
@@ -91,6 +93,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
     this.#logger = options.logger;
     this.#maxAttempts = options.maxAttempts;
     this.#model = options.model;
+    this.#prompt = options.prompt === undefined ? refinementInstruction : options.prompt;
     this.#random = options.random ?? Math.random;
     this.#retryBaseMs = options.retryBaseMs;
     this.#retryMaxMs = options.retryMaxMs;
@@ -138,7 +141,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
       response = await this.#fetch(OPENROUTER_REFINEMENT_URL, {
         body: JSON.stringify({
           messages: [
-            { content: refinementInstruction, role: "system" },
+            ...(this.#prompt === null ? [] : [{ content: this.#prompt, role: "system" as const }]),
             { content: JSON.stringify({ blocks: entries }), role: "user" },
           ],
           model: this.#model,
@@ -165,14 +168,15 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
         method: "POST",
         signal: AbortSignal.timeout(this.#timeoutMs),
       });
-    } catch {
+    } catch (error) {
       if (costAttempt !== undefined) {
         await this.#costRecorder?.finishUnattributed(costAttempt, "failure");
       }
-      throw new RefinementRequestError({ retryable: true });
+      const timedOut = isTimeoutError(error);
+      throw new RefinementRequestError({ retryable: !timedOut, timedOut });
     }
     if (!response.ok) {
-      const parsedResponse = await readOpenRouterResponse(response);
+      const parsedResponse = await this.#readResponse(response, costAttempt);
       const generationId = getOpenRouterGenerationId(response);
       if (costAttempt !== undefined) {
         await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
@@ -189,7 +193,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
         status: response.status,
       });
     }
-    const parsedResponse = await readOpenRouterResponse(response);
+    const parsedResponse = await this.#readResponse(response, costAttempt);
     const body = parsedResponse.body;
     const generationId = getOpenRouterGenerationId(response);
     let refined: RefinementEntry[];
@@ -223,6 +227,21 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
     }
     return refined;
   }
+
+  async #readResponse(
+    response: Response,
+    costAttempt: Awaited<ReturnType<ProviderCostRecorder["beginApi"]>> | undefined,
+  ): Promise<Awaited<ReturnType<typeof readOpenRouterResponse>>> {
+    try {
+      return await readOpenRouterResponse(response);
+    } catch (error) {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishUnattributed(costAttempt, "failure");
+      }
+      const timedOut = isTimeoutError(error);
+      throw new RefinementRequestError({ retryable: !timedOut, timedOut });
+    }
+  }
 }
 
 const refinementInstruction =
@@ -244,6 +263,10 @@ function parseRetryAfter(value: string | null): number | undefined {
   if (Number.isFinite(seconds) && seconds >= 0) return seconds * 1_000;
   const date = Date.parse(value);
   return Number.isNaN(date) ? undefined : Math.max(0, date - Date.now());
+}
+
+function isTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError");
 }
 
 async function defaultSleep(milliseconds: number): Promise<void> {

@@ -25,6 +25,45 @@ function successResponse(id = "segment-1:000000"): Response {
 }
 
 describe("OpenRouterRefinementProvider", () => {
+  it("usa o prompt configurado integralmente e permite omitir a mensagem de sistema", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => successResponse());
+    const configured = new OpenRouterRefinementProvider({
+      apiKey: "segredo",
+      fetch,
+      maxAttempts: 1,
+      model: "model",
+      prompt: "Prompt personalizado completo.",
+      retryBaseMs: 1,
+      retryMaxMs: 1,
+      timeoutMs: 1_000,
+    });
+    await configured.refine(entries);
+    const configuredBody = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as {
+      messages: { content: string; role: string }[];
+    };
+    expect(configuredBody.messages[0]).toEqual({
+      content: "Prompt personalizado completo.",
+      role: "system",
+    });
+
+    const withoutPrompt = new OpenRouterRefinementProvider({
+      apiKey: "segredo",
+      fetch,
+      maxAttempts: 1,
+      model: "model",
+      prompt: null,
+      retryBaseMs: 1,
+      retryMaxMs: 1,
+      timeoutMs: 1_000,
+    });
+    await withoutPrompt.refine(entries);
+    const bodyWithoutPrompt = JSON.parse(String(fetch.mock.calls[1]?.[1].body)) as {
+      messages: { role: string }[];
+    };
+    expect(bodyWithoutPrompt.messages).toHaveLength(1);
+    expect(bodyWithoutPrompt.messages[0]?.role).toBe("user");
+  });
+
   it("solicita somente id e texto e preserva os metadados no código", async () => {
     const fetch = vi.fn(async (_url: string, _init: RequestInit) => successResponse());
     const provider = new OpenRouterRefinementProvider({

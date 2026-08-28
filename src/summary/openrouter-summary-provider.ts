@@ -89,9 +89,11 @@ type Sleep = (milliseconds: number) => Promise<void>;
 
 export interface OpenRouterSummaryProviderOptions {
   apiKey: string;
+  consolidationPrompt?: string | null;
   costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   generation?: { seed?: number | undefined; temperature?: number | undefined };
+  extractionPrompt?: string | null;
   logger?: Logger;
   language?: string;
   maxAttempts: number;
@@ -105,11 +107,13 @@ export interface OpenRouterSummaryProviderOptions {
 
 export class OpenRouterSummaryProvider implements SummaryProvider {
   readonly #apiKey: string;
+  readonly #consolidationPrompt: string | null | undefined;
   readonly #costRecorder: ProviderCostRecorder | undefined;
   readonly #fetch: Fetch;
   readonly #logger: Logger | undefined;
   readonly #language: string;
   readonly #generation: { seed?: number | undefined; temperature?: number | undefined };
+  readonly #extractionPrompt: string | null | undefined;
   readonly #maxAttempts: number;
   readonly #model: string;
   readonly #random: () => number;
@@ -120,9 +124,11 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
 
   public constructor(options: OpenRouterSummaryProviderOptions) {
     this.#apiKey = options.apiKey;
+    this.#consolidationPrompt = options.consolidationPrompt;
     this.#costRecorder = options.costRecorder;
     this.#fetch = options.fetch ?? fetch;
     this.#generation = options.generation ?? {};
+    this.#extractionPrompt = options.extractionPrompt;
     this.#logger = options.logger;
     this.#language = options.language ?? "auto";
     this.#maxAttempts = options.maxAttempts;
@@ -139,18 +145,22 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
   ): Promise<SummaryProviderResult> {
     return this.#generate(
       { transcriptEntries: entries },
-      createExtractionInstruction(this.#language),
+      this.#extractionPrompt === undefined
+        ? createExtractionInstruction(this.#language)
+        : this.#extractionPrompt,
     );
   }
 
   public async consolidate(summaries: readonly SummaryDraft[]): Promise<SummaryProviderResult> {
     return this.#generate(
       { partialSummaries: summaries },
-      createConsolidationInstruction(this.#language),
+      this.#consolidationPrompt === undefined
+        ? createConsolidationInstruction(this.#language)
+        : this.#consolidationPrompt,
     );
   }
 
-  async #generate(input: unknown, instruction: string): Promise<SummaryProviderResult> {
+  async #generate(input: unknown, instruction: string | null): Promise<SummaryProviderResult> {
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
       try {
@@ -182,17 +192,14 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
     throw new SummaryProviderFailureError(this.#maxAttempts, lastError);
   }
 
-  async #request(input: unknown, instruction: string): Promise<SummaryDraft> {
+  async #request(input: unknown, instruction: string | null): Promise<SummaryDraft> {
     const costAttempt = await this.#costRecorder?.beginApi("openrouter");
     let response: Response;
     try {
       response = await this.#fetch(OPENROUTER_SUMMARY_URL, {
         body: JSON.stringify({
           messages: [
-            {
-              content: instruction,
-              role: "system",
-            },
+            ...(instruction === null ? [] : [{ content: instruction, role: "system" as const }]),
             {
               content: JSON.stringify(input),
               role: "user",

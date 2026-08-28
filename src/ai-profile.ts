@@ -1,10 +1,18 @@
 import { z } from "zod";
 
+import { createDefaultAiPrompts } from "./ai-prompts.js";
 import type { LocalHardwareProfile } from "./local-ai/hardware-profile.js";
 
 const identifierSchema = z.string().min(1).max(256);
 const languageSchema = z.string().min(1).max(32);
 const modelSchema = z.string().trim().min(1).max(256).nullable();
+const promptSchema = z
+  .string()
+  .min(1)
+  .max(20_000)
+  .refine((value) => value.trim().length > 0, "The prompt cannot contain only whitespace")
+  .nullable()
+  .optional();
 const generationSchema = z
   .object({
     seed: z.number().int().optional(),
@@ -19,7 +27,7 @@ export const transcriptionAiProfileSchema = z.object({
   language: languageSchema.default("auto"),
   mergeMaxGapMs: z.number().int().min(0).max(30_000).default(2_000),
   model: modelSchema.default(null),
-  prompt: z.string().min(1).optional(),
+  prompt: promptSchema,
   provider: z.enum(["faster-whisper", "openrouter"]).nullable().default(null),
   providerOptions: z.record(z.string().min(1), z.record(z.string().min(1), z.json())).optional(),
   temperature: z.number().min(0).max(1).optional(),
@@ -30,10 +38,13 @@ export const refinementAiProfileSchema = z.object({
   generation: generationSchema,
   maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
   model: modelSchema.default(null),
+  prompt: promptSchema,
   provider: z.enum(["ollama", "openrouter"]).nullable().default(null),
 });
 
 export const summaryAiProfileSchema = z.object({
+  consolidationPrompt: promptSchema,
+  extractionPrompt: promptSchema,
   generation: generationSchema,
   language: languageSchema.default("auto"),
   maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
@@ -91,17 +102,27 @@ export function resolveAiProfile(profile: AiProfile) {
   const transcription = requireCompletePhase(profile.transcription);
   const refinement = requireCompletePhase(profile.refinement);
   const summary = requireCompletePhase(profile.summary);
+  const legacyPromptDefaults = createDefaultAiPrompts("en", summary.language);
   return {
     refinement: {
       generation: refinement.generation,
       maxChunkCharacters: refinement.maxChunkCharacters,
       model: refinement.model,
+      prompt: refinement.prompt === undefined ? legacyPromptDefaults.refinement : refinement.prompt,
       provider: refinement.provider,
       requestedModel: refinement.model,
       status: "selected" as const,
     },
     selectorVersion: 3 as const,
     summary: {
+      consolidationPrompt:
+        summary.consolidationPrompt === undefined
+          ? legacyPromptDefaults.summaryConsolidation
+          : summary.consolidationPrompt,
+      extractionPrompt:
+        summary.extractionPrompt === undefined
+          ? legacyPromptDefaults.summaryExtraction
+          : summary.extractionPrompt,
       generation: summary.generation,
       language: summary.language,
       maxChunkCharacters: summary.maxChunkCharacters,
@@ -116,7 +137,7 @@ export function resolveAiProfile(profile: AiProfile) {
       language: transcription.language,
       mergeMaxGapMs: transcription.mergeMaxGapMs,
       model: transcription.model,
-      ...(transcription.prompt === undefined ? {} : { prompt: transcription.prompt }),
+      prompt: transcription.prompt ?? null,
       provider: transcription.provider,
       ...(transcription.providerOptions === undefined
         ? {}

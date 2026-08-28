@@ -60,6 +60,7 @@ type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 interface OllamaSummaryProviderOptions {
   baseUrl?: string;
+  consolidationPrompt?: string | null;
   costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   generation?: {
@@ -67,6 +68,7 @@ interface OllamaSummaryProviderOptions {
     temperature?: number | undefined;
     think?: boolean | undefined;
   };
+  extractionPrompt?: string | null;
   language: string;
   model: string;
   onIncompatibleModel?: (model: string) => Promise<void>;
@@ -85,18 +87,22 @@ export class OllamaSummaryProvider implements SummaryProvider {
   ): Promise<SummaryProviderResult> {
     return this.#generate(
       { transcriptEntries: entries },
-      extractionInstruction(this.#options.language),
+      this.#options.extractionPrompt === undefined
+        ? extractionInstruction(this.#options.language)
+        : this.#options.extractionPrompt,
     );
   }
 
   public async consolidate(summaries: readonly SummaryDraft[]): Promise<SummaryProviderResult> {
     return this.#generate(
       { partialSummaries: summaries },
-      consolidationInstruction(this.#options.language),
+      this.#options.consolidationPrompt === undefined
+        ? consolidationInstruction(this.#options.language)
+        : this.#options.consolidationPrompt,
     );
   }
 
-  async #generate(input: unknown, instruction: string): Promise<SummaryProviderResult> {
+  async #generate(input: unknown, instruction: string | null): Promise<SummaryProviderResult> {
     const costAttempt = await this.#options.costRecorder?.beginLocal("ollama", this.#options.model);
     let result: SummaryProviderResult;
     try {

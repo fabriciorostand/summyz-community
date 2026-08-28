@@ -19,7 +19,7 @@ interface MeetingSummaryServiceOptions {
   now?: () => Date;
   publisher: MeetingPublisher;
   refinementStore: RefinementStore;
-  resolveGenerator?: (manifest: RecordingManifest) => SummaryGenerator;
+  resolveGenerator?: (manifest: RecordingManifest) => SummaryGenerator | Promise<SummaryGenerator>;
   summaryStore: SummaryStore;
   transcriptionStore: TranscriptionStore;
 }
@@ -34,7 +34,9 @@ export class MeetingSummaryService {
   readonly #now: () => Date;
   readonly #publisher: MeetingPublisher;
   readonly #refinementStore: RefinementStore;
-  readonly #resolveGenerator: ((manifest: RecordingManifest) => SummaryGenerator) | undefined;
+  readonly #resolveGenerator:
+    | ((manifest: RecordingManifest) => SummaryGenerator | Promise<SummaryGenerator>)
+    | undefined;
   readonly #summaryStore: SummaryStore;
   readonly #transcriptionStore: TranscriptionStore;
 
@@ -89,7 +91,10 @@ export class MeetingSummaryService {
 
     let generated: MeetingSummaryGenerationResult;
     try {
-      const generator = this.#resolveGenerator?.(manifest) ?? this.#generator;
+      const generator =
+        this.#resolveGenerator === undefined
+          ? this.#generator
+          : await this.#resolveGenerator(manifest);
       if (generator === undefined) throw new Error("The summary generator is unavailable");
       generated = await generator.generate(refinement.entries);
     } catch (error) {

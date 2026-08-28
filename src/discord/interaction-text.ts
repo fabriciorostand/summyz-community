@@ -79,7 +79,7 @@ const texts = {
       "No roles have been authorized. Only the server owner can control recordings.",
     noSummaryForum: "No summary forum is configured in this server.",
     openRouterApiKeyMissing:
-      "The active profile uses OpenRouter, but OPENROUTER_API_KEY is not configured. Configure the key before recording.",
+      "The active profile uses OpenRouter, but its API key is not configured in the dashboard. Configure the key before recording.",
     costInvalidPeriod: "Use valid dates in YYYY-MM-DD format, with the first date before the last.",
     costMeetingInProgress:
       "Wait for the meeting to end before checking its costs. Processing costs are available after recording ends.",
@@ -144,7 +144,7 @@ const texts = {
       "Nenhum cargo foi autorizado. Apenas o dono do servidor pode controlar gravações.",
     noSummaryForum: "Nenhum fórum de resumos está configurado neste servidor.",
     openRouterApiKeyMissing:
-      "O perfil ativo usa OpenRouter, mas OPENROUTER_API_KEY não está configurada. Configure a chave antes de gravar.",
+      "O perfil ativo usa OpenRouter, mas a chave da API não está configurada no dashboard. Configure a chave antes de gravar.",
     costInvalidPeriod:
       "Informe datas válidas no formato AAAA-MM-DD, com a data inicial anterior à final.",
     costMeetingInProgress:

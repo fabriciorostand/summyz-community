@@ -18,6 +18,7 @@ import type { Logger } from "pino";
 import { opus } from "prism-media";
 
 import type { AppConfig } from "../config.js";
+import type { GuildSettings } from "../guild-config-store.js";
 import { convertPcmToOgg } from "./audio-converter.js";
 import {
   addSegment,
@@ -61,7 +62,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #resolveMeetingAiConfiguration:
     | ((guildId: string) => Promise<ResolvedMeetingAiConfiguration>)
     | undefined;
-  readonly #text: RecordingText;
+  readonly #resolveGuildSettings: ((guildId: string) => Promise<GuildSettings>) | undefined;
 
   public constructor(
     client: Client,
@@ -70,6 +71,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     logger: Logger,
     onCompleted?: (manifest: RecordingManifest) => Promise<void>,
     resolveMeetingAiConfiguration?: (guildId: string) => Promise<ResolvedMeetingAiConfiguration>,
+    resolveGuildSettings?: (guildId: string) => Promise<GuildSettings>,
   ) {
     this.#client = client;
     this.#config = config;
@@ -77,18 +79,24 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     this.#logger = logger;
     this.#resolveMeetingAiConfiguration = resolveMeetingAiConfiguration;
     this.#onCompleted = onCompleted;
-    this.#text = getRecordingText(config.botLanguage);
+    this.#resolveGuildSettings = resolveGuildSettings;
   }
 
   public async create(input: StartRecordingInput, onEnded?: () => void): Promise<RecordingHandle> {
     const aiConfiguration = await this.#resolveMeetingAiConfiguration?.(input.guildId);
+    const guildSettings = (await this.#resolveGuildSettings?.(input.guildId)) ?? {
+      botLanguage: this.#config.botLanguage,
+      persistMeetingAudio: this.#config.persistMeetingAudio,
+      persistMeetingContent: this.#config.persistMeetingContent,
+    };
     const manifest = createManifest({
       ...(aiConfiguration === undefined ? {} : { aiConfiguration }),
+      botLanguage: guildSettings.botLanguage,
       guildId: input.guildId,
       meetingId: randomUUID(),
       notificationChannelId: input.notificationChannelId,
-      persistMeetingAudio: this.#config.persistMeetingAudio,
-      persistMeetingContent: this.#config.persistMeetingContent,
+      persistMeetingAudio: guildSettings.persistMeetingAudio,
+      persistMeetingContent: guildSettings.persistMeetingContent,
       startedAt: new Date().toISOString(),
       storageMode: "postgres",
       voiceChannelId: input.voiceChannelId,
@@ -105,7 +113,10 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
         "voice_join_failed",
       );
       await this.#manifestStore.save(interrupted);
-      await this.#notify(manifest.notificationChannelId, this.#text.startFailed);
+      await this.#notify(
+        manifest.notificationChannelId,
+        getRecordingText(manifest.botLanguage ?? this.#config.botLanguage).startFailed,
+      );
       throw error;
     }
   }
@@ -119,7 +130,10 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       const completed = finalizeInterruptedRecovery(manifest, new Date().toISOString());
       await this.#manifestStore.save(completed);
       await this.#enqueueCompleted(completed);
-      await this.#notify(manifest.notificationChannelId, this.#text.emptyAfterRestart);
+      await this.#notify(
+        manifest.notificationChannelId,
+        getRecordingText(manifest.botLanguage ?? this.#config.botLanguage).emptyAfterRestart,
+      );
       return undefined;
     }
 
@@ -133,11 +147,17 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       await this.#manifestStore.save(recoverableManifest);
     }
 
-    await this.#notify(manifest.notificationChannelId, this.#text.resumingAfterRestart);
+    await this.#notify(
+      manifest.notificationChannelId,
+      getRecordingText(manifest.botLanguage ?? this.#config.botLanguage).resumingAfterRestart,
+    );
 
     try {
       const handle = await this.#open(recoverableManifest, onEnded, voiceChannel);
-      await this.#notify(manifest.notificationChannelId, this.#text.resumed);
+      await this.#notify(
+        manifest.notificationChannelId,
+        getRecordingText(manifest.botLanguage ?? this.#config.botLanguage).resumed,
+      );
       return handle;
     } catch (error) {
       this.#logger.error(
@@ -148,7 +168,10 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
         },
         "Failed to resume recording after restart",
       );
-      await this.#notify(manifest.notificationChannelId, this.#text.resumeFailed);
+      await this.#notify(
+        manifest.notificationChannelId,
+        getRecordingText(manifest.botLanguage ?? this.#config.botLanguage).resumeFailed,
+      );
       return undefined;
     }
   }
@@ -277,7 +300,7 @@ class DiscordVoiceRecording implements RecordingHandle {
     this.#notify = input.notify;
     this.#onCompleted = input.onCompleted;
     this.#onEnded = input.onEnded;
-    this.#text = getRecordingText(input.config.botLanguage);
+    this.#text = getRecordingText(input.manifest.botLanguage ?? input.config.botLanguage);
   }
 
   public start(): void {

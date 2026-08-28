@@ -41,13 +41,12 @@ executive summary, discussed topics, decisions, tasks, and full transcript in a 
 
 1. Install the dependencies with `npm install`.
 2. Copy `.env.example` to `.env`.
-3. Fill in `DISCORD_TOKEN`, `DISCORD_CLIENT_ID`, `POSTGRES_PASSWORD`, and `DATABASE_URL`; use the
-   `postgres` host with Compose or `localhost` when running the bot directly through npm.
-4. Fill in `OPENROUTER_API_KEY` only when a profile uses OpenRouter.
-5. Set `PERSIST_MEETING_CONTENT` and `PERSIST_MEETING_AUDIO` according to the desired policy.
-6. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
+3. Fill in `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY`, and `SUMMYZ_SETUP_TOKEN`.
+4. Run `npm run build`, start Compose, and open `http://127.0.0.1:8787` to configure the
+   administrator account, Discord, SMTP, and optional OpenRouter credentials.
+5. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
-7. Run `npm run local-ai:up`. The launcher detects GPUs, selects the safe Compose overlays, and
+6. Run `npm run local-ai:up`. The launcher detects GPUs, selects the safe Compose overlays, and
    starts the bot, PostgreSQL, Ollama, and faster-whisper. Selected local models are prepared when
    needed.
    `npm run dev` remains available for development while local AI services run in Compose.
@@ -67,14 +66,12 @@ restarts.
 
 - PostgreSQL stores configuration, profiles, meetings, the queue, and attempts; `DATABASE_URL` is
   required;
-- `PERSIST_MEETING_CONTENT=false` is the default. After the terminal state, transcripts, the
-  summary, and local states are removed. The backend retains only the operational minimum required
-  for the queue and for diagnosing its completion;
-- with `PERSIST_MEETING_CONTENT=true`, PostgreSQL preserves the raw and refined transcripts,
-  summary, publication, and manifest in `meeting_contents`;
-- `PERSIST_MEETING_AUDIO=false` is the default: audio is deleted after a fully validated
+- content retention is enabled by default for each new server and can be changed in the dashboard;
+- when enabled, PostgreSQL preserves the raw and refined transcripts, summary, publication, and
+  manifest in `meeting_contents`;
+- audio retention is disabled by default: audio is deleted after a fully validated
   transcription or after all durable attempts are exhausted;
-- with `PERSIST_MEETING_AUDIO=true`, audio remains in `DATA_DIR` indefinitely, while the
+- when enabled in the dashboard, audio remains in `DATA_DIR` indefinitely, while the
   `meeting_audio_segments` table stores metadata and relative paths;
 - audio is never stored as a BLOB in PostgreSQL. Even in this mode, the bytes remain in the durable
   volume mounted at `DATA_DIR`;
@@ -119,7 +116,8 @@ provider retries, a transient failure schedules durable runs after 1 minute, 5 m
 ## Discord Developer Portal setup
 
 1. Open the Summyz application in the Discord Developer Portal.
-2. Under **Bot**, create or reset the token and save it as `DISCORD_TOKEN` in `.env`.
+2. Under **Bot**, create or reset the token and enter it during dashboard setup. It is encrypted in
+   PostgreSQL with the master key kept in `.env`.
 3. Still under **Bot**, keep **Privileged Gateway Intents** disabled. The current implementation
    uses only the standard `Guilds` and `Guild Voice States` intents.
 4. Under **Installation**, configure **Guild Install** with the `bot` and
@@ -158,8 +156,7 @@ Each server has multiple PostgreSQL profiles and exactly one active profile. On 
 Summyz creates and activates `Profile 1` without selecting providers or models. Until
 transcription, refinement, and summary each have an explicit selection, `/record` shows an
 ephemeral warning and does not start. This stage provides the profile data model and execution;
-configuration UI will be implemented separately, so there is no Discord command or terminal
-configurator for editing profiles yet.
+the web dashboard provides complete create, rename, edit, activate, and delete operations.
 
 There is no model `auto` or `openrouter/auto`. Model selection is unrestricted and Summyz never
 replaces a selected model. Local evaluation uses `recommended`, `compatible`,
@@ -169,10 +166,18 @@ model, language, and parameters, including STT batching/options, chunk sizing, a
 options `temperature`, `seed`, and `think` where applicable. Unset values are not forced by Summyz,
 preserving provider defaults.
 
+The dashboard displays the complete transcription, refinement, summary extraction, and summary
+consolidation prompts. Each prompt can be replaced in full or disabled for a phase; when disabled,
+no system message is sent in that phase. Transcription defaults to no prompt. The remaining
+defaults are created in English or Brazilian Portuguese according to the account's dashboard
+language, while asking for the summary output language selected in the profile. Changing that
+language adapts prompts that still match the previous default and preserves customized text. The
+**Restore default** action uses the current dashboard language. The effective prompts, including
+the explicit decision to send none, are pinned in the meeting manifest.
+
 ## Recording settings
 
-- `BOT_LANGUAGE`: language used for fixed Discord text and command descriptions; `en` or `pt-BR`;
-  default `en`. This setting does not change model language;
+- bot language is configured per server in the dashboard and does not change model language;
 - `DATA_DIR`: file directory; default `./data`;
 - `SEGMENT_SILENCE_MS`: silence that ends a segment; default `1000` ms;
 - `SEGMENT_MAX_SECONDS`: maximum duration of each continuous segment; default `60` s;
@@ -185,7 +190,7 @@ Files are saved under
 
 ## Transcription settings
 
-- `OPENROUTER_API_KEY`: key used for the transcription, refinement, and summary endpoints;
+- the OpenRouter key is an encrypted installation secret managed through the dashboard;
 - `TRANSCRIPTION_CONCURRENCY`: batches processed simultaneously; default `2`;
 - `TRANSCRIPTION_VAD_THRESHOLD`: minimum speech probability in the local Silero detector;
   default `0.5`;
@@ -206,7 +211,7 @@ The transcription phase of each profile defines:
 - `interSpeechSilenceMs`: WAV silence inserted only between actual speech intervals in the batch;
 - `mergeMaxGapMs`: optional override of the global maximum gap for consolidating utterances from
   the same person;
-- `prompt`: optional text instruction to guide transcription style;
+- `prompt`: complete text instruction to guide transcription style, or `null` to send no prompt;
 - `providerOptions`: optional provider-specific options grouped by provider slug according to the
   OpenRouter contract.
 
@@ -242,7 +247,8 @@ provider defaults.
 
 ## Refinement settings
 
-- `provider`, `model`, `maxChunkCharacters`, and generation options belong to the profile;
+- `provider`, `model`, `maxChunkCharacters`, `prompt`, and generation options belong to the
+  profile;
 - `REFINEMENT_MAX_ATTEMPTS`: total attempts per chunk; default `3`;
 - `REFINEMENT_TIMEOUT_MS`: timeout for each attempt; default `120000` ms;
 - `REFINEMENT_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
@@ -252,9 +258,12 @@ Refinement receives the structured chunks produced by Whisper and returns only `
 pairs. The code rejects any response that removes, adds, or reorders IDs and always reuses the
 speaker and timestamps from Whisper. The prompt requests a conservative review of clear spelling,
 phonetic, and contextual errors; it contains no list of names, keywords, or controlled vocabulary.
-When a model returns an incompatible structure for a chunk containing multiple utterances, Summyz
-automatically divides that chunk and retries the smaller parts. Service unavailability and an
-incompatible response for a single utterance are still propagated to the durable retry policy.
+When a request times out while sending or reading the response, or a model returns an incompatible
+structure for a chunk containing multiple utterances, Summyz recursively divides that chunk and
+retries the smaller parts. A timed-out attempt without a generation ID is finalized as an
+unattributed cost failure instead of remaining pending indefinitely. Service unavailability
+without a timeout and a failure for a single utterance are still propagated to the durable retry
+policy.
 
 Before the first call, Summyz atomically preserves the original output in `transcript.raw.txt`. If
 the model or structured response fails all three attempts, it restores the original to
@@ -264,8 +273,8 @@ the original transcript remains available.
 
 ## Summary settings
 
-- `provider`, `model`, `language`, `maxChunkCharacters`, and generation options belong to the
-  profile;
+- `provider`, `model`, `language`, `maxChunkCharacters`, `extractionPrompt`,
+  `consolidationPrompt`, and generation options belong to the profile;
 - `SUMMARY_MAX_ATTEMPTS`: total attempts per model call; default `4`;
 - `SUMMARY_TIMEOUT_MS`: timeout for each attempt; default `120000` ms;
 - `SUMMARY_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
@@ -326,8 +335,8 @@ WAV. If any segment remains impossible to analyze or process, or the provider ex
 ## Publishing to Discord
 
 After transcription and summarization, Summyz reads the server's latest configuration and creates a
-post in the selected forum. With `BOT_LANGUAGE=en`, a successful post is named
-`Summary — MM/DD/YYYY HH:mm — Voice channel name`; with `BOT_LANGUAGE=pt-BR`, it uses
+post in the selected forum. With server language `en`, a successful post is named
+`Summary — MM/DD/YYYY HH:mm — Voice channel name`; with `pt-BR`, it uses
 `Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz`. The post contains:
 
 - the meeting ID and executive summary in the first message;
@@ -360,9 +369,9 @@ duplicates. The initial creation of forum posts does not support a nonce through
 therefore, idempotency is guaranteed under normal conditions, but absolute atomicity between the
 volume and Discord is not.
 
-When `PERSIST_MEETING_AUDIO=false`, audio is deleted as soon as the complete transcript is
+When audio retention is disabled, audio is deleted as soon as the complete transcript is
 validated and persisted, or after a permanent failure. After publication, the remaining temporary
-files are deleted if `PERSIST_MEETING_CONTENT=false`. Enabled copies remain in PostgreSQL or
+files are deleted if content retention is disabled. Enabled copies remain in PostgreSQL or
 `DATA_DIR`, according to their type, until the operator deletes them.
 
 ## Quality

@@ -2,9 +2,11 @@ FROM node:22-bookworm-slim AS build
 
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY web/package.json ./web/package.json
 RUN npm ci
 COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
+COPY web ./web
 RUN npm run build
 
 FROM build AS test
@@ -18,8 +20,10 @@ FROM node:22-bookworm-slim AS runtime
 ENV NODE_ENV=production
 WORKDIR /app
 COPY package.json package-lock.json ./
+COPY web/package.json ./web/package.json
 RUN npm ci --omit=dev && npm cache clean --force
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/web/dist ./web/dist
 COPY config ./config
 RUN mkdir -p /app/data && chown node:node /app/data
 USER node

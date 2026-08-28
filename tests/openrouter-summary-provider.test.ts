@@ -45,6 +45,44 @@ function successResponse(): Response {
 }
 
 describe("OpenRouterSummaryProvider", () => {
+  it("usa prompts distintos para extração e consolidação e permite desativá-los", async () => {
+    const fetch = vi.fn(async (_url: string, _init: RequestInit) => successResponse());
+    const provider = new OpenRouterSummaryProvider({
+      apiKey: "segredo",
+      consolidationPrompt: "Consolidação personalizada.",
+      extractionPrompt: "Extração personalizada.",
+      fetch,
+      maxAttempts: 1,
+      model: "model",
+      retryBaseMs: 1,
+      retryMaxMs: 1,
+      timeoutMs: 1_000,
+    });
+
+    await provider.summarize(entries);
+    await provider.consolidate([]);
+    expect(String(fetch.mock.calls[0]?.[1].body)).toContain("Extração personalizada.");
+    expect(String(fetch.mock.calls[1]?.[1].body)).toContain("Consolidação personalizada.");
+
+    const withoutPrompts = new OpenRouterSummaryProvider({
+      apiKey: "segredo",
+      consolidationPrompt: null,
+      extractionPrompt: null,
+      fetch,
+      maxAttempts: 1,
+      model: "model",
+      retryBaseMs: 1,
+      retryMaxMs: 1,
+      timeoutMs: 1_000,
+    });
+    await withoutPrompts.summarize(entries);
+    const body = JSON.parse(String(fetch.mock.calls[2]?.[1].body)) as {
+      messages: { role: string }[];
+    };
+    expect(body.messages).toHaveLength(1);
+    expect(body.messages[0]?.role).toBe("user");
+  });
+
   it("registra custo, modelo efetivo e generation id antes de concluir a tentativa", async () => {
     const attempts: CostAttempt[] = [];
     const store: CostLedgerStore = {

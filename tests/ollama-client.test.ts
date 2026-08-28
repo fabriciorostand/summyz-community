@@ -73,4 +73,19 @@ describe("requestOllamaStructured", () => {
       think: false,
     });
   });
+
+  it("omite a mensagem de sistema quando o prompt está desativado", async () => {
+    const fetch = vi.fn(
+      async (_url: string, _init: RequestInit) =>
+        new Response(JSON.stringify({ message: { content: '{"ok":true}' } }), { status: 200 }),
+    );
+
+    await requestOllamaStructured({ ...baseOptions, fetch, instruction: null });
+
+    const request = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as {
+      messages: { role: string }[];
+    };
+    expect(request.messages).toHaveLength(1);
+    expect(request.messages[0]?.role).toBe("user");
+  });
 });

@@ -48,6 +48,7 @@ interface OllamaRefinementProviderOptions {
   };
   model: string;
   onIncompatibleModel?: (model: string) => Promise<void>;
+  prompt?: string | null;
   timeoutMs: number;
 }
 
@@ -69,7 +70,7 @@ export class OllamaRefinementProvider implements RefinementProvider {
         ...(this.#options.fetch === undefined ? {} : { fetch: this.#options.fetch }),
         ...(this.#options.generation === undefined ? {} : { generation: this.#options.generation }),
         input: { blocks: entries.map(({ id, text }) => ({ id, text })) },
-        instruction,
+        instruction: this.#options.prompt === undefined ? instruction : this.#options.prompt,
         jsonSchema,
         model: this.#options.model,
         ...(this.#options.onIncompatibleModel === undefined

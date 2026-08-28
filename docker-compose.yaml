@@ -69,6 +69,21 @@ services:
     volumes:
       - summyz_data:/app/data
 
+  dashboard:
+    build: .
+    command: ["npm", "run", "start:api"]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      WEB_HOST: 0.0.0.0
+      WEB_PORT: 8787
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8787}:8787"
+
   smoke:
     profiles: ["smoke"]
     build:

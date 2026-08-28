@@ -69,6 +69,7 @@ describe("FasterWhisperTranscriptionProvider", () => {
       fetch,
       language: "auto",
       model: "small",
+      prompt: "Transcreva literalmente.",
       timeoutMs: 90_000,
     });
 
@@ -89,6 +90,7 @@ describe("FasterWhisperTranscriptionProvider", () => {
     expect((body as FormData).get("device")).toBe("gpu");
     expect((body as FormData).get("fallback")).toBe("cpu");
     expect((body as FormData).get("batchSize")).toBe("4");
+    expect((body as FormData).get("prompt")).toBe("Transcreva literalmente.");
   });
 
   it("rejeita respostas sem timestamps em vez de aceitar um modelo incompatível", async () => {

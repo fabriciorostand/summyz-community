@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import type { GuildConfigurationStore, SummaryForumConfiguration } from "../guild-config-store.js";
+import {
+  DEFAULT_GUILD_SETTINGS,
+  type GuildConfigurationStore,
+  type GuildSettings,
+  type SummaryForumConfiguration,
+} from "../guild-config-store.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(128);
@@ -8,6 +13,11 @@ const recordingRolesSchema = z.array(z.string().min(1).max(128));
 const summaryForumSchema = z.object({
   forumId: z.string().min(1).max(128),
   tagId: z.string().min(1).max(128).optional(),
+});
+const guildSettingsSchema = z.object({
+  botLanguage: z.enum(["en", "pt-BR"]),
+  persistMeetingAudio: z.boolean(),
+  persistMeetingContent: z.boolean(),
 });
 
 export class PostgresGuildConfigStore implements GuildConfigurationStore {
@@ -33,6 +43,41 @@ export class PostgresGuildConfigStore implements GuildConfigurationStore {
     );
     const value = result.rows[0]?.summary_forum;
     return value === undefined || value === null ? undefined : summaryForumSchema.parse(value);
+  }
+
+  public async getGuildSettings(guildId: string): Promise<GuildSettings> {
+    const result = await this.#database.query(
+      `SELECT bot_language, persist_meeting_content, persist_meeting_audio
+       FROM guild_configurations WHERE guild_id = $1`,
+      [identifierSchema.parse(guildId)],
+    );
+    const row = result.rows[0];
+    if (row === undefined) return { ...DEFAULT_GUILD_SETTINGS };
+    return guildSettingsSchema.parse({
+      botLanguage: row.bot_language,
+      persistMeetingAudio: row.persist_meeting_audio,
+      persistMeetingContent: row.persist_meeting_content,
+    });
+  }
+
+  public async setGuildSettings(guildId: string, settings: GuildSettings): Promise<void> {
+    const validated = guildSettingsSchema.parse(settings);
+    await this.#database.query(
+      `INSERT INTO guild_configurations (
+         guild_id, bot_language, persist_meeting_content, persist_meeting_audio
+       ) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (guild_id) DO UPDATE SET
+         bot_language = EXCLUDED.bot_language,
+         persist_meeting_content = EXCLUDED.persist_meeting_content,
+         persist_meeting_audio = EXCLUDED.persist_meeting_audio,
+         updated_at = now()`,
+      [
+        identifierSchema.parse(guildId),
+        validated.botLanguage,
+        validated.persistMeetingContent,
+        validated.persistMeetingAudio,
+      ],
+    );
   }
 
   public async addRecordingRole(guildId: string, roleId: string): Promise<void> {

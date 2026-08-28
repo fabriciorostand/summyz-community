@@ -191,7 +191,8 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     transcriptPath: string,
     summary?: PublicSummary,
   ): Promise<Extract<PublicationState, { status: "publishing" }>> {
-    const text = publicationTexts[this.#language];
+    const language = manifest.botLanguage ?? this.#language;
+    const text = publicationTexts[language];
     const summaryChunks =
       mode === "summary" && summary !== undefined
         ? formatSummary(manifest.meetingId, summary, text)
@@ -206,7 +207,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
         manifest.voiceChannelName ?? text.defaultVoiceChannel,
         mode,
         this.#timeZone,
-        this.#language,
+        language,
         text,
       );
       const firstContent =
@@ -302,7 +303,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       if (channel?.isSendable()) {
         await channel.send({
           allowedMentions: { parse: [] },
-          content: publicationTexts[this.#language].failureMessage,
+          content: publicationTexts[manifest.botLanguage ?? this.#language].failureMessage,
         });
         const now = this.#now().toISOString();
         await this.#store.save({

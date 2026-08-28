@@ -16,10 +16,14 @@ describe("logger", () => {
     logger.info(
       {
         audio: "conteúdo do áudio",
+        clientSecret: "client-secret-sensitive",
         authorization: "Bearer segredo",
         discordToken: "token-secreto",
         entries: [{ text: "conteúdo em blocos" }],
         openRouterApiKey: "openrouter-secreto",
+        refreshToken: "refresh-token-sensitive",
+        secretsKey: "master-key-sensitive",
+        smtpPassword: "smtp-password-sensitive",
         summary: "resumo sensível da reunião",
         transcript: "conteúdo da call",
       },
@@ -30,6 +34,10 @@ describe("logger", () => {
     expect(output).not.toContain("Bearer segredo");
     expect(output).not.toContain("token-secreto");
     expect(output).not.toContain("openrouter-secreto");
+    expect(output).not.toContain("client-secret-sensitive");
+    expect(output).not.toContain("refresh-token-sensitive");
+    expect(output).not.toContain("master-key-sensitive");
+    expect(output).not.toContain("smtp-password-sensitive");
     expect(output).not.toContain("conteúdo da call");
     expect(output).not.toContain("conteúdo do áudio");
     expect(output).not.toContain("conteúdo em blocos");

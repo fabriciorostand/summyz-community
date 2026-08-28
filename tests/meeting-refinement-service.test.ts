@@ -122,6 +122,26 @@ describe("MeetingRefinementService", () => {
     });
   });
 
+  it("aceita resolver o gerador assincronamente no momento do processamento", async () => {
+    const context = await createContext();
+    const generate = vi.fn(async (entries: readonly RefinementEntry[]) => ({
+      attempts: 1,
+      entries: [...entries],
+    }));
+    const resolveGenerator = vi.fn(async () => ({ generate }));
+    const service = new MeetingRefinementService({
+      logger: createLogger("silent"),
+      refinementStore: context.refinementStore,
+      resolveGenerator,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await service.process(context.manifest);
+
+    expect(resolveGenerator).toHaveBeenCalledWith(context.manifest);
+    expect(generate).toHaveBeenCalledOnce();
+  });
+
   it("restaura o bruto e continua após três falhas do refinamento", async () => {
     const context = await createContext();
     const service = new MeetingRefinementService({

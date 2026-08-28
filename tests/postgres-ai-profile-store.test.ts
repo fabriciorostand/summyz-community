@@ -116,4 +116,19 @@ describe("PostgresAiProfileStore", () => {
       "AI profile was not found in this guild",
     );
   });
+
+  it("exclui um perfil e troca o ativo atomicamente sem permitir excluir o último", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ deleted: true }],
+    });
+    const store = new PostgresAiProfileStore({ query });
+
+    await store.deleteProfile("guild-1", "profile-active", "profile-replacement");
+
+    expect(query.mock.calls[0]?.[0]).toMatch(/DELETE FROM ai_profiles/i);
+    expect(query.mock.calls[0]?.[0]).toMatch(/active_ai_profile_id/i);
+    expect(query.mock.calls[0]?.[0]).toMatch(/count\(\*\)/i);
+    expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", "profile-active", "profile-replacement"]);
+  });
 });

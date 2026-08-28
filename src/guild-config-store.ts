@@ -4,6 +4,9 @@ import { dirname } from "node:path";
 import { z } from "zod";
 
 const guildConfigurationSchema = z.object({
+  botLanguage: z.enum(["en", "pt-BR"]).default("en"),
+  persistMeetingAudio: z.boolean().default(false),
+  persistMeetingContent: z.boolean().default(true),
   recordingRoleIds: z.array(z.string()).default([]),
   summaryForum: z
     .object({
@@ -22,14 +25,26 @@ type PersistedConfiguration = z.infer<typeof persistedConfigurationSchema>;
 export type SummaryForumConfiguration = NonNullable<
   z.infer<typeof guildConfigurationSchema>["summaryForum"]
 >;
+export type GuildSettings = Pick<
+  z.infer<typeof guildConfigurationSchema>,
+  "botLanguage" | "persistMeetingAudio" | "persistMeetingContent"
+>;
+
+export const DEFAULT_GUILD_SETTINGS: GuildSettings = {
+  botLanguage: "en",
+  persistMeetingAudio: false,
+  persistMeetingContent: true,
+};
 
 export interface GuildConfigurationStore {
   addRecordingRole(guildId: string, roleId: string): Promise<void>;
   clearSummaryForum(guildId: string): Promise<void>;
   getSummaryForum(guildId: string): Promise<SummaryForumConfiguration | undefined>;
+  getGuildSettings(guildId: string): Promise<GuildSettings>;
   listRecordingRoles(guildId: string): Promise<string[]>;
   removeRecordingRole(guildId: string, roleId: string): Promise<void>;
   setSummaryForum(guildId: string, summaryForum: SummaryForumConfiguration): Promise<void>;
+  setGuildSettings(guildId: string, settings: GuildSettings): Promise<void>;
 }
 
 const EMPTY_CONFIGURATION: PersistedConfiguration = {
@@ -58,6 +73,37 @@ export class GuildConfigStore implements GuildConfigurationStore {
     return summaryForum === undefined ? undefined : { ...summaryForum };
   }
 
+  public async getGuildSettings(guildId: string): Promise<GuildSettings> {
+    await this.#writeQueue;
+    const configuration = await this.#read();
+    const guild = configuration.guilds[guildId];
+    return guild === undefined
+      ? { ...DEFAULT_GUILD_SETTINGS }
+      : {
+          botLanguage: guild.botLanguage,
+          persistMeetingAudio: guild.persistMeetingAudio,
+          persistMeetingContent: guild.persistMeetingContent,
+        };
+  }
+
+  public async setGuildSettings(guildId: string, settings: GuildSettings): Promise<void> {
+    const validated = guildConfigurationSchema
+      .pick({ botLanguage: true, persistMeetingAudio: true, persistMeetingContent: true })
+      .parse(settings);
+    await this.#enqueueUpdate((configuration) => ({
+      ...configuration,
+      guilds: {
+        ...configuration.guilds,
+        [guildId]: {
+          ...DEFAULT_GUILD_SETTINGS,
+          ...configuration.guilds[guildId],
+          ...validated,
+          recordingRoleIds: configuration.guilds[guildId]?.recordingRoleIds ?? [],
+        },
+      },
+    }));
+  }
+
   public async addRecordingRole(guildId: string, roleId: string): Promise<void> {
     await this.#enqueueUpdate((configuration) => {
       const currentRoles = configuration.guilds[guildId]?.recordingRoleIds ?? [];
@@ -70,6 +116,7 @@ export class GuildConfigStore implements GuildConfigurationStore {
         guilds: {
           ...configuration.guilds,
           [guildId]: {
+            ...DEFAULT_GUILD_SETTINGS,
             ...configuration.guilds[guildId],
             recordingRoleIds,
           },
@@ -84,6 +131,7 @@ export class GuildConfigStore implements GuildConfigurationStore {
       guilds: {
         ...configuration.guilds,
         [guildId]: {
+          ...DEFAULT_GUILD_SETTINGS,
           ...configuration.guilds[guildId],
           recordingRoleIds: (configuration.guilds[guildId]?.recordingRoleIds ?? []).filter(
             (currentRoleId) => currentRoleId !== roleId,
@@ -103,6 +151,7 @@ export class GuildConfigStore implements GuildConfigurationStore {
       guilds: {
         ...configuration.guilds,
         [guildId]: {
+          ...DEFAULT_GUILD_SETTINGS,
           ...configuration.guilds[guildId],
           recordingRoleIds: configuration.guilds[guildId]?.recordingRoleIds ?? [],
           summaryForum: validated,

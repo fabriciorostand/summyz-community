@@ -4,6 +4,7 @@ import { MeetingRefinementGenerator } from "../src/refinement/meeting-refinement
 import {
   IncompatibleRefinementResponseError,
   RefinementProviderFailureError,
+  RefinementRequestError,
 } from "../src/refinement/refinement-provider.js";
 
 const entries = [
@@ -61,6 +62,27 @@ describe("MeetingRefinementGenerator", () => {
       .fn()
       .mockRejectedValueOnce(
         new RefinementProviderFailureError(1, new IncompatibleRefinementResponseError()),
+      )
+      .mockImplementation(async (chunk: typeof entries) => ({ attempts: 1, entries: chunk }));
+    const generator = new MeetingRefinementGenerator({
+      maxChunkCharacters: 10_000,
+      provider: { refine },
+    });
+
+    await expect(generator.generate(entries)).resolves.toEqual({ attempts: 3, entries });
+    expect(refine).toHaveBeenNthCalledWith(1, entries);
+    expect(refine).toHaveBeenNthCalledWith(2, [entries[0]]);
+    expect(refine).toHaveBeenNthCalledWith(3, [entries[1]]);
+  });
+
+  it("subdivide um lote após timeout sem repetir o lote inteiro", async () => {
+    const refine = vi
+      .fn()
+      .mockRejectedValueOnce(
+        new RefinementProviderFailureError(
+          1,
+          new RefinementRequestError({ retryable: false, timedOut: true }),
+        ),
       )
       .mockImplementation(async (chunk: typeof entries) => ({ attempts: 1, entries: chunk }));
     const generator = new MeetingRefinementGenerator({

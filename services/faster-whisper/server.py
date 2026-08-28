@@ -25,8 +25,8 @@ from execution_policy import (
     RuntimeDevice,
     load_with_device_policy,
 )
-from language import normalize_whisper_language
 from structured_logging import configure_structured_logging
+from transcription_options import create_transcription_options
 
 configure_structured_logging()
 logger = logging.getLogger("summyz.faster_whisper")
@@ -171,15 +171,9 @@ def remove_model(model: str) -> None:
 
 
 def transcribe_audio(
-    runtime: LoadedRuntime, path: Path, language: str
+    runtime: LoadedRuntime, path: Path, language: str, prompt: str | None
 ) -> tuple[list[str], list[dict[str, object]]]:
-    options: dict[str, object] = {
-        "language": normalize_whisper_language(language),
-        "vad_filter": True,
-        "word_timestamps": True,
-    }
-    if runtime.batch_size > 0:
-        options["batch_size"] = runtime.batch_size
+    options = create_transcription_options(language, runtime.batch_size, prompt)
     segments, _ = runtime.transcriber.transcribe(str(path), **options)
     words: list[dict[str, object]] = []
     text_parts: list[str] = []
@@ -250,6 +244,7 @@ async def transcribe(
     device: Annotated[DevicePreference, Form()] = "auto",
     fallback: Annotated[FallbackPreference, Form()] = "none",
     batch_size: Annotated[int, Form(alias="batchSize", ge=0, le=64)] = 0,
+    prompt: Annotated[str | None, Form(min_length=1, max_length=20_000)] = None,
 ) -> dict[str, object]:
     suffix = Path(audio.filename or "audio.wav").suffix.lower()
     if suffix not in {".ogg", ".wav"}:
@@ -263,7 +258,7 @@ async def transcribe(
                 temporary.write(chunk)
         runtime = await run_in_threadpool(load_model, model, device, fallback, batch_size)
         text_parts, words = await run_in_threadpool(
-            transcribe_audio, runtime, temporary_path, language
+            transcribe_audio, runtime, temporary_path, language, prompt
         )
         logger.info(
             "Audio transcription completed",
