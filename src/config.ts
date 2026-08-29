@@ -43,8 +43,6 @@ const environmentSchema = z.object({
   TRANSCRIPTION_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
   TRANSCRIPTION_RETRY_MAX_MS: z.coerce.number().int().min(100).max(300_000).default(30_000),
   TRANSCRIPTION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(90_000),
-  TRANSCRIPTION_VAD_THRESHOLD: z.coerce.number().min(0.15).max(1).default(0.5),
-  TRANSCRIPTION_VAD_MIN_SPEECH_MS: z.coerce.number().int().min(32).max(2_000).default(96),
   TRANSCRIPTION_WINDOW_MAX_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
   VOICE_RECONNECT_MAX_MS: z.coerce
     .number()
@@ -82,8 +80,6 @@ export interface AppConfig {
   transcriptionRetryBaseMs: number;
   transcriptionRetryMaxMs: number;
   transcriptionTimeoutMs: number;
-  transcriptionVadThreshold: number;
-  transcriptionVadMinSpeechMs: number;
   transcriptionWindowMaxSeconds: number;
   voiceReconnectMaxMs: number;
 }
@@ -122,8 +118,6 @@ export function loadConfig(environment: NodeJS.ProcessEnv): BootstrapConfig {
     transcriptionRetryBaseMs: parsed.TRANSCRIPTION_RETRY_BASE_MS,
     transcriptionRetryMaxMs: parsed.TRANSCRIPTION_RETRY_MAX_MS,
     transcriptionTimeoutMs: parsed.TRANSCRIPTION_TIMEOUT_MS,
-    transcriptionVadThreshold: parsed.TRANSCRIPTION_VAD_THRESHOLD,
-    transcriptionVadMinSpeechMs: parsed.TRANSCRIPTION_VAD_MIN_SPEECH_MS,
     transcriptionWindowMaxSeconds: parsed.TRANSCRIPTION_WINDOW_MAX_SECONDS,
     voiceReconnectMaxMs: parsed.VOICE_RECONNECT_MAX_MS,
   };

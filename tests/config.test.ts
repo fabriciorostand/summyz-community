@@ -26,14 +26,14 @@ describe("loadConfig", () => {
       summaryMaxAttempts: 4,
       summaryTimeZone: "America/Sao_Paulo",
       transcriptionConcurrency: 2,
-      transcriptionVadMinSpeechMs: 96,
-      transcriptionVadThreshold: 0.5,
       transcriptionWindowMaxSeconds: 30,
       voiceReconnectMaxMs: 300_000,
     });
     expect(config).not.toHaveProperty("storageMode");
     expect(config).not.toHaveProperty("fasterWhisperModel");
     expect(config).not.toHaveProperty("summaryProvider");
+    expect(config).not.toHaveProperty("transcriptionVadThreshold");
+    expect(config).not.toHaveProperty("transcriptionVadMinSpeechMs");
   });
 
   it("exige PostgreSQL sempre", () => {
@@ -85,9 +85,6 @@ describe("loadConfig", () => {
 
   it("rejeita limites operacionais inválidos", () => {
     expect(() => loadConfig({ ...requiredEnvironment, SEGMENT_MAX_SECONDS: "0" })).toThrow();
-    expect(() =>
-      loadConfig({ ...requiredEnvironment, TRANSCRIPTION_VAD_THRESHOLD: "1.1" }),
-    ).toThrow();
     expect(() =>
       loadConfig({ ...requiredEnvironment, SUMMARY_TIME_ZONE: "Fuso/Inexistente" }),
     ).toThrow();

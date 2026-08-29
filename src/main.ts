@@ -5,11 +5,9 @@ import { loadEnvFile } from "node:process";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 
 import { assessModelCompatibility, resolveAiProfile } from "./ai-profile.js";
-import { CombinedCostLedgerReader } from "./cost/combined-cost-ledger-reader.js";
 import { CostReconciler } from "./cost/cost-reconciler.js";
-import type { CostLedgerStore, CostPhase } from "./cost/cost-ledger.js";
+import type { CostPhase } from "./cost/cost-ledger.js";
 import { createCostReportService } from "./cost/cost-report.js";
-import { LocalCostLedgerStore } from "./cost/local-cost-ledger-store.js";
 import { PostgresCostLedgerStore } from "./cost/postgres-cost-ledger-store.js";
 import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
 
@@ -34,10 +32,6 @@ import { detectLocalHardware } from "./local-ai/hardware-detection.js";
 import { resolveLocalExecutionPlan, type LocalAiPhase } from "./local-ai/local-execution-policy.js";
 import { DurableJobQueue } from "./processing/durable-job-queue.js";
 import { DurableJobWorker } from "./processing/durable-job-worker.js";
-import { LocalDurableJobQueue } from "./processing/local-durable-job-queue.js";
-import { LocalMeetingAudioCatalog } from "./processing/local-meeting-audio-catalog.js";
-import { LocalMeetingContentStore } from "./processing/local-meeting-content-store.js";
-import { LocalMeetingStore } from "./processing/local-meeting-store.js";
 import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
 import { MeetingFinalizer } from "./processing/meeting-finalizer.js";
 import { MeetingProcessingHandler } from "./processing/meeting-processing-handler.js";
@@ -49,6 +43,7 @@ import { RefinementStore } from "./refinement/refinement-store.js";
 import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
 import {
   meetingAiConfigurationSchema,
+  requireCurrentMeetingAiConfiguration,
   type ResolvedMeetingAiConfiguration,
   type RecordingManifest,
 } from "./recording/manifest.js";
@@ -64,7 +59,11 @@ import { configureTerminalEncoding } from "./terminal-encoding.js";
 import { MeetingTranscriptionService } from "./transcription/meeting-transcription-service.js";
 import { FasterWhisperTranscriptionProvider } from "./transcription/faster-whisper-transcription-provider.js";
 import { OpenRouterTranscriptionProvider } from "./transcription/openrouter-transcription-provider.js";
-import { SileroSpeechAnalyzer } from "./transcription/speech-analyzer.js";
+import {
+  createAudioDecoder,
+  FullAudioSpeechAnalyzer,
+  SileroSpeechAnalyzer,
+} from "./transcription/speech-analyzer.js";
 import type { TranscriptionModelProfile } from "./transcription/transcription-model-profile.js";
 import { TranscriptionStore } from "./transcription/transcription-store.js";
 import type { TranscriptionProvider } from "./transcription/transcription-provider.js";
@@ -130,29 +129,17 @@ const recordingsDirectory = join(config.dataDir, "recordings");
 
 const postgresMeetingStore = new PostgresMeetingStore(database);
 const manifestStore = new ManifestStore(recordingsDirectory, postgresMeetingStore);
-const localCostLedger = new LocalCostLedgerStore(join(config.dataDir, "costs"));
 const postgresCostLedger = new PostgresCostLedgerStore(database);
 const costReport = createCostReportService({
   language: config.botLanguage,
   reconcile: async (guildId) => {
     const apiKey = await resolveOpenRouterApiKey();
     if (apiKey === undefined) return;
-    await Promise.all([
-      new CostReconciler({ apiKey, logger, store: localCostLedger }).reconcile(guildId),
-      new CostReconciler({ apiKey, logger, store: postgresCostLedger }).reconcile(guildId),
-    ]);
+    await new CostReconciler({ apiKey, logger, store: postgresCostLedger }).reconcile(guildId);
   },
-  store: new CombinedCostLedgerReader([localCostLedger, postgresCostLedger]),
+  store: postgresCostLedger,
   timeZone: config.summaryTimeZone,
 });
-const localQueue = new LocalDurableJobQueue(join(config.dataDir, "processing.json"));
-try {
-  await localQueue.initialize();
-} catch (error) {
-  logger.fatal({ errorType: getErrorType(error) }, "Unable to initialize the local durable queue");
-  await database.close().catch(() => undefined);
-  process.exit(1);
-}
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
@@ -251,11 +238,7 @@ const refinementService = new MeetingRefinementService({
   },
   transcriptionStore,
 });
-const speechAnalyzer = new SileroSpeechAnalyzer({
-  maxDurationSeconds: config.segmentMaxSeconds,
-  minSpeechDurationMs: config.transcriptionVadMinSpeechMs,
-  threshold: config.transcriptionVadThreshold,
-});
+const decodeMeetingAudio = createAudioDecoder(config.segmentMaxSeconds);
 const transcriptionService = new MeetingTranscriptionService({
   concurrency: config.transcriptionConcurrency,
   interSpeechSilenceMs: 0,
@@ -272,39 +255,30 @@ const transcriptionService = new MeetingTranscriptionService({
     const selection = getMeetingAiConfiguration(manifest).transcription;
     return createTranscriptionProvider(selection, manifest);
   },
-  speechAnalyzer,
+  resolveSpeechAnalyzer: (manifest) => {
+    const configuration = getMeetingAiConfiguration(manifest);
+    if (configuration.profileType === "external" && configuration.transcription.vad.enabled) {
+      const vad = configuration.transcription.vad;
+      return new SileroSpeechAnalyzer({
+        decodeAudio: decodeMeetingAudio,
+        minSilenceDurationMs: vad.minSilenceDurationMs,
+        minSpeechDurationMs: vad.minSpeechDurationMs,
+        negativeSpeechThreshold:
+          vad.negativeSpeechThreshold === "auto"
+            ? Math.max(0, vad.threshold - 0.15)
+            : vad.negativeSpeechThreshold,
+        speechPadMs: vad.speechPadMs,
+        threshold: vad.threshold,
+      });
+    }
+    return new FullAudioSpeechAnalyzer({ decodeAudio: decodeMeetingAudio });
+  },
   transcriptionStore,
   transcriptionMergeMaxGapMs: 2_000,
   transcriptionWindowMaxMs: config.transcriptionWindowMaxSeconds * 1_000,
 });
 
 const retention = new MeetingArtifactRetention(transcriptionStore, logger);
-const localMeetingStore = new LocalMeetingStore(manifestStore, localQueue);
-const localFinalizer = new MeetingFinalizer({
-  contentStore: new LocalMeetingContentStore(),
-  manifestStore,
-  publicationStore,
-  retention,
-  summaryStore,
-  transcriptionStore,
-});
-const localProcessingHandler = new MeetingProcessingHandler({
-  audioCatalog: new LocalMeetingAudioCatalog(recordingsDirectory),
-  finalizer: localFinalizer,
-  meetingStore: localMeetingStore,
-  queue: localQueue,
-  refinementStore,
-  refiner: refinementService,
-  retention,
-  summarizer: summaryService,
-  summaryStore,
-  transcriber: transcriptionService,
-  transcriptionStore,
-});
-const workers = [
-  new DurableJobWorker({ handler: localProcessingHandler, logger, queue: localQueue }),
-];
-
 const postgresQueue = new DurableJobQueue(database);
 const postgresFinalizer = new MeetingFinalizer({
   contentStore: new PostgresMeetingContentStore(database),
@@ -314,7 +288,7 @@ const postgresFinalizer = new MeetingFinalizer({
   summaryStore,
   transcriptionStore,
 });
-const postgresProcessingHandler = new MeetingProcessingHandler({
+const processingHandler = new MeetingProcessingHandler({
   audioCatalog: new PostgresMeetingAudioCatalog(database),
   finalizer: postgresFinalizer,
   meetingStore: postgresMeetingStore,
@@ -327,16 +301,10 @@ const postgresProcessingHandler = new MeetingProcessingHandler({
   transcriber: transcriptionService,
   transcriptionStore,
 });
-workers.push(
-  new DurableJobWorker({ handler: postgresProcessingHandler, logger, queue: postgresQueue }),
-);
+const worker = new DurableJobWorker({ handler: processingHandler, logger, queue: postgresQueue });
 
 async function enqueueCompleted(manifest: RecordingManifest): Promise<void> {
-  await selectCostLedger(manifest).saveMeeting(manifest);
-  if (manifest.storageMode === "local") {
-    await localQueue.enqueue(manifest.meetingId, "transcription");
-    return;
-  }
+  await postgresCostLedger.saveMeeting(manifest);
   await postgresQueue.enqueue(manifest.meetingId, "transcription");
 }
 
@@ -368,13 +336,6 @@ installVoiceStateHandler(client, coordinator, logger);
 client.once(Events.ClientReady, async (readyClient) => {
   logger.info({ botUserId: readyClient.user.id }, "Summyz connected to Discord");
   try {
-    await Promise.all(
-      readyClient.guilds.cache.map((guild) => aiProfileStore.ensureInitialProfile(guild.id)),
-    );
-  } catch (error) {
-    logger.error({ errorType: getErrorType(error) }, "Unable to initialize guild AI profiles");
-  }
-  try {
     await registerCommands(config);
     logger.info(
       { registrationScope: config.discordGuildId === undefined ? "global" : "guild" },
@@ -385,11 +346,8 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   try {
-    for (const meetingId of await localMeetingStore.listTerminalMeetingIds()) {
-      await localProcessingHandler.cleanup(meetingId);
-    }
     for (const meetingId of await postgresMeetingStore.listTerminalMeetingIds()) {
-      await postgresProcessingHandler.cleanup(meetingId);
+      await processingHandler.cleanup(meetingId);
     }
     for (const manifest of await manifestStore.listRecoverable()) {
       await coordinator.resume(manifest);
@@ -410,7 +368,7 @@ client.once(Events.ClientReady, async (readyClient) => {
       "Failed to reconcile completed meetings with the durable queue",
     );
   }
-  for (const worker of workers) worker.start();
+  worker.start();
 });
 
 let shuttingDown = false;
@@ -419,12 +377,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   logger.info({ signal }, "Summyz shutdown requested");
   await coordinator.shutdown();
-  await Promise.all(workers.map(async (worker) => worker.shutdown()));
-  try {
-    await speechAnalyzer.close();
-  } catch (error) {
-    logger.error({ errorType: getErrorType(error) }, "Unable to close the local speech detector");
-  }
+  await worker.shutdown();
   client.destroy();
   await database.close().catch((error: unknown) => {
     logger.error({ errorType: getErrorType(error) }, "Unable to close the PostgreSQL connection");
@@ -443,24 +396,22 @@ try {
   await client.login(config.discordToken);
 } catch (error) {
   logger.fatal({ errorType: getErrorType(error) }, "Unable to connect Summyz to Discord");
-  await Promise.all(workers.map(async (worker) => worker.shutdown()));
-  await speechAnalyzer.close().catch(() => undefined);
+  await worker.shutdown();
   await database.close().catch(() => undefined);
   process.exitCode = 1;
 }
 
 function getMeetingAiConfiguration(manifest: RecordingManifest): ResolvedMeetingAiConfiguration {
-  if (manifest.aiConfiguration === undefined) {
-    throw new Error("The meeting does not have a pinned AI profile");
-  }
-  return meetingAiConfigurationSchema.parse(manifest.aiConfiguration);
+  return requireCurrentMeetingAiConfiguration(manifest);
 }
 
 async function resolveAndPrepareMeetingAiConfiguration(
   guildId: string,
 ): Promise<ResolvedMeetingAiConfiguration> {
-  await aiProfileStore.ensureInitialProfile(guildId);
-  const profile = await aiProfileStore.getActiveProfile(guildId);
+  const profile = await getOwnedActiveProfile(guildId);
+  if (profile === undefined) {
+    throw new Error("The server does not have an active AI profile");
+  }
   let configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
   const localAiPhases = localPhases(configuration);
   const executionPlan = resolveLocalExecutionPlan({
@@ -525,7 +476,8 @@ function localPhases(configuration: ResolvedMeetingAiConfiguration): LocalAiPhas
 }
 
 async function assessActiveAiProfile(guildId: string) {
-  const profile = await aiProfileStore.getActiveProfile(guildId);
+  const profile = await getOwnedActiveProfile(guildId);
+  if (profile === undefined) return [];
   let configuration: ResolvedMeetingAiConfiguration;
   try {
     configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
@@ -580,6 +532,11 @@ async function assessActiveAiProfile(guildId: string) {
   ];
 }
 
+async function getOwnedActiveProfile(guildId: string) {
+  const guild = client.guilds.cache.get(guildId) ?? (await client.guilds.fetch(guildId));
+  return aiProfileStore.getActiveProfileForDiscordOwner(guildId, guild.ownerId);
+}
+
 async function createTranscriptionProvider(
   selection: ResolvedMeetingAiConfiguration["transcription"],
   manifest: RecordingManifest,
@@ -601,6 +558,7 @@ async function createTranscriptionProvider(
       model: selection.model,
       prompt: selection.prompt,
       timeoutMs: config.transcriptionTimeoutMs,
+      vad: selection.vad,
     });
   }
   const profile: TranscriptionModelProfile = {
@@ -638,7 +596,7 @@ function createProviderCostRecorder(
     context: { guildId: manifest.guildId, meetingId: manifest.meetingId, phase },
     logger,
     ...(openRouterApiKey === undefined ? {} : { openRouter: { apiKey: openRouterApiKey } }),
-    store: selectCostLedger(manifest),
+    store: postgresCostLedger,
   });
 }
 
@@ -648,11 +606,6 @@ async function resolveOpenRouterApiKey(): Promise<string | undefined> {
 
 async function requireOpenRouterApiKey(): Promise<string> {
   return requireConfigured(await resolveOpenRouterApiKey(), "OpenRouter API key");
-}
-
-function selectCostLedger(manifest: RecordingManifest): CostLedgerStore {
-  if (manifest.storageMode === "local") return localCostLedger;
-  return postgresCostLedger;
 }
 
 function requireConfigured(value: string | undefined, settingName: string): string {

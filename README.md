@@ -152,11 +152,16 @@ owner authorizes may use `/record` and `/stop`; authorized roles receive no othe
 
 ## Processing profiles
 
-Each server has multiple PostgreSQL profiles and exactly one active profile. On first startup,
-Summyz creates and activates `Profile 1` without selecting providers or models. Until
-transcription, refinement, and summary each have an explicit selection, `/record` shows an
-ephemeral warning and does not start. This stage provides the profile data model and execution;
-the web dashboard provides complete create, rename, edit, activate, and delete operations.
+Profiles are personal and global: they belong to a dashboard account and can be reused across the
+servers owned by that account. The **Profiles** page separates **External API** and **Local**
+configurations. Each account receives one localized `Profile 1` of each type with no models filled
+in. The last profile of either type and any active profile cannot be deleted.
+
+Each server has at most one active profile, regardless of type. New servers start without one;
+until transcription, refinement, and summary have explicit models, `/record` shows an ephemeral
+warning and does not start. Changing a model preserves the profile's other parameters. When
+Discord server ownership changes, the former owner's profile is detached, the server disappears
+from that account, and the new owner must connect and configure their own account.
 
 There is no model `auto` or `openrouter/auto`. Model selection is unrestricted and Summyz never
 replaces a selected model. Local evaluation uses `recommended`, `compatible`,
@@ -192,9 +197,6 @@ Files are saved under
 
 - the OpenRouter key is an encrypted installation secret managed through the dashboard;
 - `TRANSCRIPTION_CONCURRENCY`: batches processed simultaneously; default `2`;
-- `TRANSCRIPTION_VAD_THRESHOLD`: minimum speech probability in the local Silero detector;
-  default `0.5`;
-- `TRANSCRIPTION_VAD_MIN_SPEECH_MS`: approximate minimum speech duration; default `96` ms;
 - `TRANSCRIPTION_WINDOW_MAX_SECONDS`: maximum duration of a consolidated batch; default `30` s;
 - `TRANSCRIPTION_MAX_ATTEMPTS`: total attempts per batch; default `4`;
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout for each attempt; default `90000` ms;
@@ -215,14 +217,19 @@ The transcription phase of each profile defines:
 - `providerOptions`: optional provider-specific options grouped by provider slug according to the
   OpenRouter contract.
 
-Before calling the API, Summyz decodes audio locally and uses Silero VAD to confirm that speech is
-present. Segments without speech are completed as silence with zero external attempts and do not
-bring together utterances that were far apart in the voice call. Only intervals detected as speech
-are consolidated into lossless WAV when the actual gap between them does not exceed 2 seconds, in
-windows of up to 30 seconds from the same person. Depending on the active profile, short synthetic
-silences may separate these intervals to preserve utterance boundaries. A time map excludes these
-pauses and places each excerpt back on the original clock after transcription, without mixing
-participants.
+VAD is configured in its own profile tab and can be disabled. External API profiles use Summyz's
+Silero detector before sending audio to OpenRouter. Local profiles skip that detector and use only
+faster-whisper's native VAD, so two VADs are never applied in sequence. Each profile type preserves
+the defaults and limits of its detector. Speech threshold, negative threshold, minimum speech,
+ending silence, and speech padding are persisted in the profile; local profiles also expose the
+maximum speech-region duration. `auto` preserves faster-whisper's established normal or batched
+behavior.
+
+With an external API profile and VAD enabled, speech-free segments complete as silence with zero
+external attempts. Detected speech intervals are consolidated into lossless WAV within the
+configured limits. Short synthetic silences can preserve utterance boundaries, and a time map
+restores each piece to the original meeting clock. With a local profile, consolidated audio reaches
+faster-whisper, which applies its own VAD from the profile configuration.
 
 OpenRouter may route a request among providers compatible with the selected model. Summyz accepts
 this routing within an OpenRouter stage. A stage configured as local never sends its content to
@@ -371,8 +378,8 @@ volume and Discord is not.
 
 When audio retention is disabled, audio is deleted as soon as the complete transcript is
 validated and persisted, or after a permanent failure. After publication, the remaining temporary
-files are deleted if content retention is disabled. Enabled copies remain in PostgreSQL or
-`DATA_DIR`, according to their type, until the operator deletes them.
+files are deleted if content retention is disabled. Retained content remains in PostgreSQL, and
+retained audio remains in `DATA_DIR`, until the operator deletes it.
 
 ## Quality
 

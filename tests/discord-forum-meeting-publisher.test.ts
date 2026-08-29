@@ -6,11 +6,11 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Client } from "discord.js";
 
 import { DiscordMeetingPublisher } from "../src/discord/discord-meeting-publisher.js";
-import { GuildConfigStore } from "../src/guild-config-store.js";
 import { createLogger } from "../src/logger.js";
 import { createManifest } from "../src/recording/manifest.js";
 import { createPublicationState } from "../src/summary/publication-state.js";
 import { PublicationStore } from "../src/summary/publication-store.js";
+import { InMemoryGuildConfigurationStore } from "./in-memory-guild-config-store.js";
 
 const directories: string[] = [];
 
@@ -23,7 +23,7 @@ async function createContext() {
   directories.push(root);
   const transcriptPath = join(root, "transcript.txt");
   await writeFile(transcriptPath, "[00:00:00.000 – 00:00:01.000] Ana: Olá.\n");
-  const configStore = new GuildConfigStore(join(root, "guilds.json"));
+  const configStore = new InMemoryGuildConfigurationStore();
   await configStore.setSummaryForum("guild-1", { forumId: "forum-1", tagId: "tag-1" });
   const manifest = createManifest({
     guildId: "guild-1",
@@ -371,12 +371,12 @@ describe("publicação da reunião em fórum do Discord", () => {
     });
   });
 
-  it("formata conteúdo longo, nome legado do canal e tarefa sem detalhes opcionais", async () => {
+  it("formata conteúdo longo, canal sem nome e tarefa sem detalhes opcionais", async () => {
     const context = await createContext();
     await context.configStore.setSummaryForum("guild-1", { forumId: "forum-1" });
-    const legacyManifest = createManifest({
+    const manifestWithoutChannelName = createManifest({
       guildId: "guild-1",
-      meetingId: "meeting-legacy",
+      meetingId: "meeting-without-channel-name",
       notificationChannelId: "text-original",
       startedAt: "2026-08-17T15:30:00.000Z",
       voiceChannelId: "voice-1",
@@ -401,7 +401,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     });
 
     await publisher.publishSummary(
-      legacyManifest,
+      manifestWithoutChannelName,
       {
         decisions: [],
         discussedTopics: [],

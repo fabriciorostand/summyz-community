@@ -158,12 +158,17 @@ ele autorizar podem usar `/record` e `/stop`; os cargos não recebem outros pode
 
 ## Perfis de processamento
 
-Cada servidor possui múltiplos perfis no PostgreSQL e exatamente um perfil ativo. Na primeira
-inicialização, o Summyz cria e ativa `Profile 1`, mas não escolhe provedores nem modelos. Enquanto
-transcrição, refinamento e resumo não tiverem uma escolha explícita, `/record` mostra um aviso
-efêmero e não inicia a gravação. Esta etapa entrega o modelo de dados e a execução dos perfis; a
-interface web permite criar, renomear, editar, ativar e excluir perfis. O último perfil não pode ser
-excluído, e a exclusão do perfil ativo exige escolher um substituto.
+Os perfis são pessoais e globais: pertencem à conta do dashboard e podem ser reutilizados nos
+servidores dos quais essa conta é proprietária. A página **Perfis** separa configurações de **API
+externa** e **Local**. Cada conta recebe um `Perfil 1` localizado de cada tipo, sem modelos
+preenchidos. O último perfil de cada tipo e qualquer perfil ativo não podem ser excluídos.
+
+Cada servidor mantém no máximo um desses perfis como ativo, independentemente do tipo. Servidores
+novos começam sem perfil ativo; enquanto transcrição, refinamento e resumo do perfil escolhido não
+tiverem modelos explícitos, `/record` mostra um aviso efêmero e não inicia a gravação. Trocar um
+modelo preserva os demais parâmetros do perfil. Se a propriedade do servidor mudar no Discord, o
+perfil do proprietário anterior é desassociado: o servidor deixa sua lista e o novo proprietário
+precisa conectar a própria conta e fazer sua configuração.
 
 Não existe modelo `auto` nem `openrouter/auto`. A escolha é livre e o Summyz nunca substitui o
 modelo selecionado. A avaliação local usa os estados `recommended`, `compatible`,
@@ -201,8 +206,6 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 - a chave OpenRouter é um segredo global editável no dashboard e só é exigida quando alguma fase
   usa esse provedor;
 - `TRANSCRIPTION_CONCURRENCY`: lotes processados simultaneamente; padrão `2`;
-- `TRANSCRIPTION_VAD_THRESHOLD`: probabilidade mínima de voz no detector Silero local; padrão `0.5`;
-- `TRANSCRIPTION_VAD_MIN_SPEECH_MS`: duração mínima aproximada de voz; padrão `96` ms;
 - `TRANSCRIPTION_WINDOW_MAX_SECONDS`: duração máxima de um lote consolidado; padrão `30` s;
 - `TRANSCRIPTION_MAX_ATTEMPTS`: total de tentativas por lote; padrão `4`;
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout de cada tentativa; padrão `90000` ms;
@@ -224,13 +227,20 @@ Na fase de transcrição, cada perfil define:
 - `providerOptions`: opções opcionais agrupadas pelo slug do provedor conforme o contrato do
   OpenRouter.
 
-Antes da API, o Summyz decodifica o áudio localmente e usa Silero VAD para confirmar a presença de
-voz. Segmentos sem voz são concluídos como silêncio, com zero tentativas externas, e não aproximam
-falas que estavam distantes na call. Somente os intervalos detectados como voz são consolidados em
-WAV sem perdas quando o intervalo real entre as vozes não passa de 2 segundos, em janelas de até 30
-segundos da mesma pessoa. Conforme o perfil ativo, pequenos silêncios sintéticos podem separar esses
-intervalos para preservar fronteiras de enunciados. Um mapa temporal exclui essas pausas e recoloca
-cada trecho no relógio original depois da transcrição, sem misturar participantes.
+O VAD é configurado na aba própria do perfil e pode ser desativado. Perfis de API externa usam o
+detector Silero do Summyz antes de enviar áudio ao OpenRouter. Perfis locais não executam esse
+detector: somente o VAD nativo do faster-whisper faz o pré-processamento. Assim, nunca há dois VADs
+em sequência. Cada tipo preserva os padrões e limites próprios do seu detector; limiar de fala,
+limiar negativo, fala mínima, silêncio de encerramento e margem de fala são persistidos no perfil.
+O perfil local também permite controlar a duração máxima de uma região de fala. Valores `auto`
+mantêm o comportamento nativo conhecido do faster-whisper para o modo normal ou em lote.
+
+Com um perfil de API externa e VAD ativo, segmentos sem voz são concluídos como silêncio, com zero
+tentativas externas. Somente os intervalos detectados como voz são consolidados em WAV sem perdas
+dentro dos limites configurados. Pequenos silêncios sintéticos podem preservar fronteiras de
+enunciados. Um mapa temporal exclui essas pausas e recoloca cada trecho no relógio original depois
+da transcrição, sem misturar participantes. No perfil local, o áudio consolidado chega ao
+faster-whisper, que aplica seu próprio VAD conforme o perfil.
 
 O OpenRouter pode rotear uma requisição entre provedores compatíveis com o modelo selecionado. O
 Summyz aceita esse roteamento dentro da fase OpenRouter. Uma fase configurada como local nunca envia
@@ -400,8 +410,8 @@ atomicidade absoluta entre o volume e o Discord.
 
 Quando a retenção de áudio está desativada, os áudios são excluídos assim que a transcrição completa
 é validada e persistida, ou após a falha definitiva. Depois da publicação, os demais arquivos
-temporários são excluídos se a retenção de conteúdo estiver desativada. As cópias habilitadas permanecem no
-PostgreSQL ou em `DATA_DIR`, conforme o tipo, até que o operador as exclua.
+temporários são excluídos se a retenção de conteúdo estiver desativada. O conteúdo preservado
+permanece no PostgreSQL e o áudio preservado permanece em `DATA_DIR` até que o operador os exclua.
 
 ## Qualidade
 

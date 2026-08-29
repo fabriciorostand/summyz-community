@@ -7,8 +7,8 @@ import staticFiles from "@fastify/static";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
 import { z, ZodError } from "zod";
 
-import { aiProfileSchema } from "../ai-profile.js";
-import { createDefaultAiPrompts, initializeAiProfilePrompts } from "../ai-prompts.js";
+import { aiProfileSchema, externalAiProfileSchema, localAiProfileSchema } from "../ai-profile.js";
+import { createDefaultAiPrompts } from "../ai-prompts.js";
 import type { AuthenticatedUser } from "../auth/auth-domain.js";
 import type { AuthTokens, StoredDashboardUser } from "../auth/auth-service.js";
 import { AuthenticationError } from "../auth/auth-service.js";
@@ -59,10 +59,11 @@ const guildSettingsSchema = z.object({
   persistMeetingContent: z.boolean(),
 });
 const guildParametersSchema = z.object({ guildId: z.string().min(1).max(128) });
-const profileParametersSchema = guildParametersSchema.extend({
-  profileId: z.string().min(1).max(128),
-});
-const profileBodySchema = aiProfileSchema.omit({ guildId: true, profileId: true });
+const profileParametersSchema = z.object({ profileId: z.string().min(1).max(256) });
+const profileBodySchema = z.discriminatedUnion("profileType", [
+  externalAiProfileSchema.omit({ profileId: true, userId: true }),
+  localAiProfileSchema.omit({ profileId: true, userId: true }),
+]);
 
 interface ApiAuthService {
   authenticate(accessToken: string): Promise<AuthenticatedUser>;
@@ -286,28 +287,25 @@ export async function createApiServer(
   });
   app.get("/api/guilds/:guildId/configuration", async (request) => {
     const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    await dependencies.aiProfiles.ensureInitialProfile(guildId);
+    await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
     const [settings, recordingRoleIds, summaryForum, profiles, activeProfile] = await Promise.all([
       dependencies.guildConfig.getGuildSettings(guildId),
       dependencies.guildConfig.listRecordingRoles(guildId),
       dependencies.guildConfig.getSummaryForum(guildId),
-      dependencies.aiProfiles.listProfiles(guildId),
+      dependencies.aiProfiles.listProfiles(user.userId),
       dependencies.aiProfiles.getActiveProfile(guildId),
     ]);
-    const initializedProfiles = profiles.map((profile) =>
-      initializeAiProfilePrompts(profile, user.dashboardLanguage),
-    );
-    await Promise.all(
-      initializedProfiles
-        .filter((_profile, index) => profileHasMissingPrompts(profiles[index]))
-        .map((profile) => dependencies.aiProfiles.updateProfile(profile)),
-    );
-    const initializedActiveProfile =
-      initializedProfiles.find((profile) => profile.profileId === activeProfile.profileId) ??
-      initializeAiProfilePrompts(activeProfile, user.dashboardLanguage);
+    const activeProfileId =
+      activeProfile?.userId === user.userId &&
+      profiles.some((profile) => profile.profileId === activeProfile.profileId)
+        ? activeProfile.profileId
+        : null;
+    if (activeProfile !== undefined && activeProfileId === null) {
+      await dependencies.aiProfiles.clearActiveProfile(guildId);
+    }
     return {
-      activeProfileId: initializedActiveProfile.profileId,
-      profiles: initializedProfiles,
+      activeProfileId,
+      profiles,
       recordingRoleIds,
       settings,
       summaryForum,
@@ -354,50 +352,49 @@ export async function createApiServer(
     await dependencies.guildConfig.clearSummaryForum(guildId);
     return reply.status(204).send();
   });
-  app.post("/api/guilds/:guildId/profiles", async (request, reply) => {
-    const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const profile = initializeAiProfilePrompts(
-      aiProfileSchema.parse({
-        ...profileBodySchema.parse(request.body),
-        guildId,
-        profileId: randomUUID(),
-      }),
-      user.dashboardLanguage,
-    );
+  app.get("/api/profiles", async (request) => {
+    const user = await authenticateRequest(request, dependencies);
+    await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
+    const [profiles, activeProfileIds] = await Promise.all([
+      dependencies.aiProfiles.listProfiles(user.userId),
+      dependencies.aiProfiles.listActiveProfileIds(user.userId),
+    ]);
+    return profiles.map((profile) => ({
+      active: activeProfileIds.has(profile.profileId),
+      profile,
+    }));
+  });
+  app.post("/api/profiles", async (request, reply) => {
+    const user = await authenticateRequest(request, dependencies);
+    const profile = aiProfileSchema.parse({
+      ...profileBodySchema.parse(request.body),
+      profileId: randomUUID(),
+      userId: user.userId,
+    });
     await dependencies.aiProfiles.createProfile(profile);
     return reply.status(201).send(profile);
   });
-  app.put("/api/guilds/:guildId/profiles/:profileId", async (request, reply) => {
-    const { user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+  app.put("/api/profiles/:profileId", async (request, reply) => {
+    const user = await authenticateRequest(request, dependencies);
     const parameters = profileParametersSchema.parse(request.params);
-    const profile = initializeAiProfilePrompts(
-      aiProfileSchema.parse({
-        ...profileBodySchema.parse(request.body),
-        guildId: parameters.guildId,
-        profileId: parameters.profileId,
-      }),
-      user.dashboardLanguage,
-    );
-    await dependencies.aiProfiles.updateProfile(profile);
+    const profile = aiProfileSchema.parse({
+      ...profileBodySchema.parse(request.body),
+      profileId: parameters.profileId,
+      userId: user.userId,
+    });
+    await dependencies.aiProfiles.updateProfile(user.userId, profile);
+    return reply.status(204).send();
+  });
+  app.delete("/api/profiles/:profileId", async (request, reply) => {
+    const user = await authenticateRequest(request, dependencies);
+    const parameters = profileParametersSchema.parse(request.params);
+    await dependencies.aiProfiles.deleteProfile(user.userId, parameters.profileId);
     return reply.status(204).send();
   });
   app.put("/api/guilds/:guildId/profiles/:profileId/active", async (request, reply) => {
-    await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const parameters = profileParametersSchema.parse(request.params);
-    await dependencies.aiProfiles.setActiveProfile(parameters.guildId, parameters.profileId);
-    return reply.status(204).send();
-  });
-  app.delete("/api/guilds/:guildId/profiles/:profileId", async (request, reply) => {
-    await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const parameters = profileParametersSchema.parse(request.params);
-    const query = z
-      .object({ replacementProfileId: z.string().min(1).max(128).optional() })
-      .parse(request.query);
-    await dependencies.aiProfiles.deleteProfile(
-      parameters.guildId,
-      parameters.profileId,
-      query.replacementProfileId,
-    );
+    const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { profileId } = profileParametersSchema.parse(request.params);
+    await dependencies.aiProfiles.setActiveProfile(guildId, user.userId, profileId);
     return reply.status(204).send();
   });
 
@@ -460,16 +457,6 @@ export async function createApiServer(
   }
 
   return app;
-}
-
-function profileHasMissingPrompts(profile: ReturnType<typeof aiProfileSchema.parse> | undefined) {
-  return (
-    profile !== undefined &&
-    (profile.transcription.prompt === undefined ||
-      profile.refinement.prompt === undefined ||
-      profile.summary.extractionPrompt === undefined ||
-      profile.summary.consolidationPrompt === undefined)
-  );
 }
 
 async function authenticateRequest(

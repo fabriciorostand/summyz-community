@@ -69,6 +69,7 @@ function createService(input: {
   manifestStore: ManifestStore;
   notifyFailure?: (manifest: RecordingManifest) => Promise<void>;
   provider: TranscriptionProvider;
+  resolveSpeechAnalyzer?: (manifest: RecordingManifest) => SpeechAnalyzer;
   speechAnalyzer?: SpeechAnalyzer;
   transcriptionStore: TranscriptionStore;
   convertPcmToOgg?: (inputPath: string, outputPath: string) => Promise<void>;
@@ -83,6 +84,9 @@ function createService(input: {
     notifyFailure: input.notifyFailure ?? vi.fn(async () => undefined),
     now: () => new Date("2026-08-16T20:02:00.000Z"),
     provider: input.provider,
+    ...(input.resolveSpeechAnalyzer === undefined
+      ? {}
+      : { resolveSpeechAnalyzer: input.resolveSpeechAnalyzer }),
     speechAnalyzer:
       input.speechAnalyzer ??
       ({
@@ -450,6 +454,44 @@ describe("MeetingTranscriptionService", () => {
       ],
       status: "completed",
     });
+  });
+
+  it("usa exclusivamente o analisador resolvido para a reunião e encerra seu ciclo de vida", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-meeting-"));
+    const context = await createMeeting(root);
+    const provider: TranscriptionProvider = {
+      transcribe: vi.fn(async () => ({
+        attempts: 1,
+        pieces: [{ endedAtMs: 500, startedAtMs: 0, text: "Olá" }],
+      })),
+    };
+    const sharedAnalyzer: SpeechAnalyzer = {
+      analyze: vi.fn(async () => {
+        throw new Error("the shared analyzer must not run");
+      }),
+      close: vi.fn(async () => undefined),
+    };
+    const resolvedAnalyzer: SpeechAnalyzer = {
+      analyze: vi.fn(async () => ({
+        containsSpeech: true,
+        samples: new Float32Array(16_000).fill(0.1),
+        speechRanges: [{ endedAtSample: 16_000, startedAtSample: 0 }],
+      })),
+      close: vi.fn(async () => undefined),
+    };
+    const service = createService({
+      ...context,
+      provider,
+      resolveSpeechAnalyzer: () => resolvedAnalyzer,
+      speechAnalyzer: sharedAnalyzer,
+    });
+
+    await service.process(context.manifest);
+
+    expect(resolvedAnalyzer.analyze).toHaveBeenCalled();
+    expect(resolvedAnalyzer.close).toHaveBeenCalledOnce();
+    expect(sharedAnalyzer.analyze).not.toHaveBeenCalled();
+    expect(sharedAnalyzer.close).not.toHaveBeenCalled();
   });
 
   it("interrompe com código específico quando a análise local falha", async () => {

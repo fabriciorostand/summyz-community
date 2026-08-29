@@ -33,24 +33,10 @@ export class MeetingArtifactRetention {
 
   public async deleteWorkspace(manifest: RecordingManifest): Promise<void> {
     const { meetingId, persistMeetingAudio: retainAudio } = manifest;
-    const retainLocalContent = manifest.storageMode === "local" && manifest.persistMeetingContent;
-    if (retainAudio && retainLocalContent) {
-      this.#logger.info({ meetingId }, "Meeting content and audio preserved");
-      return;
-    }
     const directory = this.#store.meetingDirectory(meetingId);
-    if (retainLocalContent) {
-      await rm(resolve(directory, "participants"), { force: true, recursive: true });
-      await rm(resolve(directory, "audio-manifest.json"), { force: true });
-      this.#logger.info({ meetingId }, "Meeting audio deleted; content preserved");
-      return;
-    }
-
     const entries = await listEntries(directory);
     if (entries === undefined) return;
-    const retainedEntries = retainAudio
-      ? ["participants", ...(manifest.storageMode === "local" ? ["audio-manifest.json"] : [])]
-      : [];
+    const retainedEntries = retainAudio ? ["participants"] : [];
     await Promise.all(
       entries
         .filter((entry) => entry !== "manifest.json" && !retainedEntries.includes(entry))

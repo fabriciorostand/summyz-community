@@ -44,7 +44,8 @@ interface MeetingTranscriptionServiceOptions {
   now?: () => Date;
   provider?: TranscriptionProvider;
   resolveProvider?: (manifest: RecordingManifest) => Promise<TranscriptionProvider>;
-  speechAnalyzer: SpeechAnalyzer;
+  resolveSpeechAnalyzer?: (manifest: RecordingManifest) => Promise<SpeechAnalyzer> | SpeechAnalyzer;
+  speechAnalyzer?: SpeechAnalyzer;
   transcriptionStore: TranscriptionStore;
   transcriptionMergeMaxGapMs: number;
   transcriptionWindowMaxMs: number;
@@ -81,7 +82,10 @@ export class MeetingTranscriptionService {
   readonly #resolveProvider:
     | ((manifest: RecordingManifest) => Promise<TranscriptionProvider>)
     | undefined;
-  readonly #speechAnalyzer: SpeechAnalyzer;
+  readonly #resolveSpeechAnalyzer:
+    | ((manifest: RecordingManifest) => Promise<SpeechAnalyzer> | SpeechAnalyzer)
+    | undefined;
+  readonly #speechAnalyzer: SpeechAnalyzer | undefined;
   readonly #transcriptionStore: TranscriptionStore;
   readonly #transcriptionMergeMaxGapMs: number;
   readonly #transcriptionWindowMaxMs: number;
@@ -97,6 +101,7 @@ export class MeetingTranscriptionService {
     this.#now = options.now ?? (() => new Date());
     this.#provider = options.provider;
     this.#resolveProvider = options.resolveProvider;
+    this.#resolveSpeechAnalyzer = options.resolveSpeechAnalyzer;
     this.#speechAnalyzer = options.speechAnalyzer;
     this.#transcriptionStore = options.transcriptionStore;
     this.#transcriptionMergeMaxGapMs = options.transcriptionMergeMaxGapMs;
@@ -104,6 +109,9 @@ export class MeetingTranscriptionService {
     this.#writePcmAsWav = options.writePcmAsWav ?? defaultWritePcmAsWav;
     if (this.#provider === undefined && this.#resolveProvider === undefined) {
       throw new Error("A transcription provider or resolver is required");
+    }
+    if (this.#speechAnalyzer === undefined && this.#resolveSpeechAnalyzer === undefined) {
+      throw new Error("A speech analyzer or resolver is required");
     }
   }
 
@@ -116,6 +124,7 @@ export class MeetingTranscriptionService {
     }
 
     let state: TranscriptionState | undefined;
+    let meetingSpeechAnalyzer: SpeechAnalyzer | undefined;
     try {
       state =
         (await this.#transcriptionStore.tryLoad(manifest.meetingId)) ??
@@ -138,6 +147,13 @@ export class MeetingTranscriptionService {
         ? await this.#resolveProvider(manifest)
         : this.#provider;
       if (provider === undefined) throw new Error("The transcription provider is unavailable");
+      meetingSpeechAnalyzer = this.#resolveSpeechAnalyzer
+        ? await this.#resolveSpeechAnalyzer(manifest)
+        : this.#speechAnalyzer;
+      if (meetingSpeechAnalyzer === undefined) {
+        throw new Error("The speech analyzer is unavailable");
+      }
+      const speechAnalyzer = meetingSpeechAnalyzer;
       const transcriptionConfiguration = manifest.aiConfiguration?.transcription;
       const interSpeechSilenceMs =
         transcriptionConfiguration?.interSpeechSilenceMs ?? this.#interSpeechSilenceMs;
@@ -208,7 +224,7 @@ export class MeetingTranscriptionService {
           const analyzed = [];
           for (const audio of audioFiles) {
             try {
-              const analysis = await this.#speechAnalyzer.analyze(audio.path);
+              const analysis = await speechAnalyzer.analyze(audio.path);
               analyzed.push({ ...analysis, segment: audio.segment });
             } catch {
               throw new AudioAnalysisError();
@@ -318,6 +334,15 @@ export class MeetingTranscriptionService {
             "Unable to notify transcription failure",
           );
         }
+      }
+    } finally {
+      if (this.#resolveSpeechAnalyzer !== undefined && meetingSpeechAnalyzer !== undefined) {
+        await meetingSpeechAnalyzer.close().catch((error: unknown) => {
+          this.#logger.warn(
+            { errorType: getErrorType(error), meetingId: manifest.meetingId },
+            "Unable to close meeting speech analyzer",
+          );
+        });
       }
     }
   }

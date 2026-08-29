@@ -128,13 +128,4 @@ describe("PostgresMeetingStore", () => {
     expect(query.mock.calls[0]?.[1]).toEqual(["meeting-1", "transcribing", null]);
     expect(query.mock.calls[1]?.[1]).toEqual(["meeting-1", "failed", "provider_failed"]);
   });
-
-  it("ignora manifestos de reuniões iniciadas no modo local", async () => {
-    const { database, query } = createDatabase();
-    const store = new PostgresMeetingStore(database);
-
-    await store.save({ ...activeManifest, storageMode: "local" });
-
-    expect(query).not.toHaveBeenCalled();
-  });
 });

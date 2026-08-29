@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import type { MeetingAiConfiguration } from "../recording/manifest.js";
 import type { LocalExecutionPlan, PhaseExecution } from "./local-execution-policy.js";
-import { hasInsufficientLocalHardware } from "./meeting-ai-configuration.js";
 import { IncompatibleOllamaModelError, requestOllamaStructured } from "./ollama-client.js";
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
@@ -108,13 +107,7 @@ export class LocalModelManager {
     this.#ollamaBaseUrl = options.ollamaBaseUrl ?? "http://ollama:11434";
     this.#trackOllamaUse("refinement", options.configuration.refinement);
     this.#trackOllamaUse("summary", options.configuration.summary);
-    this.#fasterWhisperPending =
-      options.configuration.transcription.provider === "faster-whisper" &&
-      options.configuration.transcription.status === "selected";
-  }
-
-  public hasInsufficientHardware(): boolean {
-    return hasInsufficientLocalHardware(this.#configuration);
+    this.#fasterWhisperPending = options.configuration.transcription.provider === "faster-whisper";
   }
 
   public start(): void {
@@ -141,20 +134,13 @@ export class LocalModelManager {
   }
 
   public async prepare(): Promise<void> {
-    if (this.hasInsufficientHardware()) {
-      this.#logger.warn(
-        { event: "local_ai_hardware_insufficient" },
-        "The selected local model is above the detected hardware recommendation; Summyz will preserve the selection, but processing may be very slow or fail because of insufficient memory.",
-      );
-    }
-
     const operations: Promise<void>[] = [];
     for (const [model, phases] of this.#ollamaUses) {
       if ([...phases].some((phase) => this.#pendingOllamaPhases.has(phase))) {
         operations.push(this.#prepareOllamaModel(model));
       }
     }
-    if (this.#fasterWhisperPending && this.#configuration.transcription.status === "selected") {
+    if (this.#fasterWhisperPending) {
       operations.push(this.#prepareFasterWhisperModel(this.#configuration.transcription.model));
     }
     await Promise.all(operations);
@@ -189,7 +175,7 @@ export class LocalModelManager {
   }
 
   #trackOllamaUse(phase: OllamaPhase, selection: MeetingAiConfiguration[OllamaPhase]): void {
-    if (selection.provider !== "ollama" || selection.status !== "selected") return;
+    if (selection.provider !== "ollama") return;
     this.#managedOllamaModels.add(selection.model);
     const uses = this.#ollamaUses.get(selection.model) ?? new Set<OllamaPhase>();
     uses.add(phase);

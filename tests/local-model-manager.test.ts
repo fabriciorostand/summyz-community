@@ -3,32 +3,36 @@ import { describe, expect, it, vi } from "vitest";
 import { LocalModelManager } from "../src/local-ai/local-model-manager.js";
 import type { LocalExecutionPlan } from "../src/local-ai/local-execution-policy.js";
 import { createLogger } from "../src/logger.js";
-import type { MeetingAiConfiguration } from "../src/recording/manifest.js";
+import {
+  meetingAiConfigurationSchema,
+  type ResolvedMeetingAiConfiguration,
+} from "../src/recording/manifest.js";
 
-function configuration(model = "qwen3:4b"): MeetingAiConfiguration {
-  return {
+type LocalProfileAiConfiguration = Extract<
+  ResolvedMeetingAiConfiguration,
+  { profileType: "local" }
+>;
+
+function configuration(model = "qwen3:4b"): LocalProfileAiConfiguration {
+  const parsed = meetingAiConfigurationSchema.parse({
+    profileType: "local",
     refinement: {
       model,
       provider: "ollama",
-      requestedModel: "auto",
-      status: "selected",
     },
-    selectorVersion: 1,
     summary: {
       language: "auto",
       model,
       provider: "ollama",
-      requestedModel: "auto",
-      status: "selected",
     },
     transcription: {
       language: "auto",
       model: "small",
       provider: "faster-whisper",
-      requestedModel: "auto",
-      status: "selected",
     },
-  };
+  });
+  if (parsed.profileType !== "local") throw new Error("Expected a local profile");
+  return parsed;
 }
 
 describe("LocalModelManager", () => {
@@ -99,7 +103,9 @@ describe("LocalModelManager", () => {
 
     await manager.prepare();
 
-    expect(fetch.mock.calls.map(([url]) => url)).toEqual([
+    expect(
+      fetch.mock.calls.map(([url]) => url).filter((url) => url.includes("faster-whisper")),
+    ).toEqual([
       "http://faster-whisper:8000/models/prepare",
       "http://faster-whisper:8000/models/delete",
     ]);
@@ -124,56 +130,6 @@ describe("LocalModelManager", () => {
       "http://ollama:11434/api/generate",
       "http://ollama:11434/api/delete",
     ]);
-  });
-
-  it("expõe o aviso de hardware mantendo um modelo local selecionado", () => {
-    const insufficient: MeetingAiConfiguration = {
-      ...configuration(),
-      summary: {
-        hardwareWarning: true,
-        language: "auto",
-        model: "qwen3:4b",
-        provider: "ollama",
-        requestedModel: "auto",
-        status: "selected",
-      },
-    };
-
-    expect(
-      new LocalModelManager({
-        configuration: insufficient,
-        logger: createLogger("silent"),
-      }).hasInsufficientHardware(),
-    ).toBe(true);
-  });
-
-  it("prepara o modelo local mesmo quando a seleção possui aviso de hardware", async () => {
-    const fetch = vi.fn(
-      async (_url: string, _init: RequestInit) => new Response("", { status: 200 }),
-    );
-    const baseConfiguration = fasterWhisperOnlyConfiguration();
-    const underprovisioned: MeetingAiConfiguration = {
-      ...baseConfiguration,
-      transcription: {
-        hardwareWarning: true,
-        language: "auto",
-        model: "tiny",
-        provider: "faster-whisper",
-        requestedModel: "auto",
-        status: "selected",
-      },
-    };
-    const manager = new LocalModelManager({
-      configuration: underprovisioned,
-      fetch,
-      logger: createLogger("silent"),
-    });
-
-    await manager.prepare();
-
-    expect(fetch.mock.calls.map(([url]) => url)).toContain(
-      "http://faster-whisper:8000/models/prepare",
-    );
   });
 
   it("não deixa falha de preparação impedir a inicialização do bot", async () => {
@@ -210,7 +166,8 @@ describe("LocalModelManager", () => {
 
     await manager.prepare();
 
-    expect(JSON.parse(String(fetch.mock.calls[0]?.[1].body))).toEqual({
+    const fasterWhisperRequest = fetch.mock.calls.find(([url]) => url.endsWith("/models/prepare"));
+    expect(JSON.parse(String(fasterWhisperRequest?.[1].body))).toEqual({
       batchSize: 4,
       device: "gpu",
       fallback: "cpu",
@@ -271,6 +228,16 @@ describe("LocalModelManager", () => {
 
   it("interrompe quando Ollama executa na CPU sem fallback autorizado", async () => {
     const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/models/prepare")) {
+        return Response.json({
+          batchSize: 0,
+          computeType: "float16",
+          device: "cuda",
+          fallbackApplied: false,
+          model: "small",
+          status: "ready",
+        });
+      }
       if (url.endsWith("/api/ps")) {
         return Response.json({ models: [{ model: "qwen3:4b", size_vram: 0 }] });
       }
@@ -289,18 +256,8 @@ describe("LocalModelManager", () => {
       }
       return new Response("", { status: 200 });
     });
-    const ollamaConfiguration: MeetingAiConfiguration = {
-      ...configuration(),
-      transcription: {
-        language: "auto",
-        model: "remote-transcription",
-        provider: "openrouter",
-        requestedModel: "remote-transcription",
-        status: "selected",
-      },
-    };
     const manager = new LocalModelManager({
-      configuration: ollamaConfiguration,
+      configuration: configuration(),
       executionPlan: allGpuExecutionPlan("none"),
       fetch,
       logger: createLogger("silent"),
@@ -324,28 +281,13 @@ describe("LocalModelManager", () => {
   });
 });
 
-function fasterWhisperOnlyConfiguration(): MeetingAiConfiguration {
+function fasterWhisperOnlyConfiguration(): LocalProfileAiConfiguration {
+  const base = configuration();
   return {
-    refinement: {
-      model: "remote-refinement",
-      provider: "openrouter",
-      requestedModel: "remote-refinement",
-      status: "selected",
-    },
-    selectorVersion: 1,
-    summary: {
-      language: "auto",
-      model: "remote-summary",
-      provider: "openrouter",
-      requestedModel: "remote-summary",
-      status: "selected",
-    },
+    ...base,
     transcription: {
-      language: "auto",
+      ...base.transcription,
       model: "invalid-whisper",
-      provider: "faster-whisper",
-      requestedModel: "invalid-whisper",
-      status: "selected",
     },
   };
 }

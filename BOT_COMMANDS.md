@@ -126,6 +126,6 @@ can use it, and the response is ephemeral.
   podem ser alteradas no dashboard.
 - As políticas de conteúdo e áudio são fixadas quando `/record` começa; alterações posteriores no
   dashboard valem somente para novas reuniões.
-- The active profile, provider, explicit model, language, and phase parameters are also pinned then.
-  A local phase never uses OpenRouter as fallback.
+- The active profile type, provider, explicit model, language, VAD, and other phase parameters are
+  also pinned then. A local profile never uses OpenRouter as fallback.
 - Financial records are retained indefinitely, independently of audio and transcript retention.

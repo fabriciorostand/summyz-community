@@ -676,6 +676,33 @@ select {
 .profile-heading .button {
   margin-left: auto;
 }
+.profile-type-tabs {
+  display: inline-flex;
+  gap: 0.25rem;
+  padding: 0.3rem;
+  margin-bottom: 1.25rem;
+  border: 1px solid #ded6cc;
+  border-radius: 0.75rem;
+  background: #f4eee7;
+}
+.profile-type-tabs button,
+.phase-tabs button {
+  padding: 0.62rem 0.95rem;
+  border: 0;
+  border-radius: 0.5rem;
+  color: #706963;
+  background: transparent;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.profile-type-tabs button.active,
+.phase-tabs button.active {
+  color: #fff;
+  background: #2a2826;
+  box-shadow: 0 1px 2px rgb(42 40 38 / 18%);
+}
 .profile-tabs {
   display: flex;
   gap: 0.4rem;
@@ -727,6 +754,37 @@ select {
   font-weight: 800;
   text-transform: uppercase;
   letter-spacing: 0.08em;
+}
+.phase-tabs {
+  display: inline-flex;
+  gap: 0.2rem;
+  padding: 0.25rem;
+  margin-bottom: 1rem;
+  border-radius: 0.6rem;
+  background: #f4eee7;
+}
+.phase-tabs button {
+  padding: 0.48rem 0.75rem;
+  font-size: 0.73rem;
+}
+.vad-editor > .toggle-row {
+  padding-top: 0;
+  border-top: 0;
+}
+.advanced-settings {
+  padding: 0.9rem 1rem;
+  border: 1px solid #e8e0d7;
+  border-radius: 0.7rem;
+  background: #faf7f2;
+}
+.advanced-settings summary {
+  color: #5d5650;
+  font-size: 0.78rem;
+  font-weight: 750;
+  cursor: pointer;
+}
+.advanced-settings[open] summary {
+  margin-bottom: 0.9rem;
 }
 .phase .field + .form-grid,
 .phase .form-grid + .field,

@@ -1,26 +1,33 @@
 import { z } from "zod";
 
-import { aiProfileSchema, createInitialAiProfile, type AiProfile } from "../ai-profile.js";
+import { aiProfileSchema, createInitialAiProfiles, type AiProfile } from "../ai-profile.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
-const identifierSchema = z.string().min(1).max(128);
+const identifierSchema = z.string().min(1).max(256);
 const rowSchema = z.object({
-  guild_id: z.string().min(1),
   name: z.string().min(1),
+  owner_user_id: z.string().min(1),
   profile_id: z.string().min(1),
+  profile_type: z.enum(["external", "local"]),
   refinement: z.unknown(),
   summary: z.unknown(),
   transcription: z.unknown(),
 });
 
 export interface AiProfileStore {
+  clearActiveProfile(guildId: string): Promise<void>;
   createProfile(profile: AiProfile): Promise<void>;
-  deleteProfile(guildId: string, profileId: string, replacementProfileId?: string): Promise<void>;
-  ensureInitialProfile(guildId: string): Promise<void>;
-  getActiveProfile(guildId: string): Promise<AiProfile>;
-  listProfiles(guildId: string): Promise<AiProfile[]>;
-  setActiveProfile(guildId: string, profileId: string): Promise<void>;
-  updateProfile(profile: AiProfile): Promise<void>;
+  deleteProfile(userId: string, profileId: string): Promise<void>;
+  ensureInitialProfiles(userId: string, language: "en" | "pt-BR"): Promise<void>;
+  getActiveProfile(guildId: string): Promise<AiProfile | undefined>;
+  getActiveProfileForDiscordOwner(
+    guildId: string,
+    discordOwnerId: string,
+  ): Promise<AiProfile | undefined>;
+  listProfiles(userId: string): Promise<AiProfile[]>;
+  listActiveProfileIds(userId: string): Promise<Set<string>>;
+  setActiveProfile(guildId: string, userId: string, profileId: string): Promise<void>;
+  updateProfile(userId: string, profile: AiProfile): Promise<void>;
 }
 
 export class PostgresAiProfileStore implements AiProfileStore {
@@ -30,151 +37,160 @@ export class PostgresAiProfileStore implements AiProfileStore {
     this.#database = database;
   }
 
+  public async clearActiveProfile(guildId: string): Promise<void> {
+    await this.#database.query(
+      `UPDATE guild_configurations
+       SET active_ai_profile_id = NULL, updated_at = now()
+       WHERE guild_id = $1`,
+      [identifierSchema.parse(guildId)],
+    );
+  }
+
   public async createProfile(input: AiProfile): Promise<void> {
     const profile = aiProfileSchema.parse(input);
     await this.#database.query(
       `INSERT INTO ai_profiles (
-         profile_id, guild_id, name, transcription, refinement, summary
-       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)`,
+         profile_id, owner_user_id, profile_type, name, transcription, refinement, summary
+       ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)`,
       serializeProfile(profile),
     );
   }
 
-  public async deleteProfile(
-    guildId: string,
-    profileId: string,
-    replacementProfileId?: string,
-  ): Promise<void> {
-    const validatedGuildId = identifierSchema.parse(guildId);
-    const validatedProfileId = identifierSchema.parse(profileId);
-    const validatedReplacementProfileId = replacementProfileId
-      ? identifierSchema.parse(replacementProfileId)
-      : null;
+  public async deleteProfile(userId: string, profileId: string): Promise<void> {
     const result = await this.#database.query(
-      `WITH profile_count AS (
+      `WITH target AS (
+         SELECT profile_id, profile_type
+         FROM ai_profiles
+         WHERE owner_user_id = $1::uuid AND profile_id = $2
+       ), same_type_count AS (
          SELECT count(*) AS total
-         FROM ai_profiles
-         WHERE guild_id = $1
-       ), target AS (
-         SELECT profile_id
-         FROM ai_profiles
-         WHERE guild_id = $1 AND profile_id = $2
-       ), replacement AS (
-         SELECT profile_id
-         FROM ai_profiles
-         WHERE guild_id = $1 AND profile_id = $3 AND profile_id <> $2
-       ), prepared_guild AS (
-         UPDATE guild_configurations
-         SET active_ai_profile_id = CASE
-               WHEN active_ai_profile_id = $2 THEN (SELECT profile_id FROM replacement)
-               ELSE active_ai_profile_id
-             END,
-             updated_at = now()
-         WHERE guild_id = $1
-           AND EXISTS (SELECT 1 FROM target)
-           AND (SELECT total FROM profile_count) > 1
-           AND (
-             active_ai_profile_id <> $2
-             OR EXISTS (SELECT 1 FROM replacement)
-           )
-         RETURNING guild_id
+         FROM ai_profiles AS profile
+         JOIN target ON target.profile_type = profile.profile_type
+         WHERE profile.owner_user_id = $1::uuid
        ), deleted_profile AS (
-         DELETE FROM ai_profiles
-         WHERE guild_id = $1
-           AND profile_id = $2
-           AND EXISTS (SELECT 1 FROM prepared_guild)
-         RETURNING profile_id
+         DELETE FROM ai_profiles AS profile
+         WHERE profile.owner_user_id = $1::uuid
+           AND profile.profile_id = $2
+           AND (SELECT total FROM same_type_count) > 1
+           AND NOT EXISTS (
+             SELECT 1 FROM guild_configurations
+             WHERE active_ai_profile_id = profile.profile_id
+           )
+         RETURNING profile.profile_id
        )
        SELECT EXISTS (SELECT 1 FROM deleted_profile) AS deleted`,
-      [validatedGuildId, validatedProfileId, validatedReplacementProfileId],
+      [identifierSchema.parse(userId), identifierSchema.parse(profileId)],
     );
-    const deletionResult = z.object({ deleted: z.boolean() }).safeParse(result.rows[0]);
-    if (!deletionResult.success || !deletionResult.data.deleted) {
+    const parsed = z.object({ deleted: z.boolean() }).safeParse(result.rows[0]);
+    if (!parsed.success || !parsed.data.deleted) {
       throw new Error(
-        "AI profile cannot be deleted; keep one profile and replace the active profile first",
+        "AI profile cannot be deleted while active or while it is the last of its type",
       );
     }
   }
 
-  public async ensureInitialProfile(guildId: string): Promise<void> {
-    const validatedGuildId = identifierSchema.parse(guildId);
-    const profile = createInitialAiProfile(validatedGuildId);
-    await this.#database.query(
-      `INSERT INTO guild_configurations (guild_id)
-       VALUES ($1)
-       ON CONFLICT (guild_id) DO NOTHING`,
-      [validatedGuildId],
-    );
-    await this.#database.query(
-      `INSERT INTO ai_profiles (
-         profile_id, guild_id, name, transcription, refinement, summary
-       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)
-       ON CONFLICT (profile_id) DO NOTHING`,
-      [
-        profile.profileId,
-        profile.guildId,
-        profile.name,
-        JSON.stringify(profile.transcription),
-        JSON.stringify(profile.refinement),
-        JSON.stringify(profile.summary),
-      ],
-    );
-    await this.#database.query(
-      `UPDATE guild_configurations
-       SET active_ai_profile_id = COALESCE(active_ai_profile_id, $2), updated_at = now()
-       WHERE guild_id = $1`,
-      [validatedGuildId, profile.profileId],
-    );
+  public async ensureInitialProfiles(userId: string, language: "en" | "pt-BR"): Promise<void> {
+    const profiles = createInitialAiProfiles(identifierSchema.parse(userId), language);
+    for (const profile of profiles) {
+      await this.#database.query(
+        `INSERT INTO ai_profiles (
+           profile_id, owner_user_id, profile_type, name, transcription, refinement, summary
+         ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
+         ON CONFLICT DO NOTHING`,
+        serializeProfile(profile),
+      );
+    }
   }
 
-  public async getActiveProfile(guildId: string): Promise<AiProfile> {
+  public async getActiveProfile(guildId: string): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
-      `SELECT p.profile_id, p.guild_id, p.name, p.transcription, p.refinement, p.summary
-       FROM guild_configurations AS g
-       JOIN ai_profiles AS p ON p.profile_id = g.active_ai_profile_id
-       WHERE g.guild_id = $1`,
+      `SELECT p.profile_id, p.owner_user_id, p.profile_type, p.name,
+              p.transcription, p.refinement, p.summary
+       FROM guild_configurations AS guild
+       JOIN ai_profiles AS p ON p.profile_id = guild.active_ai_profile_id
+       WHERE guild.guild_id = $1`,
       [identifierSchema.parse(guildId)],
     );
-    return parseProfileRow(result.rows[0]);
+    return result.rows[0] === undefined ? undefined : parseProfileRow(result.rows[0]);
   }
 
-  public async listProfiles(guildId: string): Promise<AiProfile[]> {
+  public async getActiveProfileForDiscordOwner(
+    guildId: string,
+    discordOwnerId: string,
+  ): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
-      `SELECT profile_id, guild_id, name, transcription, refinement, summary
+      `SELECT profile.profile_id, profile.owner_user_id, profile.profile_type, profile.name,
+              profile.transcription, profile.refinement, profile.summary
+       FROM guild_configurations AS guild
+       JOIN ai_profiles AS profile ON profile.profile_id = guild.active_ai_profile_id
+       JOIN discord_connections AS connection ON connection.user_id = profile.owner_user_id
+       WHERE guild.guild_id = $1 AND connection.discord_user_id = $2`,
+      [identifierSchema.parse(guildId), identifierSchema.parse(discordOwnerId)],
+    );
+    return result.rows[0] === undefined ? undefined : parseProfileRow(result.rows[0]);
+  }
+
+  public async listProfiles(userId: string): Promise<AiProfile[]> {
+    const result = await this.#database.query(
+      `SELECT profile_id, owner_user_id, profile_type, name, transcription, refinement, summary
        FROM ai_profiles
-       WHERE guild_id = $1
-       ORDER BY created_at, profile_id`,
-      [identifierSchema.parse(guildId)],
+       WHERE owner_user_id = $1::uuid
+       ORDER BY profile_type, created_at, profile_id`,
+      [identifierSchema.parse(userId)],
     );
     return result.rows.map((row) => parseProfileRow(row));
   }
 
-  public async setActiveProfile(guildId: string, profileId: string): Promise<void> {
-    const validatedGuildId = identifierSchema.parse(guildId);
-    const validatedProfileId = identifierSchema.parse(profileId);
+  public async listActiveProfileIds(userId: string): Promise<Set<string>> {
+    const result = await this.#database.query(
+      `SELECT DISTINCT guild.active_ai_profile_id AS profile_id
+       FROM guild_configurations AS guild
+       JOIN ai_profiles AS profile ON profile.profile_id = guild.active_ai_profile_id
+       WHERE profile.owner_user_id = $1::uuid`,
+      [identifierSchema.parse(userId)],
+    );
+    return new Set(
+      z
+        .array(z.object({ profile_id: z.string().min(1) }))
+        .parse(result.rows)
+        .map((row) => row.profile_id),
+    );
+  }
+
+  public async setActiveProfile(guildId: string, userId: string, profileId: string): Promise<void> {
     const result = await this.#database.query(
       `UPDATE guild_configurations
        SET active_ai_profile_id = $2, updated_at = now()
        WHERE guild_id = $1
          AND EXISTS (
            SELECT 1 FROM ai_profiles
-           WHERE guild_id = $1 AND profile_id = $2
+           WHERE profile_id = $2 AND owner_user_id = $3::uuid
          )`,
-      [validatedGuildId, validatedProfileId],
+      [
+        identifierSchema.parse(guildId),
+        identifierSchema.parse(profileId),
+        identifierSchema.parse(userId),
+      ],
     );
     ensureProfileWasChanged(result.rowCount);
   }
 
-  public async updateProfile(input: AiProfile): Promise<void> {
+  public async updateProfile(userId: string, input: AiProfile): Promise<void> {
     const profile = aiProfileSchema.parse(input);
+    const validatedUserId = identifierSchema.parse(userId);
+    if (profile.userId !== validatedUserId) {
+      throw new Error("AI profile is unavailable to this user");
+    }
     const result = await this.#database.query(
       `UPDATE ai_profiles
-       SET name = $3,
-           transcription = $4::jsonb,
-           refinement = $5::jsonb,
-           summary = $6::jsonb,
+       SET name = $4,
+           transcription = $5::jsonb,
+           refinement = $6::jsonb,
+           summary = $7::jsonb,
            updated_at = now()
-       WHERE profile_id = $1 AND guild_id = $2`,
+       WHERE profile_id = $1
+         AND owner_user_id = $2::uuid
+         AND profile_type = $3`,
       serializeProfile(profile),
     );
     ensureProfileWasChanged(result.rowCount);
@@ -183,26 +199,28 @@ export class PostgresAiProfileStore implements AiProfileStore {
 
 function ensureProfileWasChanged(rowCount: number | null): void {
   if (rowCount !== 1) {
-    throw new Error("AI profile was not found in this guild");
+    throw new Error("AI profile is unavailable to this user");
   }
 }
 
 function parseProfileRow(input: unknown): AiProfile {
   const row = rowSchema.parse(input);
   return aiProfileSchema.parse({
-    guildId: row.guild_id,
     name: row.name,
     profileId: row.profile_id,
+    profileType: row.profile_type,
     refinement: row.refinement,
     summary: row.summary,
     transcription: row.transcription,
+    userId: row.owner_user_id,
   });
 }
 
 function serializeProfile(profile: AiProfile): readonly unknown[] {
   return [
     profile.profileId,
-    profile.guildId,
+    profile.userId,
+    profile.profileType,
     profile.name,
     JSON.stringify(profile.transcription),
     JSON.stringify(profile.refinement),

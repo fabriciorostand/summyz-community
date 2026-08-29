@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { SileroSpeechAnalyzer, type VadSession } from "../src/transcription/speech-analyzer.js";
+import {
+  FullAudioSpeechAnalyzer,
+  SileroSpeechAnalyzer,
+  type VadSession,
+} from "../src/transcription/speech-analyzer.js";
 
 function createVadSession(onProcess: () => Promise<void> | void): VadSession {
   return {
@@ -31,7 +35,10 @@ describe("SileroSpeechAnalyzer", () => {
     const analyzer = new SileroSpeechAnalyzer({
       createVad,
       decodeAudio: vi.fn(async () => samples),
+      minSilenceDurationMs: 640,
       minSpeechDurationMs: 96,
+      negativeSpeechThreshold: 0.2,
+      speechPadMs: 64,
       threshold: 0.5,
     });
 
@@ -46,8 +53,13 @@ describe("SileroSpeechAnalyzer", () => {
         onFrameProcessed: expect.any(Function),
         onSpeechEnd: expect.any(Function),
       }),
-      0.5,
-      3,
+      {
+        minSilenceFrames: 20,
+        minimumSpeechFrames: 3,
+        negativeSpeechThreshold: 0.2,
+        preSpeechPadFrames: 2,
+        threshold: 0.5,
+      },
     );
     expect(vad.flush).toHaveBeenCalledOnce();
     expect(vad.pause).toHaveBeenCalledOnce();
@@ -106,5 +118,30 @@ describe("SileroSpeechAnalyzer", () => {
 
     await expect(analyzer.analyze("late.ogg")).rejects.toThrow(/encerrado/i);
     expect(createVad).not.toHaveBeenCalled();
+  });
+});
+
+describe("FullAudioSpeechAnalyzer", () => {
+  it("preserva todo o áudio sem executar detecção de voz", async () => {
+    const samples = new Float32Array([0.1, 0.2]);
+    const analyzer = new FullAudioSpeechAnalyzer({ decodeAudio: vi.fn(async () => samples) });
+
+    await expect(analyzer.analyze("segment.ogg")).resolves.toEqual({
+      containsSpeech: true,
+      samples,
+      speechRanges: [{ endedAtSample: 2, startedAtSample: 0 }],
+    });
+    await expect(analyzer.close()).resolves.toBeUndefined();
+  });
+
+  it("preserva como vazio um arquivo sem amostras", async () => {
+    const samples = new Float32Array();
+    const analyzer = new FullAudioSpeechAnalyzer({ decodeAudio: vi.fn(async () => samples) });
+
+    await expect(analyzer.analyze("empty.ogg")).resolves.toEqual({
+      containsSpeech: false,
+      samples,
+      speechRanges: [],
+    });
   });
 });

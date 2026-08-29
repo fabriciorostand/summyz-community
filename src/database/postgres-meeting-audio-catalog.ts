@@ -13,7 +13,7 @@ export class PostgresMeetingAudioCatalog implements MeetingAudioCatalog {
   }
 
   public async persist(manifest: RecordingManifest): Promise<boolean> {
-    if (!manifest.persistMeetingAudio || manifest.storageMode !== "postgres") return false;
+    if (!manifest.persistMeetingAudio) return false;
     const catalog = createMeetingAudioCatalog(manifest);
     await this.#database.query(
       `

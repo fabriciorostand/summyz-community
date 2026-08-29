@@ -159,7 +159,7 @@ describe("API dashboard", () => {
     await app.close();
   });
 
-  it("inicializa prompts ausentes no idioma do dashboard e no idioma configurado do resumo", async () => {
+  it("retorna os prompts persistidos sem atualização tardia", async () => {
     const dependencies = createDependencies();
     const app = await createApiServer(dependencies);
 
@@ -178,11 +178,7 @@ describe("API dashboard", () => {
       },
       transcription: { prompt: null },
     });
-    expect(dependencies.aiProfiles.updateProfile).toHaveBeenCalledWith(
-      expect.objectContaining({
-        refinement: expect.objectContaining({ prompt: expect.stringContaining("revisor") }),
-      }),
-    );
+    expect(dependencies.aiProfiles.updateProfile).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -209,20 +205,20 @@ describe("API dashboard", () => {
     await app.close();
   });
 
-  it("cria perfis pela API com prompts no idioma do dashboard", async () => {
+  it("cria perfis pessoais globais pela API com prompts no idioma do dashboard", async () => {
     const dependencies = createDependencies();
     const app = await createApiServer(dependencies);
     const {
-      guildId: _guildId,
       profileId: _profileId,
+      userId: _userId,
       ...payload
-    } = createInitialAiProfile("guild-installed");
+    } = createInitialAiProfile(authenticatedUser.userId, "external", "pt-BR");
 
     const response = await app.inject({
       cookies: { summyz_access: "access-token" },
       method: "POST",
       payload: { ...payload, name: "Novo perfil" },
-      url: "/api/guilds/guild-installed/profiles",
+      url: "/api/profiles",
     });
 
     expect(response.statusCode).toBe(201);
@@ -233,6 +229,52 @@ describe("API dashboard", () => {
         }),
       }),
     );
+    await app.close();
+  });
+
+  it("lista perfis pessoais e informa apenas se cada um está ativo", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/profiles",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      expect.objectContaining({
+        active: true,
+        profile: expect.objectContaining({
+          profileType: "external",
+          userId: authenticatedUser.userId,
+        }),
+      }),
+    ]);
+    expect(dependencies.aiProfiles.ensureInitialProfiles).toHaveBeenCalledWith(
+      authenticatedUser.userId,
+      "pt-BR",
+    );
+    await app.close();
+  });
+
+  it("remove do servidor o perfil ativo que pertencia ao proprietário anterior", async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.aiProfiles.getActiveProfile).mockResolvedValue(
+      createInitialAiProfile("00000000-0000-4000-8000-000000000002", "external", "pt-BR"),
+    );
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/configuration",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().activeProfileId).toBeNull();
+    expect(dependencies.aiProfiles.clearActiveProfile).toHaveBeenCalledWith("guild-installed");
     await app.close();
   });
 
@@ -254,13 +296,16 @@ describe("API dashboard", () => {
 });
 
 function createDependencies(): ApiServerDependencies {
-  const profile = createInitialAiProfile("guild-installed");
+  const profile = createInitialAiProfile(authenticatedUser.userId, "external", "pt-BR");
   return {
     aiProfiles: {
+      clearActiveProfile: vi.fn(async () => undefined),
       createProfile: vi.fn(async () => undefined),
       deleteProfile: vi.fn(async () => undefined),
-      ensureInitialProfile: vi.fn(async () => undefined),
+      ensureInitialProfiles: vi.fn(async () => undefined),
       getActiveProfile: vi.fn(async () => profile),
+      getActiveProfileForDiscordOwner: vi.fn(async () => profile),
+      listActiveProfileIds: vi.fn(async () => new Set([profile.profileId])),
       listProfiles: vi.fn(async () => [profile]),
       setActiveProfile: vi.fn(async () => undefined),
       updateProfile: vi.fn(async () => undefined),

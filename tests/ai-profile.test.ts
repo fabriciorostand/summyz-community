@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assessModelCompatibility,
+  aiProfileSchema,
   createInitialAiProfile,
   isAiProfileComplete,
   resolveAiProfile,
@@ -10,33 +11,35 @@ import {
 const gibibyte = 1_024 ** 3;
 
 describe("perfis de IA", () => {
-  it("cria o Perfil 1 ativo sem escolher modelos", () => {
-    const profile = createInitialAiProfile("guild-1");
+  it("cria o Profile 1 local sem escolher modelos", () => {
+    const profile = createInitialAiProfile("user-1", "local", "en");
 
     expect(profile).toMatchObject({
-      guildId: "guild-1",
       name: "Profile 1",
-      refinement: { maxChunkCharacters: 500_000, model: null, provider: null },
+      profileType: "local",
+      refinement: { maxChunkCharacters: 500_000, model: null, provider: "ollama" },
       summary: {
         language: "auto",
         maxChunkCharacters: 500_000,
         model: null,
-        provider: null,
+        provider: "ollama",
       },
       transcription: {
         batchSize: "auto",
         interSpeechSilenceMs: 0,
         language: "auto",
         model: null,
-        provider: null,
+        provider: "faster-whisper",
         timestampMode: "word",
       },
+      userId: "user-1",
     });
     expect(isAiProfileComplete(profile)).toBe(false);
   });
 
   it("exige escolha explícita nas três fases e fixa todas as opções no manifesto", () => {
-    const profile = createInitialAiProfile("guild-1", {
+    const profile = aiProfileSchema.parse({
+      ...createInitialAiProfile("user-1", "local", "pt-BR"),
       refinement: {
         generation: { seed: 0, temperature: 0, think: false },
         maxChunkCharacters: 3_000,
@@ -74,10 +77,8 @@ describe("perfis de IA", () => {
         model: "qwen3:1.7b",
         prompt: null,
         provider: "ollama",
-        requestedModel: "qwen3:1.7b",
-        status: "selected",
       },
-      selectorVersion: 3,
+      profileType: "local",
       summary: {
         consolidationPrompt: null,
         extractionPrompt: null,
@@ -86,8 +87,6 @@ describe("perfis de IA", () => {
         maxChunkCharacters: 3_000,
         model: "qwen3:4b-instruct-2507-q4_K_M",
         provider: "ollama",
-        requestedModel: "qwen3:4b-instruct-2507-q4_K_M",
-        status: "selected",
       },
       transcription: {
         batchSize: 2,
@@ -98,10 +97,17 @@ describe("perfis de IA", () => {
         prompt: "Transcreva literalmente.",
         provider: "faster-whisper",
         providerOptions: { vendor: { diarize: false } },
-        requestedModel: "medium",
-        status: "selected",
         temperature: 0,
         timestampMode: "word",
+        vad: {
+          enabled: true,
+          maxSpeechDurationSeconds: "auto",
+          minSilenceDurationMs: "auto",
+          minSpeechDurationMs: 0,
+          negativeSpeechThreshold: "auto",
+          speechPadMs: 400,
+          threshold: 0.5,
+        },
       },
     });
   });
@@ -157,7 +163,9 @@ describe("perfis de IA", () => {
   });
 
   it("cobre perfis incompletos, provedores remotos e limites de CPU/GPU", () => {
-    expect(() => resolveAiProfile(createInitialAiProfile("guild-1"))).toThrow(/incomplete/i);
+    expect(() => resolveAiProfile(createInitialAiProfile("user-1", "external", "pt-BR"))).toThrow(
+      /incomplete/i,
+    );
 
     const cpuHardware = {
       cpuCores: 8,

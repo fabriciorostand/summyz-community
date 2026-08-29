@@ -62,4 +62,14 @@ describe("PostgresMeetingContentStore", () => {
       content.publication,
     );
   });
+
+  it("rejeita conteúdo que não pode ser representado em JSON", async () => {
+    const { database, query } = createDatabase();
+    const store = new PostgresMeetingContentStore(database);
+
+    await expect(store.persist({ ...content, summary: undefined })).rejects.toThrow(
+      /não pode ser serializado/i,
+    );
+    expect(query).not.toHaveBeenCalled();
+  });
 });

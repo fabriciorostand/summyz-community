@@ -33,7 +33,6 @@ export class PostgresMeetingStore implements ManifestIndex {
 
   public async save(manifest: RecordingManifest): Promise<void> {
     const validated = recordingManifestSchema.parse(manifest);
-    if (validated.storageMode !== "postgres") return;
     const pipelineStatus: MeetingPipelineStatus =
       validated.status === "completed" ? "queued" : "recording";
     await this.#database.query(

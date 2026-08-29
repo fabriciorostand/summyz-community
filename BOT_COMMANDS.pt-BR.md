@@ -121,11 +121,11 @@ servidor pode usar o comando, e a resposta é efêmera.
 - Se o canal estiver vazio após o reinício, o Summyz finaliza e processa a gravação parcial.
 - Falhas transitórias são repetidas internamente; não existem comandos públicos de status, retry ou
   exclusão nesta etapa.
-- Com `PERSIST_MEETING_AUDIO=false`, os áudios são excluídos após transcrição válida ou falha
-  definitiva; com `true`, permanecem no disco até exclusão manual do administrador.
+- Com a retenção de áudio desativada no dashboard, os áudios são excluídos após transcrição válida
+  ou falha definitiva; quando ativada, permanecem no disco até exclusão manual do administrador.
 - As políticas de conteúdo e áudio são fixadas quando `/record` inicia; alterações posteriores no
-  `.env` valem somente para novas reuniões.
-- O perfil ativo, o provedor, o modelo explícito, o idioma e os parâmetros de cada fase também ficam
-  fixos nesse momento. Uma fase local nunca usa OpenRouter como fallback.
+  dashboard valem somente para novas reuniões.
+- O tipo do perfil ativo, o provedor, o modelo explícito, o idioma, o VAD e os demais parâmetros de
+  cada fase também ficam fixos nesse momento. Um perfil local nunca usa OpenRouter como fallback.
 - Registros financeiros são mantidos indefinidamente, independentemente da retenção de áudio e
   transcrições.

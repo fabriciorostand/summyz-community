@@ -7,6 +7,7 @@ import {
   markManifestInterrupted,
   markManifestRecording,
   recordingManifestSchema,
+  requireCurrentMeetingAiConfiguration,
 } from "../src/recording/manifest.js";
 
 describe("manifesto da gravação", () => {
@@ -20,13 +21,14 @@ describe("manifesto da gravação", () => {
     });
 
     expect(manifest).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       storageMode: "postgres",
       persistMeetingAudio: false,
       persistMeetingContent: false,
       status: "recording",
       segments: [],
     });
+    expect(() => requireCurrentMeetingAiConfiguration(manifest)).toThrow(/pinned AI profile/i);
   });
 
   it("captura as opções de armazenamento no início da reunião", () => {
@@ -51,26 +53,20 @@ describe("manifesto da gravação", () => {
   it("fixa provedores, modelos e idiomas no início da reunião", () => {
     const manifest = createManifest({
       aiConfiguration: {
+        profileType: "local",
         refinement: {
           model: "qwen3:4b",
           provider: "ollama",
-          requestedModel: "auto",
-          status: "selected",
         },
-        selectorVersion: 1,
         summary: {
           language: "auto",
           model: "qwen3:8b",
           provider: "ollama",
-          requestedModel: "auto",
-          status: "selected",
         },
         transcription: {
           language: "es",
           model: "small",
           provider: "faster-whisper",
-          requestedModel: "auto",
-          status: "selected",
         },
       },
       guildId: "guild-1",
@@ -87,79 +83,68 @@ describe("manifesto da gravação", () => {
     });
   });
 
-  it("fixa parâmetros personalizados do perfil versionado", () => {
-    const parsed = recordingManifestSchema.parse({
-      aiConfiguration: {
-        refinement: {
-          generation: { seed: 0, temperature: 0, think: false },
-          maxChunkCharacters: 3_000,
-          model: "qwen3:1.7b",
-          provider: "ollama",
-          requestedModel: "qwen3:1.7b",
-          status: "selected",
+  it("rejeita definitivamente manifestos da versão anterior", () => {
+    expect(() =>
+      recordingManifestSchema.parse({
+        aiConfiguration: {
+          refinement: {
+            generation: { seed: 0, temperature: 0, think: false },
+            maxChunkCharacters: 3_000,
+            model: "qwen3:1.7b",
+            provider: "ollama",
+            requestedModel: "qwen3:1.7b",
+            status: "selected",
+          },
+          selectorVersion: 3,
+          summary: {
+            generation: { seed: 0, temperature: 0, think: false },
+            language: "pt-BR",
+            maxChunkCharacters: 3_000,
+            model: "qwen3:4b-instruct-2507-q4_K_M",
+            provider: "ollama",
+            requestedModel: "qwen3:4b-instruct-2507-q4_K_M",
+            status: "selected",
+          },
+          transcription: {
+            batchSize: 2,
+            language: "pt-BR",
+            model: "medium",
+            provider: "faster-whisper",
+            requestedModel: "medium",
+            status: "selected",
+          },
         },
-        selectorVersion: 3,
-        summary: {
-          generation: { seed: 0, temperature: 0, think: false },
-          language: "pt-BR",
-          maxChunkCharacters: 3_000,
-          model: "qwen3:4b-instruct-2507-q4_K_M",
-          provider: "ollama",
-          requestedModel: "qwen3:4b-instruct-2507-q4_K_M",
-          status: "selected",
-        },
-        transcription: {
-          batchSize: 2,
-          language: "pt-BR",
-          model: "medium",
-          provider: "faster-whisper",
-          requestedModel: "medium",
-          status: "selected",
-        },
-      },
-      guildId: "guild-1",
-      interruptions: [],
-      meetingId: "meeting-1",
-      notificationChannelId: "text-1",
-      schemaVersion: 1,
-      segments: [],
-      startedAt: "2026-08-16T20:00:00.000Z",
-      status: "recording",
-      storageMode: "postgres",
-      voiceChannelId: "voice-1",
-    });
-
-    expect(parsed.aiConfiguration?.summary).toMatchObject({
-      generation: { seed: 0, temperature: 0, think: false },
-      maxChunkCharacters: 3_000,
-    });
+        guildId: "guild-1",
+        interruptions: [],
+        meetingId: "meeting-1",
+        notificationChannelId: "text-1",
+        schemaVersion: 1,
+        segments: [],
+        startedAt: "2026-08-16T20:00:00.000Z",
+        status: "recording",
+        storageMode: "postgres",
+        voiceChannelId: "voice-1",
+      }),
+    ).toThrow();
   });
 
-  it("persiste o menor modelo selecionado junto ao aviso de hardware", () => {
+  it("não persiste metadados do seletor automático removido", () => {
     const manifest = createManifest({
       aiConfiguration: {
+        profileType: "local",
         refinement: {
-          hardwareWarning: true,
           model: "qwen3:1.7b",
           provider: "ollama",
-          requestedModel: "auto",
-          status: "selected",
         },
-        selectorVersion: 1,
         summary: {
-          hardwareWarning: true,
           language: "auto",
           model: "qwen3:4b",
           provider: "ollama",
-          requestedModel: "auto",
-          status: "selected",
         },
         transcription: {
           language: "auto",
           model: "tiny",
           provider: "faster-whisper",
-          requestedModel: "auto",
-          status: "selected",
         },
       },
       guildId: "guild-1",
@@ -169,11 +154,25 @@ describe("manifesto da gravação", () => {
       voiceChannelId: "voice-1",
     });
 
-    expect(manifest.aiConfiguration?.summary).toMatchObject({
-      hardwareWarning: true,
-      model: "qwen3:4b",
-      status: "selected",
-    });
+    expect(manifest.aiConfiguration?.summary).toMatchObject({ model: "qwen3:4b" });
+    expect(manifest.aiConfiguration?.summary).not.toHaveProperty("hardwareWarning");
+    expect(manifest.aiConfiguration?.summary).not.toHaveProperty("requestedModel");
+    expect(manifest.aiConfiguration).not.toHaveProperty("selectorVersion");
+  });
+
+  it("rejeita o backend local removido", () => {
+    expect(() =>
+      recordingManifestSchema.parse({
+        ...createManifest({
+          guildId: "guild-1",
+          meetingId: "meeting-1",
+          notificationChannelId: "text-1",
+          startedAt: "2026-08-16T20:00:00.000Z",
+          voiceChannelId: "voice-1",
+        }),
+        storageMode: "local",
+      }),
+    ).toThrow();
   });
 
   it("adiciona segmentos sem alterar o manifesto anterior", () => {

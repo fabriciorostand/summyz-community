@@ -34,41 +34,80 @@ const promptDefaultsSchema = z.object({
   summaryExtraction: z.string(),
   transcription: z.null(),
 });
-export const profileSchema = z.object({
-  guildId: z.string(),
+const automaticNumberSchema = z.union([z.literal("auto"), z.number()]);
+const externalVadSchema = z.object({
+  enabled: z.boolean(),
+  minSilenceDurationMs: z.number().int(),
+  minSpeechDurationMs: z.number().int(),
+  negativeSpeechThreshold: automaticNumberSchema,
+  speechPadMs: z.number().int(),
+  threshold: z.number(),
+});
+const localVadSchema = z.object({
+  enabled: z.boolean(),
+  maxSpeechDurationSeconds: automaticNumberSchema,
+  minSilenceDurationMs: automaticNumberSchema,
+  minSpeechDurationMs: z.number().int(),
+  negativeSpeechThreshold: automaticNumberSchema,
+  speechPadMs: z.number().int(),
+  threshold: z.number(),
+});
+const profileBaseShape = {
   name: z.string(),
   profileId: z.string(),
-  refinement: z.object({
-    generation: generationSchema,
-    maxChunkCharacters: z.number().int(),
-    model: z.string().nullable(),
-    prompt: promptSchema,
-    provider: z.enum(["ollama", "openrouter"]).nullable(),
+  userId: z.string(),
+};
+const refinementBaseShape = {
+  generation: generationSchema,
+  maxChunkCharacters: z.number().int(),
+  model: z.string().nullable(),
+  prompt: promptSchema,
+};
+const summaryBaseShape = {
+  consolidationPrompt: promptSchema,
+  extractionPrompt: promptSchema,
+  generation: generationSchema,
+  language: z.string(),
+  maxChunkCharacters: z.number().int(),
+  model: z.string().nullable(),
+};
+const transcriptionBaseShape = {
+  batchSize: z.union([z.literal("auto"), z.number().int()]),
+  interSpeechSilenceMs: z.number().int(),
+  language: z.string(),
+  mergeMaxGapMs: z.number().int(),
+  model: z.string().nullable(),
+  prompt: promptSchema,
+  providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
+  temperature: z.number().optional(),
+  timestampMode: z.enum(["batch", "word"]),
+};
+export const profileSchema = z.discriminatedUnion("profileType", [
+  z.object({
+    ...profileBaseShape,
+    profileType: z.literal("external"),
+    refinement: z.object({ ...refinementBaseShape, provider: z.literal("openrouter") }),
+    summary: z.object({ ...summaryBaseShape, provider: z.literal("openrouter") }),
+    transcription: z.object({
+      ...transcriptionBaseShape,
+      provider: z.literal("openrouter"),
+      vad: externalVadSchema,
+    }),
   }),
-  summary: z.object({
-    consolidationPrompt: promptSchema,
-    extractionPrompt: promptSchema,
-    generation: generationSchema,
-    language: z.string(),
-    maxChunkCharacters: z.number().int(),
-    model: z.string().nullable(),
-    provider: z.enum(["ollama", "openrouter"]).nullable(),
+  z.object({
+    ...profileBaseShape,
+    profileType: z.literal("local"),
+    refinement: z.object({ ...refinementBaseShape, provider: z.literal("ollama") }),
+    summary: z.object({ ...summaryBaseShape, provider: z.literal("ollama") }),
+    transcription: z.object({
+      ...transcriptionBaseShape,
+      provider: z.literal("faster-whisper"),
+      vad: localVadSchema,
+    }),
   }),
-  transcription: z.object({
-    batchSize: z.union([z.literal("auto"), z.number().int()]),
-    interSpeechSilenceMs: z.number().int(),
-    language: z.string(),
-    mergeMaxGapMs: z.number().int(),
-    model: z.string().nullable(),
-    prompt: promptSchema,
-    provider: z.enum(["faster-whisper", "openrouter"]).nullable(),
-    providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
-    temperature: z.number().optional(),
-    timestampMode: z.enum(["batch", "word"]),
-  }),
-});
+]);
 const guildConfigurationSchema = z.object({
-  activeProfileId: z.string(),
+  activeProfileId: z.string().nullable(),
   profiles: z.array(profileSchema),
   recordingRoleIds: z.array(z.string()),
   settings: z.object({
@@ -117,6 +156,13 @@ export type User = z.infer<typeof userSchema>;
 export type Guild = z.infer<typeof guildSchema>;
 export type DiscordConnection = z.infer<typeof discordConnectionSchema>;
 export type Profile = z.infer<typeof profileSchema>;
+export type ProfileInput =
+  | Omit<Extract<Profile, { profileType: "external" }>, "profileId" | "userId">
+  | Omit<Extract<Profile, { profileType: "local" }>, "profileId" | "userId">;
+export interface ProfileListItem {
+  active: boolean;
+  profile: Profile;
+}
 export type PromptDefaults = z.infer<typeof promptDefaultsSchema>;
 export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;
@@ -182,21 +228,13 @@ export const api = {
   completeDiscord: (code: string, state: string) =>
     request(`/api/discord/callback?${new URLSearchParams({ code, state })}`, emptySchema),
   connectDiscord: () => request("/api/discord/connect", z.object({ authorizationUrl: z.url() })),
-  createProfile: (guildId: string, profile: Omit<Profile, "guildId" | "profileId">) =>
-    request(`/api/guilds/${guildId}/profiles`, profileSchema, {
+  createProfile: (profile: ProfileInput) =>
+    request("/api/profiles", profileSchema, {
       body: json(profile),
       method: "POST",
     }),
-  deleteProfile: (guildId: string, profileId: string, replacementProfileId?: string) =>
-    request(
-      `/api/guilds/${guildId}/profiles/${profileId}${
-        replacementProfileId === undefined
-          ? ""
-          : `?${new URLSearchParams({ replacementProfileId })}`
-      }`,
-      emptySchema,
-      { method: "DELETE" },
-    ),
+  deleteProfile: (profileId: string) =>
+    request(`/api/profiles/${profileId}`, emptySchema, { method: "DELETE" }),
   getPromptDefaults: (summaryLanguage: string) =>
     request(
       `/api/ai/prompts/defaults?${new URLSearchParams({ summaryLanguage })}`,
@@ -213,6 +251,8 @@ export const api = {
   getDiscordConnection: () => request("/api/discord/connection", discordConnectionSchema),
   getSetupStatus: () => request("/api/setup/status", setupStatusSchema),
   listGuilds: () => request("/api/guilds", z.array(guildSchema)),
+  listProfiles: () =>
+    request("/api/profiles", z.array(z.object({ active: z.boolean(), profile: profileSchema }))),
   login: (email: string, password: string) =>
     request("/api/auth/login", emptySchema, { body: json({ email, password }), method: "POST" }),
   logout: () => request("/api/auth/logout", emptySchema, { method: "POST" }),
@@ -248,9 +288,9 @@ export const api = {
   updateInstallationSettings: (
     settings: Omit<InstallationSettings, "secrets" | "setupCompleted">,
   ) => request("/api/installation/settings", emptySchema, { body: json(settings), method: "PUT" }),
-  updateProfile: (guildId: string, profile: Profile) => {
-    const { guildId: _guildId, profileId, ...body } = profile;
-    return request(`/api/guilds/${guildId}/profiles/${profileId}`, emptySchema, {
+  updateProfile: (profile: Profile) => {
+    const { profileId, userId: _userId, ...body } = profile;
+    return request(`/api/profiles/${profileId}`, emptySchema, {
       body: json(body),
       method: "PUT",
     });

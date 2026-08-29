@@ -71,6 +71,15 @@ describe("FasterWhisperTranscriptionProvider", () => {
       model: "small",
       prompt: "Transcreva literalmente.",
       timeoutMs: 90_000,
+      vad: {
+        enabled: true,
+        maxSpeechDurationSeconds: 45,
+        minSilenceDurationMs: 320,
+        minSpeechDurationMs: 64,
+        negativeSpeechThreshold: 0.25,
+        speechPadMs: 192,
+        threshold: 0.4,
+      },
     });
 
     await expect(
@@ -91,6 +100,15 @@ describe("FasterWhisperTranscriptionProvider", () => {
     expect((body as FormData).get("fallback")).toBe("cpu");
     expect((body as FormData).get("batchSize")).toBe("4");
     expect((body as FormData).get("prompt")).toBe("Transcreva literalmente.");
+    expect(JSON.parse(String((body as FormData).get("vadOptions")))).toEqual({
+      enabled: true,
+      maxSpeechDurationSeconds: 45,
+      minSilenceDurationMs: 320,
+      minSpeechDurationMs: 64,
+      negativeSpeechThreshold: 0.25,
+      speechPadMs: 192,
+      threshold: 0.4,
+    });
   });
 
   it("rejeita respostas sem timestamps em vez de aceitar um modelo incompatível", async () => {

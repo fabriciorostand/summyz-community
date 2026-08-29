@@ -39,7 +39,7 @@ describe("notificações terminais da gravação", () => {
     ).toContain("de **Lobby \\*\\*teste\\*\\***");
   });
 
-  it("usa uma mensagem compatível com manifestos antigos sem nome do canal", () => {
+  it("usa uma mensagem genérica quando o nome do canal não está disponível", () => {
     expect(createRecordingStopNotification({}, { reason: "channel_empty" }, "pt-BR")).toBe(
       "⏹️ Todos os participantes saíram do canal de voz. A gravação foi encerrada automaticamente. " +
         "Os segmentos de áudio foram preservados e serão processados.",

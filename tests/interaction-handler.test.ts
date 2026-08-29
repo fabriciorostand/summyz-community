@@ -1,7 +1,3 @@
-import { mkdtemp, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
-
 import {
   ChannelFlags,
   ChannelType,
@@ -9,22 +5,16 @@ import {
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { installInteractionHandler } from "../src/discord/interaction-handler.js";
-import { createInitialAiProfile } from "../src/ai-profile.js";
+import { aiProfileSchema, createInitialAiProfile } from "../src/ai-profile.js";
 import type { AiProfileCompatibilityStatus } from "../src/ai-profile.js";
-import { GuildConfigStore } from "../src/guild-config-store.js";
 import { createLogger } from "../src/logger.js";
 import { CostReportError } from "../src/cost/cost-report.js";
 import type { RecordingCoordinator } from "../src/recording/recording-coordinator.js";
 import { RecordingAlreadyActiveError } from "../src/recording/recording-coordinator.js";
-
-const directories: string[] = [];
-
-afterEach(async () => {
-  await Promise.all(directories.splice(0).map((directory) => rm(directory, { recursive: true })));
-});
+import { InMemoryGuildConfigurationStore } from "./in-memory-guild-config-store.js";
 
 interface InteractionOptions {
   administrator?: boolean;
@@ -52,9 +42,7 @@ interface InteractionOptions {
 }
 
 async function createHarness(options: InteractionOptions = {}) {
-  const directory = await mkdtemp(join(tmpdir(), "summyz-interaction-"));
-  directories.push(directory);
-  const store = new GuildConfigStore(join(directory, "guilds.json"));
+  const store = new InMemoryGuildConfigurationStore();
   const start = vi.fn(async () => ({ meetingId: "meeting-1" }));
   const get = vi.fn();
   const stop = vi.fn(async () => true);
@@ -67,30 +55,37 @@ async function createHarness(options: InteractionOptions = {}) {
     meeting: vi.fn(async () => "RELATÓRIO DA REUNIÃO"),
     period: vi.fn(async () => "RELATÓRIO DO PERÍODO"),
   };
-  const profile = createInitialAiProfile(
-    "guild-1",
+  const profileType = options.openRouterProfile === true ? "external" : "local";
+  const initialProfile = createInitialAiProfile("user-1", profileType, "pt-BR");
+  const profile =
     options.profileComplete === false
-      ? {}
-      : {
+      ? initialProfile
+      : aiProfileSchema.parse({
+          ...initialProfile,
           refinement: {
+            ...initialProfile.refinement,
             model: options.openRouterProfile === true ? "vendor/refinement" : "qwen3:1.7b",
             provider: options.openRouterProfile === true ? "openrouter" : "ollama",
           },
           summary: {
+            ...initialProfile.summary,
             model: options.openRouterProfile === true ? "vendor/summary" : "qwen3:4b",
             provider: options.openRouterProfile === true ? "openrouter" : "ollama",
           },
           transcription: {
+            ...initialProfile.transcription,
             model: options.openRouterProfile === true ? "vendor/transcription" : "medium",
             provider: options.openRouterProfile === true ? "openrouter" : "faster-whisper",
           },
-        },
-  );
+        });
   const aiProfileStore = {
+    clearActiveProfile: vi.fn(async () => undefined),
     createProfile: vi.fn(async () => undefined),
     deleteProfile: vi.fn(async () => undefined),
-    ensureInitialProfile: vi.fn(async () => undefined),
+    ensureInitialProfiles: vi.fn(async () => undefined),
     getActiveProfile: vi.fn(async () => profile),
+    getActiveProfileForDiscordOwner: vi.fn(async () => profile),
+    listActiveProfileIds: vi.fn(async () => new Set([profile.profileId])),
     listProfiles: vi.fn(async () => [profile]),
     setActiveProfile: vi.fn(async () => undefined),
     updateProfile: vi.fn(async () => undefined),

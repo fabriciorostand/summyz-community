@@ -7,7 +7,7 @@
 - Fonte de verdade: `transcript.raw.txt` de cada reunião.
 - Reuniões encontradas: 5.
 - Reuniões mensuráveis: 0.
-- Motivo: os segmentos de áudio já tinham sido removidos conforme `PERSIST_MEETING_AUDIO=false`.
+- Motivo: os segmentos de áudio já tinham sido removidos porque a retenção de áudio estava desativada.
 
 Não há estimativa de aceleração registrada nesta rodada, pois comparar somente arquivos de texto
 não mede inferência e produziria um número enganoso. O script `benchmark:transcription` registra

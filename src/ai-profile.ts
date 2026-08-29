@@ -11,8 +11,7 @@ const promptSchema = z
   .min(1)
   .max(20_000)
   .refine((value) => value.trim().length > 0, "The prompt cannot contain only whitespace")
-  .nullable()
-  .optional();
+  .nullable();
 const generationSchema = z
   .object({
     seed: z.number().int().optional(),
@@ -21,47 +20,111 @@ const generationSchema = z
   })
   .default({});
 
-export const transcriptionAiProfileSchema = z.object({
+const automaticNumberSchema = <T extends z.ZodNumber>(schema: T) =>
+  z.union([z.literal("auto"), schema]);
+
+export const externalVadSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    minSilenceDurationMs: z.number().int().min(32).max(10_000).default(768),
+    minSpeechDurationMs: z.number().int().min(32).max(2_000).default(96),
+    negativeSpeechThreshold: automaticNumberSchema(z.number().min(0).max(1)).default("auto"),
+    speechPadMs: z.number().int().min(0).max(5_000).default(96),
+    threshold: z.number().min(0.15).max(1).default(0.5),
+  })
+  .prefault({});
+
+export const localVadSchema = z
+  .object({
+    enabled: z.boolean().default(true),
+    maxSpeechDurationSeconds: automaticNumberSchema(z.number().positive().max(86_400)).default(
+      "auto",
+    ),
+    minSilenceDurationMs: automaticNumberSchema(z.number().int().min(0).max(10_000)).default(
+      "auto",
+    ),
+    minSpeechDurationMs: z.number().int().min(0).max(2_000).default(0),
+    negativeSpeechThreshold: automaticNumberSchema(z.number().min(0).max(1)).default("auto"),
+    speechPadMs: z.number().int().min(0).max(5_000).default(400),
+    threshold: z.number().min(0).max(1).default(0.5),
+  })
+  .prefault({});
+
+const transcriptionBaseSchema = z.object({
   batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
   interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
   language: languageSchema.default("auto"),
   mergeMaxGapMs: z.number().int().min(0).max(30_000).default(2_000),
   model: modelSchema.default(null),
   prompt: promptSchema,
-  provider: z.enum(["faster-whisper", "openrouter"]).nullable().default(null),
   providerOptions: z.record(z.string().min(1), z.record(z.string().min(1), z.json())).optional(),
   temperature: z.number().min(0).max(1).optional(),
   timestampMode: z.enum(["batch", "word"]).default("word"),
 });
 
-export const refinementAiProfileSchema = z.object({
+const refinementBaseSchema = z.object({
   generation: generationSchema,
   maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
   model: modelSchema.default(null),
   prompt: promptSchema,
-  provider: z.enum(["ollama", "openrouter"]).nullable().default(null),
 });
 
-export const summaryAiProfileSchema = z.object({
+const summaryBaseSchema = z.object({
   consolidationPrompt: promptSchema,
   extractionPrompt: promptSchema,
   generation: generationSchema,
   language: languageSchema.default("auto"),
   maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
   model: modelSchema.default(null),
-  provider: z.enum(["ollama", "openrouter"]).nullable().default(null),
 });
 
-export const aiProfileSchema = z.object({
-  guildId: identifierSchema,
+export const externalTranscriptionAiProfileSchema = transcriptionBaseSchema.extend({
+  provider: z.literal("openrouter").default("openrouter"),
+  vad: externalVadSchema,
+});
+export const localTranscriptionAiProfileSchema = transcriptionBaseSchema.extend({
+  provider: z.literal("faster-whisper").default("faster-whisper"),
+  vad: localVadSchema,
+});
+export const externalRefinementAiProfileSchema = refinementBaseSchema.extend({
+  provider: z.literal("openrouter").default("openrouter"),
+});
+export const localRefinementAiProfileSchema = refinementBaseSchema.extend({
+  provider: z.literal("ollama").default("ollama"),
+});
+export const externalSummaryAiProfileSchema = summaryBaseSchema.extend({
+  provider: z.literal("openrouter").default("openrouter"),
+});
+export const localSummaryAiProfileSchema = summaryBaseSchema.extend({
+  provider: z.literal("ollama").default("ollama"),
+});
+
+const profileBaseShape = {
   name: z.string().trim().min(1).max(100),
   profileId: identifierSchema,
-  refinement: refinementAiProfileSchema,
-  summary: summaryAiProfileSchema,
-  transcription: transcriptionAiProfileSchema,
+  userId: identifierSchema,
+};
+export const externalAiProfileSchema = z.object({
+  ...profileBaseShape,
+  profileType: z.literal("external"),
+  refinement: externalRefinementAiProfileSchema,
+  summary: externalSummaryAiProfileSchema,
+  transcription: externalTranscriptionAiProfileSchema,
 });
+export const localAiProfileSchema = z.object({
+  ...profileBaseShape,
+  profileType: z.literal("local"),
+  refinement: localRefinementAiProfileSchema,
+  summary: localSummaryAiProfileSchema,
+  transcription: localTranscriptionAiProfileSchema,
+});
+export const aiProfileSchema = z.discriminatedUnion("profileType", [
+  externalAiProfileSchema,
+  localAiProfileSchema,
+]);
 
 export type AiProfile = z.infer<typeof aiProfileSchema>;
+export type AiProfileType = AiProfile["profileType"];
 export type AiProfileCompatibilityStatus =
   | "above_recommended"
   | "compatible"
@@ -69,29 +132,65 @@ export type AiProfileCompatibilityStatus =
   | "recommended"
   | "unknown";
 
-interface InitialAiProfileOverrides {
-  refinement?: Partial<z.input<typeof refinementAiProfileSchema>>;
-  summary?: Partial<z.input<typeof summaryAiProfileSchema>>;
-  transcription?: Partial<z.input<typeof transcriptionAiProfileSchema>>;
+export function createInitialAiProfile(
+  userId: string,
+  profileType: AiProfileType,
+  dashboardLanguage: "en" | "pt-BR",
+): AiProfile {
+  const localizedName = dashboardLanguage === "pt-BR" ? "Perfil 1" : "Profile 1";
+  const prompts = createDefaultAiPrompts(dashboardLanguage, "auto");
+  const providerSelection =
+    profileType === "external"
+      ? {
+          refinement: {
+            model: null,
+            prompt: prompts.refinement,
+            provider: "openrouter" as const,
+          },
+          summary: {
+            consolidationPrompt: prompts.summaryConsolidation,
+            extractionPrompt: prompts.summaryExtraction,
+            model: null,
+            provider: "openrouter" as const,
+          },
+          transcription: { model: null, prompt: null, provider: "openrouter" as const },
+        }
+      : {
+          refinement: {
+            model: null,
+            prompt: prompts.refinement,
+            provider: "ollama" as const,
+          },
+          summary: {
+            consolidationPrompt: prompts.summaryConsolidation,
+            extractionPrompt: prompts.summaryExtraction,
+            model: null,
+            provider: "ollama" as const,
+          },
+          transcription: { model: null, prompt: null, provider: "faster-whisper" as const },
+        };
+  return aiProfileSchema.parse({
+    name: localizedName,
+    profileId: `${userId}-${profileType}-profile-1`,
+    profileType,
+    userId,
+    ...providerSelection,
+  });
 }
 
-export function createInitialAiProfile(
-  guildId: string,
-  overrides: InitialAiProfileOverrides = {},
-): AiProfile {
-  return aiProfileSchema.parse({
-    guildId,
-    name: "Profile 1",
-    profileId: `${guildId}-profile-1`,
-    refinement: overrides.refinement ?? {},
-    summary: overrides.summary ?? {},
-    transcription: overrides.transcription ?? {},
-  });
+export function createInitialAiProfiles(
+  userId: string,
+  dashboardLanguage: "en" | "pt-BR",
+): [AiProfile, AiProfile] {
+  return [
+    createInitialAiProfile(userId, "external", dashboardLanguage),
+    createInitialAiProfile(userId, "local", dashboardLanguage),
+  ];
 }
 
 export function isAiProfileComplete(profile: AiProfile): boolean {
   return [profile.transcription, profile.refinement, profile.summary].every(
-    (phase) => phase.provider !== null && phase.model !== null,
+    (phase) => phase.model !== null,
   );
 }
 
@@ -102,34 +201,23 @@ export function resolveAiProfile(profile: AiProfile) {
   const transcription = requireCompletePhase(profile.transcription);
   const refinement = requireCompletePhase(profile.refinement);
   const summary = requireCompletePhase(profile.summary);
-  const legacyPromptDefaults = createDefaultAiPrompts("en", summary.language);
   return {
+    profileType: profile.profileType,
     refinement: {
       generation: refinement.generation,
       maxChunkCharacters: refinement.maxChunkCharacters,
       model: refinement.model,
-      prompt: refinement.prompt === undefined ? legacyPromptDefaults.refinement : refinement.prompt,
+      prompt: refinement.prompt,
       provider: refinement.provider,
-      requestedModel: refinement.model,
-      status: "selected" as const,
     },
-    selectorVersion: 3 as const,
     summary: {
-      consolidationPrompt:
-        summary.consolidationPrompt === undefined
-          ? legacyPromptDefaults.summaryConsolidation
-          : summary.consolidationPrompt,
-      extractionPrompt:
-        summary.extractionPrompt === undefined
-          ? legacyPromptDefaults.summaryExtraction
-          : summary.extractionPrompt,
+      consolidationPrompt: summary.consolidationPrompt,
+      extractionPrompt: summary.extractionPrompt,
       generation: summary.generation,
       language: summary.language,
       maxChunkCharacters: summary.maxChunkCharacters,
       model: summary.model,
       provider: summary.provider,
-      requestedModel: summary.model,
-      status: "selected" as const,
     },
     transcription: {
       batchSize: transcription.batchSize,
@@ -142,23 +230,22 @@ export function resolveAiProfile(profile: AiProfile) {
       ...(transcription.providerOptions === undefined
         ? {}
         : { providerOptions: transcription.providerOptions }),
-      requestedModel: transcription.model,
-      status: "selected" as const,
       ...(transcription.temperature === undefined
         ? {}
         : { temperature: transcription.temperature }),
       timestampMode: transcription.timestampMode,
+      vad: transcription.vad,
     },
   };
 }
 
-function requireCompletePhase<T extends { model: string | null; provider: string | null }>(
+function requireCompletePhase<T extends { model: string | null; provider: string }>(
   phase: T,
-): T & { model: string; provider: NonNullable<T["provider"]> } {
-  if (phase.model === null || phase.provider === null) {
+): T & { model: string } {
+  if (phase.model === null) {
     throw new Error("The active AI profile is incomplete");
   }
-  return { ...phase, model: phase.model, provider: phase.provider };
+  return { ...phase, model: phase.model };
 }
 
 interface AssessModelCompatibilityInput {

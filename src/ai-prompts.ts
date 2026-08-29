@@ -1,5 +1,3 @@
-import type { AiProfile } from "./ai-profile.js";
-
 export type PromptLanguage = "en" | "pt-BR";
 
 export interface AiPrompts {
@@ -16,39 +14,6 @@ export function createDefaultAiPrompts(
   return promptLanguage === "pt-BR"
     ? createPortuguesePrompts(summaryLanguage)
     : createEnglishPrompts(summaryLanguage);
-}
-
-export function initializeAiProfilePrompts(
-  profile: AiProfile,
-  promptLanguage: PromptLanguage,
-): AiProfile {
-  const defaults = createDefaultAiPrompts(promptLanguage, profile.summary.language);
-  return {
-    ...profile,
-    refinement: {
-      ...profile.refinement,
-      prompt:
-        profile.refinement.prompt === undefined ? defaults.refinement : profile.refinement.prompt,
-    },
-    summary: {
-      ...profile.summary,
-      consolidationPrompt:
-        profile.summary.consolidationPrompt === undefined
-          ? defaults.summaryConsolidation
-          : profile.summary.consolidationPrompt,
-      extractionPrompt:
-        profile.summary.extractionPrompt === undefined
-          ? defaults.summaryExtraction
-          : profile.summary.extractionPrompt,
-    },
-    transcription: {
-      ...profile.transcription,
-      prompt:
-        profile.transcription.prompt === undefined
-          ? defaults.transcription
-          : profile.transcription.prompt,
-    },
-  };
 }
 
 function createPortuguesePrompts(summaryLanguage: string): AiPrompts {

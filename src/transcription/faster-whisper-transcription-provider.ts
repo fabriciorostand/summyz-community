@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { localVadSchema } from "../ai-profile.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 
 import {
@@ -36,6 +37,7 @@ export interface FasterWhisperTranscriptionProviderOptions {
   model: string;
   prompt?: string | null;
   timeoutMs: number;
+  vad?: z.input<typeof localVadSchema>;
 }
 
 export class FasterWhisperTranscriptionProvider implements TranscriptionProvider {
@@ -49,6 +51,7 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
   readonly #model: string;
   readonly #prompt: string | null;
   readonly #timeoutMs: number;
+  readonly #vad: z.infer<typeof localVadSchema>;
 
   public constructor(options: FasterWhisperTranscriptionProviderOptions) {
     this.#batchSize = options.batchSize ?? 0;
@@ -61,6 +64,7 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
     this.#model = options.model;
     this.#prompt = options.prompt ?? null;
     this.#timeoutMs = options.timeoutMs;
+    this.#vad = localVadSchema.parse(options.vad ?? {});
   }
 
   public async transcribe(
@@ -94,6 +98,7 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
     form.set("device", this.#device);
     form.set("fallback", this.#fallback);
     form.set("batchSize", String(this.#batchSize));
+    form.set("vadOptions", JSON.stringify(this.#vad));
     if (this.#prompt !== null) form.set("prompt", this.#prompt);
 
     let response: Response;

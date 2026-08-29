@@ -18,12 +18,14 @@ import { z } from "zod";
 
 import {
   api,
+  profileSchema,
   type DiscordConnection,
   type Guild,
   type GuildConfiguration,
   type GuildResources,
   type InstallationSettings,
   type Profile,
+  type ProfileListItem,
   type PromptDefaults,
   type User,
 } from "./api";
@@ -50,6 +52,7 @@ export function DashboardLayout({ user }: { user: User }) {
         <Brand />
         <nav>
           <NavItem icon={<LayoutDashboard />} label="Servidores" to="/" />
+          <NavItem icon={<Bot />} label="Perfis" to="/profiles" />
           <NavItem icon={<Command />} label="Comandos" to="/commands" />
           <NavItem icon={<UserRound />} label="Minha conta" to="/account" />
           {user.installationRole === "administrator" && (
@@ -296,7 +299,6 @@ export function GuildConfigurationPage() {
   const { guildId = "" } = useParams();
   const [configuration, setConfiguration] = useState<GuildConfiguration>();
   const [resources, setResources] = useState<GuildResources>();
-  const [selectedProfileId, setSelectedProfileId] = useState<string>();
   const [saved, setSaved] = useState(false);
   const [loadError, setLoadError] = useState(false);
   useEffect(() => {
@@ -304,7 +306,6 @@ export function GuildConfigurationPage() {
       .then(([nextConfiguration, nextResources]) => {
         setConfiguration(nextConfiguration);
         setResources(nextResources);
-        setSelectedProfileId(nextConfiguration.activeProfileId);
       })
       .catch(() => setLoadError(true));
   }, [guildId]);
@@ -324,9 +325,6 @@ export function GuildConfigurationPage() {
   if (configuration === undefined || resources === undefined) return <Loading />;
   const currentConfiguration = configuration;
   const currentResources = resources;
-  const selected =
-    currentConfiguration.profiles.find((profile) => profile.profileId === selectedProfileId) ??
-    currentConfiguration.profiles[0];
   async function saveSettings(next: GuildConfiguration["settings"]) {
     await api.updateGuildSettings(guildId, next);
     setConfiguration({ ...currentConfiguration, settings: next });
@@ -397,12 +395,9 @@ export function GuildConfigurationPage() {
           />
         </div>
         <div className="config-column wide">
-          <ProfilePanel
+          <ActiveProfilePanel
             configuration={currentConfiguration}
             guildId={guildId}
-            selected={selected ?? null}
-            selectedProfileId={selectedProfileId ?? null}
-            onSelect={(profileId) => setSelectedProfileId(profileId)}
             onUpdate={setConfiguration}
           />
         </div>
@@ -522,23 +517,178 @@ function ForumPanel({
   );
 }
 
-function ProfilePanel({
+function ActiveProfilePanel({
   configuration,
   guildId,
-  onSelect,
   onUpdate,
-  selected,
-  selectedProfileId,
 }: {
   configuration: GuildConfiguration;
   guildId: string;
-  onSelect: (id: string) => void;
   onUpdate: (value: GuildConfiguration) => void;
+}) {
+  async function activate(profileId: string) {
+    if (profileId === "") return;
+    await api.setActiveProfile(guildId, profileId);
+    onUpdate({ ...configuration, activeProfileId: profileId });
+  }
+  const externalProfiles = configuration.profiles.filter(
+    (profile) => profile.profileType === "external",
+  );
+  const localProfiles = configuration.profiles.filter((profile) => profile.profileType === "local");
+  return (
+    <>
+      <SectionTitle
+        icon={<Bot />}
+        title="Perfil ativo"
+        description="Escolha a configuração usada nas próximas reuniões deste servidor."
+      />
+      <section className="panel stack">
+        <SelectField
+          label="Perfil de processamento"
+          value={configuration.activeProfileId ?? ""}
+          onChange={(event) => void activate(event.currentTarget.value)}
+        >
+          <option value="">Selecione um perfil</option>
+          <optgroup label="API externa">
+            {externalProfiles.map((profile) => (
+              <option key={profile.profileId} value={profile.profileId}>
+                {profile.name} — {profile.transcription.provider}
+              </option>
+            ))}
+          </optgroup>
+          <optgroup label="Local">
+            {localProfiles.map((profile) => (
+              <option key={profile.profileId} value={profile.profileId}>
+                {profile.name} — {profile.transcription.provider}
+              </option>
+            ))}
+          </optgroup>
+        </SelectField>
+        <p className="field-hint">
+          Os perfis são pessoais e reutilizáveis. <Link to="/profiles">Gerenciar perfis</Link>
+        </p>
+      </section>
+    </>
+  );
+}
+
+export function ProfilesPage() {
+  const user = useOutletContext<User>();
+  const [items, setItems] = useState<ProfileListItem[]>();
+  const [profileType, setProfileType] = useState<Profile["profileType"]>("external");
+  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => {
+    void api
+      .listProfiles()
+      .then((next) => {
+        setItems(next);
+        setSelectedProfileId(
+          next.find((item) => item.profile.profileType === "external")?.profile.profileId ?? null,
+        );
+      })
+      .catch(() => setLoadError(true));
+  }, []);
+  if (loadError) {
+    return (
+      <Page
+        title="Não foi possível carregar seus perfis"
+        eyebrow="Perfis pessoais"
+        description="Tente novamente quando o banco de dados estiver disponível."
+      >
+        <EmptyState title="Perfis indisponíveis">
+          Recarregue a página para tentar novamente.
+        </EmptyState>
+      </Page>
+    );
+  }
+  if (items === undefined) return <Loading />;
+  const visibleItems = items.filter((item) => item.profile.profileType === profileType);
+  const selected =
+    visibleItems.find((item) => item.profile.profileId === selectedProfileId)?.profile ??
+    visibleItems[0]?.profile ??
+    null;
+  function selectType(nextType: Profile["profileType"]) {
+    setProfileType(nextType);
+    setSelectedProfileId(
+      (items ?? []).find((item) => item.profile.profileType === nextType)?.profile.profileId ??
+        null,
+    );
+  }
+  return (
+    <Page
+      title="Seus perfis"
+      eyebrow="Configuração global"
+      description="Crie configurações pessoais e escolha qual delas cada servidor deve usar."
+    >
+      <div className="profile-type-tabs" role="tablist" aria-label="Tipo de execução">
+        <button
+          aria-selected={profileType === "external"}
+          className={profileType === "external" ? "active" : ""}
+          onClick={() => selectType("external")}
+          role="tab"
+          type="button"
+        >
+          API externa
+        </button>
+        <button
+          aria-selected={profileType === "local"}
+          className={profileType === "local" ? "active" : ""}
+          onClick={() => selectType("local")}
+          role="tab"
+          type="button"
+        >
+          Local
+        </button>
+      </div>
+      <ProfileEditor
+        items={visibleItems}
+        locale={user.dashboardLanguage}
+        selected={selected}
+        selectedProfileId={selected?.profileId ?? null}
+        onItemsChange={(nextVisible) =>
+          setItems([
+            ...items.filter((item) => item.profile.profileType !== profileType),
+            ...nextVisible,
+          ])
+        }
+        onSelect={setSelectedProfileId}
+      />
+    </Page>
+  );
+}
+
+export function nextLocalizedProfileName(
+  items: ReadonlyArray<{ profile: { name: string } }>,
+  locale: "en" | "pt-BR",
+): string {
+  const prefix = locale === "pt-BR" ? "Perfil" : "Profile";
+  const existingNames = new Set(items.map(({ profile }) => profile.name.toLocaleLowerCase(locale)));
+  let nextNumber = 1;
+  while (existingNames.has(`${prefix} ${nextNumber}`.toLocaleLowerCase(locale))) {
+    nextNumber += 1;
+  }
+  return `${prefix} ${nextNumber}`;
+}
+
+function ProfileEditor({
+  items,
+  locale,
+  onSelect,
+  onItemsChange,
+  selected,
+  selectedProfileId,
+}: {
+  items: ProfileListItem[];
+  locale: "en" | "pt-BR";
+  onSelect: (id: string) => void;
+  onItemsChange: (value: ProfileListItem[]) => void;
   selected: Profile | null;
   selectedProfileId: string | null;
 }) {
   const [draft, setDraft] = useState<Profile | null>(selected);
   const [promptDefaults, setPromptDefaults] = useState<PromptDefaults>();
+  const [transcriptionTab, setTranscriptionTab] = useState<"model" | "vad">("model");
   const previousPromptDefaults = useRef<PromptDefaults | undefined>(undefined);
   const promptProfileId = draft?.profileId;
   const promptSummaryLanguage = draft?.summary.language;
@@ -564,7 +714,7 @@ function ProfilePanel({
         ) {
           return current;
         }
-        return {
+        return profileSchema.parse({
           ...current,
           summary: {
             ...current.summary,
@@ -577,7 +727,7 @@ function ProfilePanel({
                 ? next.summaryExtraction
                 : current.summary.extractionPrompt,
           },
-        };
+        });
       });
       previousPromptDefaults.current = next;
       setPromptDefaults(next);
@@ -590,44 +740,38 @@ function ProfilePanel({
   const currentDraft = draft;
   async function save(event: FormEvent) {
     event.preventDefault();
-    await api.updateProfile(guildId, currentDraft);
-    onUpdate({
-      ...configuration,
-      profiles: configuration.profiles.map((profile) =>
-        profile.profileId === currentDraft.profileId ? currentDraft : profile,
+    const currentItem = items.find((item) => item.profile.profileId === currentDraft.profileId);
+    if (
+      currentItem?.active === true &&
+      !window.confirm(
+        "Este perfil está ativo em um ou mais servidores. As alterações valerão nas próximas reuniões. Deseja salvar?",
+      )
+    ) {
+      return;
+    }
+    await api.updateProfile(currentDraft);
+    onItemsChange(
+      items.map((item) =>
+        item.profile.profileId === currentDraft.profileId
+          ? { ...item, profile: currentDraft }
+          : item,
       ),
-    });
+    );
   }
   async function create() {
-    const { guildId: _guildId, profileId: _profileId, ...base } = currentDraft;
-    const created = await api.createProfile(guildId, {
+    const { profileId: _profileId, userId: _userId, ...base } = currentDraft;
+    const created = await api.createProfile({
       ...base,
-      name: `Perfil ${configuration.profiles.length + 1}`,
+      name: nextLocalizedProfileName(items, locale),
     });
-    onUpdate({ ...configuration, profiles: [...configuration.profiles, created] });
+    onItemsChange([...items, { active: false, profile: created }]);
     onSelect(created.profileId);
   }
-  async function activate() {
-    await api.setActiveProfile(guildId, currentDraft.profileId);
-    onUpdate({ ...configuration, activeProfileId: currentDraft.profileId });
-  }
   async function remove() {
-    const replacement = configuration.profiles.find(
-      (profile) => profile.profileId !== currentDraft.profileId,
-    );
-    await api.deleteProfile(guildId, currentDraft.profileId, replacement?.profileId);
-    const profiles = configuration.profiles.filter(
-      (profile) => profile.profileId !== currentDraft.profileId,
-    );
-    onUpdate({
-      ...configuration,
-      activeProfileId:
-        configuration.activeProfileId === currentDraft.profileId && replacement !== undefined
-          ? replacement.profileId
-          : configuration.activeProfileId,
-      profiles,
-    });
-    onSelect(profiles[0]?.profileId ?? "");
+    await api.deleteProfile(currentDraft.profileId);
+    const remaining = items.filter((item) => item.profile.profileId !== currentDraft.profileId);
+    onItemsChange(remaining);
+    onSelect(remaining[0]?.profile.profileId ?? "");
   }
   return (
     <>
@@ -637,14 +781,14 @@ function ProfilePanel({
         </span>
         <div>
           <h2>Perfis de IA</h2>
-          <p>Modelos locais e OpenRouter podem coexistir em perfis nomeados.</p>
+          <p>Configure modelos e parâmetros reutilizáveis em seus servidores.</p>
         </div>
         <Button className="secondary" onClick={create}>
           Novo perfil
         </Button>
       </div>
       <div className="profile-tabs">
-        {configuration.profiles.map((profile) => (
+        {items.map(({ active, profile }) => (
           <button
             className={profile.profileId === selectedProfileId ? "active" : ""}
             key={profile.profileId}
@@ -652,7 +796,7 @@ function ProfilePanel({
             type="button"
           >
             {profile.name}
-            {configuration.activeProfileId === profile.profileId && <i>Ativo</i>}
+            {active && <i>Em uso</i>}
           </button>
         ))}
       </div>
@@ -663,38 +807,35 @@ function ProfilePanel({
             value={currentDraft.name}
             onChange={(event) => setDraft({ ...currentDraft, name: event.currentTarget.value })}
           />
-          <Button
-            className="secondary"
-            disabled={configuration.activeProfileId === currentDraft.profileId}
-            onClick={activate}
-            type="button"
-          >
-            Tornar ativo
-          </Button>
         </div>
         <PhaseEditor
           phase="Transcrição"
           profile={currentDraft}
           promptDefaults={promptDefaults}
-          onChange={setDraft}
+          transcriptionTab={transcriptionTab}
+          onTranscriptionTabChange={setTranscriptionTab}
+          onChange={(next) => setDraft(profileSchema.parse(next))}
         />
         <PhaseEditor
           phase="Refinamento"
           profile={currentDraft}
           promptDefaults={promptDefaults}
-          onChange={setDraft}
+          onChange={(next) => setDraft(profileSchema.parse(next))}
         />
         <PhaseEditor
           phase="Resumo"
           profile={currentDraft}
           promptDefaults={promptDefaults}
-          onChange={setDraft}
+          onChange={(next) => setDraft(profileSchema.parse(next))}
         />
         <div className="form-actions">
           <Button type="submit">Salvar perfil</Button>
           <Button
             className="danger"
-            disabled={configuration.profiles.length === 1}
+            disabled={
+              items.length === 1 ||
+              items.some((item) => item.profile.profileId === currentDraft.profileId && item.active)
+            }
             onClick={remove}
             type="button"
           >
@@ -706,166 +847,292 @@ function ProfilePanel({
   );
 }
 
+function VadEditor({
+  onChange,
+  profile,
+}: {
+  onChange: (profile: unknown) => void;
+  profile: Profile;
+}) {
+  const vad = profile.transcription.vad;
+  const replace = (nextVad: unknown) => {
+    onChange({
+      ...profile,
+      transcription: { ...profile.transcription, vad: nextVad },
+    });
+  };
+  return (
+    <div className="vad-editor stack">
+      <Toggle
+        checked={vad.enabled}
+        description="Quando desativado, o áudio completo segue diretamente para a transcrição."
+        label="Detectar presença de voz"
+        onChange={(enabled) => replace({ ...vad, enabled })}
+      />
+      <div className="form-grid">
+        <Field
+          hint="Probabilidade mínima para iniciar uma região de fala."
+          label="Limiar de fala"
+          max={1}
+          min={profile.profileType === "external" ? 0.15 : 0}
+          step={0.01}
+          type="number"
+          value={vad.threshold}
+          onChange={(event) => replace({ ...vad, threshold: event.currentTarget.valueAsNumber })}
+        />
+        <Field
+          hint="Ignora eventos de voz menores que esta duração."
+          label="Fala mínima (ms)"
+          max={2_000}
+          min={profile.profileType === "external" ? 32 : 0}
+          type="number"
+          value={vad.minSpeechDurationMs}
+          onChange={(event) =>
+            replace({ ...vad, minSpeechDurationMs: event.currentTarget.valueAsNumber })
+          }
+        />
+        <Field
+          hint="Mantém áudio ao redor das bordas para evitar palavras cortadas."
+          label="Margem de fala (ms)"
+          max={5_000}
+          min={0}
+          type="number"
+          value={vad.speechPadMs}
+          onChange={(event) => replace({ ...vad, speechPadMs: event.currentTarget.valueAsNumber })}
+        />
+        {profile.profileType === "external" ? (
+          <Field
+            hint="Silêncio contínuo necessário para encerrar uma região."
+            label="Silêncio para encerrar (ms)"
+            max={10_000}
+            min={32}
+            type="number"
+            value={profile.transcription.vad.minSilenceDurationMs}
+            onChange={(event) =>
+              replace({ ...vad, minSilenceDurationMs: event.currentTarget.valueAsNumber })
+            }
+          />
+        ) : (
+          <Field
+            hint="Use “auto” para preservar 2.000 ms no modo normal e 160 ms em lote."
+            label="Silêncio para encerrar"
+            value={profile.transcription.vad.minSilenceDurationMs}
+            onChange={(event) => {
+              const raw = event.currentTarget.value;
+              replace({ ...vad, minSilenceDurationMs: raw === "auto" ? "auto" : Number(raw) });
+            }}
+          />
+        )}
+      </div>
+      <details className="advanced-settings">
+        <summary>Configurações avançadas</summary>
+        <div className="form-grid">
+          <Field
+            hint="Use “auto” para manter 0,15 abaixo do limiar de fala."
+            label="Limiar negativo"
+            value={vad.negativeSpeechThreshold}
+            onChange={(event) => {
+              const raw = event.currentTarget.value;
+              replace({
+                ...vad,
+                negativeSpeechThreshold: raw === "auto" ? "auto" : Number(raw),
+              });
+            }}
+          />
+          {profile.profileType === "local" && (
+            <Field
+              hint="Use “auto” para preservar o limite próprio do modo de execução."
+              label="Duração máxima da fala (s)"
+              value={profile.transcription.vad.maxSpeechDurationSeconds}
+              onChange={(event) => {
+                const raw = event.currentTarget.value;
+                replace({
+                  ...vad,
+                  maxSpeechDurationSeconds: raw === "auto" ? "auto" : Number(raw),
+                });
+              }}
+            />
+          )}
+        </div>
+      </details>
+    </div>
+  );
+}
+
 function PhaseEditor({
   onChange,
+  onTranscriptionTabChange,
   phase,
   profile,
   promptDefaults,
+  transcriptionTab,
 }: {
-  onChange: (profile: Profile) => void;
+  onChange: (profile: unknown) => void;
+  onTranscriptionTabChange?: (tab: "model" | "vad") => void;
   phase: "Transcrição" | "Refinamento" | "Resumo";
   profile: Profile;
   promptDefaults: PromptDefaults | undefined;
+  transcriptionTab?: "model" | "vad";
 }) {
   if (phase === "Transcrição") {
     const value = profile.transcription;
+    const selectedTab = transcriptionTab ?? "model";
     return (
       <fieldset className="phase">
         <legend>{phase}</legend>
-        <div className="form-grid">
-          <SelectField
-            label="Provedor"
-            value={value.provider ?? ""}
-            onChange={(event) =>
-              onChange({
-                ...profile,
-                transcription: {
-                  ...value,
-                  provider:
-                    event.currentTarget.value === "faster-whisper"
-                      ? "faster-whisper"
-                      : event.currentTarget.value === "openrouter"
-                        ? "openrouter"
-                        : null,
-                },
-              })
-            }
+        <div aria-label="Configuração da transcrição" className="phase-tabs" role="tablist">
+          <button
+            aria-selected={selectedTab === "model"}
+            className={selectedTab === "model" ? "active" : ""}
+            onClick={() => onTranscriptionTabChange?.("model")}
+            role="tab"
+            type="button"
           >
-            <option value="">Escolha um provedor</option>
-            <option value="faster-whisper">faster-whisper</option>
-            <option value="openrouter">openrouter</option>
-          </SelectField>
-          <Field
-            label="Modelo"
-            placeholder="medium ou vendor/model"
-            value={value.model ?? ""}
-            onChange={(event) =>
-              onChange({
-                ...profile,
-                transcription: { ...value, model: event.currentTarget.value || null },
-              })
-            }
-          />
-        </div>
-        <Field
-          label="Idioma"
-          value={value.language}
-          onChange={(event) =>
-            onChange({
-              ...profile,
-              transcription: { ...value, language: event.currentTarget.value },
-            })
-          }
-        />
-        <div className="form-grid">
-          <Field
-            label="Tamanho do lote"
-            placeholder="auto ou 0–64"
-            value={value.batchSize}
-            onChange={(event) => {
-              const raw = event.currentTarget.value;
-              onChange({
-                ...profile,
-                transcription: {
-                  ...value,
-                  batchSize: raw === "auto" || raw === "" ? "auto" : Number(raw),
-                },
-              });
-            }}
-          />
-          <Field
-            label="Intervalo máximo de união (ms)"
-            min={0}
-            type="number"
-            value={value.mergeMaxGapMs}
-            onChange={(event) =>
-              onChange({
-                ...profile,
-                transcription: { ...value, mergeMaxGapMs: event.currentTarget.valueAsNumber },
-              })
-            }
-          />
-        </div>
-        <div className="form-grid">
-          <SelectField
-            label="Timestamps"
-            value={value.timestampMode}
-            onChange={(event) =>
-              onChange({
-                ...profile,
-                transcription: {
-                  ...value,
-                  timestampMode: event.currentTarget.value === "batch" ? "batch" : "word",
-                },
-              })
-            }
+            Modelo e transcrição
+          </button>
+          <button
+            aria-selected={selectedTab === "vad"}
+            className={selectedTab === "vad" ? "active" : ""}
+            onClick={() => onTranscriptionTabChange?.("vad")}
+            role="tab"
+            type="button"
           >
-            <option value="word">Por palavra</option>
-            <option value="batch">Por lote</option>
-          </SelectField>
-          <Field
-            label="Silêncio entre falas (ms)"
-            min={0}
-            type="number"
-            value={value.interSpeechSilenceMs}
-            onChange={(event) =>
-              onChange({
-                ...profile,
-                transcription: {
-                  ...value,
-                  interSpeechSilenceMs: event.currentTarget.valueAsNumber,
-                },
-              })
-            }
-          />
-          <Field
-            label="Temperatura"
-            max={1}
-            min={0}
-            step={0.1}
-            type="number"
-            value={value.temperature ?? ""}
-            onChange={(event) => {
-              const { temperature: _temperature, ...withoutTemperature } = value;
-              onChange({
-                ...profile,
-                transcription:
-                  event.currentTarget.value === ""
-                    ? withoutTemperature
-                    : { ...value, temperature: event.currentTarget.valueAsNumber },
-              });
-            }}
-          />
+            VAD
+          </button>
         </div>
-        <PromptEditor
-          defaultPrompt={promptDefaults?.transcription ?? null}
-          disabledMessage="Nenhum prompt será enviado na transcrição."
-          label="Prompt da transcrição"
-          toggleLabel="Enviar prompt de transcrição"
-          value={value.prompt}
-          onChange={(prompt) => onChange({ ...profile, transcription: { ...value, prompt } })}
-        />
-        <TextAreaField
-          defaultValue={JSON.stringify(value.providerOptions ?? {}, null, 2)}
-          hint="Objeto JSON agrupado pelo slug do provedor."
-          label="Opções avançadas do provedor"
-          rows={4}
-          onBlur={(event) => {
-            const parsed = parseProviderOptions(event.currentTarget.value);
-            if (parsed !== undefined)
-              onChange({ ...profile, transcription: { ...value, providerOptions: parsed } });
-          }}
-        />
+        {selectedTab === "model" ? (
+          <>
+            <div className="form-grid">
+              <SelectField disabled label="Provedor" value={value.provider ?? ""}>
+                <option value="">Escolha um provedor</option>
+                <option value="faster-whisper">faster-whisper</option>
+                <option value="openrouter">openrouter</option>
+              </SelectField>
+              <Field
+                label="Modelo"
+                placeholder="medium ou vendor/model"
+                value={value.model ?? ""}
+                onChange={(event) =>
+                  onChange({
+                    ...profile,
+                    transcription: { ...value, model: event.currentTarget.value || null },
+                  })
+                }
+              />
+            </div>
+            <Field
+              label="Idioma"
+              value={value.language}
+              onChange={(event) =>
+                onChange({
+                  ...profile,
+                  transcription: { ...value, language: event.currentTarget.value },
+                })
+              }
+            />
+            <div className="form-grid">
+              <Field
+                label="Tamanho do lote"
+                placeholder="auto ou 0–64"
+                value={value.batchSize}
+                onChange={(event) => {
+                  const raw = event.currentTarget.value;
+                  onChange({
+                    ...profile,
+                    transcription: {
+                      ...value,
+                      batchSize: raw === "auto" || raw === "" ? "auto" : Number(raw),
+                    },
+                  });
+                }}
+              />
+              <Field
+                label="Intervalo máximo de união (ms)"
+                min={0}
+                type="number"
+                value={value.mergeMaxGapMs}
+                onChange={(event) =>
+                  onChange({
+                    ...profile,
+                    transcription: { ...value, mergeMaxGapMs: event.currentTarget.valueAsNumber },
+                  })
+                }
+              />
+            </div>
+            <div className="form-grid">
+              <SelectField
+                label="Timestamps"
+                value={value.timestampMode}
+                onChange={(event) =>
+                  onChange({
+                    ...profile,
+                    transcription: {
+                      ...value,
+                      timestampMode: event.currentTarget.value === "batch" ? "batch" : "word",
+                    },
+                  })
+                }
+              >
+                <option value="word">Por palavra</option>
+                <option value="batch">Por lote</option>
+              </SelectField>
+              <Field
+                label="Silêncio entre falas (ms)"
+                min={0}
+                type="number"
+                value={value.interSpeechSilenceMs}
+                onChange={(event) =>
+                  onChange({
+                    ...profile,
+                    transcription: {
+                      ...value,
+                      interSpeechSilenceMs: event.currentTarget.valueAsNumber,
+                    },
+                  })
+                }
+              />
+              <Field
+                label="Temperatura"
+                max={1}
+                min={0}
+                step={0.1}
+                type="number"
+                value={value.temperature ?? ""}
+                onChange={(event) => {
+                  const { temperature: _temperature, ...withoutTemperature } = value;
+                  onChange({
+                    ...profile,
+                    transcription:
+                      event.currentTarget.value === ""
+                        ? withoutTemperature
+                        : { ...value, temperature: event.currentTarget.valueAsNumber },
+                  });
+                }}
+              />
+            </div>
+            <PromptEditor
+              defaultPrompt={promptDefaults?.transcription ?? null}
+              disabledMessage="Nenhum prompt será enviado na transcrição."
+              label="Prompt da transcrição"
+              toggleLabel="Enviar prompt de transcrição"
+              value={value.prompt}
+              onChange={(prompt) => onChange({ ...profile, transcription: { ...value, prompt } })}
+            />
+            <TextAreaField
+              defaultValue={JSON.stringify(value.providerOptions ?? {}, null, 2)}
+              hint="Objeto JSON agrupado pelo slug do provedor."
+              label="Opções avançadas do provedor"
+              rows={4}
+              onBlur={(event) => {
+                const parsed = parseProviderOptions(event.currentTarget.value);
+                if (parsed !== undefined)
+                  onChange({ ...profile, transcription: { ...value, providerOptions: parsed } });
+              }}
+            />
+          </>
+        ) : (
+          <VadEditor profile={profile} onChange={onChange} />
+        )}
       </fieldset>
     );
   }
@@ -882,21 +1149,7 @@ function PhaseEditor({
     <fieldset className="phase">
       <legend>{phase}</legend>
       <div className="form-grid">
-        <SelectField
-          label="Provedor"
-          value={value.provider ?? ""}
-          onChange={(event) =>
-            replace({
-              ...value,
-              provider:
-                event.currentTarget.value === "ollama"
-                  ? "ollama"
-                  : event.currentTarget.value === "openrouter"
-                    ? "openrouter"
-                    : null,
-            })
-          }
-        >
+        <SelectField disabled label="Provedor" value={value.provider ?? ""}>
           <option value="">Escolha um provedor</option>
           <option value="ollama">ollama</option>
           <option value="openrouter">openrouter</option>

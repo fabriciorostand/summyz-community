@@ -15,7 +15,7 @@ import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from faster_whisper import BatchedInferencePipeline, WhisperModel
 from faster_whisper.utils import download_model
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError, model_validator
 from starlette.concurrency import run_in_threadpool
 
 from execution_policy import (
@@ -72,6 +72,32 @@ class ModelStatus(BaseModel):
     fallbackApplied: bool
     model: str
     status: Literal["ready"]
+
+
+class VadOptionsRequest(BaseModel):
+    enabled: bool = True
+    maxSpeechDurationSeconds: Literal["auto"] | float = "auto"
+    minSilenceDurationMs: Literal["auto"] | int = "auto"
+    minSpeechDurationMs: int = Field(default=0, ge=0, le=2_000)
+    negativeSpeechThreshold: Literal["auto"] | float = "auto"
+    speechPadMs: int = Field(default=400, ge=0, le=5_000)
+    threshold: float = Field(default=0.5, ge=0, le=1)
+
+    @model_validator(mode="after")
+    def validate_ranges(self) -> "VadOptionsRequest":
+        if isinstance(self.maxSpeechDurationSeconds, float) and not (
+            0 < self.maxSpeechDurationSeconds <= 86_400
+        ):
+            raise ValueError("Invalid maximum speech duration")
+        if isinstance(self.minSilenceDurationMs, int) and not (
+            0 <= self.minSilenceDurationMs <= 10_000
+        ):
+            raise ValueError("Invalid minimum silence duration")
+        if isinstance(self.negativeSpeechThreshold, float) and not (
+            0 <= self.negativeSpeechThreshold <= 1
+        ):
+            raise ValueError("Invalid negative speech threshold")
+        return self
 
 
 def model_directory(model: str) -> Path:
@@ -171,9 +197,13 @@ def remove_model(model: str) -> None:
 
 
 def transcribe_audio(
-    runtime: LoadedRuntime, path: Path, language: str, prompt: str | None
+    runtime: LoadedRuntime,
+    path: Path,
+    language: str,
+    prompt: str | None,
+    vad_options: dict[str, object],
 ) -> tuple[list[str], list[dict[str, object]]]:
-    options = create_transcription_options(language, runtime.batch_size, prompt)
+    options = create_transcription_options(language, runtime.batch_size, prompt, vad_options)
     segments, _ = runtime.transcriber.transcribe(str(path), **options)
     words: list[dict[str, object]] = []
     text_parts: list[str] = []
@@ -245,6 +275,7 @@ async def transcribe(
     fallback: Annotated[FallbackPreference, Form()] = "none",
     batch_size: Annotated[int, Form(alias="batchSize", ge=0, le=64)] = 0,
     prompt: Annotated[str | None, Form(min_length=1, max_length=20_000)] = None,
+    vad_options_json: Annotated[str, Form(alias="vadOptions", max_length=2_000)] = "{}",
 ) -> dict[str, object]:
     suffix = Path(audio.filename or "audio.wav").suffix.lower()
     if suffix not in {".ogg", ".wav"}:
@@ -252,13 +283,17 @@ async def transcribe(
 
     temporary_path: Path | None = None
     try:
+        try:
+            vad_options = VadOptionsRequest.model_validate_json(vad_options_json).model_dump()
+        except ValidationError as error:
+            raise HTTPException(status_code=422, detail="Invalid VAD configuration") from error
         with tempfile.NamedTemporaryFile(dir=TEMP_ROOT, suffix=suffix, delete=False) as temporary:
             temporary_path = Path(temporary.name)
             while chunk := await audio.read(1024 * 1024):
                 temporary.write(chunk)
         runtime = await run_in_threadpool(load_model, model, device, fallback, batch_size)
         text_parts, words = await run_in_threadpool(
-            transcribe_audio, runtime, temporary_path, language, prompt
+            transcribe_audio, runtime, temporary_path, language, prompt, vad_options
         )
         logger.info(
             "Audio transcription completed",

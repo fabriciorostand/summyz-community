@@ -2,6 +2,8 @@ import { isAbsolute, normalize } from "node:path";
 
 import { z } from "zod";
 
+import { externalVadSchema, localVadSchema } from "../ai-profile.js";
+
 const storageIdentifierSchema = z
   .string()
   .min(1)
@@ -17,12 +19,7 @@ const interruptionSchema = z.object({
   resumedAt: z.iso.datetime().optional(),
 });
 
-const selectedModelSchema = z.object({
-  hardwareWarning: z.literal(true).optional(),
-  model: z.string().min(1),
-  requestedModel: z.string().min(1),
-  status: z.literal("selected"),
-});
+const selectedModelSchema = z.object({ model: z.string().min(1) });
 
 const generationSchema = z
   .object({
@@ -34,42 +31,53 @@ const generationSchema = z
 
 const resolvedPromptSchema = z.string().min(1).max(20_000).nullable();
 
-export const meetingAiConfigurationSchema = z.object({
-  refinement: selectedModelSchema.and(
-    z.object({
-      generation: generationSchema,
-      maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
-      prompt: resolvedPromptSchema.default(null),
-      provider: z.enum(["openrouter", "ollama"]),
-    }),
-  ),
-  selectorVersion: z.union([z.literal(1), z.literal(2), z.literal(3)]),
-  summary: selectedModelSchema.and(
-    z.object({
-      generation: generationSchema,
-      language: z.string().min(1),
-      maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
-      consolidationPrompt: resolvedPromptSchema.default(null),
-      extractionPrompt: resolvedPromptSchema.default(null),
-      provider: z.enum(["openrouter", "ollama"]),
-    }),
-  ),
-  transcription: selectedModelSchema.and(
-    z.object({
-      batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
-      interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
-      language: z.string().min(1),
-      mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
-      prompt: resolvedPromptSchema.default(null),
-      provider: z.enum(["openrouter", "faster-whisper"]),
-      providerOptions: z
-        .record(z.string().min(1), z.record(z.string().min(1), z.json()))
-        .optional(),
-      temperature: z.number().min(0).max(1).optional(),
-      timestampMode: z.enum(["batch", "word"]).default("word"),
-    }),
-  ),
-});
+const currentRefinementBase = selectedModelSchema.and(
+  z.object({
+    generation: generationSchema,
+    maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
+    prompt: resolvedPromptSchema.default(null),
+  }),
+);
+const currentSummaryBase = selectedModelSchema.and(
+  z.object({
+    generation: generationSchema,
+    language: z.string().min(1),
+    maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
+    consolidationPrompt: resolvedPromptSchema.default(null),
+    extractionPrompt: resolvedPromptSchema.default(null),
+  }),
+);
+const currentTranscriptionBase = selectedModelSchema.and(
+  z.object({
+    batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
+    interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
+    language: z.string().min(1),
+    mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
+    prompt: resolvedPromptSchema.default(null),
+    providerOptions: z.record(z.string().min(1), z.record(z.string().min(1), z.json())).optional(),
+    temperature: z.number().min(0).max(1).optional(),
+    timestampMode: z.enum(["batch", "word"]).default("word"),
+  }),
+);
+
+export const meetingAiConfigurationSchema = z.discriminatedUnion("profileType", [
+  z.object({
+    profileType: z.literal("external"),
+    refinement: currentRefinementBase.and(z.object({ provider: z.literal("openrouter") })),
+    summary: currentSummaryBase.and(z.object({ provider: z.literal("openrouter") })),
+    transcription: currentTranscriptionBase.and(
+      z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
+    ),
+  }),
+  z.object({
+    profileType: z.literal("local"),
+    refinement: currentRefinementBase.and(z.object({ provider: z.literal("ollama") })),
+    summary: currentSummaryBase.and(z.object({ provider: z.literal("ollama") })),
+    transcription: currentTranscriptionBase.and(
+      z.object({ provider: z.literal("faster-whisper"), vad: localVadSchema }),
+    ),
+  }),
+]);
 
 export const segmentSchema = z.object({
   durationMs: z.number().nonnegative(),
@@ -88,8 +96,7 @@ export const segmentSchema = z.object({
   userId: storageIdentifierSchema,
 });
 
-export const recordingManifestSchema = z.object({
-  aiConfiguration: meetingAiConfigurationSchema.optional(),
+const recordingManifestBaseShape = {
   botLanguage: z.enum(["en", "pt-BR"]).optional(),
   completedAt: z.iso.datetime().optional(),
   guildId: z.string().min(1),
@@ -98,13 +105,18 @@ export const recordingManifestSchema = z.object({
   notificationChannelId: z.string().min(1),
   persistMeetingAudio: z.boolean().default(false),
   persistMeetingContent: z.boolean().default(false),
-  schemaVersion: z.literal(1),
   segments: z.array(segmentSchema),
   startedAt: z.iso.datetime(),
   status: manifestStatusSchema,
-  storageMode: z.enum(["local", "postgres"]).default("local"),
+  storageMode: z.literal("postgres"),
   voiceChannelId: z.string().min(1),
   voiceChannelName: z.string().min(1).max(100).optional(),
+};
+
+export const recordingManifestSchema = z.object({
+  ...recordingManifestBaseShape,
+  aiConfiguration: meetingAiConfigurationSchema.optional(),
+  schemaVersion: z.literal(2),
 });
 
 export type RecordingManifest = z.infer<typeof recordingManifestSchema>;
@@ -112,6 +124,15 @@ export type MeetingAiConfiguration = z.input<typeof meetingAiConfigurationSchema
 export type ResolvedMeetingAiConfiguration = z.infer<typeof meetingAiConfigurationSchema>;
 export type RecordingSegment = z.infer<typeof segmentSchema>;
 export type RecordingSegmentInput = z.input<typeof segmentSchema>;
+
+export function requireCurrentMeetingAiConfiguration(
+  manifest: RecordingManifest,
+): ResolvedMeetingAiConfiguration {
+  if (manifest.aiConfiguration === undefined) {
+    throw new Error("The meeting does not have a pinned AI profile");
+  }
+  return meetingAiConfigurationSchema.parse(manifest.aiConfiguration);
+}
 
 export type CreateManifestInput = Pick<
   RecordingManifest,
@@ -135,10 +156,10 @@ export function createManifest(input: CreateManifestInput): RecordingManifest {
   return recordingManifestSchema.parse({
     ...input,
     interruptions: [],
-    schemaVersion: 1,
+    schemaVersion: 2,
     segments: [],
     status: "recording",
-    storageMode: input.storageMode ?? "postgres",
+    storageMode: "postgres",
   });
 }
 

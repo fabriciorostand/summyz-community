@@ -18,6 +18,7 @@ import {
   GuildConfigurationPage,
   GuildsPage,
   InstallationPage,
+  ProfilesPage,
 } from "./dashboard-pages";
 
 export function App() {
@@ -62,6 +63,7 @@ export function App() {
         <Route path="commands" element={<CommandsPage />} />
         <Route path="guilds/:guildId" element={<GuildConfigurationPage />} />
         <Route path="installation" element={<InstallationPage />} />
+        <Route path="profiles" element={<ProfilesPage />} />
       </Route>
       <Route path="*" element={<Navigate replace to="/" />} />
     </Routes>

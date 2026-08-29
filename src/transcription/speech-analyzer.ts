@@ -36,24 +36,61 @@ export interface VadCallbacks {
 
 type CreateVad = (
   callbacks: VadCallbacks,
-  threshold: number,
-  minimumSpeechFrames: number,
+  configuration: SileroVadConfiguration,
 ) => Promise<VadSession>;
-type DecodeAudio = (path: string) => Promise<Float32Array>;
+export type AudioDecoder = (path: string) => Promise<Float32Array>;
+
+interface SileroVadConfiguration {
+  minSilenceFrames: number;
+  minimumSpeechFrames: number;
+  negativeSpeechThreshold: number;
+  preSpeechPadFrames: number;
+  threshold: number;
+}
 
 interface SileroSpeechAnalyzerOptions {
   createVad?: CreateVad;
-  decodeAudio?: DecodeAudio;
+  decodeAudio?: AudioDecoder;
   maxDurationSeconds?: number;
+  minSilenceDurationMs?: number;
   minSpeechDurationMs: number;
+  negativeSpeechThreshold?: number;
+  speechPadMs?: number;
   threshold: number;
+}
+
+export class FullAudioSpeechAnalyzer implements SpeechAnalyzer {
+  readonly #decodeAudio: AudioDecoder;
+
+  public constructor(options: { decodeAudio: AudioDecoder }) {
+    this.#decodeAudio = options.decodeAudio;
+  }
+
+  public async analyze(path: string): Promise<SpeechAnalysis> {
+    const samples = await this.#decodeAudio(path);
+    return {
+      containsSpeech: samples.length > 0,
+      samples,
+      speechRanges:
+        samples.length === 0 ? [] : [{ endedAtSample: samples.length, startedAtSample: 0 }],
+    };
+  }
+
+  public async close(): Promise<void> {
+    return Promise.resolve();
+  }
+}
+
+export function createAudioDecoder(maxDurationSeconds: number): AudioDecoder {
+  const maximumBytes =
+    (maxDurationSeconds + 1) * TRANSCRIPTION_SAMPLE_RATE * Float32Array.BYTES_PER_ELEMENT;
+  return (path) => decodeAudioFile(path, Math.ceil(maximumBytes));
 }
 
 export class SileroSpeechAnalyzer implements SpeechAnalyzer {
   readonly #createVad: CreateVad;
-  readonly #decodeAudio: DecodeAudio;
-  readonly #minimumSpeechFrames: number;
-  readonly #threshold: number;
+  readonly #decodeAudio: AudioDecoder;
+  readonly #vadConfiguration: SileroVadConfiguration;
   #closed = false;
   #currentSampleCount = 0;
   #processedSamples = 0;
@@ -63,14 +100,16 @@ export class SileroSpeechAnalyzer implements SpeechAnalyzer {
 
   public constructor(options: SileroSpeechAnalyzerOptions) {
     this.#createVad = options.createVad ?? createSileroVad;
-    const maximumBytes =
-      ((options.maxDurationSeconds ?? 3_600) + 1) *
-      TRANSCRIPTION_SAMPLE_RATE *
-      Float32Array.BYTES_PER_ELEMENT;
     this.#decodeAudio =
-      options.decodeAudio ?? ((path) => decodeAudioFile(path, Math.ceil(maximumBytes)));
-    this.#minimumSpeechFrames = Math.ceil(options.minSpeechDurationMs / 32);
-    this.#threshold = options.threshold;
+      options.decodeAudio ?? createAudioDecoder(options.maxDurationSeconds ?? 3_600);
+    this.#vadConfiguration = {
+      minSilenceFrames: Math.ceil((options.minSilenceDurationMs ?? 768) / 32),
+      minimumSpeechFrames: Math.ceil(options.minSpeechDurationMs / 32),
+      negativeSpeechThreshold:
+        options.negativeSpeechThreshold ?? Math.max(0, options.threshold - 0.15),
+      preSpeechPadFrames: Math.ceil((options.speechPadMs ?? 96) / 32),
+      threshold: options.threshold,
+    };
   }
 
   public async analyze(path: string): Promise<SpeechAnalysis> {
@@ -129,8 +168,7 @@ export class SileroSpeechAnalyzer implements SpeechAnalyzer {
           }
         },
       },
-      this.#threshold,
-      this.#minimumSpeechFrames,
+      this.#vadConfiguration,
     );
     return this.#vad;
   }
@@ -147,16 +185,17 @@ export class SileroSpeechAnalyzer implements SpeechAnalyzer {
 
 async function createSileroVad(
   callbacks: VadCallbacks,
-  threshold: number,
-  minimumSpeechFrames: number,
+  configuration: SileroVadConfiguration,
 ): Promise<VadSession> {
   return RealTimeVAD.new({
     model: "v5",
-    minSpeechFrames: minimumSpeechFrames,
-    negativeSpeechThreshold: Math.max(0, threshold - 0.15),
+    minSpeechFrames: configuration.minimumSpeechFrames,
+    negativeSpeechThreshold: configuration.negativeSpeechThreshold,
     onFrameProcessed: (_probabilities, frame) => callbacks.onFrameProcessed(frame),
     onSpeechEnd: (audio) => callbacks.onSpeechEnd(audio),
-    positiveSpeechThreshold: threshold,
+    positiveSpeechThreshold: configuration.threshold,
+    preSpeechPadFrames: configuration.preSpeechPadFrames,
+    redemptionFrames: configuration.minSilenceFrames,
     sampleRate: TRANSCRIPTION_SAMPLE_RATE,
   });
 }

@@ -272,9 +272,11 @@ async function handleRecord(
     return;
   }
   if (aiProfileStore !== undefined) {
-    await aiProfileStore.ensureInitialProfile(context.guildId);
-    const profile = await aiProfileStore.getActiveProfile(context.guildId);
-    if (!isAiProfileComplete(profile)) {
+    const profile = await aiProfileStore.getActiveProfileForDiscordOwner(
+      context.guildId,
+      context.ownerId,
+    );
+    if (profile === undefined || !isAiProfileComplete(profile)) {
       await interaction.reply(createEphemeralReply(text.configureAiProfileFirst));
       return;
     }
@@ -372,6 +374,7 @@ async function resolveGuildContext(
     guildId: interaction.guildId,
     isGuildOwner: interaction.guild.ownerId === interaction.user.id,
     member,
+    ownerId: interaction.guild.ownerId,
   };
 }
 
