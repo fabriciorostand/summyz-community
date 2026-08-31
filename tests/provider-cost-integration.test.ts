@@ -47,7 +47,7 @@ describe("provider cost integration", () => {
         ),
       maxAttempts: 1,
       model: "openrouter/auto",
-      profile: { interSpeechSilenceMs: 0, temperature: 0, timestampMode: "word" },
+      profile: { interSpeechSilenceMs: 0, temperature: 0 },
       retryBaseMs: 1,
       retryMaxMs: 1,
       timeoutMs: 1_000,

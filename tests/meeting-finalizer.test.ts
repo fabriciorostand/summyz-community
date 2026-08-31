@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 
 import { MeetingFinalizer } from "../src/processing/meeting-finalizer.js";
 import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
+import {
+  createTranscriptionState,
+  markTranscriptionCompleted,
+  transcriptionStateSchema,
+} from "../src/transcription/transcription-state.js";
 
 const manifest = markManifestCompleted(
   createManifest({
@@ -107,5 +112,57 @@ describe("MeetingFinalizer", () => {
 
     await expect(finalizer.cleanup("meeting-1")).resolves.toBeUndefined();
     expect(retention.deleteWorkspace).not.toHaveBeenCalled();
+  });
+
+  it("persiste participação somente quando o estado contém timestamps por palavra", async () => {
+    const currentState = markTranscriptionCompleted(
+      createTranscriptionState("meeting-1", [], "2026-08-24T10:10:01.000Z"),
+      "2026-08-24T10:10:02.000Z",
+    );
+    const legacyState = transcriptionStateSchema.parse({
+      ...currentState,
+      wordTimingAvailable: undefined,
+    });
+    const participationStore = { persistParticipation: vi.fn(async () => undefined) };
+    const createFinalizer = (state: typeof currentState) =>
+      new MeetingFinalizer({
+        contentStore: { persist: vi.fn() },
+        manifestStore: { tryLoad: vi.fn() },
+        participationStore,
+        publicationStore: { load: vi.fn() },
+        retention: { deleteWorkspace: vi.fn() },
+        summaryStore: { load: vi.fn() },
+        transcriptionStore: {
+          load: vi.fn(async () => state),
+          readRawTranscript: vi.fn(),
+          readTranscript: vi.fn(),
+        },
+      });
+    const privateManifest = { ...manifest, persistMeetingContent: false };
+
+    await createFinalizer(currentState).persist(privateManifest);
+    await createFinalizer(legacyState).persist(privateManifest);
+
+    expect(participationStore.persistParticipation).toHaveBeenCalledOnce();
+    expect(participationStore.persistParticipation).toHaveBeenCalledWith(
+      privateManifest,
+      currentState,
+    );
+  });
+
+  it("exige o carregador do estado quando a persistência de participação está configurada", async () => {
+    const finalizer = new MeetingFinalizer({
+      contentStore: { persist: vi.fn() },
+      manifestStore: { tryLoad: vi.fn() },
+      participationStore: { persistParticipation: vi.fn() },
+      publicationStore: { load: vi.fn() },
+      retention: { deleteWorkspace: vi.fn() },
+      summaryStore: { load: vi.fn() },
+      transcriptionStore: { readRawTranscript: vi.fn(), readTranscript: vi.fn() },
+    });
+
+    await expect(finalizer.persist({ ...manifest, persistMeetingContent: false })).rejects.toThrow(
+      /loader/i,
+    );
   });
 });

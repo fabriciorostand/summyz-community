@@ -16,6 +16,274 @@ describe("App", () => {
     expect(nextLocalizedProfileName([{ profile: { name: "profile 1" } }], "en")).toBe("Profile 2");
   });
 
+  it("seleciona o primeiro servidor instalado e apresenta métricas e top speakers", async () => {
+    localStorage.removeItem("summyz:selected-guild");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/setup/status") {
+        return Response.json({ setupCompleted: true, registrationEnabled: true });
+      }
+      if (path === "/api/auth/me") {
+        return Response.json({
+          dashboardLanguage: "pt-BR",
+          email: "owner@example.com",
+          emailVerified: true,
+          installationRole: "administrator",
+          userId: "00000000-0000-4000-8000-000000000001",
+        });
+      }
+      if (path === "/api/guilds") {
+        return Response.json([
+          {
+            iconUrl: null,
+            id: "not-installed",
+            installUrl: "https://discord.com/install",
+            installed: false,
+            name: "Sem bot",
+          },
+          {
+            iconUrl: null,
+            id: "guild-1",
+            installUrl: "https://discord.com/install",
+            installed: true,
+            name: "Equipe",
+          },
+        ]);
+      }
+      if (path === "/api/guilds/guild-1/dashboard") {
+        return Response.json({
+          averageDurationMs: 3_600_000,
+          confirmedCost: [{ amount: 0.25, currency: "USD" }],
+          hasUnresolvedCosts: true,
+          timeZone: "America/Sao_Paulo",
+          topSpeakers: [{ displayName: "Ana", talkTimeMs: 94_440_000, userId: "ana" }],
+          totalCalls: 12,
+          totalDurationMs: 43_200_000,
+        });
+      }
+      return Response.json({ error: "not_found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(await screen.findByText("Ana")).toBeInTheDocument();
+    expect(screen.getByText("26h 14m")).toBeInTheDocument();
+    expect(screen.getByText("12")).toBeInTheDocument();
+    expect(screen.getByLabelText("Servidor")).toHaveValue("guild-1");
+    expect(screen.getByText(/custos pendentes/i)).toBeInTheDocument();
+  });
+
+  it("apresenta percentuais de talk time na lista do histórico", async () => {
+    localStorage.removeItem("summyz:selected-guild");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/setup/status") {
+          return Response.json({ setupCompleted: true, registrationEnabled: true });
+        }
+        if (path === "/api/auth/me") {
+          return Response.json({
+            dashboardLanguage: "pt-BR",
+            email: "owner@example.com",
+            emailVerified: true,
+            installationRole: "administrator",
+            userId: "00000000-0000-4000-8000-000000000001",
+          });
+        }
+        if (path === "/api/guilds") {
+          return Response.json([
+            {
+              iconUrl: null,
+              id: "guild-1",
+              installUrl: "https://discord.com/install",
+              installed: true,
+              name: "Equipe",
+            },
+          ]);
+        }
+        if (path === "/api/guilds/guild-1/meetings?page=1") {
+          return Response.json({
+            items: [
+              {
+                completedAt: "2026-08-24T10:00:45.000Z",
+                contentRetained: true,
+                durationMs: 45_000,
+                failureCode: null,
+                meetingId: "meeting-1",
+                participants: [
+                  { displayName: "Ana", percentage: 38, talkTimeMs: 12_000, userId: "ana" },
+                  { displayName: "Bia", percentage: 0, talkTimeMs: 0, userId: "bia" },
+                ],
+                pipelineStatus: "completed",
+                startedAt: "2026-08-24T10:00:00.000Z",
+                voiceChannelName: "Planejamento",
+              },
+            ],
+            page: 1,
+            pageSize: 20,
+            timeZone: "America/Sao_Paulo",
+            total: 1,
+          });
+        }
+        return Response.json({ error: "not_found" }, { status: 404 });
+      }),
+    );
+
+    render(
+      <MemoryRouter initialEntries={["/history"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText("Ana — 38%")).toBeInTheDocument();
+    expect(screen.getByText("Bia — 0%")).toBeInTheDocument();
+    expect(screen.getByText(/45s/)).toBeInTheDocument();
+  });
+
+  it("pesquisa uma call pelo ID completo sem combinar os demais filtros", async () => {
+    localStorage.removeItem("summyz:selected-guild");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === "/api/setup/status") {
+        return Response.json({ setupCompleted: true, registrationEnabled: true });
+      }
+      if (path === "/api/auth/me") {
+        return Response.json({
+          dashboardLanguage: "pt-BR",
+          email: "owner@example.com",
+          emailVerified: true,
+          installationRole: "administrator",
+          userId: "00000000-0000-4000-8000-000000000001",
+        });
+      }
+      if (path === "/api/guilds") {
+        return Response.json([
+          {
+            iconUrl: null,
+            id: "guild-1",
+            installUrl: "https://discord.com/install",
+            installed: true,
+            name: "Equipe",
+          },
+        ]);
+      }
+      if (path.startsWith("/api/guilds/guild-1/meetings?")) {
+        return Response.json({
+          items: [],
+          page: 1,
+          pageSize: 20,
+          timeZone: "America/Sao_Paulo",
+          total: 0,
+        });
+      }
+      return Response.json({ error: "not_found" }, { status: 404 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    render(
+      <MemoryRouter initialEntries={["/history"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    await screen.findByLabelText("ID da reunião");
+    fireEvent.change(screen.getByLabelText("De"), { target: { value: "2026-08-01" } });
+    fireEvent.change(screen.getByLabelText("Estado"), { target: { value: "failed" } });
+    fireEvent.change(screen.getByLabelText("ID da reunião"), { target: { value: "meeting-1" } });
+    fireEvent.click(screen.getByRole("button", { name: "Pesquisar" }));
+
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/guilds/guild-1/meetings?page=1&meetingId=meeting-1",
+        expect.anything(),
+      );
+    });
+  });
+
+  it("apresenta o resumo retido em seções HTML sem metadados internos", async () => {
+    localStorage.setItem("summyz:selected-guild", "guild-1");
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/setup/status") {
+          return Response.json({ setupCompleted: true, registrationEnabled: true });
+        }
+        if (path === "/api/auth/me") {
+          return Response.json({
+            dashboardLanguage: "pt-BR",
+            email: "owner@example.com",
+            emailVerified: true,
+            installationRole: "administrator",
+            userId: "00000000-0000-4000-8000-000000000001",
+          });
+        }
+        if (path === "/api/guilds") {
+          return Response.json([
+            {
+              iconUrl: null,
+              id: "guild-1",
+              installUrl: "https://discord.com/install",
+              installed: true,
+              name: "Equipe",
+            },
+          ]);
+        }
+        if (path === "/api/guilds/guild-1/meetings/meeting-1") {
+          return Response.json({
+            completedAt: "2026-08-24T10:00:45.000Z",
+            contentRetained: true,
+            durationMs: 45_000,
+            failureCode: null,
+            meetingId: "meeting-1",
+            participants: [],
+            pipelineStatus: "completed",
+            rawTranscript: "Original",
+            startedAt: "2026-08-24T10:00:00.000Z",
+            summary: {
+              decisions: ["Adotar o fluxo."],
+              discussedTopics: ["Planejamento"],
+              executiveSummary: "A equipe alinhou o projeto.",
+              language: "pt-BR",
+              observations: ["Revisar o cronograma."],
+              status: "completed",
+              tasks: [
+                {
+                  deadlineText: "sexta-feira",
+                  ownerName: "Ana",
+                  text: "Publicar o documento.",
+                },
+              ],
+            },
+            timeZone: "America/Sao_Paulo",
+            transcript: "Transcrição revisada",
+            voiceChannelName: "Planejamento",
+          });
+        }
+        return Response.json({ error: "not_found" }, { status: 404 });
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/history/meeting-1"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("heading", { name: "Resumo executivo" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tópicos discutidos" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Decisões" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Tarefas" })).toBeInTheDocument();
+    expect(screen.getByText("Responsável: Ana · Prazo: sexta-feira")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Pendências e observações" })).toBeInTheDocument();
+    expect(screen.queryByText(/sourceEntryIds|schemaVersion|attempts/)).not.toBeInTheDocument();
+  });
+
   it("mostra a conta Discord vinculada e permite desconectá-la", async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const path = String(input);
@@ -153,7 +421,6 @@ describe("App", () => {
         provider: "openrouter",
       },
       transcription: {
-        batchSize: "auto",
         interSpeechSilenceMs: 0,
         language: "pt-BR",
         mergeMaxGapMs: 2000,
@@ -161,7 +428,6 @@ describe("App", () => {
         prompt: null,
         provider: "openrouter",
         providerOptions: {},
-        timestampMode: "word",
         vad: {
           enabled: true,
           minSilenceDurationMs: 768,
@@ -182,6 +448,7 @@ describe("App", () => {
       summary: { ...profile.summary, model: "qwen3:4b", provider: "ollama" },
       transcription: {
         ...profile.transcription,
+        batchSize: "auto",
         model: "medium",
         provider: "faster-whisper",
         vad: {

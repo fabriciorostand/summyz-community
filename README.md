@@ -207,15 +207,31 @@ The transcription phase of each profile defines:
 
 - `provider` and `model`, both required for a complete profile;
 - `language`: `auto` or an explicit language;
-- `batchSize`: `auto`, `0` to disable, or an integer from `1` to `64`;
 - `temperature`: transcription temperature;
-- `timestampMode`: `word` for detailed timestamps or `batch` for text without timestamps;
+- word timestamps are mandatory; an incompatible external API response fails transcription instead
+  of approximating from segments or the complete batch duration;
 - `interSpeechSilenceMs`: WAV silence inserted only between actual speech intervals in the batch;
 - `mergeMaxGapMs`: optional override of the global maximum gap for consolidating utterances from
   the same person;
 - `prompt`: complete text instruction to guide transcription style, or `null` to send no prompt;
 - `providerOptions`: optional provider-specific options grouped by provider slug according to the
   OpenRouter contract.
+
+Only local profiles expose `batchSize`: `auto`, `0` to disable, or an integer from `1` to `64`.
+For faster-whisper, batching is an inference optimization and still returns word timestamps.
+External APIs are optimized through independent requests controlled by `TRANSCRIPTION_CONCURRENCY`.
+
+## Dashboard and history
+
+Dashboard and History are restricted to the selected Discord server owner. Their server selector is
+shared and persisted in the browser. Call-count and duration totals include old and new meetings
+whose pipeline completed; speaker rankings begin with meetings recorded using manifest v3. Talk time
+sums word intervals, unions overlaps from the same person, and distributes integer rounding so the
+result totals exactly 100%. Silent attendees remain visible with `0%`.
+
+Dates and filter boundaries use `SUMMARY_TIME_ZONE`. Summary and transcript content is available only
+when retention was enabled for that meeting. Dashboard cost totals include all confirmed attempts and
+warn when pending or unattributed values remain.
 
 VAD is configured in its own profile tab and can be disabled. External API profiles use Summyz's
 Silero detector before sending audio to OpenRouter. Local profiles skip that detector and use only

@@ -12,13 +12,11 @@ const whisperProfile: TranscriptionModelProfile = {
   interSpeechSilenceMs: 0,
   language: "pt-BR",
   temperature: 0,
-  timestampMode: "word",
 };
 
 const voxtralProfile: TranscriptionModelProfile = {
   interSpeechSilenceMs: 0,
   temperature: 0,
-  timestampMode: "batch",
 };
 
 function createProvider(
@@ -58,28 +56,29 @@ describe("OpenRouterTranscriptionProvider", () => {
         timestamp_granularities: ["word", "segment"],
       });
       return Response.json({
-        segments: [{ end: 1.5, start: 0.25, text: " Olá, mundo. " }],
         text: "Olá, mundo.",
+        words: [{ end: 1.5, start: 0.25, word: "Olá, mundo." }],
       });
     });
     const { provider } = createProvider(fetch_);
 
     await expect(
       provider.transcribe({ audio: Buffer.from("audio"), format: "ogg" }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       attempts: 1,
       pieces: [{ endedAtMs: 1_500, startedAtMs: 250, text: "Olá, mundo." }],
     });
   });
 
-  it("usa o perfil JSON e o intervalo do lote para o Voxtral sem timestamps", async () => {
+  it("exige timestamps por palavra também para o Voxtral", async () => {
     const fetch_ = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body));
       expect(body).toEqual({
         input_audio: { data: Buffer.from("audio").toString("base64"), format: "wav" },
         model: "mistralai/voxtral-mini-transcribe",
-        response_format: "json",
+        response_format: "verbose_json",
         temperature: 0,
+        timestamp_granularities: ["word", "segment"],
       });
       return Response.json({ text: "Não, concordo." });
     });
@@ -96,10 +95,7 @@ describe("OpenRouterTranscriptionProvider", () => {
         audioDurationMs: 1_248,
         format: "wav",
       }),
-    ).resolves.toEqual({
-      attempts: 1,
-      pieces: [{ endedAtMs: 1_248, startedAtMs: 0, text: "Não, concordo." }],
-    });
+    ).rejects.toMatchObject({ reason: "missing_timestamps" });
   });
 
   it("encaminha somente as opções específicas presentes no perfil ativo", async () => {
@@ -126,7 +122,6 @@ describe("OpenRouterTranscriptionProvider", () => {
       language: "pt-BR",
       providerOptions: { deepgram: { smart_format: true, utterances: true } },
       temperature: 0,
-      timestampMode: "word",
     };
     const { provider } = createProvider(fetch_, undefined, "deepgram/nova-3", profile);
 
@@ -145,7 +140,7 @@ describe("OpenRouterTranscriptionProvider", () => {
         model: "openai/gpt-transcribe",
         prompt,
       });
-      return Response.json({ text: "Uma fala." });
+      return Response.json({ text: "Uma fala.", words: [{ end: 1, start: 0, word: "Uma fala." }] });
     });
     const profile: TranscriptionModelProfile = {
       interSpeechSilenceMs: 350,
@@ -153,7 +148,6 @@ describe("OpenRouterTranscriptionProvider", () => {
       mergeMaxGapMs: 0,
       prompt,
       temperature: 0,
-      timestampMode: "batch",
     };
     const { provider } = createProvider(fetch_, undefined, "openai/gpt-transcribe", profile);
 
@@ -171,7 +165,7 @@ describe("OpenRouterTranscriptionProvider", () => {
       .fn<(url: string, init: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(new Response(null, { status: 503 }))
       .mockResolvedValueOnce(
-        Response.json({ segments: [{ end: 1, start: 0, text: "Certo" }], text: "Certo" }),
+        Response.json({ text: "Certo", words: [{ end: 1, start: 0, word: "Certo" }] }),
       );
     const { provider, sleep } = createProvider(fetch_);
 
@@ -249,7 +243,7 @@ describe("OpenRouterTranscriptionProvider", () => {
     });
   });
 
-  it("usa segmentos válidos quando os timestamps por palavra são incompatíveis", async () => {
+  it("não usa segmentos como fallback quando palavras são incompatíveis", async () => {
     const fetch_ = vi.fn(async () =>
       Response.json({
         segments: [{ end: 1.25, start: 0.2, text: "Olá, mundo." }],
@@ -264,12 +258,9 @@ describe("OpenRouterTranscriptionProvider", () => {
 
     await expect(
       provider.transcribe({ audio: Buffer.from("audio"), format: "wav" }),
-    ).resolves.toEqual({
-      attempts: 1,
-      pieces: [{ endedAtMs: 1_250, startedAtMs: 200, text: "Olá, mundo." }],
-    });
-    expect(fetch_).toHaveBeenCalledTimes(1);
-    expect(sleep).not.toHaveBeenCalled();
+    ).rejects.toMatchObject({ reason: "invalid_timestamps" });
+    expect(fetch_).toHaveBeenCalledTimes(4);
+    expect(sleep).toHaveBeenCalledTimes(3);
   });
 
   it("retenta timestamps incompatíveis e aceita uma resposta posterior válida", async () => {
@@ -277,21 +268,21 @@ describe("OpenRouterTranscriptionProvider", () => {
       .fn<(url: string, init: RequestInit) => Promise<Response>>()
       .mockResolvedValueOnce(
         Response.json({
-          segments: [{ end: 1, start: 1, text: "Inválido" }],
           text: "Inválido",
+          words: [{ end: 1, start: 1, word: "Inválido" }],
         }),
       )
       .mockResolvedValueOnce(
         Response.json({
-          segments: [{ end: 1.5, start: 0.25, text: "Válido" }],
           text: "Válido",
+          words: [{ end: 1.5, start: 0.25, word: "Válido" }],
         }),
       );
     const { provider, sleep } = createProvider(fetch_);
 
     await expect(
       provider.transcribe({ audio: Buffer.from("audio"), format: "wav" }),
-    ).resolves.toEqual({
+    ).resolves.toMatchObject({
       attempts: 2,
       pieces: [{ endedAtMs: 1_500, startedAtMs: 250, text: "Válido" }],
     });
@@ -371,7 +362,7 @@ describe("OpenRouterTranscriptionProvider", () => {
       .fn<(url: string, init: RequestInit) => Promise<Response>>()
       .mockRejectedValueOnce(new Error("segredo na rede"))
       .mockResolvedValueOnce(
-        Response.json({ segments: [{ end: 1, start: 0, text: "Pronto" }], text: "Pronto" }),
+        Response.json({ text: "Pronto", words: [{ end: 1, start: 0, word: "Pronto" }] }),
       );
     const { provider } = createProvider(fetch_);
 
@@ -389,7 +380,7 @@ describe("OpenRouterTranscriptionProvider", () => {
     });
 
     const invalidTimestamp = createProvider(async () =>
-      Response.json({ segments: [{ end: 1, start: 1, text: "Inválido" }], text: "Inválido" }),
+      Response.json({ text: "Inválido", words: [{ end: 1, start: 1, word: "Inválido" }] }),
     ).provider;
     await expect(
       invalidTimestamp.transcribe({ audio: Buffer.from("audio"), format: "ogg" }),

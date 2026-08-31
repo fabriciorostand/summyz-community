@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  addParticipant,
   addSegment,
   createManifest,
   markManifestCompleted,
@@ -9,6 +10,7 @@ import {
   recordingManifestSchema,
   requireCurrentMeetingAiConfiguration,
 } from "../src/recording/manifest.js";
+import { migrateRecordingManifest } from "../src/recording/manifest-migration.js";
 
 describe("manifesto da gravação", () => {
   it("cria um manifesto versionado em estado recording", () => {
@@ -21,7 +23,8 @@ describe("manifesto da gravação", () => {
     });
 
     expect(manifest).toMatchObject({
-      schemaVersion: 2,
+      participants: [],
+      schemaVersion: 3,
       storageMode: "postgres",
       persistMeetingAudio: false,
       persistMeetingContent: false,
@@ -81,6 +84,7 @@ describe("manifesto da gravação", () => {
       summary: { language: "auto", model: "qwen3:8b", provider: "ollama" },
       transcription: { language: "es", model: "small", provider: "faster-whisper" },
     });
+    expect(requireCurrentMeetingAiConfiguration(manifest).profileType).toBe("local");
   });
 
   it("rejeita definitivamente manifestos da versão anterior", () => {
@@ -195,6 +199,179 @@ describe("manifesto da gravação", () => {
 
     expect(manifest.segments).toHaveLength(0);
     expect(updated.segments).toHaveLength(1);
+  });
+
+  it("registra participantes por userId e atualiza o nome exibido", () => {
+    const manifest = createManifest({
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+
+    const first = addParticipant(manifest, { displayName: "Ana", userId: "user-1" });
+    const second = addParticipant(first, { displayName: "Bia", userId: "user-2" });
+    const renamed = addParticipant(second, { displayName: "Ana Maria", userId: "user-1" });
+
+    expect(manifest.participants).toEqual([]);
+    expect(renamed.participants).toEqual([
+      { displayName: "Ana Maria", userId: "user-1" },
+      { displayName: "Bia", userId: "user-2" },
+    ]);
+  });
+
+  it("migra v2 uma única vez e mantém o parser normal restrito ao v3", () => {
+    const current = createManifest({
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const legacy = {
+      ...current,
+      participants: undefined,
+      schemaVersion: 2,
+      segments: [
+        {
+          durationMs: 1_000,
+          endedAtMs: 1_000,
+          file: "participants/user-1/segment-1.ogg",
+          format: "ogg_opus",
+          segmentId: "segment-1",
+          startedAtMs: 0,
+          status: "ready",
+          userDisplayName: "Ana",
+          userId: "user-1",
+        },
+      ],
+    };
+
+    expect(() => recordingManifestSchema.parse(legacy)).toThrow();
+    expect(migrateRecordingManifest(legacy)).toMatchObject({
+      participants: [{ displayName: "Ana", userId: "user-1" }],
+      schemaVersion: 3,
+    });
+    expect(migrateRecordingManifest(current)).toEqual(current);
+  });
+
+  it("remove opções antigas de timestamps e lote externo durante a migração", () => {
+    const current = createManifest({
+      aiConfiguration: {
+        profileType: "external",
+        refinement: { model: "review", provider: "openrouter" },
+        summary: { language: "pt-BR", model: "summary", provider: "openrouter" },
+        transcription: {
+          language: "pt-BR",
+          model: "transcription",
+          provider: "openrouter",
+          vad: {},
+        },
+      },
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const legacyConfiguration = {
+      ...current.aiConfiguration,
+      transcription: {
+        ...current.aiConfiguration?.transcription,
+        batchSize: 8,
+        timestampMode: "batch",
+      },
+    };
+    const migrated = migrateRecordingManifest({
+      ...current,
+      aiConfiguration: legacyConfiguration,
+      participants: undefined,
+      schemaVersion: 2,
+    });
+
+    expect(migrated.aiConfiguration?.transcription).not.toHaveProperty("timestampMode");
+    expect(migrated.aiConfiguration?.transcription).not.toHaveProperty("batchSize");
+  });
+
+  it("infere o perfil externo ao migrar uma configuração v1", () => {
+    const current = createManifest({
+      aiConfiguration: {
+        profileType: "external",
+        refinement: { model: "review", provider: "openrouter" },
+        summary: { language: "pt-BR", model: "summary", provider: "openrouter" },
+        transcription: {
+          language: "pt-BR",
+          model: "transcription",
+          provider: "openrouter",
+          vad: {},
+        },
+      },
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const currentConfiguration = current.aiConfiguration;
+    if (currentConfiguration === undefined) throw new Error("Expected an AI configuration");
+    const { profileType: _profileType, ...legacyConfiguration } = currentConfiguration;
+
+    const migrated = migrateRecordingManifest({
+      ...current,
+      aiConfiguration: {
+        ...legacyConfiguration,
+        transcription: {
+          ...legacyConfiguration.transcription,
+          batchSize: 8,
+          timestampMode: "batch",
+        },
+      },
+      participants: undefined,
+      schemaVersion: 1,
+      storageMode: "local",
+    });
+
+    expect(migrated).toMatchObject({
+      aiConfiguration: { profileType: "external" },
+      schemaVersion: 3,
+      storageMode: "postgres",
+    });
+    expect(migrated.aiConfiguration?.transcription).not.toHaveProperty("batchSize");
+  });
+
+  it("preserva o lote local ao remover o modo antigo de timestamps", () => {
+    const current = createManifest({
+      aiConfiguration: {
+        profileType: "local",
+        refinement: { model: "review", provider: "ollama" },
+        summary: { language: "pt-BR", model: "summary", provider: "ollama" },
+        transcription: {
+          batchSize: 4,
+          language: "pt-BR",
+          model: "medium",
+          provider: "faster-whisper",
+          vad: {},
+        },
+      },
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const migrated = migrateRecordingManifest({
+      ...current,
+      aiConfiguration: {
+        ...current.aiConfiguration,
+        transcription: { ...current.aiConfiguration?.transcription, timestampMode: "batch" },
+      },
+      participants: undefined,
+      schemaVersion: 2,
+    });
+
+    expect(migrated.aiConfiguration?.transcription).toMatchObject({ batchSize: 4 });
+    expect(migrated.aiConfiguration?.transcription).not.toHaveProperty("timestampMode");
   });
 
   it("preserva a interrupção e permite marcar a retomada", () => {

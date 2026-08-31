@@ -10,6 +10,7 @@ export default defineConfig({
         "src/database/postgres-auth-repository.ts",
         "src/database/postgres-discord-connection-store.ts",
         "src/database/postgres-installation-settings-store.ts",
+        "src/database/postgres-analytics-store.ts",
         "src/discord/discord-oauth-service.ts",
         "src/discord/discord-rest-guild-directory.ts",
       ],

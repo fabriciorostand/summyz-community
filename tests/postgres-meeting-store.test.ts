@@ -54,6 +54,7 @@ describe("PostgresMeetingStore", () => {
         completed.completedAt,
         expect.any(String),
         expect.any(String),
+        "Planejamento",
       ],
     );
   });
@@ -91,6 +92,7 @@ describe("PostgresMeetingStore", () => {
       null,
       expect.any(String),
       expect.any(String),
+      "Planejamento",
     ]);
     expect(query.mock.calls[1]?.[0]).toContain("recording_status <>");
   });

@@ -216,9 +216,9 @@ Na fase de transcrição, cada perfil define:
 
 - `provider` e `model`, ambos obrigatórios para o perfil ficar completo;
 - `language`: `auto` ou um idioma explícito;
-- `batchSize`: `auto`, `0` para desativar ou um inteiro de `1` a `64`;
 - `temperature`: temperatura da transcrição;
-- `timestampMode`: `word` para timestamps detalhados ou `batch` para texto sem timestamps;
+- timestamps por palavra são obrigatórios; uma API externa incompatível encerra a transcrição sem
+  aproximação por segmento ou pela duração inteira do lote;
 - `interSpeechSilenceMs`: silêncio WAV inserido somente entre intervalos reais de voz do lote;
 - `mergeMaxGapMs`: sobrescrita opcional do intervalo máximo global para consolidar falas da mesma
   pessoa;
@@ -226,6 +226,24 @@ Na fase de transcrição, cada perfil define:
   enviar prompt;
 - `providerOptions`: opções opcionais agrupadas pelo slug do provedor conforme o contrato do
   OpenRouter.
+
+Somente perfis locais expõem `batchSize`: `auto`, `0` para desativar ou um inteiro de `1` a `64`.
+No faster-whisper, o lote é uma otimização de inferência e continua produzindo timestamps por
+palavra. Para APIs externas, o Summyz otimiza requisições independentes por meio de
+`TRANSCRIPTION_CONCURRENCY`.
+
+## Dashboard e histórico
+
+O Dashboard e o Histórico são restritos ao proprietário do servidor Discord selecionado. O seletor
+é compartilhado entre as páginas e preservado no navegador. Os totais de calls e duração consideram
+reuniões antigas e novas cujo pipeline terminou; o ranking de falantes começa nas reuniões gravadas
+com o manifesto v3. A participação soma os intervalos de cada palavra, une sobreposições da mesma
+pessoa e distribui o arredondamento inteiro para totalizar exatamente 100%. Participantes silenciosos
+permanecem visíveis com `0%`.
+
+Datas e limites dos filtros usam `SUMMARY_TIME_ZONE`. Conteúdo de resumo e transcrição só aparece
+quando a retenção estava habilitada para a reunião. O custo do Dashboard soma valores confirmados de
+todas as tentativas e avisa quando ainda existem valores pendentes ou não atribuídos.
 
 O VAD é configurado na aba própria do perfil e pode ser desativado. Perfis de API externa usam o
 detector Silero do Summyz antes de enviar áudio ao OpenRouter. Perfis locais não executam esse

@@ -30,7 +30,6 @@ describe("perfis de IA", () => {
         language: "auto",
         model: null,
         provider: "faster-whisper",
-        timestampMode: "word",
       },
       userId: "user-1",
     });
@@ -98,7 +97,6 @@ describe("perfis de IA", () => {
         provider: "faster-whisper",
         providerOptions: { vendor: { diarize: false } },
         temperature: 0,
-        timestampMode: "word",
         vad: {
           enabled: true,
           maxSpeechDurationSeconds: "auto",

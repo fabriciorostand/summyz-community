@@ -30,6 +30,7 @@ const completedSegmentSchema = z
     attempts: z.number().int().nonnegative(),
     audioDurationMs: z.number().int().positive().optional(),
     pieces: z.array(transcriptPieceSchema),
+    words: z.array(transcriptPieceSchema).default([]),
     segmentId: z.string().min(1),
     status: z.literal("completed"),
     timelineStartedAtMs: z.number().int().nonnegative().optional(),
@@ -60,6 +61,7 @@ export const transcriptionStateSchema = z.object({
   startedAt: z.iso.datetime(),
   status: z.enum(["processing", "completed", "failed"]),
   updatedAt: z.iso.datetime(),
+  wordTimingAvailable: z.boolean().default(false),
 });
 export type TranscriptionState = z.infer<typeof transcriptionStateSchema>;
 
@@ -83,6 +85,7 @@ export function createTranscriptionState(
     startedAt: now,
     status: "processing",
     updatedAt: now,
+    wordTimingAvailable: true,
   });
 }
 
@@ -149,6 +152,7 @@ export function completeTranscriptionGroup(
       pieces: input.result.pieces,
       segmentId: segment.segmentId,
       status: "completed" as const,
+      words: input.result.words ?? [],
       ...(input.timelineStartedAtMs === undefined
         ? {}
         : { timelineStartedAtMs: input.timelineStartedAtMs }),
@@ -169,6 +173,7 @@ export function markTranscriptionCompleted(
     completedAt: now,
     status: "completed",
     updatedAt: now,
+    wordTimingAvailable: state.wordTimingAvailable,
   });
 }
 
@@ -200,5 +205,6 @@ export function retryFailedTranscription(
     startedAt: state.startedAt,
     status: "processing",
     updatedAt: now,
+    wordTimingAvailable: state.wordTimingAvailable,
   });
 }

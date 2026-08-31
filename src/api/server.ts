@@ -24,6 +24,12 @@ import type {
   OwnedDiscordGuild,
 } from "../discord/discord-oauth-service.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
+import type {
+  DashboardAnalytics,
+  MeetingHistoryDetail,
+  MeetingHistoryFilters,
+  MeetingHistoryPage,
+} from "../database/postgres-analytics-store.js";
 
 const credentialsSchema = z.object({ email: z.email(), password: z.string().min(1).max(1_024) });
 const registrationSchema = credentialsSchema.extend({
@@ -104,9 +110,21 @@ export interface GuildDirectory {
     forums: { id: string; name: string; tags: { id: string; name: string }[] }[];
     roles: { id: string; name: string }[];
   }>;
+  getMemberDisplayNames?(
+    guildId: string,
+    userIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string>>;
+}
+
+interface ApiAnalyticsStore {
+  getDashboard(guildId: string): Promise<DashboardAnalytics>;
+  getMeeting(guildId: string, meetingId: string): Promise<MeetingHistoryDetail | undefined>;
+  listMeetings(guildId: string, filters: MeetingHistoryFilters): Promise<MeetingHistoryPage>;
+  updateDisplayNames(guildId: string, names: ReadonlyMap<string, string>): Promise<void>;
 }
 
 export interface ApiServerDependencies {
+  analytics?: ApiAnalyticsStore;
   aiProfiles: AiProfileStore;
   auth: ApiAuthService;
   discord: ApiDiscordService;
@@ -115,6 +133,7 @@ export interface ApiServerDependencies {
   secureCookies: boolean;
   settings: ApiSettingsStore;
   setupToken: string;
+  timeZone?: string;
 }
 
 export async function createApiServer(
@@ -284,6 +303,92 @@ export async function createApiServer(
       user.userId,
       await dependencies.guildDirectory.getInstalledGuildIds(),
     );
+  });
+  app.get("/api/guilds/:guildId/dashboard", async (request) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const analytics = requireAnalytics(dependencies);
+    const dashboard = await analytics.getDashboard(guildId);
+    const names = await refreshDisplayNames(
+      guildId,
+      dashboard.topSpeakers.map((speaker) => speaker.userId),
+      dependencies,
+    );
+    return {
+      ...dashboard,
+      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+      topSpeakers: dashboard.topSpeakers.map((speaker) => ({
+        ...speaker,
+        displayName: names.get(speaker.userId) ?? speaker.displayName,
+      })),
+    };
+  });
+  app.get("/api/guilds/:guildId/meetings", async (request) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const query = z
+      .object({
+        dateFrom: z.iso.date().optional(),
+        dateTo: z.iso.date().optional(),
+        meetingId: z.string().trim().min(1).max(128).optional(),
+        page: z.coerce.number().int().positive().default(1),
+        state: z.enum(["completed", "failed", "in_progress"]).optional(),
+      })
+      .parse(request.query);
+    const analytics = requireAnalytics(dependencies);
+    const history = await analytics.listMeetings(
+      guildId,
+      query.meetingId === undefined
+        ? {
+            ...(query.dateFrom === undefined ? {} : { dateFrom: query.dateFrom }),
+            ...(query.dateTo === undefined ? {} : { dateTo: query.dateTo }),
+            pageSize: 20,
+            page: query.page,
+            ...(query.state === undefined ? {} : { state: query.state }),
+            timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+          }
+        : {
+            meetingId: query.meetingId,
+            pageSize: 20,
+            page: query.page,
+            timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+          },
+    );
+    const userIds = history.items.flatMap(
+      (meeting) => meeting.participants?.map((item) => item.userId) ?? [],
+    );
+    const names = await refreshDisplayNames(guildId, userIds, dependencies);
+    return {
+      ...history,
+      items: history.items.map((meeting) => ({
+        ...meeting,
+        participants:
+          meeting.participants?.map((participant) => ({
+            ...participant,
+            displayName: names.get(participant.userId) ?? participant.displayName,
+          })) ?? null,
+      })),
+      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+    };
+  });
+  app.get("/api/guilds/:guildId/meetings/:meetingId", async (request, reply) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { meetingId } = z.object({ meetingId: z.string().min(1).max(128) }).parse(request.params);
+    const analytics = requireAnalytics(dependencies);
+    const meeting = await analytics.getMeeting(guildId, meetingId);
+    if (meeting === undefined) return reply.status(404).send({ error: "meeting_not_found" });
+    const names = await refreshDisplayNames(
+      guildId,
+      meeting.participants?.map((participant) => participant.userId) ?? [],
+      dependencies,
+    );
+    return {
+      ...meeting,
+      participants:
+        meeting.participants?.map((participant) => ({
+          ...participant,
+          displayName: names.get(participant.userId) ?? participant.displayName,
+        })) ?? null,
+      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+    };
   });
   app.get("/api/guilds/:guildId/configuration", async (request) => {
     const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
@@ -549,4 +654,25 @@ function getErrorStatusCode(error: unknown): number {
     return error.statusCode;
   }
   return 500;
+}
+
+function requireAnalytics(dependencies: ApiServerDependencies): ApiAnalyticsStore {
+  if (dependencies.analytics === undefined)
+    throw new Error("Dashboard analytics are not configured");
+  return dependencies.analytics;
+}
+
+async function refreshDisplayNames(
+  guildId: string,
+  userIds: readonly string[],
+  dependencies: ApiServerDependencies,
+): Promise<ReadonlyMap<string, string>> {
+  if (dependencies.guildDirectory.getMemberDisplayNames === undefined || userIds.length === 0) {
+    return new Map();
+  }
+  const names = await dependencies.guildDirectory
+    .getMemberDisplayNames(guildId, userIds)
+    .catch(() => new Map<string, string>());
+  await dependencies.analytics?.updateDisplayNames(guildId, names);
+  return names;
 }

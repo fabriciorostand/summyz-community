@@ -14,6 +14,13 @@ const channelsSchema = z.array(
     type: z.number().int(),
   }),
 );
+const memberSchema = z.object({
+  nick: z.string().min(1).nullable().optional(),
+  user: z.object({
+    global_name: z.string().min(1).nullable().optional(),
+    username: z.string().min(1),
+  }),
+});
 
 interface DirectoryOptions {
   fetch: typeof globalThis.fetch;
@@ -55,6 +62,26 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     };
   }
 
+  public async getMemberDisplayNames(
+    guildId: string,
+    userIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string>> {
+    const validatedGuildId = z.string().min(1).max(128).parse(guildId);
+    const names = new Map<string, string>();
+    await Promise.all(
+      [...new Set(userIds)].map(async (userId) => {
+        const validatedUserId = z.string().min(1).max(128).parse(userId);
+        const payload = await this.#tryRequest(
+          `/guilds/${validatedGuildId}/members/${validatedUserId}`,
+        );
+        if (payload === undefined) return;
+        const member = memberSchema.parse(payload);
+        names.set(validatedUserId, member.nick ?? member.user.global_name ?? member.user.username);
+      }),
+    );
+    return names;
+  }
+
   async #request(path: string): Promise<unknown> {
     const token = await this.#getBotToken();
     if (token === undefined) throw new Error("Discord bot is not configured");
@@ -64,5 +91,16 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     if (!response.ok) throw new Error("Discord bot API request failed");
     const payload: unknown = await response.json();
     return payload;
+  }
+
+  async #tryRequest(path: string): Promise<unknown | undefined> {
+    const token = await this.#getBotToken();
+    if (token === undefined) throw new Error("Discord bot is not configured");
+    const response = await this.#fetch(`https://discord.com/api/v10${path}`, {
+      headers: { authorization: `Bot ${token}` },
+    });
+    if (response.status === 404) return undefined;
+    if (!response.ok) throw new Error("Discord bot API request failed");
+    return response.json();
   }
 }

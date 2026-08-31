@@ -87,6 +87,10 @@ describe("FasterWhisperTranscriptionProvider", () => {
     ).resolves.toEqual({
       attempts: 1,
       pieces: [{ endedAtMs: 1_000, startedAtMs: 0, text: "Hola mundo." }],
+      words: [
+        { endedAtMs: 500, startedAtMs: 0, text: "Hola" },
+        { endedAtMs: 1_000, startedAtMs: 500, text: "mundo." },
+      ],
     });
     expect(fetch).toHaveBeenCalledWith(
       "http://faster-whisper:8000/transcribe",

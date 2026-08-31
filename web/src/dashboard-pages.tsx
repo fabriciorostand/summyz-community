@@ -1,15 +1,22 @@
 import {
   Bot,
+  CalendarDays,
   Cable,
   ChevronRight,
   CircleHelp,
   Command,
   ExternalLink,
   LayoutDashboard,
+  History as HistoryIcon,
   LogOut,
   Settings,
   ShieldCheck,
   SlidersHorizontal,
+  Clock3,
+  Mic2,
+  Server,
+  Users,
+  WalletCards,
   UserRound,
 } from "lucide-react";
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
@@ -23,7 +30,11 @@ import {
   type Guild,
   type GuildConfiguration,
   type GuildResources,
+  type DashboardAnalytics,
   type InstallationSettings,
+  type MeetingHistoryDetail,
+  type MeetingHistoryPage as MeetingHistoryPageData,
+  type MeetingHistorySummary,
   type Profile,
   type ProfileListItem,
   type PromptDefaults,
@@ -51,7 +62,9 @@ export function DashboardLayout({ user }: { user: User }) {
       <aside className="sidebar">
         <Brand />
         <nav>
-          <NavItem icon={<LayoutDashboard />} label="Servidores" to="/" />
+          <NavItem icon={<LayoutDashboard />} label="Dashboard" to="/" />
+          <NavItem icon={<HistoryIcon />} label="Histórico" to="/history" />
+          <NavItem icon={<Server />} label="Servidores" to="/servers" />
           <NavItem icon={<Bot />} label="Perfis" to="/profiles" />
           <NavItem icon={<Command />} label="Comandos" to="/commands" />
           <NavItem icon={<UserRound />} label="Minha conta" to="/account" />
@@ -83,6 +96,623 @@ function NavItem({ icon, label, to }: { icon: ReactNode; label: string; to: stri
       {icon}
       <span>{label}</span>
     </NavLink>
+  );
+}
+
+const selectedGuildStorageKey = "summyz:selected-guild";
+
+function useServerSelection(): {
+  error: boolean;
+  guilds: Guild[] | undefined;
+  selectedGuildId: string;
+  setSelectedGuildId(value: string): void;
+} {
+  const [guilds, setGuilds] = useState<Guild[]>();
+  const [error, setError] = useState(false);
+  const [selectedGuildId, setSelectedGuildIdState] = useState("");
+  useEffect(() => {
+    let active = true;
+    void api
+      .listGuilds()
+      .then((allGuilds) => {
+        if (!active) return;
+        const installed = allGuilds.filter((guild) => guild.installed);
+        const stored = localStorage.getItem(selectedGuildStorageKey);
+        const selected = installed.some((guild) => guild.id === stored)
+          ? (stored ?? "")
+          : (installed[0]?.id ?? "");
+        setGuilds(installed);
+        setSelectedGuildIdState(selected);
+        if (selected.length > 0) localStorage.setItem(selectedGuildStorageKey, selected);
+      })
+      .catch(() => {
+        if (active) setError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+  return {
+    error,
+    guilds,
+    selectedGuildId,
+    setSelectedGuildId(value) {
+      localStorage.setItem(selectedGuildStorageKey, value);
+      setSelectedGuildIdState(value);
+    },
+  };
+}
+
+function ServerSelector({
+  guilds,
+  onChange,
+  value,
+}: {
+  guilds: readonly Guild[];
+  onChange(value: string): void;
+  value: string;
+}) {
+  return (
+    <div className="server-selector">
+      <SelectField
+        label="Servidor"
+        value={value}
+        onChange={(event) => onChange(event.currentTarget.value)}
+      >
+        {guilds.map((guild) => (
+          <option key={guild.id} value={guild.id}>
+            {guild.name}
+          </option>
+        ))}
+      </SelectField>
+    </div>
+  );
+}
+
+export function AnalyticsDashboardPage() {
+  const selection = useServerSelection();
+  const [dashboard, setDashboard] = useState<DashboardAnalytics>();
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => {
+    if (selection.selectedGuildId.length === 0) return;
+    setDashboard(undefined);
+    setLoadError(false);
+    void api
+      .getDashboard(selection.selectedGuildId)
+      .then(setDashboard)
+      .catch(() => setLoadError(true));
+  }, [selection.selectedGuildId]);
+  return (
+    <Page
+      title="Dashboard"
+      eyebrow="Visão histórica"
+      description="Os números consideram apenas calls com o pipeline totalmente concluído."
+    >
+      {selection.guilds !== undefined && selection.guilds.length > 0 && (
+        <ServerSelector
+          guilds={selection.guilds}
+          onChange={selection.setSelectedGuildId}
+          value={selection.selectedGuildId}
+        />
+      )}
+      {selection.error || loadError ? (
+        <EmptyState title="Dashboard indisponível">
+          Não foi possível carregar as métricas.
+        </EmptyState>
+      ) : selection.guilds === undefined ||
+        (selection.selectedGuildId.length > 0 && dashboard === undefined) ? (
+        <Loading />
+      ) : selection.guilds.length === 0 ? (
+        <EmptyState title="Nenhum servidor instalado">
+          Instale o Summyz em um servidor para acompanhar suas calls.
+        </EmptyState>
+      ) : dashboard === undefined ? null : (
+        <>
+          <div className="metric-grid">
+            <MetricCard
+              icon={<CalendarDays />}
+              label="Total de calls"
+              value={String(dashboard.totalCalls)}
+            />
+            <MetricCard
+              icon={<Clock3 />}
+              label="Duração total"
+              value={formatDuration(dashboard.totalDurationMs)}
+            />
+            <MetricCard
+              icon={<Users />}
+              label="Duração média"
+              value={formatDuration(dashboard.averageDurationMs)}
+            />
+            <MetricCard
+              icon={<WalletCards />}
+              label="Custo confirmado"
+              {...(dashboard.hasUnresolvedCosts
+                ? { note: "Há custos pendentes ou não atribuídos." }
+                : {})}
+              value={formatCosts(dashboard.confirmedCost)}
+            />
+          </div>
+          <section className="panel speaker-panel">
+            <div className="analytics-section-heading">
+              <div>
+                <span className="eyebrow">Todo o período</span>
+                <h2>Top speakers</h2>
+              </div>
+              <Mic2 />
+            </div>
+            {dashboard.topSpeakers.length === 0 ? (
+              <p className="muted">
+                O talk time estará disponível após a primeira call nova concluída.
+              </p>
+            ) : (
+              <div className="speaker-list">
+                {dashboard.topSpeakers.map((speaker, index) => {
+                  const maximum = dashboard.topSpeakers[0]?.talkTimeMs ?? 1;
+                  return (
+                    <div className="speaker-row" key={speaker.userId}>
+                      <div>
+                        <strong>{speaker.displayName}</strong>
+                        <span>{formatDuration(speaker.talkTimeMs)}</span>
+                      </div>
+                      <span
+                        className={`speaker-bar tone-${String(index + 1)}`}
+                        style={{ width: `${Math.max(4, (speaker.talkTimeMs / maximum) * 100)}%` }}
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+          <p className="timezone-note">Datas e filtros usam o fuso {dashboard.timeZone}.</p>
+        </>
+      )}
+    </Page>
+  );
+}
+
+function MetricCard({
+  icon,
+  label,
+  note,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  note?: string;
+  value: string;
+}) {
+  return (
+    <article className="metric-card">
+      <span>{icon}</span>
+      <small>{label}</small>
+      <strong>{value}</strong>
+      {note !== undefined && <em>{note}</em>}
+    </article>
+  );
+}
+
+export function MeetingHistoryPage() {
+  const selection = useServerSelection();
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [state, setState] = useState("");
+  const [meetingIdInput, setMeetingIdInput] = useState("");
+  const [meetingIdSearch, setMeetingIdSearch] = useState("");
+  const [page, setPage] = useState(1);
+  const [history, setHistory] = useState<MeetingHistoryPageData>();
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => {
+    if (selection.selectedGuildId.length === 0) return;
+    setHistory(undefined);
+    setLoadError(false);
+    void api
+      .listMeetings(selection.selectedGuildId, {
+        page,
+        ...(meetingIdSearch.length > 0
+          ? { meetingId: meetingIdSearch }
+          : {
+              ...(dateFrom.length === 0 ? {} : { dateFrom }),
+              ...(dateTo.length === 0 ? {} : { dateTo }),
+              ...(state.length === 0 ? {} : { state }),
+            }),
+      })
+      .then(setHistory)
+      .catch(() => setLoadError(true));
+  }, [dateFrom, dateTo, meetingIdSearch, page, selection.selectedGuildId, state]);
+  return (
+    <Page
+      title="Histórico de calls"
+      eyebrow="Reuniões"
+      description="Consulte o andamento, os participantes e os conteúdos retidos de cada call."
+    >
+      {selection.guilds !== undefined && selection.guilds.length > 0 && (
+        <ServerSelector
+          guilds={selection.guilds}
+          onChange={(value) => {
+            setPage(1);
+            selection.setSelectedGuildId(value);
+          }}
+          value={selection.selectedGuildId}
+        />
+      )}
+      {selection.guilds !== undefined && selection.guilds.length > 0 && (
+        <form
+          className="meeting-id-search panel"
+          onSubmit={(event) => {
+            event.preventDefault();
+            const meetingId = meetingIdInput.trim();
+            if (meetingId.length === 0) return;
+            setPage(1);
+            setMeetingIdSearch(meetingId);
+          }}
+        >
+          <Field
+            label="ID da reunião"
+            maxLength={128}
+            value={meetingIdInput}
+            onChange={(event) => setMeetingIdInput(event.currentTarget.value)}
+          />
+          <div className="meeting-id-search-actions">
+            <Button disabled={meetingIdInput.trim().length === 0} type="submit">
+              Pesquisar
+            </Button>
+            {meetingIdSearch.length > 0 && (
+              <Button
+                className="secondary"
+                onClick={() => {
+                  setMeetingIdInput("");
+                  setMeetingIdSearch("");
+                  setPage(1);
+                }}
+                type="button"
+              >
+                Limpar
+              </Button>
+            )}
+          </div>
+        </form>
+      )}
+      {selection.guilds !== undefined && selection.guilds.length > 0 && (
+        <div className="history-filters panel">
+          <Field
+            disabled={meetingIdSearch.length > 0}
+            label="De"
+            type="date"
+            value={dateFrom}
+            onChange={(event) => {
+              setPage(1);
+              setDateFrom(event.currentTarget.value);
+            }}
+          />
+          <Field
+            disabled={meetingIdSearch.length > 0}
+            label="Até"
+            type="date"
+            value={dateTo}
+            onChange={(event) => {
+              setPage(1);
+              setDateTo(event.currentTarget.value);
+            }}
+          />
+          <SelectField
+            disabled={meetingIdSearch.length > 0}
+            label="Estado"
+            value={state}
+            onChange={(event) => {
+              setPage(1);
+              setState(event.currentTarget.value);
+            }}
+          >
+            <option value="">Todos</option>
+            <option value="in_progress">Em andamento</option>
+            <option value="completed">Concluída</option>
+            <option value="failed">Falhou</option>
+          </SelectField>
+        </div>
+      )}
+      {selection.error || loadError ? (
+        <EmptyState title="Histórico indisponível">Não foi possível carregar as calls.</EmptyState>
+      ) : selection.guilds === undefined ||
+        (selection.selectedGuildId.length > 0 && history === undefined) ? (
+        <Loading />
+      ) : selection.guilds.length === 0 ? (
+        <EmptyState title="Nenhum servidor instalado">
+          Instale o Summyz para começar o histórico.
+        </EmptyState>
+      ) : history === undefined || history.items.length === 0 ? (
+        <EmptyState title="Nenhuma call encontrada">
+          Ajuste os filtros ou aguarde a primeira reunião.
+        </EmptyState>
+      ) : (
+        <>
+          <div className="history-list">
+            {history.items.map((meeting) => (
+              <article className="history-card" key={meeting.meetingId}>
+                <div className="history-card-main">
+                  <span className={`meeting-status ${statusClass(meeting.pipelineStatus)}`}>
+                    {statusLabel(meeting.pipelineStatus)}
+                  </span>
+                  <h2>{meeting.voiceChannelName ?? "Informação indisponível"}</h2>
+                  <p>
+                    {formatDate(meeting.startedAt, history.timeZone)} ·{" "}
+                    {meeting.durationMs === null
+                      ? "Em andamento"
+                      : formatDuration(meeting.durationMs)}
+                  </p>
+                </div>
+                <div className="participant-preview">
+                  {meeting.participants === null ? (
+                    <span>Participantes: Informação indisponível</span>
+                  ) : (
+                    <span>
+                      Participantes:{" "}
+                      {meeting.participants
+                        .slice(0, 3)
+                        .map((participant) => participant.displayName)
+                        .join(", ")}
+                      {meeting.participants.length > 3
+                        ? ` +${String(meeting.participants.length - 3)}`
+                        : ""}
+                    </span>
+                  )}
+                  <div className="talk-time-preview">
+                    <strong>Talk time</strong>
+                    {meeting.participants?.some(
+                      (participant) => participant.percentage !== null,
+                    ) ? (
+                      meeting.participants.slice(0, 3).map((participant) => (
+                        <span key={participant.userId}>
+                          {participant.displayName} — {String(participant.percentage)}%
+                        </span>
+                      ))
+                    ) : (
+                      <span>Informação indisponível</span>
+                    )}
+                  </div>
+                </div>
+                <Link className="card-action" to={`/history/${meeting.meetingId}`}>
+                  Ver detalhes <ChevronRight />
+                </Link>
+              </article>
+            ))}
+          </div>
+          <div className="pagination">
+            <Button
+              className="secondary"
+              disabled={page === 1}
+              onClick={() => setPage((current) => current - 1)}
+            >
+              Anterior
+            </Button>
+            <span>
+              Página {page} de {Math.max(1, Math.ceil(history.total / history.pageSize))}
+            </span>
+            <Button
+              className="secondary"
+              disabled={page * history.pageSize >= history.total}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              Próxima
+            </Button>
+          </div>
+          <p className="timezone-note">Datas e filtros usam o fuso {history.timeZone}.</p>
+        </>
+      )}
+    </Page>
+  );
+}
+
+export function MeetingHistoryDetailPage() {
+  const { meetingId = "" } = useParams();
+  const navigate = useNavigate();
+  const selection = useServerSelection();
+  const [meeting, setMeeting] = useState<MeetingHistoryDetail>();
+  const [loadError, setLoadError] = useState(false);
+  useEffect(() => {
+    if (selection.selectedGuildId.length === 0) return;
+    setMeeting(undefined);
+    void api
+      .getMeeting(selection.selectedGuildId, meetingId)
+      .then(setMeeting)
+      .catch(() => setLoadError(true));
+  }, [meetingId, selection.selectedGuildId]);
+  return (
+    <Page
+      title="Detalhes da call"
+      eyebrow="Histórico"
+      description="Participação, estado e conteúdo preservado desta reunião."
+    >
+      {selection.guilds !== undefined && selection.guilds.length > 0 && (
+        <ServerSelector
+          guilds={selection.guilds}
+          onChange={(value) => {
+            selection.setSelectedGuildId(value);
+            navigate("/history");
+          }}
+          value={selection.selectedGuildId}
+        />
+      )}
+      {selection.error || loadError ? (
+        <EmptyState title="Call indisponível">
+          <Link to="/history">Voltar ao histórico</Link>
+        </EmptyState>
+      ) : selection.guilds !== undefined && selection.guilds.length === 0 ? (
+        <EmptyState title="Nenhum servidor instalado">
+          Instale o Summyz para consultar calls.
+        </EmptyState>
+      ) : meeting === undefined ? (
+        <Loading />
+      ) : (
+        <>
+          <section className="panel meeting-overview">
+            <span className={`meeting-status ${statusClass(meeting.pipelineStatus)}`}>
+              {statusLabel(meeting.pipelineStatus)}
+            </span>
+            <h2>{meeting.voiceChannelName ?? "Informação indisponível"}</h2>
+            <p>
+              {formatDate(meeting.startedAt, meeting.timeZone)} ·{" "}
+              {meeting.durationMs === null ? "Em andamento" : formatDuration(meeting.durationMs)}
+            </p>
+          </section>
+          <section className="panel">
+            <h2>Participantes e talk time</h2>
+            {meeting.participants === null ? (
+              <p className="muted">Informação indisponível</p>
+            ) : meeting.participants.every((participant) => participant.percentage === 0) ? (
+              <p className="muted">Nenhuma fala detectada.</p>
+            ) : null}
+            {meeting.participants !== null && (
+              <div className="talk-time-list">
+                {meeting.participants.map((participant) => (
+                  <div key={participant.userId}>
+                    <strong>{participant.displayName}</strong>
+                    <span>
+                      {participant.percentage === null
+                        ? "Informação indisponível"
+                        : `${String(participant.percentage)}%`}
+                    </span>
+                    {participant.percentage !== null && (
+                      <i style={{ width: `${String(participant.percentage)}%` }} />
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </section>
+          <section className="panel retained-content">
+            <h2>Resumo</h2>
+            {meeting.summary === null ? (
+              <p className="muted">Conteúdo não retido.</p>
+            ) : (
+              <MeetingSummaryContent summary={meeting.summary} />
+            )}
+          </section>
+          <section className="panel retained-content">
+            <h2>Transcrição</h2>
+            {meeting.transcript === null ? (
+              <p className="muted">Conteúdo não retido.</p>
+            ) : (
+              <pre>{meeting.transcript}</pre>
+            )}
+          </section>
+        </>
+      )}
+    </Page>
+  );
+}
+
+function formatDuration(milliseconds: number): string {
+  if (milliseconds < 60_000) return `${String(Math.floor(milliseconds / 1_000))}s`;
+  const totalMinutes = Math.floor(milliseconds / 60_000);
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${String(minutes)}m`;
+  return `${String(hours)}h ${String(minutes).padStart(2, "0")}m`;
+}
+
+function formatCosts(costs: DashboardAnalytics["confirmedCost"]): string {
+  if (costs.length === 0) return "—";
+  return costs
+    .map(
+      (cost) =>
+        `${cost.currency} ${cost.amount.toLocaleString("pt-BR", { maximumFractionDigits: 6 })}`,
+    )
+    .join(" · ");
+}
+
+function formatDate(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat("pt-BR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone,
+  }).format(new Date(value));
+}
+
+function statusLabel(status: string): string {
+  if (status === "completed") return "Concluída";
+  if (status === "failed") return "Falhou";
+  return "Em andamento";
+}
+
+function statusClass(status: string): string {
+  return status === "completed" ? "completed" : status === "failed" ? "failed" : "progress";
+}
+
+const meetingSummaryTexts = {
+  en: {
+    assignee: "Assignee",
+    deadline: "Deadline",
+    decisions: "Decisions",
+    discussedTopics: "Discussed topics",
+    executiveSummary: "Executive summary",
+    failure:
+      "The summary could not be generated after the configured attempts. The summary is unavailable, but the full transcript is available below.",
+    observations: "Open issues and notes",
+    tasks: "Tasks",
+  },
+  "pt-BR": {
+    assignee: "Responsável",
+    deadline: "Prazo",
+    decisions: "Decisões",
+    discussedTopics: "Tópicos discutidos",
+    executiveSummary: "Resumo executivo",
+    failure:
+      "Não foi possível gerar o resumo após as tentativas configuradas. O resumo está indisponível, mas a transcrição completa está disponível abaixo.",
+    observations: "Pendências e observações",
+    tasks: "Tarefas",
+  },
+} as const;
+
+function MeetingSummaryContent({ summary }: { summary: MeetingHistorySummary }) {
+  const text = meetingSummaryTexts[summary.language];
+  if (summary.status === "failed") return <p className="muted">{text.failure}</p>;
+  return (
+    <div className="meeting-summary-content">
+      <section>
+        <h3>{text.executiveSummary}</h3>
+        <p>{summary.executiveSummary}</p>
+      </section>
+      <SummaryList title={text.discussedTopics} items={summary.discussedTopics} />
+      <SummaryList title={text.decisions} items={summary.decisions} />
+      {summary.tasks.length > 0 && (
+        <section>
+          <h3>{text.tasks}</h3>
+          <ul>
+            {summary.tasks.map((task, index) => {
+              const details = [
+                task.ownerName === undefined ? undefined : `${text.assignee}: ${task.ownerName}`,
+                task.deadlineText === undefined
+                  ? undefined
+                  : `${text.deadline}: ${task.deadlineText}`,
+              ].filter((item): item is string => item !== undefined);
+              return (
+                <li key={`${String(index)}:${task.text}`}>
+                  <span>{task.text}</span>
+                  {details.length > 0 && <small>{details.join(" · ")}</small>}
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
+      <SummaryList title={text.observations} items={summary.observations} />
+    </div>
+  );
+}
+
+function SummaryList({ items, title }: { items: readonly string[]; title: string }) {
+  if (items.length === 0) return null;
+  return (
+    <section>
+      <h3>{title}</h3>
+      <ul>
+        {items.map((item, index) => (
+          <li key={`${String(index)}:${item}`}>{item}</li>
+        ))}
+      </ul>
+    </section>
   );
 }
 
@@ -317,7 +947,7 @@ export function GuildConfigurationPage() {
         description="O Discord ou o banco de dados recusou uma das consultas. Volte e tente novamente."
       >
         <EmptyState title="Configuração indisponível">
-          <Link to="/">Voltar aos servidores</Link>
+          <Link to="/servers">Voltar aos servidores</Link>
         </EmptyState>
       </Page>
     );
@@ -1031,21 +1661,23 @@ function PhaseEditor({
               }
             />
             <div className="form-grid">
-              <Field
-                label="Tamanho do lote"
-                placeholder="auto ou 0–64"
-                value={value.batchSize}
-                onChange={(event) => {
-                  const raw = event.currentTarget.value;
-                  onChange({
-                    ...profile,
-                    transcription: {
-                      ...value,
-                      batchSize: raw === "auto" || raw === "" ? "auto" : Number(raw),
-                    },
-                  });
-                }}
-              />
+              {profile.profileType === "local" && (
+                <Field
+                  label="Tamanho do lote"
+                  placeholder="auto ou 0–64"
+                  value={profile.transcription.batchSize}
+                  onChange={(event) => {
+                    const raw = event.currentTarget.value;
+                    onChange({
+                      ...profile,
+                      transcription: {
+                        ...value,
+                        batchSize: raw === "auto" || raw === "" ? "auto" : Number(raw),
+                      },
+                    });
+                  }}
+                />
+              )}
               <Field
                 label="Intervalo máximo de união (ms)"
                 min={0}
@@ -1060,22 +1692,6 @@ function PhaseEditor({
               />
             </div>
             <div className="form-grid">
-              <SelectField
-                label="Timestamps"
-                value={value.timestampMode}
-                onChange={(event) =>
-                  onChange({
-                    ...profile,
-                    transcription: {
-                      ...value,
-                      timestampMode: event.currentTarget.value === "batch" ? "batch" : "word",
-                    },
-                  })
-                }
-              >
-                <option value="word">Por palavra</option>
-                <option value="batch">Por lote</option>
-              </SelectField>
               <Field
                 label="Silêncio entre falas (ms)"
                 min={0}

@@ -22,6 +22,7 @@ import type { GuildSettings } from "../guild-config-store.js";
 import { convertPcmToOgg } from "./audio-converter.js";
 import {
   addSegment,
+  addParticipant,
   createManifest,
   markManifestInterrupted,
   markManifestRecording,
@@ -193,10 +194,18 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     });
     await entersState(connection, VoiceConnectionStatus.Ready, 30_000);
 
-    const readyManifest =
+    let readyManifest =
       manifest.status === "interrupted"
         ? markManifestRecording(manifest, new Date().toISOString())
         : manifest;
+    for (const member of voiceChannel.members.values()) {
+      if (!member.user.bot) {
+        readyManifest = addParticipant(readyManifest, {
+          displayName: member.displayName,
+          userId: member.id,
+        });
+      }
+    }
     await this.#manifestStore.save(readyManifest);
 
     const recording = new DiscordVoiceRecording({
@@ -329,6 +338,11 @@ class DiscordVoiceRecording implements RecordingHandle {
     await this.#stopPromise;
   }
 
+  public async recordParticipant(userId: string, displayName: string): Promise<void> {
+    if (this.#ended) return;
+    await this.#updateManifest((manifest) => addParticipant(manifest, { displayName, userId }));
+  }
+
   readonly #handleSpeakingStart = (userId: string): void => {
     void this.#startCapture(userId);
   };
@@ -352,6 +366,7 @@ class DiscordVoiceRecording implements RecordingHandle {
       return;
     }
 
+    await this.recordParticipant(member.id, member.displayName);
     const capture = this.#createCapture(userId, member.displayName);
     this.#activeCaptures.set(userId, capture);
     void capture.promise.finally(() => {

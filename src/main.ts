@@ -13,6 +13,7 @@ import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
 
 import { loadConfig, resolveBotConfig } from "./config.js";
 import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js";
+import { PostgresAnalyticsStore } from "./database/postgres-analytics-store.js";
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
 import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
 import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
@@ -129,6 +130,10 @@ const recordingsDirectory = join(config.dataDir, "recordings");
 
 const postgresMeetingStore = new PostgresMeetingStore(database);
 const manifestStore = new ManifestStore(recordingsDirectory, postgresMeetingStore);
+const migratedManifestCount = await manifestStore.migrateLegacyManifests();
+if (migratedManifestCount > 0) {
+  logger.info({ migratedManifestCount }, "Legacy recording manifests migrated");
+}
 const postgresCostLedger = new PostgresCostLedgerStore(database);
 const costReport = createCostReportService({
   language: config.botLanguage,
@@ -283,6 +288,7 @@ const postgresQueue = new DurableJobQueue(database);
 const postgresFinalizer = new MeetingFinalizer({
   contentStore: new PostgresMeetingContentStore(database),
   manifestStore,
+  participationStore: new PostgresAnalyticsStore(database),
   publicationStore,
   retention,
   summaryStore,
@@ -569,7 +575,6 @@ async function createTranscriptionProvider(
       ? {}
       : { providerOptions: selection.providerOptions }),
     ...(selection.temperature === undefined ? {} : { temperature: selection.temperature }),
-    timestampMode: selection.timestampMode,
   };
   const apiKey = await requireOpenRouterApiKey();
   const costRecorder = createProviderCostRecorder(manifest, "transcription", apiKey);

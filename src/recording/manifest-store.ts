@@ -3,6 +3,7 @@ import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
 import { type RecordingManifest, recordingManifestSchema } from "./manifest.js";
+import { migrateRecordingManifest } from "./manifest-migration.js";
 
 const SAFE_IDENTIFIER = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/;
 
@@ -107,6 +108,32 @@ export class ManifestStore {
   public async listCompleted(): Promise<RecordingManifest[]> {
     const manifests = await this.#listManifests();
     return manifests.filter((manifest) => manifest.status === "completed");
+  }
+
+  public async migrateLegacyManifests(): Promise<number> {
+    let entries: Dirent<string>[];
+    try {
+      entries = await readdir(this.#rootDirectory, { withFileTypes: true, encoding: "utf8" });
+    } catch (error) {
+      if (isFileNotFound(error)) return 0;
+      throw error;
+    }
+    let migratedCount = 0;
+    for (const entry of entries) {
+      if (!entry.isDirectory() || !SAFE_IDENTIFIER.test(entry.name)) continue;
+      const path = join(this.meetingDirectory(entry.name), "manifest.json");
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(await readFile(path, "utf8"));
+      } catch (error) {
+        if (isFileNotFound(error)) continue;
+        throw error;
+      }
+      if (recordingManifestSchema.safeParse(parsed).success) continue;
+      await this.#write(migrateRecordingManifest(parsed));
+      migratedCount += 1;
+    }
+    return migratedCount;
   }
 
   async #listManifests(): Promise<RecordingManifest[]> {

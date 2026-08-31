@@ -135,17 +135,15 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
       throw new IncompatibleTranscriptionResponseError("missing_timestamps");
     }
 
-    const pieces = groupWords(
-      parsed.data.words.map((word) => ({
-        endedAtMs: Math.round(word.end * 1_000),
-        startedAtMs: Math.round(word.start * 1_000),
-        text: word.word.trim(),
-      })),
-    );
-    if (pieces.some((piece) => piece.endedAtMs <= piece.startedAtMs)) {
+    const words = parsed.data.words.map((word) => ({
+      endedAtMs: Math.round(word.end * 1_000),
+      startedAtMs: Math.round(word.start * 1_000),
+      text: word.word.trim(),
+    }));
+    if (words.some((piece) => piece.endedAtMs <= piece.startedAtMs)) {
       throw new IncompatibleTranscriptionResponseError("invalid_timestamps");
     }
-    return { attempts: 1, pieces };
+    return { attempts: 1, pieces: groupWords(words), words };
   }
 }
 

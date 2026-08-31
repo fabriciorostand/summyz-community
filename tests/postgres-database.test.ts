@@ -88,6 +88,20 @@ describe("PostgresDatabase", () => {
     expect(queries.at(-1)).toBe("COMMIT");
   });
 
+  it("normaliza configurações v1 que já foram marcadas como manifesto v3", async () => {
+    const { pool, queries } = createPool({ versions: [1, 2, 3, 4, 5, 6, 7] });
+    const database = new PostgresDatabase(pool);
+
+    await database.initialize();
+
+    const correctiveMigration = queries.find((query) =>
+      query.includes("'{aiConfiguration,profileType}'"),
+    );
+    expect(correctiveMigration).toContain("'{storageMode}'");
+    expect(correctiveMigration).toContain("'{aiConfiguration,transcription,batchSize}'");
+    expect(correctiveMigration).toContain("meeting_contents");
+  });
+
   it("faz rollback e expõe somente um erro seguro quando o PostgreSQL falha", async () => {
     const { client, pool, queries } = createPool({ failOn: "CREATE TABLE meetings" });
     const database = new PostgresDatabase(pool);

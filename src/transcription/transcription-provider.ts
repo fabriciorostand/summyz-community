@@ -9,6 +9,7 @@ export interface TranscriptPiece {
 export interface TranscriptionProviderResult {
   attempts: number;
   pieces: TranscriptPiece[];
+  words?: TranscriptPiece[];
 }
 
 export interface TranscriptionProvider {
@@ -58,6 +59,7 @@ export class IncompatibleTranscriptionResponseError extends Error {
 export interface TranscribedSegment {
   audioDurationMs?: number;
   pieces: TranscriptPiece[];
+  words?: TranscriptPiece[];
   segmentId: string;
   timelineStartedAtMs?: number;
 }

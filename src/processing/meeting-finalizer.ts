@@ -1,4 +1,5 @@
 import type { RecordingManifest } from "../recording/manifest.js";
+import type { TranscriptionState } from "../transcription/transcription-state.js";
 
 export interface MeetingContentStore {
   persist(input: {
@@ -14,6 +15,14 @@ export interface MeetingContentStore {
 interface FinalizationTranscriptionStore {
   readRawTranscript(meetingId: string): Promise<string>;
   readTranscript(meetingId: string): Promise<string>;
+  load?(meetingId: string): Promise<TranscriptionState>;
+}
+
+interface ParticipationStore {
+  persistParticipation(
+    manifest: RecordingManifest,
+    transcription: TranscriptionState,
+  ): Promise<void>;
 }
 
 interface FinalizationSummaryStore {
@@ -35,6 +44,7 @@ interface FinalizationManifestStore {
 interface MeetingFinalizerOptions {
   contentStore: MeetingContentStore;
   manifestStore: FinalizationManifestStore;
+  participationStore?: ParticipationStore;
   publicationStore: FinalizationPublicationStore;
   retention: FinalizationRetention;
   summaryStore: FinalizationSummaryStore;
@@ -45,6 +55,7 @@ export class MeetingFinalizer {
   readonly #contentStore: MeetingContentStore;
   readonly #manifestStore: FinalizationManifestStore;
   readonly #publicationStore: FinalizationPublicationStore;
+  readonly #participationStore: ParticipationStore | undefined;
   readonly #retention: FinalizationRetention;
   readonly #summaryStore: FinalizationSummaryStore;
   readonly #transcriptionStore: FinalizationTranscriptionStore;
@@ -53,6 +64,7 @@ export class MeetingFinalizer {
     this.#contentStore = options.contentStore;
     this.#manifestStore = options.manifestStore;
     this.#publicationStore = options.publicationStore;
+    this.#participationStore = options.participationStore;
     this.#retention = options.retention;
     this.#summaryStore = options.summaryStore;
     this.#transcriptionStore = options.transcriptionStore;
@@ -60,6 +72,15 @@ export class MeetingFinalizer {
 
   public async persist(manifest: RecordingManifest): Promise<void> {
     const { meetingId } = manifest;
+    if (this.#participationStore !== undefined) {
+      if (this.#transcriptionStore.load === undefined) {
+        throw new Error("The transcription state loader is required for talk time");
+      }
+      const transcription = await this.#transcriptionStore.load(meetingId);
+      if (transcription.wordTimingAvailable) {
+        await this.#participationStore.persistParticipation(manifest, transcription);
+      }
+    }
     if (manifest.persistMeetingContent) {
       const [rawTranscript, transcript, summary, publication] = await Promise.all([
         this.#transcriptionStore.readRawTranscript(meetingId),

@@ -13,11 +13,14 @@ import {
 import { Loading } from "./components";
 import {
   AccountPage,
+  AnalyticsDashboardPage,
   CommandsPage,
   DashboardLayout,
   GuildConfigurationPage,
   GuildsPage,
   InstallationPage,
+  MeetingHistoryDetailPage,
+  MeetingHistoryPage,
   ProfilesPage,
 } from "./dashboard-pages";
 
@@ -58,12 +61,15 @@ export function App() {
       <Route path="/verify" element={<VerifyPage />} />
       <Route path="/verify-email" element={<VerifyPage />} />
       <Route element={<AuthenticatedArea />}>
-        <Route index element={<GuildsPage />} />
+        <Route index element={<AnalyticsDashboardPage />} />
         <Route path="account" element={<AccountPage />} />
         <Route path="commands" element={<CommandsPage />} />
         <Route path="guilds/:guildId" element={<GuildConfigurationPage />} />
         <Route path="installation" element={<InstallationPage />} />
+        <Route path="history" element={<MeetingHistoryPage />} />
+        <Route path="history/:meetingId" element={<MeetingHistoryDetailPage />} />
         <Route path="profiles" element={<ProfilesPage />} />
+        <Route path="servers" element={<GuildsPage />} />
       </Route>
       <Route path="*" element={<Navigate replace to="/" />} />
     </Routes>

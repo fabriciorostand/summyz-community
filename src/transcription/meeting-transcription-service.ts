@@ -264,7 +264,13 @@ export class MeetingTranscriptionService {
               speechGroup.map((item) => item.segment),
               {
                 batch,
-                result: { ...result, pieces: mapTranscriptPiecesToTimeline(batch, result.pieces) },
+                result: {
+                  ...result,
+                  pieces: mapTranscriptPiecesToTimeline(batch, result.pieces),
+                  ...(result.words === undefined
+                    ? {}
+                    : { words: mapTranscriptPiecesToTimeline(batch, result.words) }),
+                },
               },
             );
             this.#logger.info(
@@ -441,6 +447,7 @@ function toTranscribedSegments(state: TranscriptionState): TranscribedSegment[] 
         : { audioDurationMs: segment.audioDurationMs }),
       pieces: segment.pieces,
       segmentId: segment.segmentId,
+      words: segment.words,
       ...(segment.timelineStartedAtMs === undefined
         ? {}
         : { timelineStartedAtMs: segment.timelineStartedAtMs }),

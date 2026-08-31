@@ -72,7 +72,6 @@ const summaryBaseShape = {
   model: z.string().nullable(),
 };
 const transcriptionBaseShape = {
-  batchSize: z.union([z.literal("auto"), z.number().int()]),
   interSpeechSilenceMs: z.number().int(),
   language: z.string(),
   mergeMaxGapMs: z.number().int(),
@@ -80,7 +79,6 @@ const transcriptionBaseShape = {
   prompt: promptSchema,
   providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
   temperature: z.number().optional(),
-  timestampMode: z.enum(["batch", "word"]),
 };
 export const profileSchema = z.discriminatedUnion("profileType", [
   z.object({
@@ -101,6 +99,7 @@ export const profileSchema = z.discriminatedUnion("profileType", [
     summary: z.object({ ...summaryBaseShape, provider: z.literal("ollama") }),
     transcription: z.object({
       ...transcriptionBaseShape,
+      batchSize: z.union([z.literal("auto"), z.number().int()]),
       provider: z.literal("faster-whisper"),
       vad: localVadSchema,
     }),
@@ -150,6 +149,67 @@ const installationSettingsSchema = z.object({
     })
     .nullable(),
 });
+const analyticsParticipantSchema = z.object({
+  displayName: z.string(),
+  percentage: z.number().int().nullable(),
+  talkTimeMs: z.number().int().nullable(),
+  userId: z.string(),
+});
+const meetingHistoryItemSchema = z.object({
+  completedAt: z.iso.datetime().nullable(),
+  contentRetained: z.boolean(),
+  durationMs: z.number().int().nullable(),
+  failureCode: z.string().nullable(),
+  meetingId: z.string(),
+  participants: z.array(analyticsParticipantSchema).nullable(),
+  pipelineStatus: z.string(),
+  startedAt: z.iso.datetime(),
+  voiceChannelName: z.string().nullable(),
+});
+const dashboardAnalyticsSchema = z.object({
+  averageDurationMs: z.number().int(),
+  confirmedCost: z.array(z.object({ amount: z.number(), currency: z.string().length(3) })),
+  hasUnresolvedCosts: z.boolean(),
+  timeZone: z.string(),
+  topSpeakers: z.array(
+    z.object({ displayName: z.string(), talkTimeMs: z.number().int(), userId: z.string() }),
+  ),
+  totalCalls: z.number().int(),
+  totalDurationMs: z.number().int(),
+});
+const meetingHistoryPageSchema = z.object({
+  items: z.array(meetingHistoryItemSchema),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  timeZone: z.string(),
+  total: z.number().int(),
+});
+const meetingHistorySummaryTaskSchema = z.object({
+  deadlineText: z.string().optional(),
+  ownerName: z.string().optional(),
+  text: z.string(),
+});
+const meetingHistorySummarySchema = z.discriminatedUnion("status", [
+  z.object({
+    decisions: z.array(z.string()),
+    discussedTopics: z.array(z.string()),
+    executiveSummary: z.string(),
+    language: z.enum(["en", "pt-BR"]),
+    observations: z.array(z.string()),
+    status: z.literal("completed"),
+    tasks: z.array(meetingHistorySummaryTaskSchema),
+  }),
+  z.object({
+    language: z.enum(["en", "pt-BR"]),
+    status: z.literal("failed"),
+  }),
+]);
+const meetingHistoryDetailSchema = meetingHistoryItemSchema.extend({
+  rawTranscript: z.string().nullable(),
+  summary: meetingHistorySummarySchema.nullable(),
+  timeZone: z.string(),
+  transcript: z.string().nullable(),
+});
 
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
 export type User = z.infer<typeof userSchema>;
@@ -167,6 +227,10 @@ export type PromptDefaults = z.infer<typeof promptDefaultsSchema>;
 export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;
 export type InstallationSettings = z.infer<typeof installationSettingsSchema>;
+export type DashboardAnalytics = z.infer<typeof dashboardAnalyticsSchema>;
+export type MeetingHistoryPage = z.infer<typeof meetingHistoryPageSchema>;
+export type MeetingHistoryDetail = z.infer<typeof meetingHistoryDetailSchema>;
+export type MeetingHistorySummary = z.infer<typeof meetingHistorySummarySchema>;
 
 export class ApiError extends Error {
   public readonly code: string;
@@ -248,9 +312,30 @@ export const api = {
   getGuildResources: (guildId: string) =>
     request(`/api/guilds/${guildId}/resources`, resourcesSchema),
   getInstallationSettings: () => request("/api/installation/settings", installationSettingsSchema),
+  getDashboard: (guildId: string) =>
+    request(`/api/guilds/${guildId}/dashboard`, dashboardAnalyticsSchema),
+  getMeeting: (guildId: string, meetingId: string) =>
+    request(`/api/guilds/${guildId}/meetings/${meetingId}`, meetingHistoryDetailSchema),
   getDiscordConnection: () => request("/api/discord/connection", discordConnectionSchema),
   getSetupStatus: () => request("/api/setup/status", setupStatusSchema),
   listGuilds: () => request("/api/guilds", z.array(guildSchema)),
+  listMeetings: (
+    guildId: string,
+    filters: {
+      dateFrom?: string;
+      dateTo?: string;
+      meetingId?: string;
+      page: number;
+      state?: string;
+    },
+  ) => {
+    const parameters = new URLSearchParams({ page: String(filters.page) });
+    if (filters.meetingId !== undefined) parameters.set("meetingId", filters.meetingId);
+    if (filters.dateFrom !== undefined) parameters.set("dateFrom", filters.dateFrom);
+    if (filters.dateTo !== undefined) parameters.set("dateTo", filters.dateTo);
+    if (filters.state !== undefined) parameters.set("state", filters.state);
+    return request(`/api/guilds/${guildId}/meetings?${parameters}`, meetingHistoryPageSchema);
+  },
   listProfiles: () =>
     request("/api/profiles", z.array(z.object({ active: z.boolean(), profile: profileSchema }))),
   login: (email: string, password: string) =>

@@ -31,7 +31,7 @@ describe("completeTranscriptionGroup", () => {
     );
 
     expect(completed.segments).toEqual([
-      { attempts: 0, pieces: [], segmentId: "silent", status: "completed" },
+      { attempts: 0, pieces: [], segmentId: "silent", status: "completed", words: [] },
       {
         attempts: 1,
         audioDurationMs: 4_000,
@@ -39,8 +39,9 @@ describe("completeTranscriptionGroup", () => {
         segmentId: "representative",
         status: "completed",
         timelineStartedAtMs: 10_000,
+        words: [],
       },
-      { attempts: 0, pieces: [], segmentId: "merged", status: "completed" },
+      { attempts: 0, pieces: [], segmentId: "merged", status: "completed", words: [] },
     ]);
   });
 });

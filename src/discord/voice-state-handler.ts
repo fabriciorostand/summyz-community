@@ -28,6 +28,19 @@ export function installVoiceStateHandler(
     const humanCount = channel.members.filter((member) => !member.user.bot).size;
 
     try {
+      if (
+        newState.channelId === activeRecording.voiceChannelId &&
+        oldState.channelId !== activeRecording.voiceChannelId &&
+        newState.member !== null &&
+        !newState.member.user.bot
+      ) {
+        await coordinator.recordParticipant(
+          guildId,
+          channel.id,
+          newState.member.id,
+          newState.member.displayName,
+        );
+      }
       await coordinator.handleHumanCountChanged(guildId, channel.id, humanCount);
     } catch (error) {
       logger.error(

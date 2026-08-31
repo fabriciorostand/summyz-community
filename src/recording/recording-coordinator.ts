@@ -21,6 +21,7 @@ export interface RecordingHandle {
   guildId: string;
   meetingId: string;
   notificationChannelId: string;
+  recordParticipant?(userId: string, displayName: string): Promise<void>;
   stop(request: RecordingStopRequest): Promise<void>;
   voiceChannelId: string;
 }
@@ -114,6 +115,17 @@ export class RecordingCoordinator {
     }
 
     await this.stop(guildId, { reason: "channel_empty" });
+  }
+
+  public async recordParticipant(
+    guildId: string,
+    voiceChannelId: string,
+    userId: string,
+    displayName: string,
+  ): Promise<void> {
+    const handle = this.#recordings.get(guildId);
+    if (handle?.voiceChannelId !== voiceChannelId) return;
+    await handle.recordParticipant?.(userId, displayName);
   }
 
   public async shutdown(): Promise<void> {

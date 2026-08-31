@@ -69,6 +69,7 @@ describe("ManifestStore", () => {
     await expect(store.listRecoverable()).resolves.toEqual([]);
     await expect(store.listCompleted()).resolves.toEqual([]);
     await expect(store.tryLoad("missing")).resolves.toBeUndefined();
+    await expect(store.migrateLegacyManifests()).resolves.toBe(0);
   });
 
   it("ignora arquivos e diretórios sem manifesto", async () => {
@@ -160,5 +161,107 @@ describe("ManifestStore", () => {
 
     expect(index.save).toHaveBeenCalledWith(manifest);
     expect(await readFile(join(root, "indexed", "manifest.json"), "utf8")).toContain("indexed");
+  });
+
+  it("migra arquivos v2 antes da recuperação sem reindexar a reunião", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-manifests-"));
+    const current = createManifest({
+      guildId: "guild-1",
+      meetingId: "legacy",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-24T10:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const index = { save: vi.fn(async () => undefined) };
+    await mkdir(join(root, "legacy"));
+    await writeFile(
+      join(root, "legacy", "manifest.json"),
+      JSON.stringify({ ...current, participants: undefined, schemaVersion: 2 }),
+      "utf8",
+    );
+    const store = new ManifestStore(root, index);
+
+    await expect(store.migrateLegacyManifests()).resolves.toBe(1);
+    await expect(store.migrateLegacyManifests()).resolves.toBe(0);
+    await expect(store.load("legacy")).resolves.toMatchObject({ schemaVersion: 3 });
+    expect(index.save).not.toHaveBeenCalled();
+  });
+
+  it("migra arquivos v1 locais com a configuração de IA histórica", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-manifests-"));
+    const legacy = {
+      aiConfiguration: {
+        refinement: {
+          generation: {},
+          maxChunkCharacters: 500_000,
+          model: "qwen3:1.7b",
+          prompt: null,
+          provider: "ollama",
+          requestedModel: "qwen3:1.7b",
+          status: "selected",
+        },
+        selectorVersion: 3,
+        summary: {
+          consolidationPrompt: null,
+          extractionPrompt: null,
+          generation: {},
+          language: "pt-BR",
+          maxChunkCharacters: 500_000,
+          model: "qwen3:4b",
+          provider: "ollama",
+          requestedModel: "qwen3:4b",
+          status: "selected",
+        },
+        transcription: {
+          batchSize: "auto",
+          interSpeechSilenceMs: 0,
+          language: "pt-BR",
+          model: "medium",
+          prompt: null,
+          provider: "faster-whisper",
+          requestedModel: "medium",
+          status: "selected",
+          timestampMode: "batch",
+        },
+      },
+      guildId: "guild-1",
+      interruptions: [],
+      meetingId: "legacy-v1",
+      notificationChannelId: "text-1",
+      persistMeetingAudio: false,
+      persistMeetingContent: true,
+      schemaVersion: 1,
+      segments: [
+        {
+          durationMs: 1_000,
+          endedAtMs: 2_000,
+          file: "participants/user-1/segment-1.ogg",
+          format: "ogg_opus",
+          segmentId: "segment-1",
+          startedAtMs: 1_000,
+          status: "ready",
+          userDisplayName: "Ana",
+          userId: "user-1",
+        },
+      ],
+      startedAt: "2026-08-24T10:00:00.000Z",
+      status: "completed",
+      storageMode: "local",
+      voiceChannelId: "voice-1",
+    };
+    await mkdir(join(root, "legacy-v1"));
+    await writeFile(join(root, "legacy-v1", "manifest.json"), JSON.stringify(legacy), "utf8");
+    const store = new ManifestStore(root);
+
+    await expect(store.migrateLegacyManifests()).resolves.toBe(1);
+    await expect(store.load("legacy-v1")).resolves.toMatchObject({
+      aiConfiguration: {
+        profileType: "local",
+        transcription: { batchSize: "auto", provider: "faster-whisper" },
+      },
+      participants: [{ displayName: "Ana", userId: "user-1" }],
+      schemaVersion: 3,
+      storageMode: "postgres",
+    });
   });
 });

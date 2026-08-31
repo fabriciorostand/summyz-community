@@ -51,7 +51,8 @@ INSERT INTO meetings (
   storage_mode,
   started_at,
   completed_at
-) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12)
+  , voice_channel_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $15)
 ON CONFLICT (meeting_id) DO UPDATE SET
   guild_id = EXCLUDED.guild_id,
   voice_channel_id = EXCLUDED.voice_channel_id,
@@ -65,6 +66,7 @@ ON CONFLICT (meeting_id) DO UPDATE SET
   END,
   manifest = EXCLUDED.manifest,
   completed_at = EXCLUDED.completed_at,
+  voice_channel_name = EXCLUDED.voice_channel_name,
   updated_at = now()
 RETURNING meeting_id
 )
@@ -91,8 +93,27 @@ ON CONFLICT (meeting_id, job_type) DO NOTHING
         validated.completedAt ?? null,
         randomUUID(),
         new Date().toISOString(),
+        validated.voiceChannelName ?? null,
       ],
     );
+    if (validated.participants.length > 0) {
+      await this.#database.query(
+        `INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name)
+         SELECT $1, $2, participant.user_id, participant.display_name
+         FROM jsonb_to_recordset($3::jsonb) AS participant(user_id text, display_name text)
+         ON CONFLICT (meeting_id, user_id) DO UPDATE SET display_name = EXCLUDED.display_name`,
+        [
+          validated.meetingId,
+          validated.guildId,
+          JSON.stringify(
+            validated.participants.map((participant) => ({
+              display_name: participant.displayName,
+              user_id: participant.userId,
+            })),
+          ),
+        ],
+      );
+    }
   }
 
   public async listCompleted(): Promise<RecordingManifest[]> {

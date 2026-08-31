@@ -49,14 +49,12 @@ const currentSummaryBase = selectedModelSchema.and(
 );
 const currentTranscriptionBase = selectedModelSchema.and(
   z.object({
-    batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
     interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
     language: z.string().min(1),
     mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
     prompt: resolvedPromptSchema.default(null),
     providerOptions: z.record(z.string().min(1), z.record(z.string().min(1), z.json())).optional(),
     temperature: z.number().min(0).max(1).optional(),
-    timestampMode: z.enum(["batch", "word"]).default("word"),
   }),
 );
 
@@ -74,7 +72,11 @@ export const meetingAiConfigurationSchema = z.discriminatedUnion("profileType", 
     refinement: currentRefinementBase.and(z.object({ provider: z.literal("ollama") })),
     summary: currentSummaryBase.and(z.object({ provider: z.literal("ollama") })),
     transcription: currentTranscriptionBase.and(
-      z.object({ provider: z.literal("faster-whisper"), vad: localVadSchema }),
+      z.object({
+        batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
+        provider: z.literal("faster-whisper"),
+        vad: localVadSchema,
+      }),
     ),
   }),
 ]);
@@ -116,7 +118,13 @@ const recordingManifestBaseShape = {
 export const recordingManifestSchema = z.object({
   ...recordingManifestBaseShape,
   aiConfiguration: meetingAiConfigurationSchema.optional(),
-  schemaVersion: z.literal(2),
+  participants: z.array(
+    z.object({
+      displayName: z.string().min(1).max(100),
+      userId: storageIdentifierSchema,
+    }),
+  ),
+  schemaVersion: z.literal(3),
 });
 
 export type RecordingManifest = z.infer<typeof recordingManifestSchema>;
@@ -156,11 +164,22 @@ export function createManifest(input: CreateManifestInput): RecordingManifest {
   return recordingManifestSchema.parse({
     ...input,
     interruptions: [],
-    schemaVersion: 2,
+    participants: [],
+    schemaVersion: 3,
     segments: [],
     status: "recording",
     storageMode: "postgres",
   });
+}
+
+export function addParticipant(
+  manifest: RecordingManifest,
+  participant: RecordingManifest["participants"][number],
+): RecordingManifest {
+  const participants = manifest.participants.some((item) => item.userId === participant.userId)
+    ? manifest.participants.map((item) => (item.userId === participant.userId ? participant : item))
+    : [...manifest.participants, participant];
+  return recordingManifestSchema.parse({ ...manifest, participants });
 }
 
 export function addSegment(

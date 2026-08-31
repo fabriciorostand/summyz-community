@@ -352,4 +352,200 @@ ALTER TABLE guild_configurations
   ON DELETE RESTRICT;
 `,
   },
+  {
+    version: 7,
+    sql: `
+ALTER TABLE meetings
+  ADD COLUMN voice_channel_name text,
+  ADD COLUMN talk_time_available boolean NOT NULL DEFAULT false;
+
+CREATE TABLE meeting_participants (
+  meeting_id text NOT NULL REFERENCES meetings(meeting_id) ON DELETE CASCADE,
+  guild_id text NOT NULL,
+  user_id text NOT NULL,
+  display_name text NOT NULL,
+  talk_time_ms bigint CHECK (talk_time_ms >= 0),
+  talk_percentage smallint CHECK (talk_percentage BETWEEN 0 AND 100),
+  PRIMARY KEY (meeting_id, user_id),
+  FOREIGN KEY (meeting_id, guild_id) REFERENCES meetings(meeting_id, guild_id) ON DELETE CASCADE
+);
+
+CREATE INDEX meeting_participants_guild_user_idx
+  ON meeting_participants (guild_id, user_id);
+
+UPDATE ai_profiles
+SET transcription = CASE
+  WHEN profile_type = 'external' THEN transcription - 'timestampMode' - 'batchSize'
+  ELSE transcription - 'timestampMode'
+END;
+
+UPDATE meetings
+SET
+  voice_channel_name = COALESCE(manifest->>'voiceChannelName', voice_channel_name),
+  manifest = CASE WHEN manifest IS NULL THEN NULL ELSE
+    jsonb_set(
+      jsonb_set(
+        CASE WHEN manifest#>>'{aiConfiguration,profileType}' = 'external'
+          THEN manifest #- '{aiConfiguration,transcription,timestampMode}' #- '{aiConfiguration,transcription,batchSize}'
+          ELSE manifest #- '{aiConfiguration,transcription,timestampMode}'
+        END,
+        '{participants}',
+        COALESCE((
+          SELECT jsonb_agg(jsonb_build_object(
+            'userId', participant->>'userId',
+            'displayName', participant->>'userDisplayName'
+          ))
+          FROM (
+            SELECT DISTINCT ON (segment->>'userId') segment AS participant
+            FROM jsonb_array_elements(COALESCE(manifest->'segments', '[]'::jsonb)) AS segment
+            ORDER BY segment->>'userId'
+          ) inferred
+        ), '[]'::jsonb),
+        true
+      ),
+      '{schemaVersion}', '3'::jsonb, true
+    )
+  END
+WHERE manifest IS NOT NULL;
+
+UPDATE meeting_contents
+SET meeting_manifest = jsonb_set(
+  jsonb_set(
+    CASE WHEN meeting_manifest#>>'{aiConfiguration,profileType}' = 'external'
+      THEN meeting_manifest #- '{aiConfiguration,transcription,timestampMode}' #- '{aiConfiguration,transcription,batchSize}'
+      ELSE meeting_manifest #- '{aiConfiguration,transcription,timestampMode}'
+    END,
+    '{participants}',
+    COALESCE((
+      SELECT jsonb_agg(jsonb_build_object(
+        'userId', participant->>'userId',
+        'displayName', participant->>'userDisplayName'
+      ))
+      FROM (
+        SELECT DISTINCT ON (segment->>'userId') segment AS participant
+        FROM jsonb_array_elements(COALESCE(meeting_manifest->'segments', '[]'::jsonb)) AS segment
+        ORDER BY segment->>'userId'
+      ) inferred
+    ), '[]'::jsonb),
+    true
+  ),
+  '{schemaVersion}', '3'::jsonb, true
+);
+
+UPDATE meetings meeting
+SET voice_channel_name = COALESCE(meeting.voice_channel_name, content.meeting_manifest->>'voiceChannelName')
+FROM meeting_contents content
+WHERE content.meeting_id = meeting.meeting_id;
+
+INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name)
+SELECT DISTINCT ON (meeting.meeting_id, participant->>'userId')
+  meeting.meeting_id,
+  meeting.guild_id,
+  participant->>'userId',
+  participant->>'displayName'
+FROM meetings meeting
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(meeting.manifest->'participants', '[]'::jsonb)) participant
+WHERE participant->>'userId' IS NOT NULL AND participant->>'displayName' IS NOT NULL
+ON CONFLICT (meeting_id, user_id) DO NOTHING;
+
+INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name)
+SELECT DISTINCT ON (meeting.meeting_id, participant->>'userId')
+  meeting.meeting_id,
+  meeting.guild_id,
+  participant->>'userId',
+  participant->>'displayName'
+FROM meetings meeting
+JOIN meeting_contents content ON content.meeting_id = meeting.meeting_id
+CROSS JOIN LATERAL jsonb_array_elements(COALESCE(content.meeting_manifest->'participants', '[]'::jsonb)) participant
+WHERE participant->>'userId' IS NOT NULL AND participant->>'displayName' IS NOT NULL
+ON CONFLICT (meeting_id, user_id) DO NOTHING;
+
+INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name)
+SELECT DISTINCT ON (audio.meeting_id, audio.user_id)
+  audio.meeting_id, meeting.guild_id, audio.user_id, audio.user_display_name
+FROM meeting_audio_segments audio
+JOIN meetings meeting ON meeting.meeting_id = audio.meeting_id
+ORDER BY audio.meeting_id, audio.user_id, audio.started_at_ms DESC
+ON CONFLICT (meeting_id, user_id) DO NOTHING;
+`,
+  },
+  {
+    version: 8,
+    sql: `
+WITH source AS (
+  SELECT
+    meeting_id,
+    manifest,
+    COALESCE(
+      manifest#>>'{aiConfiguration,profileType}',
+      CASE manifest#>>'{aiConfiguration,transcription,provider}'
+        WHEN 'openrouter' THEN 'external'
+        WHEN 'faster-whisper' THEN 'local'
+      END
+    ) AS profile_type
+  FROM meetings
+  WHERE manifest IS NOT NULL
+), normalized AS (
+  SELECT
+    meeting_id,
+    CASE
+      WHEN manifest->'aiConfiguration' IS NULL OR profile_type IS NULL THEN manifest
+      ELSE jsonb_set(
+        CASE WHEN profile_type = 'external'
+          THEN manifest #- '{aiConfiguration,transcription,timestampMode}' #- '{aiConfiguration,transcription,batchSize}'
+          ELSE manifest #- '{aiConfiguration,transcription,timestampMode}'
+        END,
+        '{aiConfiguration,profileType}',
+        to_jsonb(profile_type),
+        true
+      )
+    END AS manifest
+  FROM source
+)
+UPDATE meetings meeting
+SET manifest = jsonb_set(normalized.manifest, '{storageMode}', '"postgres"'::jsonb, true)
+FROM normalized
+WHERE normalized.meeting_id = meeting.meeting_id;
+
+WITH source AS (
+  SELECT
+    meeting_id,
+    meeting_manifest,
+    COALESCE(
+      meeting_manifest#>>'{aiConfiguration,profileType}',
+      CASE meeting_manifest#>>'{aiConfiguration,transcription,provider}'
+        WHEN 'openrouter' THEN 'external'
+        WHEN 'faster-whisper' THEN 'local'
+      END
+    ) AS profile_type
+  FROM meeting_contents
+), normalized AS (
+  SELECT
+    meeting_id,
+    CASE
+      WHEN meeting_manifest->'aiConfiguration' IS NULL OR profile_type IS NULL
+        THEN meeting_manifest
+      ELSE jsonb_set(
+        CASE WHEN profile_type = 'external'
+          THEN meeting_manifest #- '{aiConfiguration,transcription,timestampMode}' #- '{aiConfiguration,transcription,batchSize}'
+          ELSE meeting_manifest #- '{aiConfiguration,transcription,timestampMode}'
+        END,
+        '{aiConfiguration,profileType}',
+        to_jsonb(profile_type),
+        true
+      )
+    END AS meeting_manifest
+  FROM source
+)
+UPDATE meeting_contents content
+SET meeting_manifest = jsonb_set(
+  normalized.meeting_manifest,
+  '{storageMode}',
+  '"postgres"'::jsonb,
+  true
+)
+FROM normalized
+WHERE normalized.meeting_id = content.meeting_id;
+`,
+  },
 ] as const;

@@ -93,8 +93,8 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
       try {
-        const pieces = await this.#request(input);
-        return { attempts: attempt, pieces };
+        const result = await this.#request(input);
+        return { attempts: attempt, ...result };
       } catch (error) {
         lastError = error;
         if (!isRetryable(error) || attempt === this.#maxAttempts) {
@@ -124,9 +124,8 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
 
   async #request(
     input: Parameters<TranscriptionProvider["transcribe"]>[0],
-  ): Promise<TranscriptPiece[]> {
+  ): Promise<{ pieces: TranscriptPiece[]; words: TranscriptPiece[] }> {
     const costAttempt = await this.#costRecorder?.beginApi("openrouter");
-    const acceptsUntimedText = this.#profile.timestampMode === "batch";
     const selectedLanguage = input.language ?? this.#language ?? this.#profile.language;
     const language = selectedLanguage === "auto" ? undefined : selectedLanguage;
     const inputAudio = {
@@ -144,11 +143,11 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
           ...(this.#profile.providerOptions === undefined
             ? {}
             : { provider: { options: this.#profile.providerOptions } }),
-          response_format: acceptsUntimedText ? "json" : "verbose_json",
+          response_format: "verbose_json",
           ...(this.#profile.temperature === undefined
             ? {}
             : { temperature: this.#profile.temperature }),
-          ...(acceptsUntimedText ? {} : { timestamp_granularities: ["word", "segment"] }),
+          timestamp_granularities: ["word", "segment"],
         }),
         headers: {
           Authorization: `Bearer ${this.#apiKey}`,
@@ -201,9 +200,9 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
       throw new IncompatibleTranscriptionResponseError("invalid_response_shape");
     }
     const parsed = result.data;
-    let pieces: TranscriptPiece[];
+    let pieces: { pieces: TranscriptPiece[]; words: TranscriptPiece[] };
     try {
-      pieces = parseTranscriptPieces(parsed, acceptsUntimedText, input.audioDurationMs);
+      pieces = parseTranscriptPieces(parsed);
     } catch (error) {
       if (costAttempt !== undefined) {
         await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
@@ -227,33 +226,21 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
   }
 }
 
-function parseTranscriptPieces(
-  parsed: z.infer<typeof responseSchema>,
-  acceptsUntimedText: boolean,
-  audioDurationMs: number | undefined,
-): TranscriptPiece[] {
+function parseTranscriptPieces(parsed: z.infer<typeof responseSchema>): {
+  pieces: TranscriptPiece[];
+  words: TranscriptPiece[];
+} {
   const wordsResult = parseTimedItems(parsed.words, true);
-  if (wordsResult?.success === true) return wordsResult.pieces;
-  const segmentsResult = parseTimedItems(parsed.segments, false);
-  if (segmentsResult?.success === true) return segmentsResult.pieces;
-  if (wordsResult === undefined && segmentsResult === undefined) {
-    const text = parsed.text.trim();
-    if (text.length === 0) return [];
-    if (!acceptsUntimedText) {
-      throw new IncompatibleTranscriptionResponseError("missing_timestamps");
-    }
-    if (
-      audioDurationMs === undefined ||
-      !Number.isFinite(audioDurationMs) ||
-      audioDurationMs <= 0
-    ) {
-      throw new IncompatibleTranscriptionResponseError("invalid_audio_duration");
-    }
-    return [{ endedAtMs: Math.round(audioDurationMs), startedAtMs: 0, text }];
+  if (wordsResult?.success === true) {
+    const words = parsed.words?.map(toTranscriptPiece) ?? [];
+    return { pieces: wordsResult.pieces, words };
   }
-  throw new IncompatibleTranscriptionResponseError(
-    selectIncompatibilityReason(wordsResult, segmentsResult),
-  );
+  if (wordsResult === undefined) {
+    const text = parsed.text.trim();
+    if (text.length === 0) return { pieces: [], words: [] };
+    throw new IncompatibleTranscriptionResponseError("missing_timestamps");
+  }
+  throw new IncompatibleTranscriptionResponseError(wordsResult.reason);
 }
 
 type TimedItemsResult =
@@ -278,17 +265,6 @@ function parseTimedItems(
     pieces: shouldGroupWords ? groupWords(items) : rawPieces,
     success: true,
   };
-}
-
-function selectIncompatibilityReason(
-  wordsResult: TimedItemsResult | undefined,
-  segmentsResult: TimedItemsResult | undefined,
-): "invalid_response_shape" | "invalid_timestamps" {
-  return wordsResult?.success === false && wordsResult.reason === "invalid_timestamps"
-    ? "invalid_timestamps"
-    : segmentsResult?.success === false && segmentsResult.reason === "invalid_timestamps"
-      ? "invalid_timestamps"
-      : "invalid_response_shape";
 }
 
 function hasInvalidTimestamp(piece: TranscriptPiece): boolean {

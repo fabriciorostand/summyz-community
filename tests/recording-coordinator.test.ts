@@ -128,6 +128,28 @@ describe("RecordingCoordinator", () => {
     expect(handle.stop).not.toHaveBeenCalled();
   });
 
+  it("registra quem entra no canal ativo e ignora outro canal", async () => {
+    const handle = {
+      ...createHandle("guild-1", "voice-1"),
+      recordParticipant: vi.fn(async () => undefined),
+    };
+    const coordinator = new RecordingCoordinator({
+      create: vi.fn(async () => handle),
+      resume: vi.fn(),
+    });
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    await coordinator.recordParticipant("guild-1", "voice-1", "user-1", "Ana");
+    await coordinator.recordParticipant("guild-1", "voice-other", "user-2", "Bia");
+
+    expect(handle.recordParticipant).toHaveBeenCalledOnce();
+    expect(handle.recordParticipant).toHaveBeenCalledWith("user-1", "Ana");
+  });
+
   it("informa quando não existe gravação para encerrar", async () => {
     const factory: RecordingSessionFactory = {
       create: vi.fn(),

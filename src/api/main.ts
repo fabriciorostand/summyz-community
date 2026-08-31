@@ -8,6 +8,7 @@ import { JwtSessionSigner } from "../auth/jwt-session.js";
 import { Argon2PasswordHasher } from "../auth/password-hasher.js";
 import { SmtpAuthenticationEmailSender } from "../auth/smtp-email-sender.js";
 import { PostgresAiProfileStore } from "../database/postgres-ai-profile-store.js";
+import { PostgresAnalyticsStore } from "../database/postgres-analytics-store.js";
 import { PostgresAuthRepository } from "../database/postgres-auth-repository.js";
 import { PostgresDiscordConnectionStore } from "../database/postgres-discord-connection-store.js";
 import { PostgresGuildConfigStore } from "../database/postgres-guild-config-store.js";
@@ -54,6 +55,7 @@ const guildDirectory = new DiscordRestGuildDirectory({
 });
 const app = await createApiServer(
   {
+    analytics: new PostgresAnalyticsStore(database),
     aiProfiles: new PostgresAiProfileStore(database),
     auth,
     discord,
@@ -62,6 +64,7 @@ const app = await createApiServer(
     secureCookies: config.secureCookies,
     settings,
     setupToken: config.setupToken,
+    timeZone: config.summaryTimeZone,
   },
   { staticDirectory: resolve(config.staticDirectory) },
 );

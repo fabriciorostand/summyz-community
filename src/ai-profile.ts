@@ -51,7 +51,6 @@ export const localVadSchema = z
   .prefault({});
 
 const transcriptionBaseSchema = z.object({
-  batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
   interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
   language: languageSchema.default("auto"),
   mergeMaxGapMs: z.number().int().min(0).max(30_000).default(2_000),
@@ -59,7 +58,6 @@ const transcriptionBaseSchema = z.object({
   prompt: promptSchema,
   providerOptions: z.record(z.string().min(1), z.record(z.string().min(1), z.json())).optional(),
   temperature: z.number().min(0).max(1).optional(),
-  timestampMode: z.enum(["batch", "word"]).default("word"),
 });
 
 const refinementBaseSchema = z.object({
@@ -83,6 +81,7 @@ export const externalTranscriptionAiProfileSchema = transcriptionBaseSchema.exte
   vad: externalVadSchema,
 });
 export const localTranscriptionAiProfileSchema = transcriptionBaseSchema.extend({
+  batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
   provider: z.literal("faster-whisper").default("faster-whisper"),
   vad: localVadSchema,
 });
@@ -220,7 +219,6 @@ export function resolveAiProfile(profile: AiProfile) {
       provider: summary.provider,
     },
     transcription: {
-      batchSize: transcription.batchSize,
       interSpeechSilenceMs: transcription.interSpeechSilenceMs,
       language: transcription.language,
       mergeMaxGapMs: transcription.mergeMaxGapMs,
@@ -233,7 +231,9 @@ export function resolveAiProfile(profile: AiProfile) {
       ...(transcription.temperature === undefined
         ? {}
         : { temperature: transcription.temperature }),
-      timestampMode: transcription.timestampMode,
+      ...(transcription.provider === "faster-whisper"
+        ? { batchSize: transcription.batchSize }
+        : {}),
       vad: transcription.vad,
     },
   };
