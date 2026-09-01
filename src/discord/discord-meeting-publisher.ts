@@ -86,6 +86,11 @@ interface DiscordMeetingPublisherOptions {
 }
 
 export interface MeetingPublisher {
+  notifyTranslationFallback?(
+    manifest: RecordingManifest,
+    configuredLanguage: string,
+    predominantLanguage: string,
+  ): Promise<void>;
   publishSummary(
     manifest: RecordingManifest,
     summary: PublicSummary,
@@ -119,6 +124,28 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     transcriptPath: string,
   ): Promise<void> {
     await this.#publish(manifest, "summary", transcriptPath, summary);
+  }
+
+  public async notifyTranslationFallback(
+    manifest: RecordingManifest,
+    configuredLanguage: string,
+    predominantLanguage: string,
+  ): Promise<void> {
+    if (manifest.startedByUserId === undefined) return;
+    const language = manifest.botLanguage ?? this.#language;
+    const content =
+      language === "pt-BR"
+        ? `⚠️ Não foi possível traduzir o resumo para o idioma configurado (\`${configuredLanguage}\`). O resumo foi publicado no idioma predominante da call (\`${predominantLanguage}\`), e a transcrição original foi preservada. Revise o idioma e o modelo de tradução do perfil antes da próxima gravação.`
+        : `⚠️ Summyz could not translate the summary into the configured language (\`${configuredLanguage}\`). The summary was published in the call's predominant language (\`${predominantLanguage}\`), and the original transcript was preserved. Review the profile language and translation model before the next recording.`;
+    try {
+      const user = await this.#client.users.fetch(manifest.startedByUserId);
+      await user.send({ allowedMentions: { parse: [] }, content });
+    } catch (error) {
+      this.#logger.warn(
+        { errorType: getErrorType(error), meetingId: manifest.meetingId },
+        "Unable to send private translation fallback notification",
+      );
+    }
   }
 
   public async publishTranscriptOnly(
@@ -192,7 +219,24 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     summary?: PublicSummary,
   ): Promise<Extract<PublicationState, { status: "publishing" }>> {
     const language = manifest.botLanguage ?? this.#language;
-    const text = publicationTexts[language];
+    const text: PublicationText = {
+      ...publicationTexts[language],
+      ...(summary?.labels === undefined
+        ? {}
+        : {
+            assignee: summary.labels.assignee,
+            deadline: summary.labels.deadline,
+            decisions: summary.labels.decisions,
+            discussedTopics: summary.labels.discussedTopics,
+            executiveSummary: summary.labels.executiveSummary,
+            fullTranscript: summary.labels.fullTranscript,
+            meetingId: summary.labels.meetingId,
+            openIssues: summary.labels.observations,
+            summary: summary.labels.summary,
+            tasks: summary.labels.tasks,
+            transcript: summary.labels.transcript,
+          }),
+    };
     const summaryChunks =
       mode === "summary" && summary !== undefined
         ? formatSummary(manifest.meetingId, summary, text)

@@ -53,7 +53,9 @@ services:
       - postgres_data:/var/lib/postgresql
 
   bot:
-    build: .
+    build:
+      context: .
+      target: bot-runtime
     restart: unless-stopped
     depends_on:
       faster-whisper:
@@ -70,8 +72,9 @@ services:
       - summyz_data:/app/data
 
   dashboard:
-    build: .
-    command: ["npm", "run", "start:api"]
+    build:
+      context: .
+      target: dashboard-runtime
     restart: unless-stopped
     depends_on:
       postgres:

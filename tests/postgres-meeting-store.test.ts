@@ -119,6 +119,17 @@ describe("PostgresMeetingStore", () => {
     expect(query.mock.calls[1]?.[1]).toEqual(["meeting-1"]);
   });
 
+  it("consome a fila de limpeza local criada pela migração da entrega 2", async () => {
+    const { database, query } = createDatabase([{ meeting_id: "meeting-pending" }]);
+    const store = new PostgresMeetingStore(database);
+
+    await expect(store.listDelivery2CleanupMeetingIds()).resolves.toEqual(["meeting-pending"]);
+    await store.markDelivery2CleanupCompleted("meeting-pending");
+
+    expect(query.mock.calls[0]?.[0]).toContain("delivery_2_meeting_cleanup");
+    expect(query.mock.calls[1]?.[1]).toEqual(["meeting-pending"]);
+  });
+
   it("atualiza o estágio e um código seguro de falha", async () => {
     const { database, query } = createDatabase();
     const store = new PostgresMeetingStore(database);

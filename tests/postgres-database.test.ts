@@ -88,6 +88,19 @@ describe("PostgresDatabase", () => {
     expect(queries.at(-1)).toBe("COMMIT");
   });
 
+  it("normaliza perfis para auto e exclui somente reuniões ainda não concluídas", async () => {
+    const { pool, queries } = createPool({ versions: [1, 2, 3, 4, 5, 6, 7, 8, 9] });
+
+    await new PostgresDatabase(pool).initialize();
+
+    const sql = queries.join("\n");
+    expect(sql).toMatch(/ADD COLUMN language text NOT NULL DEFAULT 'auto'/i);
+    expect(sql).toMatch(/ADD COLUMN translation jsonb/i);
+    expect(sql).toMatch(/UPDATE ai_profiles[\s\S]*language = 'auto'/i);
+    expect(sql).toMatch(/DELETE FROM meetings[\s\S]*pipeline_status IN \([\s\S]*'recording'/i);
+    expect(sql).not.toMatch(/pipeline_status IN \([^)]*'completed'/i);
+  });
+
   it("normaliza configurações v1 que já foram marcadas como manifesto v3", async () => {
     const { pool, queries } = createPool({ versions: [1, 2, 3, 4, 5, 6, 7] });
     const database = new PostgresDatabase(pool);
@@ -100,6 +113,22 @@ describe("PostgresDatabase", () => {
     expect(correctiveMigration).toContain("'{storageMode}'");
     expect(correctiveMigration).toContain("'{aiConfiguration,transcription,batchSize}'");
     expect(correctiveMigration).toContain("meeting_contents");
+  });
+
+  it("normaliza todos os prompts ausentes antes de exigir o contrato atual dos perfis", async () => {
+    const { pool, queries } = createPool({ versions: [1, 2, 3, 4, 5, 6, 7, 8] });
+    const database = new PostgresDatabase(pool);
+
+    await database.initialize();
+
+    const correctiveMigration = queries.find((query) =>
+      query.includes("ai_profiles_prompt_contract_check"),
+    );
+    expect(correctiveMigration).toContain("transcription ? 'prompt'");
+    expect(correctiveMigration).toContain("refinement ? 'prompt'");
+    expect(correctiveMigration).toContain("summary ? 'extractionPrompt'");
+    expect(correctiveMigration).toContain("summary ? 'consolidationPrompt'");
+    expect(correctiveMigration).toContain("dashboard_language");
   });
 
   it("faz rollback e expõe somente um erro seguro quando o PostgreSQL falha", async () => {

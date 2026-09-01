@@ -9,9 +9,11 @@ const rowSchema = z.object({
   owner_user_id: z.string().min(1),
   profile_id: z.string().min(1),
   profile_type: z.enum(["external", "local"]),
+  language: z.unknown(),
   refinement: z.unknown(),
   summary: z.unknown(),
   transcription: z.unknown(),
+  translation: z.unknown().nullable(),
 });
 
 export interface AiProfileStore {
@@ -28,6 +30,13 @@ export interface AiProfileStore {
   listActiveProfileIds(userId: string): Promise<Set<string>>;
   setActiveProfile(guildId: string, userId: string, profileId: string): Promise<void>;
   updateProfile(userId: string, profile: AiProfile): Promise<void>;
+}
+
+export class StoredAiProfileValidationError extends Error {
+  public constructor(cause: unknown) {
+    super("Stored AI profile does not match the current contract", { cause });
+    this.name = "StoredAiProfileValidationError";
+  }
 }
 
 export class PostgresAiProfileStore implements AiProfileStore {
@@ -50,8 +59,9 @@ export class PostgresAiProfileStore implements AiProfileStore {
     const profile = aiProfileSchema.parse(input);
     await this.#database.query(
       `INSERT INTO ai_profiles (
-         profile_id, owner_user_id, profile_type, name, transcription, refinement, summary
-       ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)`,
+         profile_id, owner_user_id, profile_type, name, transcription, refinement, summary,
+         language, translation
+       ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)`,
       serializeProfile(profile),
     );
   }
@@ -94,8 +104,9 @@ export class PostgresAiProfileStore implements AiProfileStore {
     for (const profile of profiles) {
       await this.#database.query(
         `INSERT INTO ai_profiles (
-           profile_id, owner_user_id, profile_type, name, transcription, refinement, summary
-         ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb)
+           profile_id, owner_user_id, profile_type, name, transcription, refinement, summary,
+           language, translation
+         ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)
          ON CONFLICT DO NOTHING`,
         serializeProfile(profile),
       );
@@ -105,7 +116,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
   public async getActiveProfile(guildId: string): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
       `SELECT p.profile_id, p.owner_user_id, p.profile_type, p.name,
-              p.transcription, p.refinement, p.summary
+              p.transcription, p.refinement, p.summary, p.language, p.translation
        FROM guild_configurations AS guild
        JOIN ai_profiles AS p ON p.profile_id = guild.active_ai_profile_id
        WHERE guild.guild_id = $1`,
@@ -120,7 +131,8 @@ export class PostgresAiProfileStore implements AiProfileStore {
   ): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
       `SELECT profile.profile_id, profile.owner_user_id, profile.profile_type, profile.name,
-              profile.transcription, profile.refinement, profile.summary
+              profile.transcription, profile.refinement, profile.summary,
+              profile.language, profile.translation
        FROM guild_configurations AS guild
        JOIN ai_profiles AS profile ON profile.profile_id = guild.active_ai_profile_id
        JOIN discord_connections AS connection ON connection.user_id = profile.owner_user_id
@@ -132,7 +144,8 @@ export class PostgresAiProfileStore implements AiProfileStore {
 
   public async listProfiles(userId: string): Promise<AiProfile[]> {
     const result = await this.#database.query(
-      `SELECT profile_id, owner_user_id, profile_type, name, transcription, refinement, summary
+      `SELECT profile_id, owner_user_id, profile_type, name, transcription, refinement, summary,
+              language, translation
        FROM ai_profiles
        WHERE owner_user_id = $1::uuid
        ORDER BY profile_type, created_at, profile_id`,
@@ -187,6 +200,8 @@ export class PostgresAiProfileStore implements AiProfileStore {
            transcription = $5::jsonb,
            refinement = $6::jsonb,
            summary = $7::jsonb,
+           language = $8,
+           translation = $9::jsonb,
            updated_at = now()
        WHERE profile_id = $1
          AND owner_user_id = $2::uuid
@@ -204,16 +219,23 @@ function ensureProfileWasChanged(rowCount: number | null): void {
 }
 
 function parseProfileRow(input: unknown): AiProfile {
-  const row = rowSchema.parse(input);
-  return aiProfileSchema.parse({
-    name: row.name,
-    profileId: row.profile_id,
-    profileType: row.profile_type,
-    refinement: row.refinement,
-    summary: row.summary,
-    transcription: row.transcription,
-    userId: row.owner_user_id,
-  });
+  try {
+    const row = rowSchema.parse(input);
+    return aiProfileSchema.parse({
+      name: row.name,
+      language: row.language,
+      profileId: row.profile_id,
+      profileType: row.profile_type,
+      refinement: row.refinement,
+      summary: row.summary,
+      transcription: row.transcription,
+      translation: row.translation,
+      userId: row.owner_user_id,
+    });
+  } catch (error) {
+    if (error instanceof z.ZodError) throw new StoredAiProfileValidationError(error);
+    throw error;
+  }
 }
 
 function serializeProfile(profile: AiProfile): readonly unknown[] {
@@ -225,5 +247,7 @@ function serializeProfile(profile: AiProfile): readonly unknown[] {
     JSON.stringify(profile.transcription),
     JSON.stringify(profile.refinement),
     JSON.stringify(profile.summary),
+    profile.language,
+    profile.translation === null ? null : JSON.stringify(profile.translation),
   ];
 }

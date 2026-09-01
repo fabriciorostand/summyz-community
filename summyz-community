@@ -1,0 +1,211 @@
+#!/bin/sh
+
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repository_dir=$script_dir
+cd "$repository_dir"
+
+command_name=${1:-}
+if [ -z "$command_name" ]; then
+  echo "Usage: ./summyz <up|down|restart|status|logs> [--dry-run]" >&2
+  exit 2
+fi
+shift
+
+dry_run=false
+if [ "${1:-}" = "--dry-run" ]; then
+  dry_run=true
+  shift
+fi
+if [ "$#" -ne 0 ]; then
+  echo "Unexpected launcher arguments" >&2
+  exit 2
+fi
+
+read_env_setting() {
+  setting_name=$1
+  if [ ! -f .env ]; then
+    return
+  fi
+  awk -v wanted="$setting_name" '
+    /^[[:space:]]*#/ { next }
+    {
+      key = $0
+      sub(/=.*/, "", key)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      if (key == wanted) {
+        value = $0
+        sub(/^[^=]*=/, "", value)
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", value)
+        if (value ~ /^".*"$/ || value ~ /^\047.*\047$/) {
+          value = substr(value, 2, length(value) - 2)
+        }
+        print value
+        exit
+      }
+    }
+  ' .env
+}
+
+device=${LOCAL_AI_DEVICE:-}
+fallback=${LOCAL_AI_FALLBACK:-}
+[ -n "$device" ] || device=$(read_env_setting LOCAL_AI_DEVICE)
+[ -n "$fallback" ] || fallback=$(read_env_setting LOCAL_AI_FALLBACK)
+device=${device:-auto}
+fallback=${fallback:-none}
+
+case "$device" in
+  auto|gpu|cpu) ;;
+  *) echo "LOCAL_AI_DEVICE must be auto, gpu, or cpu" >&2; exit 2 ;;
+esac
+case "$fallback" in
+  none|cpu) ;;
+  *) echo "LOCAL_AI_FALLBACK must be none or cpu" >&2; exit 2 ;;
+esac
+
+profile=cpu
+gpu_name=""
+
+use_cpu_fallback() {
+  reason=$1
+  if [ "$fallback" = "cpu" ]; then
+    echo "Warning: $reason; authorized CPU fallback selected" >&2
+    profile=cpu
+    gpu_name=""
+    return
+  fi
+  echo "$reason. Set LOCAL_AI_FALLBACK=cpu to authorize CPU fallback." >&2
+  exit 1
+}
+
+detect_acceleration() {
+  if [ "$device" = "cpu" ]; then
+    return
+  fi
+
+  injected_vendor=${SUMMYZ_DETECTED_GPU_VENDOR:-}
+  if [ -n "$injected_vendor" ]; then
+    case "$injected_vendor" in
+      nvidia)
+        profile=nvidia
+        gpu_name=${SUMMYZ_DETECTED_GPU_NAME:-NVIDIA GPU}
+        return
+        ;;
+      amd)
+        if [ "$(uname -s)" = "Linux" ]; then
+          profile=amd
+          gpu_name=${SUMMYZ_DETECTED_GPU_NAME:-AMD GPU}
+          return
+        fi
+        use_cpu_fallback "AMD GPU acceleration through Docker is available only on Linux"
+        return
+        ;;
+      *)
+        use_cpu_fallback "GPU vendor $injected_vendor has no supported Docker profile"
+        return
+        ;;
+    esac
+  fi
+
+  if command -v nvidia-smi >/dev/null 2>&1; then
+    nvidia_output=$(nvidia-smi --query-gpu=index,name,memory.total --format=csv,noheader,nounits 2>/dev/null || true)
+    if [ -n "$nvidia_output" ]; then
+      first_gpu=$(printf '%s\n' "$nvidia_output" | sed -n '1p')
+      gpu_name=$(printf '%s' "$first_gpu" | cut -d, -f2 | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+      memory_mib=$(printf '%s' "$first_gpu" | cut -d, -f3 | sed 's/[^0-9]//g')
+      profile=nvidia
+      export SUMMYZ_DETECTED_GPU_VENDOR=nvidia
+      export SUMMYZ_DETECTED_GPU_NAME="$gpu_name"
+      if [ -n "$memory_mib" ]; then
+        SUMMYZ_DETECTED_GPU_MEMORY_BYTES=$((memory_mib * 1024 * 1024))
+        export SUMMYZ_DETECTED_GPU_MEMORY_BYTES
+      fi
+      return
+    fi
+  fi
+
+  if [ "$(uname -s)" = "Linux" ]; then
+    amd_detected=false
+    for vendor_file in /sys/class/drm/card*/device/vendor; do
+      [ -f "$vendor_file" ] || continue
+      vendor=$(tr '[:upper:]' '[:lower:]' < "$vendor_file")
+      if [ "$vendor" = "0x1002" ]; then
+        amd_detected=true
+        break
+      fi
+    done
+    if [ "$amd_detected" = true ]; then
+      if [ ! -e /dev/kfd ] || [ ! -d /dev/dri ]; then
+        use_cpu_fallback "AMD GPU detected without accessible ROCm devices /dev/kfd and /dev/dri"
+        return
+      fi
+      profile=amd
+      gpu_name="AMD GPU"
+      export SUMMYZ_DETECTED_GPU_VENDOR=amd
+      export SUMMYZ_DETECTED_GPU_NAME="$gpu_name"
+      return
+    fi
+  fi
+
+  if [ "$device" = "gpu" ]; then
+    use_cpu_fallback "No compatible GPU and driver were detected"
+  fi
+}
+
+print_selection() {
+  case "$profile" in
+    nvidia) echo "GPU: $gpu_name"; echo "Profile: NVIDIA/CUDA" ;;
+    amd) echo "GPU: $gpu_name"; echo "Profile: AMD/ROCm" ;;
+    *) echo "Profile: CPU" ;;
+  esac
+}
+
+run_compose() {
+  if [ "$profile" = "nvidia" ]; then
+    set -- -f docker-compose.yaml -f docker-compose.nvidia.yaml "$@"
+  elif [ "$profile" = "amd" ]; then
+    set -- -f docker-compose.yaml -f docker-compose.amd.yaml "$@"
+  else
+    set -- -f docker-compose.yaml "$@"
+  fi
+
+  printf 'Executing: docker compose'
+  for argument in "$@"; do
+    printf ' %s' "$argument"
+  done
+  printf '\n'
+
+  if [ "$dry_run" = true ]; then
+    return
+  fi
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker is not installed or is unavailable in PATH" >&2
+    exit 1
+  fi
+  if ! docker info >/dev/null 2>&1; then
+    echo "Docker daemon is unavailable" >&2
+    exit 1
+  fi
+  docker compose "$@"
+}
+
+case "$command_name" in
+  up)
+    detect_acceleration
+    print_selection
+    run_compose up -d --build
+    ;;
+  restart)
+    detect_acceleration
+    print_selection
+    run_compose up -d --build --force-recreate
+    ;;
+  down) run_compose down ;;
+  status) run_compose ps ;;
+  logs) run_compose logs --follow ;;
+  *)
+    echo "Usage: ./summyz <up|down|restart|status|logs> [--dry-run]" >&2
+    exit 2
+    ;;
+esac

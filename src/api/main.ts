@@ -61,6 +61,7 @@ const app = await createApiServer(
     discord,
     guildConfig: new PostgresGuildConfigStore(database),
     guildDirectory,
+    logger,
     secureCookies: config.secureCookies,
     settings,
     setupToken: config.setupToken,

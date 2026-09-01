@@ -24,6 +24,8 @@ class TranscriptionOptionsTests(unittest.TestCase):
                 "batch_size": 4,
                 "initial_prompt": "Transcreva literalmente.",
                 "language": "pt",
+                "multilingual": True,
+                "task": "transcribe",
                 "vad_filter": True,
                 "vad_parameters": {
                     "max_speech_duration_s": 30,

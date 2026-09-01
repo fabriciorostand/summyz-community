@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/versão-1.0.0-blue" alt="Versão">
-  <img src="https://img.shields.io/badge/node-%3E%3D22.5-339933?logo=node.js&logoColor=white" alt="Node >= 22.5" />
+  <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white" alt="Node >= 22.12" />
   <img src="https://img.shields.io/badge/PRs-welcome-23A559" alt="PRs welcome" />
   <img src="https://img.shields.io/badge/self--hosted-100%25-0A0B0F" alt="Self-hosted" />
 </p>
@@ -30,29 +30,39 @@ decisões, as tarefas e a transcrição completa.
 
 ## Requisitos
 
-- Node.js 22.12 ou superior;
-- npm;
-- Docker com Compose para executar o bot, o PostgreSQL e os serviços locais;
-- PostgreSQL 18;
+- Docker com Compose;
 - uma aplicação de bot criada no Discord Developer Portal;
 - uma conta no OpenRouter com créditos e uma chave de API somente para as fases configuradas com
   `openrouter`;
-- FFmpeg não precisa ser instalado separadamente: o projeto usa um binário empacotado.
+- drivers e integração Docker compatíveis se a aceleração NVIDIA ou AMD for utilizada.
+
+Node.js 22.12, npm e uma instalação do FFmpeg com `libopus` são necessários somente para
+desenvolvimento nativo. PostgreSQL, Ollama, faster-whisper, Python, Node e FFmpeg são preparados
+automaticamente no fluxo Docker.
 
 ## Configuração local
 
-1. Instale as dependências com `npm install`.
-2. Copie `.env.example` para `.env`.
-3. Preencha `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY` e `SUMMYZ_SETUP_TOKEN`. Use o
+1. Copie `.env.example` para `.env`.
+2. Preencha `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY` e `SUMMYZ_SETUP_TOKEN`. Use o
    host `postgres` no Compose ou `localhost` ao executar os processos diretamente pelo npm.
-4. Execute `npm run build` e suba o Compose. Abra `http://127.0.0.1:8787` para criar a conta
+3. No Linux ou macOS, execute `./summyz up`. No Windows, execute
+   `.\summyz.ps1 up`. O launcher roda
+   no host, detecta CPU, NVIDIA ou AMD, escolhe os overlays seguros e chama o Docker Compose.
+4. Abra `http://127.0.0.1:8787` para criar a conta
    administradora e configurar Discord, SMTP e, se necessário, OpenRouter.
 5. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
-6. Execute `npm run local-ai:up`. O inicializador detecta GPUs, escolhe os overlays seguros do
-   Compose e sobe o bot, PostgreSQL, Ollama e faster-whisper. Os modelos locais escolhidos nos
-   perfis são preparados quando necessários.
-   Para desenvolver a interface, use `npm run dev:api` e `npm run dev:web` em terminais separados.
+
+Use `./summyz status`, `./summyz logs`, `./summyz restart` e
+`./summyz down` para administrar a instalação; no Windows, substitua `./summyz` por
+`.\summyz.ps1`. O Compose direto continua
+disponível para operadores avançados. `docker compose up -d --build` usa CPU; para NVIDIA ou AMD,
+inclua manualmente `docker-compose.nvidia.yaml` ou `docker-compose.amd.yaml`.
+
+Para desenvolver nativamente, execute `npm install` e informe um `FFMPEG_PATH` absoluto ou deixe
+`ffmpeg`/`ffmpeg.exe` disponível no `PATH`. O bot valida o executável e o encoder `libopus` antes de
+conectar ao Discord. PostgreSQL, Ollama e faster-whisper podem continuar no Compose. Para a
+interface, use `npm run dev:api` e `npm run dev:web` em terminais separados.
 
 Se a porta local `5432` já estiver ocupada, altere `POSTGRES_PORT` e ajuste a porta de
 `DATABASE_URL`. O PostgreSQL é publicado somente em `127.0.0.1`; entre containers, a conexão
@@ -165,27 +175,51 @@ preenchidos. O último perfil de cada tipo e qualquer perfil ativo não podem se
 
 Cada servidor mantém no máximo um desses perfis como ativo, independentemente do tipo. Servidores
 novos começam sem perfil ativo; enquanto transcrição, refinamento e resumo do perfil escolhido não
-tiverem modelos explícitos, `/record` mostra um aviso efêmero e não inicia a gravação. Trocar um
-modelo preserva os demais parâmetros do perfil. Se a propriedade do servidor mudar no Discord, o
+tiverem modelos explícitos, `/record` mostra um aviso efêmero e não inicia a gravação. Ao escolher
+um idioma explícito, o modelo de tradução também passa a ser obrigatório e o perfil fica incompleto
+imediatamente até ele ser preenchido. Trocar um modelo preserva os demais parâmetros do perfil. Se a
+propriedade do servidor mudar no Discord, o
 perfil do proprietário anterior é desassociado: o servidor deixa sua lista e o novo proprietário
 precisa conectar a própria conta e fazer sua configuração.
 
 Não existe modelo `auto` nem `openrouter/auto`. A escolha é livre e o Summyz nunca substitui o
 modelo selecionado. A avaliação local usa os estados `recommended`, `compatible`,
 `above_recommended`, `unknown` e `incompatible`: somente `incompatible` bloqueia a gravação;
-`above_recommended` e `unknown` geram avisos privados. Um perfil guarda, por fase, o provedor,
-modelo, idioma e parâmetros próprios. Isso inclui batching e opções de STT, tamanho de chunks e as
+`above_recommended` e `unknown` geram avisos privados. O idioma é uma configuração principal do
+perfil, usa um catálogo pesquisável de tags BCP 47 e tem `auto` como padrão. Cada fase guarda o
+provedor, modelo e parâmetros próprios. Isso inclui batching e opções de STT, tamanho de chunks e as
 opções de geração `temperature`, `seed` e `think` quando aplicáveis. Valores não definidos não são
 forçados pelo Summyz, preservando os padrões do provedor.
 
-O dashboard mostra integralmente os prompts de transcrição, refinamento, extração do resumo e
-consolidação do resumo. O prompt pode ser editado por completo ou desativado por fase; nesse caso,
-nenhuma mensagem de sistema é enviada naquela fase. O padrão de transcrição é vazio. Os demais
+O dashboard mostra integralmente os prompts editáveis de transcrição, refinamento, extração,
+consolidação e tradução. **Sem prompt** remove apenas a personalização: um prompt-base imutável do
+Summyz sempre é enviado para fixar idioma, estrutura, evidências, preservação literal e regras de
+segurança. Transcrições e prompts editáveis são tratados como conteúdo não confiável. O padrão de
+transcrição não possui bloco editável. Os demais
 padrões nascem em inglês ou pt-BR conforme o idioma da conta no dashboard, enquanto o texto do
 prompt solicita o idioma configurado para o resumo. Ao alterar esse idioma, prompts ainda iguais ao
 padrão são adaptados; textos personalizados são preservados. O botão **Restaurar padrão** usa o
-idioma atual do dashboard. Os prompts efetivos, inclusive a decisão explícita de não enviar um,
-são fixados no manifesto quando a reunião começa.
+idioma atual do dashboard. Os prompts e modelos efetivos são fixados no manifesto quando a reunião
+começa, sem mudança silenciosa em retomadas.
+
+Em `auto`, a transcrição preserva as alternâncias de idioma, todos os lotes contribuem uma única vez
+para escolher a tag primária predominante e o resumo é publicado nesse idioma. Com uma tag explícita,
+o resumo-base é primeiro validado e persistido no idioma predominante e só depois traduzido. Se a tag
+explícita for idêntica à predominante, a tradução é ignorada. A transcrição e o refinamento nunca são
+traduzidos. Se a tradução falhar após as tentativas, o resumo-base é publicado e somente o autor de
+`/record` recebe a DM privada; não há aviso público nem fallback de DM.
+
+Perfis externos validam no OpenRouter a modalidade de transcrição e os contratos estruturados dos
+modelos antes de gravar. Perfis locais carregam o checkpoint faster-whisper e exigem a capacidade
+`multilingual=true` reportada pelo checkpoint real. `tiny.en`, `base.en`, `small.en`, `medium.en`,
+convertidos equivalentes e checkpoints cuja capacidade não possa ser determinada são bloqueados
+antes de qualquer áudio ou chamada de processamento. Não há detector auxiliar nem catálogo de
+compatibilidade entre modelos generativos e idiomas.
+
+As migrations normalizam perfis criados antes de as chaves de prompt se tornarem obrigatórias. O
+texto existente é preservado, prompts de transcrição ausentes viram `null` e prompts de refinamento
+ou resumo ausentes recebem os padrões localizados. O runtime aceita somente o contrato atual de
+perfil.
 
 ## Configurações de gravação
 
@@ -211,19 +245,24 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout de cada tentativa; padrão `90000` ms;
 - `TRANSCRIPTION_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
 - `TRANSCRIPTION_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
+- `TRANSLATION_MAX_ATTEMPTS`: tentativas da tradução; padrão `3`;
+- `TRANSLATION_TIMEOUT_MS`: timeout por tentativa de tradução; padrão `120000` ms;
+- `TRANSLATION_RETRY_BASE_MS`: espera inicial da tradução; padrão `1000` ms;
+- `TRANSLATION_RETRY_MAX_MS`: espera máxima da tradução; padrão `30000` ms;
 
 Na fase de transcrição, cada perfil define:
 
 - `provider` e `model`, ambos obrigatórios para o perfil ficar completo;
-- `language`: `auto` ou um idioma explícito;
+- a transcrição sempre usa detecção automática; o idioma configurado pertence ao perfil e controla
+  somente o idioma efetivo do resumo;
 - `temperature`: temperatura da transcrição;
 - timestamps por palavra são obrigatórios; uma API externa incompatível encerra a transcrição sem
   aproximação por segmento ou pela duração inteira do lote;
 - `interSpeechSilenceMs`: silêncio WAV inserido somente entre intervalos reais de voz do lote;
 - `mergeMaxGapMs`: sobrescrita opcional do intervalo máximo global para consolidar falas da mesma
   pessoa;
-- `prompt`: instrução textual completa para orientar o estilo da transcrição, ou `null` para não
-  enviar prompt;
+- `prompt`: instrução editável para orientar o estilo da transcrição, ou `null` para usar somente o
+  prompt-base;
 - `providerOptions`: opções opcionais agrupadas pelo slug do provedor conforme o contrato do
   OpenRouter.
 
@@ -244,6 +283,10 @@ permanecem visíveis com `0%`.
 Datas e limites dos filtros usam `SUMMARY_TIME_ZONE`. Conteúdo de resumo e transcrição só aparece
 quando a retenção estava habilitada para a reunião. O custo do Dashboard soma valores confirmados de
 todas as tentativas e avisa quando ainda existem valores pendentes ou não atribuídos.
+
+Se a lista de perfis ou a configuração de um servidor não puder ser carregada, o dashboard mostra
+um erro genérico e permite tentar novamente na própria página. Detalhes sobre dependências e dados
+persistidos permanecem somente nos logs estruturados do servidor.
 
 O VAD é configurado na aba própria do perfil e pode ser desativado. Perfis de API externa usam o
 detector Silero do Summyz antes de enviar áudio ao OpenRouter. Perfis locais não executam esse
@@ -297,7 +340,8 @@ uma etapa futura.
 Docker Desktop no Windows expõe GPU NVIDIA, não AMD; por isso o inicializador interrompe uma fase
 Ollama/AMD nesse ambiente, salvo quando o fallback para CPU foi autorizado. GPUs Intel, Apple e de
 fabricante desconhecido são detectadas, mas sem um perfil de container compatível nesta etapa o
-mesmo princípio se aplica. Use `npm run local-ai:down` para encerrar a pilha iniciada pelo script.
+mesmo princípio se aplica. Use `./summyz down` ou `.\summyz.ps1 down` para encerrar
+a pilha.
 
 Se o modelo escolhido estiver acima da recomendação de hardware, o Summyz mantém a escolha e avisa
 somente o usuário que executou `/record`; não troca para um modelo menor. Modelos incompatíveis
@@ -444,7 +488,7 @@ primeira execução. Interações reais no Discord não são apresentadas como t
 O benchmark de faster-whisper usa `transcript.raw.txt` como referência, calcula WER, CER, tempo e
 fator de tempo real, e não inclui o conteúdo das reuniões no relatório. Configure
 `BENCHMARK_DEVICE`, `BENCHMARK_BATCH_SIZE` e `BENCHMARK_MODEL`, depois execute
-`npx tsx scripts/local-ai-compose.ts --profile benchmark run --rm benchmark`. Ele só mede reuniões
+`docker compose --profile benchmark run --rm benchmark`. Ele só mede reuniões
 que ainda possuem todos os áudios. O inventário inicial está em
 [`docs/benchmarks.md`](./docs/benchmarks.md).
 

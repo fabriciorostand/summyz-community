@@ -399,8 +399,102 @@ describe("App", () => {
     ).toBeInTheDocument();
   });
 
+  it("repete as consultas da configuração na própria página", async () => {
+    let configurationAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/setup/status") {
+          return Response.json({ setupCompleted: true, registrationEnabled: true });
+        }
+        if (path === "/api/auth/me") {
+          return Response.json({
+            dashboardLanguage: "pt-BR",
+            email: "owner@example.com",
+            emailVerified: true,
+            installationRole: "administrator",
+            userId: "00000000-0000-4000-8000-000000000001",
+          });
+        }
+        if (path.endsWith("/configuration")) {
+          configurationAttempts += 1;
+          if (configurationAttempts === 1) {
+            return Response.json({ error: "internal_error" }, { status: 500 });
+          }
+          return Response.json({
+            activeProfileId: null,
+            profiles: [],
+            recordingRoleIds: [],
+            settings: {
+              botLanguage: "pt-BR",
+              persistMeetingAudio: false,
+              persistMeetingContent: true,
+            },
+          });
+        }
+        return Response.json({ forums: [], roles: [] });
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/guilds/guild-1"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "Configuração do servidor" }),
+    ).toBeInTheDocument();
+    expect(configurationAttempts).toBe(2);
+  });
+
+  it("repete a consulta dos perfis na própria página", async () => {
+    let profileAttempts = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/api/setup/status") {
+          return Response.json({ setupCompleted: true, registrationEnabled: true });
+        }
+        if (path === "/api/auth/me") {
+          return Response.json({
+            dashboardLanguage: "pt-BR",
+            email: "owner@example.com",
+            emailVerified: true,
+            installationRole: "administrator",
+            userId: "00000000-0000-4000-8000-000000000001",
+          });
+        }
+        if (path === "/api/profiles") {
+          profileAttempts += 1;
+          if (profileAttempts === 1) {
+            return Response.json({ error: "internal_error" }, { status: 500 });
+          }
+          return Response.json([]);
+        }
+        return Response.json({});
+      }),
+    );
+    render(
+      <MemoryRouter initialEntries={["/profiles"]}>
+        <App />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByRole("button", { name: "Tentar novamente" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Tentar novamente" }));
+
+    expect(await screen.findByRole("heading", { name: "Seus perfis" })).toBeInTheDocument();
+    expect(profileAttempts).toBe(2);
+  });
+
   it("edita prompts e VAD no perfil pessoal de API externa", async () => {
     const profile = {
+      language: "auto",
       name: "Perfil 1",
       profileType: "external",
       profileId: "profile-1",
@@ -415,14 +509,12 @@ describe("App", () => {
         consolidationPrompt: "Você consolida resumos em inglês.",
         extractionPrompt: "Você extrai informações em inglês.",
         generation: {},
-        language: "en",
         maxChunkCharacters: 500000,
         model: "model-s",
         provider: "openrouter",
       },
       transcription: {
         interSpeechSilenceMs: 0,
-        language: "pt-BR",
         mergeMaxGapMs: 2000,
         model: "model-t",
         prompt: null,
@@ -437,6 +529,7 @@ describe("App", () => {
           threshold: 0.5,
         },
       },
+      translation: null,
       userId: "00000000-0000-4000-8000-000000000001",
     };
     const localProfile = {
@@ -507,7 +600,10 @@ describe("App", () => {
     for (const providerSelect of screen.getAllByDisplayValue("openrouter")) {
       expect(providerSelect).toBeDisabled();
     }
-    expect(screen.getByText(/nenhum prompt será enviado na transcrição/i)).toBeInTheDocument();
+    expect(screen.getByLabelText("Pesquisar idioma")).toBeInTheDocument();
+    expect(
+      screen.getByText(/prompt-base imutável do Summyz continuará ativo/i),
+    ).toBeInTheDocument();
     const vadTab = screen.getByRole("tab", { name: "VAD" });
     fireEvent.click(vadTab);
     await waitFor(() =>
@@ -520,11 +616,9 @@ describe("App", () => {
     });
     fireEvent.click(refinementToggle);
     expect(screen.getByRole("alertdialog", { name: /desativar prompt/i })).toBeInTheDocument();
-    expect(
-      screen.queryByText(/nenhum prompt será enviado no refinamento/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryAllByText(/sem prompt editável/i)).toHaveLength(0);
     fireEvent.click(screen.getByRole("button", { name: /desativar prompt/i }));
-    expect(screen.getByText(/nenhum prompt será enviado no refinamento/i)).toBeInTheDocument();
+    expect(screen.getAllByText(/sem prompt editável/i)).toHaveLength(1);
 
     fireEvent.click(screen.getByRole("tab", { name: "Local" }));
     expect(await screen.findByLabelText(/^Silêncio para encerrar/)).toHaveValue("auto");

@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 
 import { RealTimeVAD } from "avr-vad";
-import ffmpegPath from "ffmpeg-static";
 
+import { resolveFfmpegExecutable } from "../media/ffmpeg-executable.js";
 import { TRANSCRIPTION_SAMPLE_RATE } from "./transcription-batch.js";
 
 export interface SpeechAnalysis {
@@ -201,11 +201,7 @@ async function createSileroVad(
 }
 
 async function decodeAudioFile(path: string, maximumBytes: number): Promise<Float32Array> {
-  // The package is CommonJS, and TypeScript 7 misinterprets its default export in NodeNext mode.
-  const executablePath = ffmpegPath as unknown as string | null;
-  if (executablePath === null) {
-    throw new Error("O binário do FFmpeg não está disponível");
-  }
+  const executablePath = resolveFfmpegExecutable();
 
   const chunks: Buffer[] = [];
   let byteLength = 0;

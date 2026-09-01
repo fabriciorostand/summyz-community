@@ -16,6 +16,20 @@ const entries: SummaryTranscriptEntry[] = [
   },
 ];
 
+const labels = {
+  assignee: "Responsável",
+  deadline: "Prazo",
+  decisions: "Decisões",
+  discussedTopics: "Tópicos discutidos",
+  executiveSummary: "Resumo executivo",
+  fullTranscript: "Transcrição completa",
+  meetingId: "ID da reunião",
+  observations: "Observações",
+  summary: "Resumo",
+  tasks: "Tarefas",
+  transcript: "Transcrição",
+};
+
 function successResponse(): Response {
   return new Response(
     JSON.stringify({
@@ -26,7 +40,9 @@ function successResponse(): Response {
               decisions: [],
               discussedTopics: ["Orçamento"],
               executiveSummary: "A equipe discutiu o orçamento.",
+              labels,
               observations: [],
+              protectedTerms: ["Bruno", "até sexta-feira"],
               tasks: [
                 {
                   deadlineText: "até sexta-feira",
@@ -79,8 +95,9 @@ describe("OpenRouterSummaryProvider", () => {
     const body = JSON.parse(String(fetch.mock.calls[2]?.[1].body)) as {
       messages: { role: string }[];
     };
-    expect(body.messages).toHaveLength(1);
-    expect(body.messages[0]?.role).toBe("user");
+    expect(body.messages).toHaveLength(2);
+    expect(body.messages[0]?.role).toBe("system");
+    expect(body.messages[1]?.role).toBe("user");
   });
 
   it("registra custo, modelo efetivo e generation id antes de concluir a tentativa", async () => {

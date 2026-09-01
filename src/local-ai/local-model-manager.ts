@@ -6,7 +6,7 @@ import type { LocalExecutionPlan, PhaseExecution } from "./local-execution-polic
 import { IncompatibleOllamaModelError, requestOllamaStructured } from "./ollama-client.js";
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
-type OllamaPhase = "refinement" | "summary";
+type OllamaPhase = "refinement" | "summary" | "translation";
 
 const refinementProbeSchema = z.object({
   blocks: z.tuple([z.object({ id: z.literal("probe-1"), text: z.string().min(1) })]),
@@ -24,6 +24,7 @@ const fasterWhisperStatusSchema = z.object({
   device: z.enum(["cpu", "cuda"]),
   fallbackApplied: z.boolean(),
   model: z.string().min(1),
+  multilingual: z.boolean(),
   status: z.literal("ready"),
 });
 const ollamaProcessesSchema = z.object({
@@ -40,6 +41,13 @@ class LocalAiDevicePolicyError extends Error {
   public constructor(message: string) {
     super(message);
     this.name = "LocalAiDevicePolicyError";
+  }
+}
+
+export class MultilingualCheckpointRequiredError extends Error {
+  public constructor() {
+    super("The selected faster-whisper checkpoint must report multilingual support");
+    this.name = "MultilingualCheckpointRequiredError";
   }
 }
 const refinementProbeJsonSchema = {
@@ -107,6 +115,9 @@ export class LocalModelManager {
     this.#ollamaBaseUrl = options.ollamaBaseUrl ?? "http://ollama:11434";
     this.#trackOllamaUse("refinement", options.configuration.refinement);
     this.#trackOllamaUse("summary", options.configuration.summary);
+    if (options.configuration.translation?.provider === "ollama") {
+      this.#trackOllamaUse("translation", options.configuration.translation);
+    }
     this.#fasterWhisperPending = options.configuration.transcription.provider === "faster-whisper";
   }
 
@@ -174,7 +185,11 @@ export class LocalModelManager {
     this.#logger.warn({ model, phase }, "Rejected Ollama model was removed from managed storage");
   }
 
-  #trackOllamaUse(phase: OllamaPhase, selection: MeetingAiConfiguration[OllamaPhase]): void {
+  #trackOllamaUse(
+    phase: OllamaPhase,
+    selection: MeetingAiConfiguration["refinement" | "summary" | "translation"],
+  ): void {
+    if (selection == null) return;
     if (selection.provider !== "ollama") return;
     this.#managedOllamaModels.add(selection.model);
     const uses = this.#ollamaUses.get(selection.model) ?? new Set<OllamaPhase>();
@@ -258,7 +273,7 @@ export class LocalModelManager {
   }
 
   #executionFor(phase: OllamaPhase): PhaseExecution {
-    return this.#executionPlan?.[phase] ?? cpuExecution();
+    return this.#executionPlan?.[phase === "translation" ? "summary" : phase] ?? cpuExecution();
   }
 
   async #validateOllamaModel(model: string, phase: OllamaPhase): Promise<void> {
@@ -311,9 +326,8 @@ export class LocalModelManager {
         throw new Error(`FasterWhisperPreparationStatus${String(response.status)}`);
       }
       const status = fasterWhisperStatusSchema.safeParse(await response.json().catch(() => null));
-      if (!status.success && requiresAcceleration(execution)) {
-        throw new LocalAiDevicePolicyError("faster-whisper did not report its active device");
-      }
+      if (!status.success) throw new MultilingualCheckpointRequiredError();
+      if (!status.data.multilingual) throw new MultilingualCheckpointRequiredError();
       if (
         status.success &&
         ((execution.device === "gpu" &&
@@ -350,7 +364,7 @@ export class LocalModelManager {
         { errorType: getErrorType(error), model },
         "faster-whisper model preparation is unavailable; durable jobs will retry processing",
       );
-      if (requiresAcceleration(execution)) throw error;
+      throw error;
     }
   }
 

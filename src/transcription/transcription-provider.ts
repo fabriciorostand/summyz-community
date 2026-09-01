@@ -8,6 +8,11 @@ export interface TranscriptPiece {
 
 export interface TranscriptionProviderResult {
   attempts: number;
+  detectedLanguage?: {
+    distribution?: Record<string, number>;
+    language: string;
+    probability?: number;
+  };
   pieces: TranscriptPiece[];
   words?: TranscriptPiece[];
 }
@@ -26,6 +31,7 @@ export type TranscriptionIncompatibilityReason =
   | "invalid_json"
   | "invalid_response_shape"
   | "invalid_timestamps"
+  | "missing_language"
   | "missing_timestamps";
 
 export class TranscriptionRequestError extends Error {

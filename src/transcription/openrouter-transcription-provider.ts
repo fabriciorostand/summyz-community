@@ -30,6 +30,8 @@ const timedTextSchema = z.object({
 });
 
 const responseSchema = z.object({
+  language: z.string().min(2).max(64).optional(),
+  language_probability: z.number().min(0).max(1).optional(),
   model: z.string().min(1).optional(),
   segments: z.array(timedTextSchema).optional(),
   text: z.string(),
@@ -122,9 +124,11 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
     throw lastError;
   }
 
-  async #request(
-    input: Parameters<TranscriptionProvider["transcribe"]>[0],
-  ): Promise<{ pieces: TranscriptPiece[]; words: TranscriptPiece[] }> {
+  async #request(input: Parameters<TranscriptionProvider["transcribe"]>[0]): Promise<{
+    detectedLanguage?: NonNullable<TranscriptionProviderResult["detectedLanguage"]>;
+    pieces: TranscriptPiece[];
+    words: TranscriptPiece[];
+  }> {
     const costAttempt = await this.#costRecorder?.beginApi("openrouter");
     const selectedLanguage = input.language ?? this.#language ?? this.#profile.language;
     const language = selectedLanguage === "auto" ? undefined : selectedLanguage;
@@ -214,6 +218,17 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
       }
       throw error;
     }
+    if (language === undefined && parsed.text.trim().length > 0 && parsed.language === undefined) {
+      if (costAttempt !== undefined) {
+        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+          body,
+          exactCost: parsedResponse.exactCost,
+          ...(generationId === undefined ? {} : { generationId }),
+          outcome: "failure",
+        });
+      }
+      throw new IncompatibleTranscriptionResponseError("missing_language");
+    }
     if (costAttempt !== undefined) {
       await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
         body,
@@ -222,7 +237,19 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
         outcome: "success",
       });
     }
-    return pieces;
+    return {
+      ...pieces,
+      ...(parsed.language === undefined
+        ? {}
+        : {
+            detectedLanguage: {
+              language: parsed.language,
+              ...(parsed.language_probability === undefined
+                ? {}
+                : { probability: parsed.language_probability }),
+            },
+          }),
+    };
   }
 }
 

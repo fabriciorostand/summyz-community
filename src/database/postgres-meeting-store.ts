@@ -167,6 +167,19 @@ WHERE meeting_id = $1
     return result.rows.map((row) => z.string().min(1).max(128).parse(row.meeting_id));
   }
 
+  public async listDelivery2CleanupMeetingIds(): Promise<string[]> {
+    const result = await this.#database.query(
+      "SELECT meeting_id FROM delivery_2_meeting_cleanup ORDER BY meeting_id",
+    );
+    return result.rows.map((row) => z.string().min(1).max(128).parse(row.meeting_id));
+  }
+
+  public async markDelivery2CleanupCompleted(meetingId: string): Promise<void> {
+    await this.#database.query("DELETE FROM delivery_2_meeting_cleanup WHERE meeting_id = $1", [
+      z.string().min(1).max(128).parse(meetingId),
+    ]);
+  }
+
   public async markArtifactsDeleted(meetingId: string): Promise<void> {
     await this.#database.query(
       "UPDATE meetings SET artifacts_deleted_at = now(), updated_at = now() WHERE meeting_id = $1",

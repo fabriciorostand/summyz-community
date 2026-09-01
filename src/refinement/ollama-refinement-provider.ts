@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { composeProtectedPrompt } from "../ai-system-prompt.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 
 import {
@@ -70,7 +71,11 @@ export class OllamaRefinementProvider implements RefinementProvider {
         ...(this.#options.fetch === undefined ? {} : { fetch: this.#options.fetch }),
         ...(this.#options.generation === undefined ? {} : { generation: this.#options.generation }),
         input: { blocks: entries.map(({ id, text }) => ({ id, text })) },
-        instruction: this.#options.prompt === undefined ? instruction : this.#options.prompt,
+        instruction: composeProtectedPrompt({
+          editablePrompt: this.#options.prompt === undefined ? instruction : this.#options.prompt,
+          phase: "refinement",
+          phaseLanguage: "preserve",
+        }),
         jsonSchema,
         model: this.#options.model,
         ...(this.#options.onIncompatibleModel === undefined

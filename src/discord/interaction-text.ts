@@ -18,6 +18,8 @@ export interface InteractionText {
   insufficientForumPermissions: string;
   incompatibleAiProfile: string;
   invalidForum: string;
+  multilingualCheckpointRequired: string;
+  modelPreflightFailed: string;
   joinVoiceFirst: string;
   locale: string;
   noActiveRecording: string;
@@ -72,6 +74,10 @@ const texts = {
     incompatibleAiProfile:
       "The active processing profile contains a model that is incompatible with the selected device. Update the profile before recording.",
     invalidForum: "Select a valid forum channel.",
+    multilingualCheckpointRequired:
+      "The selected transcription model accepts only one language. Summyz requires a multilingual faster-whisper checkpoint to operate with automatic language detection. Update the profile before recording.",
+    modelPreflightFailed:
+      "OpenRouter could not validate every selected model and its required capability. Review the transcription, refinement, summary, and translation models before recording.",
     joinVoiceFirst: "Join a voice channel before using `/record`.",
     locale: "en",
     noActiveRecording: "There is no active recording in this server.",
@@ -137,6 +143,10 @@ const texts = {
     incompatibleAiProfile:
       "O perfil de processamento ativo contém um modelo incompatível com o dispositivo selecionado. Atualize o perfil antes de gravar.",
     invalidForum: "Selecione um canal de fórum válido.",
+    multilingualCheckpointRequired:
+      "O modelo de transcrição selecionado aceita somente um idioma. O Summyz exige um checkpoint multilíngue do faster-whisper para operar com detecção automática. Atualize o perfil antes de gravar.",
+    modelPreflightFailed:
+      "O OpenRouter não conseguiu validar todos os modelos selecionados e as capacidades exigidas. Revise os modelos de transcrição, refinamento, resumo e tradução antes de gravar.",
     joinVoiceFirst: "Entre em um canal de voz antes de usar `/record`.",
     locale: "pt-BR",
     noActiveRecording: "Não existe uma gravação ativa neste servidor.",

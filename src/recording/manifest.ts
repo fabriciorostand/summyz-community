@@ -2,7 +2,7 @@ import { isAbsolute, normalize } from "node:path";
 
 import { z } from "zod";
 
-import { externalVadSchema, localVadSchema } from "../ai-profile.js";
+import { externalVadSchema, localVadSchema, profileLanguageSchema } from "../ai-profile.js";
 
 const storageIdentifierSchema = z
   .string()
@@ -41,7 +41,6 @@ const currentRefinementBase = selectedModelSchema.and(
 const currentSummaryBase = selectedModelSchema.and(
   z.object({
     generation: generationSchema,
-    language: z.string().min(1),
     maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
     consolidationPrompt: resolvedPromptSchema.default(null),
     extractionPrompt: resolvedPromptSchema.default(null),
@@ -50,7 +49,6 @@ const currentSummaryBase = selectedModelSchema.and(
 const currentTranscriptionBase = selectedModelSchema.and(
   z.object({
     interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
-    language: z.string().min(1),
     mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
     prompt: resolvedPromptSchema.default(null),
     providerOptions: z.record(z.string().min(1), z.record(z.string().min(1), z.json())).optional(),
@@ -58,28 +56,59 @@ const currentTranscriptionBase = selectedModelSchema.and(
   }),
 );
 
-export const meetingAiConfigurationSchema = z.discriminatedUnion("profileType", [
+const currentTranslationBase = selectedModelSchema.and(
   z.object({
-    profileType: z.literal("external"),
-    refinement: currentRefinementBase.and(z.object({ provider: z.literal("openrouter") })),
-    summary: currentSummaryBase.and(z.object({ provider: z.literal("openrouter") })),
-    transcription: currentTranscriptionBase.and(
-      z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
-    ),
+    generation: generationSchema,
+    prompt: resolvedPromptSchema.default(null),
   }),
-  z.object({
-    profileType: z.literal("local"),
-    refinement: currentRefinementBase.and(z.object({ provider: z.literal("ollama") })),
-    summary: currentSummaryBase.and(z.object({ provider: z.literal("ollama") })),
-    transcription: currentTranscriptionBase.and(
-      z.object({
-        batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
-        provider: z.literal("faster-whisper"),
-        vad: localVadSchema,
-      }),
-    ),
-  }),
-]);
+);
+
+export const meetingAiConfigurationSchema = z
+  .discriminatedUnion("profileType", [
+    z.object({
+      language: profileLanguageSchema.default("auto"),
+      profileType: z.literal("external"),
+      refinement: currentRefinementBase.and(z.object({ provider: z.literal("openrouter") })),
+      summary: currentSummaryBase.and(z.object({ provider: z.literal("openrouter") })),
+      transcription: currentTranscriptionBase.and(
+        z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
+      ),
+      translation: currentTranslationBase
+        .and(z.object({ provider: z.literal("openrouter") }))
+        .nullable()
+        .default(null),
+    }),
+    z.object({
+      language: profileLanguageSchema.default("auto"),
+      profileType: z.literal("local"),
+      refinement: currentRefinementBase.and(z.object({ provider: z.literal("ollama") })),
+      summary: currentSummaryBase.and(z.object({ provider: z.literal("ollama") })),
+      transcription: currentTranscriptionBase.and(
+        z.object({
+          batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
+          provider: z.literal("faster-whisper"),
+          vad: localVadSchema,
+        }),
+      ),
+      translation: currentTranslationBase
+        .and(z.object({ provider: z.literal("ollama") }))
+        .nullable()
+        .default(null),
+    }),
+  ])
+  .superRefine((configuration, context) => {
+    const translationMatchesLanguage =
+      configuration.language === "auto"
+        ? configuration.translation === null
+        : configuration.translation !== null;
+    if (!translationMatchesLanguage) {
+      context.addIssue({
+        code: "custom",
+        message: "Translation configuration does not match the selected language",
+        path: ["translation"],
+      });
+    }
+  });
 
 export const segmentSchema = z.object({
   durationMs: z.number().nonnegative(),
@@ -105,10 +134,15 @@ const recordingManifestBaseShape = {
   interruptions: z.array(interruptionSchema),
   meetingId: storageIdentifierSchema,
   notificationChannelId: z.string().min(1),
+  predominantLanguage: z
+    .string()
+    .regex(/^[a-z]{2,3}$/)
+    .optional(),
   persistMeetingAudio: z.boolean().default(false),
   persistMeetingContent: z.boolean().default(false),
   segments: z.array(segmentSchema),
   startedAt: z.iso.datetime(),
+  startedByUserId: storageIdentifierSchema.optional(),
   status: manifestStatusSchema,
   storageMode: z.literal("postgres"),
   voiceChannelId: z.string().min(1),
@@ -148,6 +182,7 @@ export type CreateManifestInput = Pick<
   | "meetingId"
   | "notificationChannelId"
   | "startedAt"
+  | "startedByUserId"
   | "voiceChannelId"
   | "voiceChannelName"
 > &
@@ -229,6 +264,19 @@ export function markManifestCompleted(
     completedAt,
     status: "completed",
   });
+}
+
+export function setPredominantLanguage(
+  manifest: RecordingManifest,
+  predominantLanguage: string,
+): RecordingManifest {
+  if (
+    manifest.predominantLanguage !== undefined &&
+    manifest.predominantLanguage !== predominantLanguage
+  ) {
+    throw new Error("The predominant language is already pinned for this meeting");
+  }
+  return recordingManifestSchema.parse({ ...manifest, predominantLanguage });
 }
 
 function assertRelativeSafePath(filePath: string): void {

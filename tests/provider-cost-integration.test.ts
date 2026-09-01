@@ -38,6 +38,7 @@ describe("provider cost integration", () => {
       fetch: async () =>
         Response.json(
           {
+            language: "pt",
             model: "openai/whisper-1",
             text: "Olá.",
             usage: { cost: 0.0005 },
@@ -147,7 +148,21 @@ describe("provider cost integration", () => {
               decisions: [],
               discussedTopics: [],
               executiveSummary: "Resumo",
+              labels: {
+                assignee: "Responsável",
+                deadline: "Prazo",
+                decisions: "Decisões",
+                discussedTopics: "Tópicos discutidos",
+                executiveSummary: "Resumo executivo",
+                fullTranscript: "Transcrição completa",
+                meetingId: "ID da reunião",
+                observations: "Observações",
+                summary: "Resumo",
+                tasks: "Tarefas",
+                transcript: "Transcrição",
+              },
               observations: [],
+              protectedTerms: [],
               tasks: [],
             }),
           },

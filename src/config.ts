@@ -44,6 +44,10 @@ const environmentSchema = z.object({
   TRANSCRIPTION_RETRY_MAX_MS: z.coerce.number().int().min(100).max(300_000).default(30_000),
   TRANSCRIPTION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(90_000),
   TRANSCRIPTION_WINDOW_MAX_SECONDS: z.coerce.number().int().min(5).max(300).default(30),
+  TRANSLATION_MAX_ATTEMPTS: z.coerce.number().int().min(1).max(10).default(3),
+  TRANSLATION_RETRY_BASE_MS: z.coerce.number().int().min(100).max(60_000).default(1_000),
+  TRANSLATION_RETRY_MAX_MS: z.coerce.number().int().min(100).max(300_000).default(30_000),
+  TRANSLATION_TIMEOUT_MS: z.coerce.number().int().min(1_000).max(300_000).default(120_000),
   VOICE_RECONNECT_MAX_MS: z.coerce
     .number()
     .int("VOICE_RECONNECT_MAX_MS deve ser inteiro")
@@ -81,6 +85,10 @@ export interface AppConfig {
   transcriptionRetryMaxMs: number;
   transcriptionTimeoutMs: number;
   transcriptionWindowMaxSeconds: number;
+  translationMaxAttempts: number;
+  translationRetryBaseMs: number;
+  translationRetryMaxMs: number;
+  translationTimeoutMs: number;
   voiceReconnectMaxMs: number;
 }
 
@@ -119,6 +127,10 @@ export function loadConfig(environment: NodeJS.ProcessEnv): BootstrapConfig {
     transcriptionRetryMaxMs: parsed.TRANSCRIPTION_RETRY_MAX_MS,
     transcriptionTimeoutMs: parsed.TRANSCRIPTION_TIMEOUT_MS,
     transcriptionWindowMaxSeconds: parsed.TRANSCRIPTION_WINDOW_MAX_SECONDS,
+    translationMaxAttempts: parsed.TRANSLATION_MAX_ATTEMPTS,
+    translationRetryBaseMs: parsed.TRANSLATION_RETRY_BASE_MS,
+    translationRetryMaxMs: parsed.TRANSLATION_RETRY_MAX_MS,
+    translationTimeoutMs: parsed.TRANSLATION_TIMEOUT_MS,
     voiceReconnectMaxMs: parsed.VOICE_RECONNECT_MAX_MS,
   };
 }

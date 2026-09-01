@@ -11,6 +11,7 @@ import {
   addSegment,
   createManifest,
   markManifestCompleted,
+  requireCurrentMeetingAiConfiguration,
   type RecordingManifest,
   type RecordingSegment,
 } from "../src/recording/manifest.js";
@@ -68,6 +69,7 @@ function createService(input: {
   logger?: Logger;
   manifestStore: ManifestStore;
   notifyFailure?: (manifest: RecordingManifest) => Promise<void>;
+  publishTranscriptOnly?: (manifest: RecordingManifest, transcriptPath: string) => Promise<void>;
   provider: TranscriptionProvider;
   resolveSpeechAnalyzer?: (manifest: RecordingManifest) => SpeechAnalyzer;
   speechAnalyzer?: SpeechAnalyzer;
@@ -82,6 +84,7 @@ function createService(input: {
     logger: input.logger ?? createLogger("silent"),
     manifestStore: input.manifestStore,
     notifyFailure: input.notifyFailure ?? vi.fn(async () => undefined),
+    publishTranscriptOnly: input.publishTranscriptOnly ?? vi.fn(async () => undefined),
     now: () => new Date("2026-08-16T20:02:00.000Z"),
     provider: input.provider,
     ...(input.resolveSpeechAnalyzer === undefined
@@ -113,6 +116,93 @@ function firstSegment(manifest: RecordingManifest): RecordingSegment {
 }
 
 describe("MeetingTranscriptionService", () => {
+  it("detecta uma vez na transcrição, persiste só a tag primária e sempre envia auto", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-meeting-language-"));
+    const context = await createMeeting(root);
+    const configured = createManifest({
+      aiConfiguration: {
+        language: "es-MX",
+        profileType: "external",
+        refinement: { model: "review", provider: "openrouter" },
+        summary: { model: "summary", provider: "openrouter" },
+        transcription: { model: "stt", provider: "openrouter", vad: {} },
+        translation: {
+          model: "translation",
+          provider: "openrouter",
+        },
+      },
+      guildId: context.manifest.guildId,
+      meetingId: context.manifest.meetingId,
+      notificationChannelId: context.manifest.notificationChannelId,
+      startedAt: context.manifest.startedAt,
+      voiceChannelId: context.manifest.voiceChannelId,
+    });
+    let manifest = configured;
+    for (const segment of context.manifest.segments) manifest = addSegment(manifest, segment);
+    manifest = markManifestCompleted(manifest, "2026-08-16T20:01:00.000Z");
+    await context.manifestStore.save(manifest);
+    expect(requireCurrentMeetingAiConfiguration(manifest).language).toBe("es-MX");
+    const provider: TranscriptionProvider = {
+      transcribe: vi.fn(async (input) => {
+        expect(input.language).toBe("auto");
+        return {
+          attempts: 1,
+          detectedLanguage: { language: "Portuguese", probability: 0.6 },
+          pieces: [{ endedAtMs: 1_000, startedAtMs: 0, text: "Olá." }],
+        };
+      }),
+    };
+
+    await createService({ ...context, provider }).process(manifest);
+
+    const persisted = await context.manifestStore.load(manifest.meetingId);
+    expect(persisted.predominantLanguage).toBe("pt");
+    expect(persisted).not.toHaveProperty("languageEvidence");
+  });
+
+  it("preserva e publica somente a transcrição quando nenhum idioma pode ser determinado", async () => {
+    const root = await mkdtemp(join(tmpdir(), "summyz-meeting-language-failure-"));
+    const context = await createMeeting(root);
+    const manifest = createManifest({
+      aiConfiguration: {
+        language: "auto",
+        profileType: "external",
+        refinement: { model: "review", provider: "openrouter" },
+        summary: { model: "summary", provider: "openrouter" },
+        transcription: { model: "stt", provider: "openrouter", vad: {} },
+        translation: null,
+      },
+      guildId: context.manifest.guildId,
+      meetingId: context.manifest.meetingId,
+      notificationChannelId: context.manifest.notificationChannelId,
+      startedAt: context.manifest.startedAt,
+      voiceChannelId: context.manifest.voiceChannelId,
+    });
+    let configured = manifest;
+    for (const segment of context.manifest.segments) configured = addSegment(configured, segment);
+    configured = markManifestCompleted(configured, "2026-08-16T20:01:00.000Z");
+    await context.manifestStore.save(configured);
+    const publishTranscriptOnly = vi.fn(async () => undefined);
+
+    await createService({
+      ...context,
+      provider: {
+        transcribe: vi.fn(async () => ({
+          attempts: 1,
+          pieces: [{ endedAtMs: 1_000, startedAtMs: 0, text: "Olá." }],
+        })),
+      },
+      publishTranscriptOnly,
+    }).process(configured);
+
+    const transcriptPath = context.transcriptionStore.transcriptPath(configured.meetingId);
+    await expect(access(transcriptPath)).resolves.toBeUndefined();
+    await expect(context.transcriptionStore.load(configured.meetingId)).resolves.toMatchObject({
+      failureCode: "language_detection_failed",
+      status: "failed",
+    });
+    expect(publishTranscriptOnly).toHaveBeenCalledWith(configured, transcriptPath);
+  });
   it("só cria transcript.txt depois que todos os segmentos têm sucesso", async () => {
     const root = await mkdtemp(join(tmpdir(), "summyz-meeting-"));
     const context = await createMeeting(root);

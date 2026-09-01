@@ -27,7 +27,7 @@ const generationSchema = z.object({
   temperature: z.number().optional(),
   think: z.boolean().optional(),
 });
-const promptSchema = z.string().nullable().optional();
+const promptSchema = z.string().nullable();
 const promptDefaultsSchema = z.object({
   refinement: z.string(),
   summaryConsolidation: z.string(),
@@ -53,6 +53,46 @@ const localVadSchema = z.object({
   threshold: z.number(),
 });
 const profileBaseShape = {
+  language: z.enum([
+    "auto",
+    "ar",
+    "cs",
+    "da",
+    "de",
+    "el",
+    "en",
+    "en-GB",
+    "en-US",
+    "es",
+    "es-ES",
+    "es-MX",
+    "fi",
+    "fr",
+    "fr-CA",
+    "he",
+    "hi",
+    "hu",
+    "id",
+    "it",
+    "ja",
+    "ko",
+    "nl",
+    "no",
+    "pl",
+    "pt",
+    "pt-BR",
+    "pt-PT",
+    "ro",
+    "ru",
+    "sv",
+    "th",
+    "tr",
+    "uk",
+    "vi",
+    "zh",
+    "zh-CN",
+    "zh-TW",
+  ]),
   name: z.string(),
   profileId: z.string(),
   userId: z.string(),
@@ -67,18 +107,21 @@ const summaryBaseShape = {
   consolidationPrompt: promptSchema,
   extractionPrompt: promptSchema,
   generation: generationSchema,
-  language: z.string(),
   maxChunkCharacters: z.number().int(),
   model: z.string().nullable(),
 };
 const transcriptionBaseShape = {
   interSpeechSilenceMs: z.number().int(),
-  language: z.string(),
   mergeMaxGapMs: z.number().int(),
   model: z.string().nullable(),
   prompt: promptSchema,
   providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
   temperature: z.number().optional(),
+};
+const translationBaseShape = {
+  generation: generationSchema,
+  model: z.string().nullable(),
+  prompt: promptSchema,
 };
 export const profileSchema = z.discriminatedUnion("profileType", [
   z.object({
@@ -91,6 +134,9 @@ export const profileSchema = z.discriminatedUnion("profileType", [
       provider: z.literal("openrouter"),
       vad: externalVadSchema,
     }),
+    translation: z
+      .object({ ...translationBaseShape, provider: z.literal("openrouter") })
+      .nullable(),
   }),
   z.object({
     ...profileBaseShape,
@@ -103,6 +149,7 @@ export const profileSchema = z.discriminatedUnion("profileType", [
       provider: z.literal("faster-whisper"),
       vad: localVadSchema,
     }),
+    translation: z.object({ ...translationBaseShape, provider: z.literal("ollama") }).nullable(),
   }),
 ]);
 const guildConfigurationSchema = z.object({
@@ -189,18 +236,32 @@ const meetingHistorySummaryTaskSchema = z.object({
   ownerName: z.string().optional(),
   text: z.string(),
 });
+const meetingHistoryLabelsSchema = z.object({
+  assignee: z.string(),
+  deadline: z.string(),
+  decisions: z.string(),
+  discussedTopics: z.string(),
+  executiveSummary: z.string(),
+  fullTranscript: z.string(),
+  meetingId: z.string(),
+  observations: z.string(),
+  summary: z.string(),
+  tasks: z.string(),
+  transcript: z.string(),
+});
 const meetingHistorySummarySchema = z.discriminatedUnion("status", [
   z.object({
     decisions: z.array(z.string()),
     discussedTopics: z.array(z.string()),
     executiveSummary: z.string(),
-    language: z.enum(["en", "pt-BR"]),
+    language: z.string().regex(/^[a-z]{2,3}(?:-[A-Z]{2})?$/),
+    labels: meetingHistoryLabelsSchema.optional(),
     observations: z.array(z.string()),
     status: z.literal("completed"),
     tasks: z.array(meetingHistorySummaryTaskSchema),
   }),
   z.object({
-    language: z.enum(["en", "pt-BR"]),
+    language: z.string().regex(/^[a-z]{2,3}(?:-[A-Z]{2})?$/),
     status: z.literal("failed"),
   }),
 ]);

@@ -36,8 +36,55 @@ function configuration(model = "qwen3:4b"): LocalProfileAiConfiguration {
 }
 
 describe("LocalModelManager", () => {
+  it.each(["tiny.en", "base.en", "small.en", "medium.en", "org/custom-converted-en"])(
+    "bloqueia o checkpoint monolíngue carregado %s",
+    async (model) => {
+      const manager = new LocalModelManager({
+        configuration: fasterWhisperOnlyConfiguration(model),
+        fetch: vi.fn(async () =>
+          Response.json({
+            batchSize: 0,
+            computeType: "int8",
+            device: "cpu",
+            fallbackApplied: false,
+            model,
+            multilingual: false,
+            status: "ready",
+          }),
+        ),
+        logger: createLogger("silent"),
+      });
+
+      await expect(manager.prepare()).rejects.toThrow(/multilingual/i);
+    },
+  );
+  it.each([false, undefined])(
+    "bloqueia checkpoint quando multilingual é %s",
+    async (multilingual) => {
+      const manager = new LocalModelManager({
+        configuration: fasterWhisperOnlyConfiguration(),
+        fetch: vi.fn(async (url: string) =>
+          url.endsWith("/models/prepare")
+            ? Response.json({
+                batchSize: 0,
+                computeType: "int8",
+                device: "cpu",
+                fallbackApplied: false,
+                model: "invalid-whisper",
+                ...(multilingual === undefined ? {} : { multilingual }),
+                status: "ready",
+              })
+            : new Response("", { status: 200 }),
+        ),
+        logger: createLogger("silent"),
+      });
+
+      await expect(manager.prepare()).rejects.toThrow(/multilingual/i);
+    },
+  );
   it("baixa e valida contratos das duas fases Ollama e prepara faster-whisper", async () => {
     const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/models/prepare")) return multilingualWhisperStatus();
       if (url.endsWith("/api/chat")) {
         const refinement = String(init.body).includes("block unchanged");
         const content = refinement
@@ -73,11 +120,12 @@ describe("LocalModelManager", () => {
   });
 
   it("remove modelo Ollama quando todas as fases falham na validação estruturada", async () => {
-    const fetch = vi.fn(async (url: string, _init: RequestInit) =>
-      url.endsWith("/api/chat")
+    const fetch = vi.fn(async (url: string, _init: RequestInit) => {
+      if (url.endsWith("/models/prepare")) return multilingualWhisperStatus();
+      return url.endsWith("/api/chat")
         ? new Response(JSON.stringify({ message: { content: "{}" } }), { status: 200 })
-        : new Response("", { status: 200 }),
-    );
+        : new Response("", { status: 200 });
+    });
     const manager = new LocalModelManager({
       configuration: configuration("broken:latest"),
       fetch,
@@ -101,7 +149,7 @@ describe("LocalModelManager", () => {
       logger: createLogger("silent"),
     });
 
-    await manager.prepare();
+    await expect(manager.prepare()).rejects.toThrow(/Status422/);
 
     expect(
       fetch.mock.calls.map(([url]) => url).filter((url) => url.includes("faster-whisper")),
@@ -132,7 +180,7 @@ describe("LocalModelManager", () => {
     ]);
   });
 
-  it("não deixa falha de preparação impedir a inicialização do bot", async () => {
+  it("impede iniciar uma gravação quando a preparação está indisponível", async () => {
     const manager = new LocalModelManager({
       configuration: configuration("qwen3:8b"),
       fetch: vi.fn(async () => {
@@ -141,7 +189,7 @@ describe("LocalModelManager", () => {
       logger: createLogger("silent"),
     });
 
-    await expect(manager.prepare()).resolves.toBeUndefined();
+    await expect(manager.prepare()).rejects.toThrow(/service unavailable/i);
   });
 
   it("envia política e batching ao faster-whisper e registra o dispositivo efetivo", async () => {
@@ -152,6 +200,7 @@ describe("LocalModelManager", () => {
         device: "cuda",
         fallbackApplied: false,
         model: "small",
+        multilingual: true,
         status: "ready",
       }),
     );
@@ -197,6 +246,7 @@ describe("LocalModelManager", () => {
           device: "cpu",
           fallbackApplied: false,
           model: "invalid-whisper",
+          multilingual: true,
           status: "ready",
         }),
       ),
@@ -217,6 +267,7 @@ describe("LocalModelManager", () => {
           device: "cpu",
           fallbackApplied: true,
           model: "invalid-whisper",
+          multilingual: true,
           status: "ready",
         }),
       ),
@@ -235,6 +286,7 @@ describe("LocalModelManager", () => {
           device: "cuda",
           fallbackApplied: false,
           model: "small",
+          multilingual: true,
           status: "ready",
         });
       }
@@ -267,8 +319,10 @@ describe("LocalModelManager", () => {
   });
 
   it("trata status HTTP Ollama como indisponibilidade e não apaga pesos válidos", async () => {
-    const fetch = vi.fn(
-      async (_url: string, _init: RequestInit) => new Response("", { status: 503 }),
+    const fetch = vi.fn(async (url: string, _init: RequestInit) =>
+      url.endsWith("/models/prepare")
+        ? multilingualWhisperStatus()
+        : new Response("", { status: 503 }),
     );
     const manager = new LocalModelManager({
       configuration: configuration(),
@@ -281,15 +335,27 @@ describe("LocalModelManager", () => {
   });
 });
 
-function fasterWhisperOnlyConfiguration(): LocalProfileAiConfiguration {
+function fasterWhisperOnlyConfiguration(model = "invalid-whisper"): LocalProfileAiConfiguration {
   const base = configuration();
   return {
     ...base,
     transcription: {
       ...base.transcription,
-      model: "invalid-whisper",
+      model,
     },
   };
+}
+
+function multilingualWhisperStatus(): Response {
+  return Response.json({
+    batchSize: 0,
+    computeType: "int8",
+    device: "cpu",
+    fallbackApplied: false,
+    model: "small",
+    multilingual: true,
+    status: "ready",
+  });
 }
 
 function gpuExecutionPlan(fallback: "cpu" | "none"): LocalExecutionPlan {

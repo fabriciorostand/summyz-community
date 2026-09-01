@@ -99,6 +99,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       persistMeetingAudio: guildSettings.persistMeetingAudio,
       persistMeetingContent: guildSettings.persistMeetingContent,
       startedAt: new Date().toISOString(),
+      startedByUserId: input.startedByUserId,
       storageMode: "postgres",
       voiceChannelId: input.voiceChannelId,
       voiceChannelName: input.voiceChannelName,

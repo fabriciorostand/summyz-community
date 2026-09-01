@@ -19,7 +19,7 @@ import {
   WalletCards,
   UserRound,
 } from "lucide-react";
-import { useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { Link, NavLink, Outlet, useNavigate, useOutletContext, useParams } from "react-router-dom";
 import { z } from "zod";
 
@@ -666,8 +666,21 @@ const meetingSummaryTexts = {
 } as const;
 
 function MeetingSummaryContent({ summary }: { summary: MeetingHistorySummary }) {
-  const text = meetingSummaryTexts[summary.language];
-  if (summary.status === "failed") return <p className="muted">{text.failure}</p>;
+  const fallbackText = meetingSummaryTexts[summary.language === "en" ? "en" : "pt-BR"];
+  if (summary.status === "failed") return <p className="muted">{fallbackText.failure}</p>;
+  const text =
+    summary.labels === undefined
+      ? fallbackText
+      : {
+          ...fallbackText,
+          assignee: summary.labels.assignee,
+          deadline: summary.labels.deadline,
+          decisions: summary.labels.decisions,
+          discussedTopics: summary.labels.discussedTopics,
+          executiveSummary: summary.labels.executiveSummary,
+          observations: summary.labels.observations,
+          tasks: summary.labels.tasks,
+        };
   return (
     <div className="meeting-summary-content">
       <section>
@@ -931,23 +944,35 @@ export function GuildConfigurationPage() {
   const [resources, setResources] = useState<GuildResources>();
   const [saved, setSaved] = useState(false);
   const [loadError, setLoadError] = useState(false);
-  useEffect(() => {
-    void Promise.all([api.getGuildConfiguration(guildId), api.getGuildResources(guildId)])
-      .then(([nextConfiguration, nextResources]) => {
-        setConfiguration(nextConfiguration);
-        setResources(nextResources);
-      })
-      .catch(() => setLoadError(true));
+  const loadConfiguration = useCallback(async () => {
+    setLoadError(false);
+    setConfiguration(undefined);
+    setResources(undefined);
+    try {
+      const [nextConfiguration, nextResources] = await Promise.all([
+        api.getGuildConfiguration(guildId),
+        api.getGuildResources(guildId),
+      ]);
+      setConfiguration(nextConfiguration);
+      setResources(nextResources);
+    } catch {
+      setLoadError(true);
+    }
   }, [guildId]);
+  useEffect(() => {
+    void loadConfiguration();
+  }, [loadConfiguration]);
   if (loadError) {
     return (
       <Page
         title="Não foi possível carregar a configuração"
         eyebrow="Servidor Discord"
-        description="O Discord ou o banco de dados recusou uma das consultas. Volte e tente novamente."
+        description="Não foi possível concluir as consultas necessárias. Tente novamente."
       >
         <EmptyState title="Configuração indisponível">
-          <Link to="/servers">Voltar aos servidores</Link>
+          <Button onClick={() => void loadConfiguration()} type="button">
+            Tentar novamente
+          </Button>
         </EmptyState>
       </Page>
     );
@@ -1208,26 +1233,33 @@ export function ProfilesPage() {
   const [profileType, setProfileType] = useState<Profile["profileType"]>("external");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
   const [loadError, setLoadError] = useState(false);
-  useEffect(() => {
-    void api
-      .listProfiles()
-      .then((next) => {
-        setItems(next);
-        setSelectedProfileId(
-          next.find((item) => item.profile.profileType === "external")?.profile.profileId ?? null,
-        );
-      })
-      .catch(() => setLoadError(true));
+  const loadProfiles = useCallback(async () => {
+    setLoadError(false);
+    setItems(undefined);
+    try {
+      const next = await api.listProfiles();
+      setItems(next);
+      setSelectedProfileId(
+        next.find((item) => item.profile.profileType === "external")?.profile.profileId ?? null,
+      );
+    } catch {
+      setLoadError(true);
+    }
   }, []);
+  useEffect(() => {
+    void loadProfiles();
+  }, [loadProfiles]);
   if (loadError) {
     return (
       <Page
         title="Não foi possível carregar seus perfis"
         eyebrow="Perfis pessoais"
-        description="Tente novamente quando o banco de dados estiver disponível."
+        description="Não foi possível concluir a consulta necessária. Tente novamente."
       >
         <EmptyState title="Perfis indisponíveis">
-          Recarregue a página para tentar novamente.
+          <Button onClick={() => void loadProfiles()} type="button">
+            Tentar novamente
+          </Button>
         </EmptyState>
       </Page>
     );
@@ -1301,6 +1333,96 @@ export function nextLocalizedProfileName(
   return `${prefix} ${nextNumber}`;
 }
 
+const profileLanguageOptions = [
+  "auto",
+  "ar",
+  "cs",
+  "da",
+  "de",
+  "el",
+  "en",
+  "en-GB",
+  "en-US",
+  "es",
+  "es-ES",
+  "es-MX",
+  "fi",
+  "fr",
+  "fr-CA",
+  "he",
+  "hi",
+  "hu",
+  "id",
+  "it",
+  "ja",
+  "ko",
+  "nl",
+  "no",
+  "pl",
+  "pt",
+  "pt-BR",
+  "pt-PT",
+  "ro",
+  "ru",
+  "sv",
+  "th",
+  "tr",
+  "uk",
+  "vi",
+  "zh",
+  "zh-CN",
+  "zh-TW",
+] as const;
+
+function LanguageSelector({
+  onChange,
+  value,
+}: {
+  onChange: (value: (typeof profileLanguageOptions)[number]) => void;
+  value: (typeof profileLanguageOptions)[number];
+}) {
+  const [query, setQuery] = useState("");
+  const normalizedQuery = query.trim().toLocaleLowerCase("pt-BR");
+  const visibleOptions = profileLanguageOptions.filter(
+    (language) =>
+      language === value ||
+      normalizedQuery.length === 0 ||
+      language.toLocaleLowerCase("pt-BR").includes(normalizedQuery),
+  );
+  return (
+    <div className="field language-selector">
+      <span>Idioma</span>
+      <input
+        aria-label="Pesquisar idioma"
+        autoComplete="off"
+        onChange={(event) => setQuery(event.currentTarget.value)}
+        placeholder="Pesquisar uma tag BCP 47"
+        type="search"
+        value={query}
+      />
+      <select
+        aria-label="Idioma"
+        onChange={(event) => {
+          const selected = profileLanguageOptions.find(
+            (language) => language === event.currentTarget.value,
+          );
+          if (selected !== undefined) onChange(selected);
+        }}
+        value={value}
+      >
+        {visibleOptions.map((language) => (
+          <option key={language} value={language}>
+            {language === "auto" ? "auto — recomendado" : language}
+          </option>
+        ))}
+      </select>
+      {visibleOptions.length === 1 && visibleOptions[0] === value && normalizedQuery.length > 0 && (
+        <small>Nenhuma outra tag corresponde à pesquisa.</small>
+      )}
+    </div>
+  );
+}
+
 function ProfileEditor({
   items,
   locale,
@@ -1321,7 +1443,7 @@ function ProfileEditor({
   const [transcriptionTab, setTranscriptionTab] = useState<"model" | "vad">("model");
   const previousPromptDefaults = useRef<PromptDefaults | undefined>(undefined);
   const promptProfileId = draft?.profileId;
-  const promptSummaryLanguage = draft?.summary.language;
+  const promptSummaryLanguage = draft?.language;
   useEffect(() => {
     previousPromptDefaults.current = undefined;
     setPromptDefaults(undefined);
@@ -1339,7 +1461,7 @@ function ProfileEditor({
         if (
           current === null ||
           current.profileId !== profileId ||
-          current.summary.language !== summaryLanguage ||
+          current.language !== summaryLanguage ||
           previous === undefined
         ) {
           return current;
@@ -1438,6 +1560,25 @@ function ProfileEditor({
             onChange={(event) => setDraft({ ...currentDraft, name: event.currentTarget.value })}
           />
         </div>
+        <LanguageSelector
+          value={currentDraft.language}
+          onChange={(language) => {
+            const translation =
+              language === "auto"
+                ? null
+                : (currentDraft.translation ?? {
+                    generation: {},
+                    model: null,
+                    prompt: null,
+                    provider: currentDraft.profileType === "external" ? "openrouter" : "ollama",
+                  });
+            setDraft(profileSchema.parse({ ...currentDraft, language, translation }));
+          }}
+        />
+        <p className="field-hint">
+          Em auto, o resumo usa o idioma predominante. Se o idioma escolhido já for exatamente o
+          predominante da call, a tradução será ignorada e não gerará custo.
+        </p>
         <PhaseEditor
           phase="Transcrição"
           profile={currentDraft}
@@ -1446,6 +1587,12 @@ function ProfileEditor({
           onTranscriptionTabChange={setTranscriptionTab}
           onChange={(next) => setDraft(profileSchema.parse(next))}
         />
+        {currentDraft.language !== "auto" && currentDraft.translation !== null && (
+          <TranslationEditor
+            profile={currentDraft}
+            onChange={(next) => setDraft(profileSchema.parse(next))}
+          />
+        )}
         <PhaseEditor
           phase="Refinamento"
           profile={currentDraft}
@@ -1650,16 +1797,6 @@ function PhaseEditor({
                 }
               />
             </div>
-            <Field
-              label="Idioma"
-              value={value.language}
-              onChange={(event) =>
-                onChange({
-                  ...profile,
-                  transcription: { ...value, language: event.currentTarget.value },
-                })
-              }
-            />
             <div className="form-grid">
               {profile.profileType === "local" && (
                 <Field
@@ -1728,7 +1865,7 @@ function PhaseEditor({
             </div>
             <PromptEditor
               defaultPrompt={promptDefaults?.transcription ?? null}
-              disabledMessage="Nenhum prompt será enviado na transcrição."
+              disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
               label="Prompt da transcrição"
               toggleLabel="Enviar prompt de transcrição"
               value={value.prompt}
@@ -1777,18 +1914,6 @@ function PhaseEditor({
           onChange={(event) => replace({ ...value, model: event.currentTarget.value || null })}
         />
       </div>
-      {phase === "Resumo" && (
-        <Field
-          label="Idioma"
-          value={profile.summary.language}
-          onChange={(event) =>
-            onChange({
-              ...profile,
-              summary: { ...profile.summary, language: event.currentTarget.value },
-            })
-          }
-        />
-      )}
       <div className="form-grid">
         <Field
           label="Máximo por trecho"
@@ -1843,7 +1968,7 @@ function PhaseEditor({
       {phase === "Refinamento" ? (
         <PromptEditor
           defaultPrompt={promptDefaults?.refinement}
-          disabledMessage="Nenhum prompt será enviado no refinamento."
+          disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
           label="Prompt de refinamento"
           toggleLabel="Enviar prompt de refinamento"
           value={profile.refinement.prompt}
@@ -1855,7 +1980,7 @@ function PhaseEditor({
         <div className="summary-prompts">
           <PromptEditor
             defaultPrompt={promptDefaults?.summaryExtraction}
-            disabledMessage="Nenhum prompt será enviado na extração do resumo."
+            disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
             label="Prompt do resumo — extração"
             toggleLabel="Enviar prompt de extração"
             value={profile.summary.extractionPrompt}
@@ -1868,7 +1993,7 @@ function PhaseEditor({
           />
           <PromptEditor
             defaultPrompt={promptDefaults?.summaryConsolidation}
-            disabledMessage="Nenhum prompt será enviado na consolidação do resumo."
+            disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
             label="Prompt do resumo — consolidação"
             toggleLabel="Enviar prompt de consolidação"
             value={profile.summary.consolidationPrompt}
@@ -1881,6 +2006,102 @@ function PhaseEditor({
           />
         </div>
       )}
+    </fieldset>
+  );
+}
+
+function TranslationEditor({
+  onChange,
+  profile,
+}: {
+  onChange: (profile: unknown) => void;
+  profile: Profile;
+}) {
+  const value = profile.translation;
+  if (value === null) return null;
+  const replace = (translation: typeof value) => onChange({ ...profile, translation });
+  return (
+    <fieldset className="phase">
+      <legend>Tradução</legend>
+      <p className="field-hint">
+        Esta fase adiciona uma chamada ao modelo. Se falhar, o resumo-base será publicado no idioma
+        predominante e o autor do /record receberá uma DM privada.
+      </p>
+      <div className="form-grid">
+        <SelectField disabled label="Provedor" value={value.provider}>
+          <option value="ollama">ollama</option>
+          <option value="openrouter">openrouter</option>
+        </SelectField>
+        <Field
+          label="Modelo"
+          placeholder="qwen3:4b ou vendor/model"
+          value={value.model ?? ""}
+          onChange={(event) => replace({ ...value, model: event.currentTarget.value || null })}
+        />
+      </div>
+      <button
+        className="text-button"
+        onClick={() => replace({ ...value, model: profile.summary.model })}
+        type="button"
+      >
+        Usar modelo do resumo
+      </button>
+      <details className="advanced-settings">
+        <summary>Configurações avançadas</summary>
+        <div className="form-grid">
+          <Field
+            label="Temperatura"
+            max={2}
+            min={0}
+            step={0.1}
+            type="number"
+            value={value.generation.temperature ?? ""}
+            onChange={(event) =>
+              replace({
+                ...value,
+                generation: {
+                  ...value.generation,
+                  temperature:
+                    event.currentTarget.value === ""
+                      ? undefined
+                      : event.currentTarget.valueAsNumber,
+                },
+              })
+            }
+          />
+          <Field
+            label="Seed"
+            type="number"
+            value={value.generation.seed ?? ""}
+            onChange={(event) =>
+              replace({
+                ...value,
+                generation: {
+                  ...value.generation,
+                  seed:
+                    event.currentTarget.value === ""
+                      ? undefined
+                      : event.currentTarget.valueAsNumber,
+                },
+              })
+            }
+          />
+        </div>
+        <Toggle
+          checked={value.generation.think ?? false}
+          description="Encaminha think=true quando o provedor oferece suporte."
+          label="Raciocínio do modelo"
+          onChange={(think) => replace({ ...value, generation: { ...value.generation, think } })}
+        />
+        <PromptEditor
+          defaultPrompt="Traduza somente os campos permitidos e preserve os termos protegidos."
+          disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
+          label="Prompt de tradução"
+          toggleLabel="Usar prompt de tradução"
+          value={value.prompt}
+          onChange={(prompt) => replace({ ...value, prompt })}
+        />
+      </details>
     </fieldset>
   );
 }
@@ -1915,7 +2136,7 @@ function PromptEditor({
     <section className="prompt-editor">
       <Toggle
         checked={enabled}
-        description="Desative para enviar esta fase sem prompt."
+        description="Desative para remover somente a personalização; o prompt-base continuará ativo."
         label={toggleLabel}
         onChange={(checked) => {
           if (checked) onChange(defaultPrompt ?? "");
@@ -1965,7 +2186,7 @@ function PromptEditor({
           </strong>
           <span>
             {pendingAction === "disable"
-              ? "O texto atual será removido do perfil e esta fase será enviada ao modelo sem prompt."
+              ? "O texto editável será removido do perfil. O prompt-base imutável continuará sendo enviado."
               : "A personalização atual será substituída pelo prompt padrão."}
           </span>
           <div className="prompt-confirm-actions">

@@ -26,11 +26,13 @@ import { registerCommands } from "./discord/register-commands.js";
 import { notifyTranscriptionFailure } from "./discord/transcription-notifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
 import { createLogger } from "./logger.js";
+import { OpenRouterModelPreflight } from "./openrouter/model-preflight.js";
 import { SecretBox } from "./security/secret-box.js";
 import { LocalModelManager } from "./local-ai/local-model-manager.js";
 import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-size.js";
 import { detectLocalHardware } from "./local-ai/hardware-detection.js";
 import { resolveLocalExecutionPlan, type LocalAiPhase } from "./local-ai/local-execution-policy.js";
+import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
 import { DurableJobQueue } from "./processing/durable-job-queue.js";
 import { DurableJobWorker } from "./processing/durable-job-worker.js";
 import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
@@ -68,6 +70,9 @@ import {
 import type { TranscriptionModelProfile } from "./transcription/transcription-model-profile.js";
 import { TranscriptionStore } from "./transcription/transcription-store.js";
 import type { TranscriptionProvider } from "./transcription/transcription-provider.js";
+import { OllamaSummaryTranslator } from "./translation/ollama-summary-translator.js";
+import { OpenRouterSummaryTranslator } from "./translation/openrouter-summary-translator.js";
+import { SummaryTranslationService } from "./translation/summary-translation.js";
 
 const terminalEncoding = configureTerminalEncoding();
 
@@ -90,6 +95,15 @@ if (!terminalEncoding.configured) {
     { errorType: terminalEncoding.errorType },
     "Unable to configure the Windows terminal for UTF-8",
   );
+}
+
+try {
+  await validateFfmpegExecutable();
+  logger.info("FFmpeg executable and libopus encoder validated");
+} catch (error: unknown) {
+  logger.fatal({ errorType: getErrorType(error) }, "FFmpeg preflight failed");
+  process.exitCode = 1;
+  throw error;
 }
 
 const database: PostgresDatabase = createPostgresDatabase(bootstrapConfig.databaseUrl);
@@ -130,6 +144,12 @@ const recordingsDirectory = join(config.dataDir, "recordings");
 
 const postgresMeetingStore = new PostgresMeetingStore(database);
 const manifestStore = new ManifestStore(recordingsDirectory, postgresMeetingStore);
+const transcriptionStore = new TranscriptionStore(recordingsDirectory);
+for (const meetingId of await postgresMeetingStore.listDelivery2CleanupMeetingIds()) {
+  await transcriptionStore.deleteMeeting(meetingId);
+  await postgresMeetingStore.markDelivery2CleanupCompleted(meetingId);
+  logger.info({ meetingId }, "Obsolete pending meeting artifacts deleted");
+}
 const migratedManifestCount = await manifestStore.migrateLegacyManifests();
 if (migratedManifestCount > 0) {
   logger.info({ migratedManifestCount }, "Legacy recording manifests migrated");
@@ -151,7 +171,6 @@ const client = new Client({
 });
 const guildConfigStore = new PostgresGuildConfigStore(database);
 const aiProfileStore = new PostgresAiProfileStore(database);
-const transcriptionStore = new TranscriptionStore(recordingsDirectory);
 const refinementStore = new RefinementStore(recordingsDirectory);
 const summaryStore = new SummaryStore(recordingsDirectory);
 const publicationStore = new PublicationStore(recordingsDirectory);
@@ -179,7 +198,7 @@ const summaryService = new MeetingSummaryService({
             costRecorder,
             extractionPrompt: selection.extractionPrompt,
             generation: selection.generation,
-            language: selection.language,
+            language: manifest.predominantLanguage ?? "auto",
             model: selection.model,
             timeoutMs: config.summaryTimeoutMs,
           })
@@ -189,7 +208,7 @@ const summaryService = new MeetingSummaryService({
             costRecorder,
             extractionPrompt: selection.extractionPrompt,
             generation: selection.generation,
-            language: selection.language,
+            language: manifest.predominantLanguage ?? "auto",
             logger,
             maxAttempts: config.summaryMaxAttempts,
             model: selection.model,
@@ -202,6 +221,37 @@ const summaryService = new MeetingSummaryService({
       provider,
     });
     return generator;
+  },
+  resolveTranslator: async (manifest) => {
+    const configuration = getMeetingAiConfiguration(manifest);
+    const selection = configuration.translation;
+    if (selection === null) throw new Error("The meeting does not have a translation phase");
+    const apiKey =
+      selection.provider === "openrouter" ? await requireOpenRouterApiKey() : undefined;
+    const costRecorder = createProviderCostRecorder(manifest, "translation", apiKey);
+    const translator =
+      selection.provider === "ollama"
+        ? new OllamaSummaryTranslator({
+            costRecorder,
+            generation: selection.generation,
+            model: selection.model,
+            prompt: selection.prompt,
+            timeoutMs: config.translationTimeoutMs,
+          })
+        : new OpenRouterSummaryTranslator({
+            apiKey: requireConfigured(apiKey, "OpenRouter API key"),
+            costRecorder,
+            generation: selection.generation,
+            model: selection.model,
+            prompt: selection.prompt,
+            timeoutMs: config.translationTimeoutMs,
+          });
+    return new SummaryTranslationService({
+      maxAttempts: config.translationMaxAttempts,
+      retryBaseMs: config.translationRetryBaseMs,
+      retryMaxMs: config.translationRetryMaxMs,
+      translator,
+    });
   },
   summaryStore,
   transcriptionStore,
@@ -256,6 +306,8 @@ const transcriptionService = new MeetingTranscriptionService({
       manifest,
       manifest.botLanguage ?? config.botLanguage,
     ),
+  publishTranscriptOnly: (manifest, transcriptPath) =>
+    meetingPublisher.publishTranscriptOnly(manifest, transcriptPath),
   resolveProvider: (manifest) => {
     const selection = getMeetingAiConfiguration(manifest).transcription;
     return createTranscriptionProvider(selection, manifest);
@@ -419,6 +471,17 @@ async function resolveAndPrepareMeetingAiConfiguration(
     throw new Error("The server does not have an active AI profile");
   }
   let configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
+  if (configuration.profileType === "external") {
+    const apiKey = await requireOpenRouterApiKey();
+    await new OpenRouterModelPreflight({ apiKey }).validate({
+      generativeModels: [
+        configuration.refinement.model,
+        configuration.summary.model,
+        ...(configuration.translation === null ? [] : [configuration.translation.model]),
+      ],
+      transcriptionModel: configuration.transcription.model,
+    });
+  }
   const localAiPhases = localPhases(configuration);
   const executionPlan = resolveLocalExecutionPlan({
     device: config.localAiDevice,
@@ -560,7 +623,7 @@ async function createTranscriptionProvider(
       costRecorder,
       device: executionPlan.transcription.device,
       fallback: executionPlan.transcription.fallback,
-      language: selection.language,
+      language: "auto",
       model: selection.model,
       prompt: selection.prompt,
       timeoutMs: config.transcriptionTimeoutMs,
@@ -581,7 +644,7 @@ async function createTranscriptionProvider(
   return new OpenRouterTranscriptionProvider({
     apiKey,
     costRecorder,
-    language: selection.language,
+    language: "auto",
     logger,
     maxAttempts: config.transcriptionMaxAttempts,
     model: selection.model,

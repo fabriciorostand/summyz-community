@@ -126,6 +126,14 @@ can use it, and the response is ephemeral.
   podem ser alteradas no dashboard.
 - As políticas de conteúdo e áudio são fixadas quando `/record` começa; alterações posteriores no
   dashboard valem somente para novas reuniões.
-- The active profile type, provider, explicit model, language, VAD, and other phase parameters are
-  also pinned then. A local profile never uses OpenRouter as fallback.
+- The active profile type, provider, explicit models, configured language, translation settings,
+  VAD, prompts, and other phase parameters are pinned then. A local profile never uses OpenRouter
+  as fallback.
+- `/record` is blocked before audio capture when an external model fails its OpenRouter capability
+  preflight, or when the loaded faster-whisper checkpoint is monolingual or unknown. An explicit
+  profile language also requires a translation model.
+- The transcript preserves every spoken language. `auto` publishes the summary in the single
+  predominant primary language; an explicit tag translates only the validated base summary.
+- If translation ultimately fails, the base summary is still published and only the `/record`
+  author receives a private DM. No warning is added to the forum post.
 - Financial records are retained indefinitely, independently of audio and transcript retention.

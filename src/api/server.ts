@@ -5,6 +5,7 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import staticFiles from "@fastify/static";
 import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
+import type { Logger } from "pino";
 import { z, ZodError } from "zod";
 
 import { aiProfileSchema, externalAiProfileSchema, localAiProfileSchema } from "../ai-profile.js";
@@ -13,7 +14,10 @@ import type { AuthenticatedUser } from "../auth/auth-domain.js";
 import type { AuthTokens, StoredDashboardUser } from "../auth/auth-service.js";
 import { AuthenticationError } from "../auth/auth-service.js";
 import { SessionTokenError } from "../auth/jwt-session.js";
-import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
+import {
+  type AiProfileStore,
+  StoredAiProfileValidationError,
+} from "../database/postgres-ai-profile-store.js";
 import type {
   InstallationSecretName,
   InstallationSettings,
@@ -130,6 +134,7 @@ export interface ApiServerDependencies {
   discord: ApiDiscordService;
   guildConfig: GuildConfigurationStore;
   guildDirectory: GuildDirectory;
+  logger: Logger;
   secureCookies: boolean;
   settings: ApiSettingsStore;
   setupToken: string;
@@ -159,7 +164,7 @@ export async function createApiServer(
     await app.register(staticFiles, { root: options.staticDirectory });
   }
 
-  app.setErrorHandler((error, _request, reply) => {
+  app.setErrorHandler((error, request, reply) => {
     if (error instanceof ZodError) {
       void reply.status(400).send({ error: "invalid_request", issues: error.issues });
       return;
@@ -174,6 +179,7 @@ export async function createApiServer(
     }
     const statusCode = getErrorStatusCode(error);
     const message = error instanceof Error ? error.message : "internal_error";
+    if (statusCode >= 500) logApiFailure(dependencies.logger, request, error);
     void reply.status(statusCode).send({ error: statusCode >= 500 ? "internal_error" : message });
   });
 
@@ -392,21 +398,26 @@ export async function createApiServer(
   });
   app.get("/api/guilds/:guildId/configuration", async (request) => {
     const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
-    const [settings, recordingRoleIds, summaryForum, profiles, activeProfile] = await Promise.all([
-      dependencies.guildConfig.getGuildSettings(guildId),
-      dependencies.guildConfig.listRecordingRoles(guildId),
-      dependencies.guildConfig.getSummaryForum(guildId),
-      dependencies.aiProfiles.listProfiles(user.userId),
-      dependencies.aiProfiles.getActiveProfile(guildId),
-    ]);
+    const [settings, recordingRoleIds, summaryForum, profiles, activeProfile] =
+      await runApiDependency("database", "load_guild_configuration", async () => {
+        await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
+        return Promise.all([
+          dependencies.guildConfig.getGuildSettings(guildId),
+          dependencies.guildConfig.listRecordingRoles(guildId),
+          dependencies.guildConfig.getSummaryForum(guildId),
+          dependencies.aiProfiles.listProfiles(user.userId),
+          dependencies.aiProfiles.getActiveProfile(guildId),
+        ]);
+      });
     const activeProfileId =
       activeProfile?.userId === user.userId &&
       profiles.some((profile) => profile.profileId === activeProfile.profileId)
         ? activeProfile.profileId
         : null;
     if (activeProfile !== undefined && activeProfileId === null) {
-      await dependencies.aiProfiles.clearActiveProfile(guildId);
+      await runApiDependency("database", "clear_stale_active_profile", () =>
+        dependencies.aiProfiles.clearActiveProfile(guildId),
+      );
     }
     return {
       activeProfileId,
@@ -426,7 +437,9 @@ export async function createApiServer(
   });
   app.get("/api/guilds/:guildId/resources", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    return dependencies.guildDirectory.getResources(guildId);
+    return runApiDependency("discord", "load_guild_resources", () =>
+      dependencies.guildDirectory.getResources(guildId),
+    );
   });
   app.put("/api/guilds/:guildId/roles", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
@@ -459,11 +472,17 @@ export async function createApiServer(
   });
   app.get("/api/profiles", async (request) => {
     const user = await authenticateRequest(request, dependencies);
-    await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
-    const [profiles, activeProfileIds] = await Promise.all([
-      dependencies.aiProfiles.listProfiles(user.userId),
-      dependencies.aiProfiles.listActiveProfileIds(user.userId),
-    ]);
+    const [profiles, activeProfileIds] = await runApiDependency(
+      "database",
+      "list_ai_profiles",
+      async () => {
+        await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
+        return Promise.all([
+          dependencies.aiProfiles.listProfiles(user.userId),
+          dependencies.aiProfiles.listActiveProfileIds(user.userId),
+        ]);
+      },
+    );
     return profiles.map((profile) => ({
       active: activeProfileIds.has(profile.profileId),
       profile,
@@ -600,9 +619,10 @@ function createGuildAccessResolver(dependencies: ApiServerDependencies): GuildAc
     const now = Date.now();
     const cached = cache.get(userId);
     if (cached !== undefined && cached.expiresAt > now) return cached.request;
-    const request = dependencies.guildDirectory
-      .getInstalledGuildIds()
-      .then((installedGuildIds) => dependencies.discord.listOwnedGuilds(userId, installedGuildIds));
+    const request = runApiDependency("discord", "resolve_guild_access", async () => {
+      const installedGuildIds = await dependencies.guildDirectory.getInstalledGuildIds();
+      return dependencies.discord.listOwnedGuilds(userId, installedGuildIds);
+    });
     cache.set(userId, { expiresAt: now + 10_000, request });
     try {
       return await request;
@@ -611,6 +631,55 @@ function createGuildAccessResolver(dependencies: ApiServerDependencies): GuildAc
       throw error;
     }
   };
+}
+
+type ApiErrorCategory = "database" | "discord" | "persisted_data";
+
+class ApiDependencyError extends Error {
+  public constructor(
+    public readonly errorCategory: ApiErrorCategory,
+    public readonly operation: string,
+    cause: unknown,
+  ) {
+    super("Dashboard dependency failed", { cause });
+    this.name = "ApiDependencyError";
+  }
+}
+
+async function runApiDependency<T>(
+  errorCategory: Exclude<ApiErrorCategory, "persisted_data">,
+  operation: string,
+  action: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await action();
+  } catch (error) {
+    if (error instanceof ApiDependencyError) throw error;
+    throw new ApiDependencyError(
+      error instanceof StoredAiProfileValidationError ? "persisted_data" : errorCategory,
+      operation,
+      error,
+    );
+  }
+}
+
+function logApiFailure(logger: Logger, request: FastifyRequest, error: unknown): void {
+  const dependencyError = error instanceof ApiDependencyError ? error : undefined;
+  logger.error(
+    {
+      errorCategory: dependencyError?.errorCategory ?? "internal",
+      errorType: getErrorType(dependencyError?.cause ?? error),
+      method: request.method,
+      operation: dependencyError?.operation ?? "handle_request",
+      requestId: request.id,
+      route: request.routeOptions.url,
+    },
+    "Dashboard request failed",
+  );
+}
+
+function getErrorType(error: unknown): string {
+  return error instanceof Error ? error.name : typeof error;
 }
 
 async function requireAdministrator(

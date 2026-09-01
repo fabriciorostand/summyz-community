@@ -53,6 +53,8 @@ describe("FasterWhisperTranscriptionProvider", () => {
       async (_url: string, _init: RequestInit) =>
         new Response(
           JSON.stringify({
+            language: "es",
+            languageProbability: 0.8,
             text: "Hola mundo.",
             words: [
               { end: 0.5, start: 0, word: "Hola" },
@@ -86,6 +88,7 @@ describe("FasterWhisperTranscriptionProvider", () => {
       provider.transcribe({ audio: new Uint8Array([1, 2, 3]), format: "ogg" }),
     ).resolves.toEqual({
       attempts: 1,
+      detectedLanguage: { language: "es", probability: 0.8 },
       pieces: [{ endedAtMs: 1_000, startedAtMs: 0, text: "Hola mundo." }],
       words: [
         { endedAtMs: 500, startedAtMs: 0, text: "Hola" },

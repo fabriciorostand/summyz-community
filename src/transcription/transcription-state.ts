@@ -5,6 +5,7 @@ import type { TranscriptionProviderResult } from "./transcription-provider.js";
 export const transcriptionFailureCodeSchema = z.enum([
   "audio_analysis_failed",
   "audio_conversion_failed",
+  "language_detection_failed",
   "provider_failed",
   "storage_failed",
 ]);

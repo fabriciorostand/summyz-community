@@ -13,6 +13,7 @@ export function shouldStartTranscription(reason: RecordingStopReason): boolean {
 export interface StartRecordingInput {
   guildId: string;
   notificationChannelId: string;
+  startedByUserId?: string;
   voiceChannelId: string;
   voiceChannelName?: string;
 }

@@ -10,6 +10,8 @@ def create_transcription_options(
     vad_enabled = vad_options["enabled"] is True
     options: dict[str, object] = {
         "language": normalize_whisper_language(language),
+        "multilingual": True,
+        "task": "transcribe",
         "vad_filter": vad_enabled,
         "word_timestamps": True,
     }

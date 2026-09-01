@@ -1,3 +1,4 @@
+import { composeProtectedPrompt } from "../ai-system-prompt.js";
 import { requestOllamaStructured } from "../local-ai/ollama-client.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 import {
@@ -6,9 +7,10 @@ import {
   type SummaryProviderResult,
 } from "./summary-provider.js";
 import {
+  artifactLabelsJsonSchema,
+  generatedSummaryDraftSchema,
   type SummaryDraft,
   type SummaryTranscriptEntry,
-  summaryDraftSchema,
 } from "./summary-result.js";
 
 const jsonSchema = {
@@ -17,7 +19,9 @@ const jsonSchema = {
     decisions: { items: { $ref: "#/$defs/groundedItem" }, type: "array" },
     discussedTopics: { items: { minLength: 1, type: "string" }, type: "array" },
     executiveSummary: { minLength: 1, type: "string" },
+    labels: artifactLabelsJsonSchema,
     observations: { items: { minLength: 1, type: "string" }, type: "array" },
+    protectedTerms: { items: { minLength: 1, type: "string" }, type: "array" },
     tasks: {
       items: {
         additionalProperties: false,
@@ -37,7 +41,15 @@ const jsonSchema = {
       type: "array",
     },
   },
-  required: ["decisions", "discussedTopics", "executiveSummary", "observations", "tasks"],
+  required: [
+    "decisions",
+    "discussedTopics",
+    "executiveSummary",
+    "labels",
+    "observations",
+    "protectedTerms",
+    "tasks",
+  ],
   type: "object",
   $defs: {
     groundedItem: {
@@ -111,13 +123,17 @@ export class OllamaSummaryProvider implements SummaryProvider {
         ...(this.#options.fetch === undefined ? {} : { fetch: this.#options.fetch }),
         ...(this.#options.generation === undefined ? {} : { generation: this.#options.generation }),
         input,
-        instruction,
+        instruction: composeProtectedPrompt({
+          editablePrompt: instruction,
+          phase: "summary",
+          phaseLanguage: this.#options.language,
+        }),
         jsonSchema,
         model: this.#options.model,
         ...(this.#options.onIncompatibleModel === undefined
           ? {}
           : { onIncompatibleModel: this.#options.onIncompatibleModel }),
-        outputSchema: summaryDraftSchema,
+        outputSchema: generatedSummaryDraftSchema,
         timeoutMs: this.#options.timeoutMs,
       });
       result = { attempts: 1, summary };

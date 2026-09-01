@@ -7,7 +7,21 @@ const validSummary = {
   decisions: [],
   discussedTopics: ["Planning"],
   executiveSummary: "The team planned the release.",
+  labels: {
+    assignee: "Assignee",
+    deadline: "Deadline",
+    decisions: "Decisions",
+    discussedTopics: "Discussed topics",
+    executiveSummary: "Executive summary",
+    fullTranscript: "Full transcript",
+    meetingId: "Meeting ID",
+    observations: "Observations",
+    summary: "Summary",
+    tasks: "Tasks",
+    transcript: "Transcript",
+  },
   observations: [],
+  protectedTerms: [],
   tasks: [],
 };
 

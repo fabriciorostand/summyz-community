@@ -12,6 +12,8 @@ import {
 } from "./transcription-provider.js";
 
 const responseSchema = z.object({
+  language: z.string().min(2).max(64).optional(),
+  languageProbability: z.number().min(0).max(1).optional(),
   text: z.string(),
   words: z
     .array(
@@ -134,7 +136,6 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
       }
       throw new IncompatibleTranscriptionResponseError("missing_timestamps");
     }
-
     const words = parsed.data.words.map((word) => ({
       endedAtMs: Math.round(word.end * 1_000),
       startedAtMs: Math.round(word.start * 1_000),
@@ -143,7 +144,24 @@ export class FasterWhisperTranscriptionProvider implements TranscriptionProvider
     if (words.some((piece) => piece.endedAtMs <= piece.startedAtMs)) {
       throw new IncompatibleTranscriptionResponseError("invalid_timestamps");
     }
-    return { attempts: 1, pieces: groupWords(words), words };
+    if ((input.language ?? this.#language) === "auto" && parsed.data.language === undefined) {
+      throw new IncompatibleTranscriptionResponseError("missing_language");
+    }
+    return {
+      attempts: 1,
+      ...(parsed.data.language === undefined
+        ? {}
+        : {
+            detectedLanguage: {
+              language: parsed.data.language,
+              ...(parsed.data.languageProbability === undefined
+                ? {}
+                : { probability: parsed.data.languageProbability }),
+            },
+          }),
+      pieces: groupWords(words),
+      words,
+    };
   }
 }
 

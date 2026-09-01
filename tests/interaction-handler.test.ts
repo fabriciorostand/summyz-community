@@ -14,6 +14,7 @@ import { createLogger } from "../src/logger.js";
 import { CostReportError } from "../src/cost/cost-report.js";
 import type { RecordingCoordinator } from "../src/recording/recording-coordinator.js";
 import { RecordingAlreadyActiveError } from "../src/recording/recording-coordinator.js";
+import { MultilingualCheckpointRequiredError } from "../src/local-ai/local-model-manager.js";
 import { InMemoryGuildConfigurationStore } from "./in-memory-guild-config-store.js";
 
 interface InteractionOptions {
@@ -333,6 +334,7 @@ describe("fluxo de comandos do Discord", () => {
     expect(context.start).toHaveBeenCalledWith({
       guildId: "guild-1",
       notificationChannelId: "thread-command",
+      startedByUserId: "user-1",
       voiceChannelId: "voice-1",
       voiceChannelName: "Lobby",
     });
@@ -591,6 +593,21 @@ describe("fluxo de comandos do Discord", () => {
       expect.objectContaining({
         content: "Não foi possível concluir o comando. Tente novamente.",
       }),
+    );
+  });
+
+  it("explica antes de gravar que faster-whisper exige checkpoint multilíngue", async () => {
+    const context = await createHarness({
+      administrator: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    context.start.mockRejectedValueOnce(new MultilingualCheckpointRequiredError());
+
+    await context.listener(context.interaction);
+
+    expect(context.editReply).toHaveBeenCalledWith(
+      expect.stringMatching(/somente um idioma.*checkpoint multilíngue.*detecção automática/i),
     );
   });
 

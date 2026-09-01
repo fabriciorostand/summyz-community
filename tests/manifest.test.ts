@@ -9,6 +9,7 @@ import {
   markManifestRecording,
   recordingManifestSchema,
   requireCurrentMeetingAiConfiguration,
+  setPredominantLanguage,
 } from "../src/recording/manifest.js";
 import { migrateRecordingManifest } from "../src/recording/manifest-migration.js";
 
@@ -53,37 +54,48 @@ describe("manifesto da gravação", () => {
     });
   });
 
-  it("fixa provedores, modelos e idiomas no início da reunião", () => {
+  it("fixa idioma, modelos e autor no início e persiste uma única tag predominante", () => {
     const manifest = createManifest({
       aiConfiguration: {
+        language: "es",
         profileType: "local",
         refinement: {
           model: "qwen3:4b",
           provider: "ollama",
         },
         summary: {
-          language: "auto",
           model: "qwen3:8b",
           provider: "ollama",
         },
         transcription: {
-          language: "es",
           model: "small",
           provider: "faster-whisper",
+        },
+        translation: {
+          generation: { temperature: 0 },
+          model: "qwen3:8b",
+          prompt: null,
+          provider: "ollama",
         },
       },
       guildId: "guild-1",
       meetingId: "meeting-1",
       notificationChannelId: "text-1",
+      startedByUserId: "user-1",
       startedAt: "2026-08-16T20:00:00.000Z",
       voiceChannelId: "voice-1",
     });
 
     expect(manifest.aiConfiguration).toMatchObject({
+      language: "es",
       refinement: { model: "qwen3:4b", provider: "ollama" },
-      summary: { language: "auto", model: "qwen3:8b", provider: "ollama" },
-      transcription: { language: "es", model: "small", provider: "faster-whisper" },
+      summary: { model: "qwen3:8b", provider: "ollama" },
+      transcription: { model: "small", provider: "faster-whisper" },
+      translation: { model: "qwen3:8b", provider: "ollama" },
     });
+    const detected = setPredominantLanguage(manifest, "pt");
+    expect(detected).toMatchObject({ predominantLanguage: "pt", startedByUserId: "user-1" });
+    expect(detected).not.toHaveProperty("languageEvidence");
     expect(requireCurrentMeetingAiConfiguration(manifest).profileType).toBe("local");
   });
 
@@ -135,18 +147,17 @@ describe("manifesto da gravação", () => {
   it("não persiste metadados do seletor automático removido", () => {
     const manifest = createManifest({
       aiConfiguration: {
+        language: "auto",
         profileType: "local",
         refinement: {
           model: "qwen3:1.7b",
           provider: "ollama",
         },
         summary: {
-          language: "auto",
           model: "qwen3:4b",
           provider: "ollama",
         },
         transcription: {
-          language: "auto",
           model: "tiny",
           provider: "faster-whisper",
         },
@@ -259,11 +270,11 @@ describe("manifesto da gravação", () => {
   it("remove opções antigas de timestamps e lote externo durante a migração", () => {
     const current = createManifest({
       aiConfiguration: {
+        language: "auto",
         profileType: "external",
         refinement: { model: "review", provider: "openrouter" },
-        summary: { language: "pt-BR", model: "summary", provider: "openrouter" },
+        summary: { model: "summary", provider: "openrouter" },
         transcription: {
-          language: "pt-BR",
           model: "transcription",
           provider: "openrouter",
           vad: {},
@@ -297,11 +308,11 @@ describe("manifesto da gravação", () => {
   it("infere o perfil externo ao migrar uma configuração v1", () => {
     const current = createManifest({
       aiConfiguration: {
+        language: "auto",
         profileType: "external",
         refinement: { model: "review", provider: "openrouter" },
-        summary: { language: "pt-BR", model: "summary", provider: "openrouter" },
+        summary: { model: "summary", provider: "openrouter" },
         transcription: {
-          language: "pt-BR",
           model: "transcription",
           provider: "openrouter",
           vad: {},
@@ -343,12 +354,12 @@ describe("manifesto da gravação", () => {
   it("preserva o lote local ao remover o modo antigo de timestamps", () => {
     const current = createManifest({
       aiConfiguration: {
+        language: "auto",
         profileType: "local",
         refinement: { model: "review", provider: "ollama" },
-        summary: { language: "pt-BR", model: "summary", provider: "ollama" },
+        summary: { model: "summary", provider: "ollama" },
         transcription: {
           batchSize: 4,
-          language: "pt-BR",
           model: "medium",
           provider: "faster-whisper",
           vad: {},

@@ -5,7 +5,9 @@ import {
   aiProfileSchema,
   createInitialAiProfile,
   isAiProfileComplete,
+  profileLanguageSchema,
   resolveAiProfile,
+  supportedProfileLanguages,
 } from "../src/ai-profile.js";
 
 const gibibyte = 1_024 ** 3;
@@ -15,11 +17,11 @@ describe("perfis de IA", () => {
     const profile = createInitialAiProfile("user-1", "local", "en");
 
     expect(profile).toMatchObject({
+      language: "auto",
       name: "Profile 1",
       profileType: "local",
       refinement: { maxChunkCharacters: 500_000, model: null, provider: "ollama" },
       summary: {
-        language: "auto",
         maxChunkCharacters: 500_000,
         model: null,
         provider: "ollama",
@@ -27,18 +29,19 @@ describe("perfis de IA", () => {
       transcription: {
         batchSize: "auto",
         interSpeechSilenceMs: 0,
-        language: "auto",
         model: null,
         provider: "faster-whisper",
       },
+      translation: null,
       userId: "user-1",
     });
     expect(isAiProfileComplete(profile)).toBe(false);
   });
 
-  it("exige escolha explícita nas três fases e fixa todas as opções no manifesto", () => {
+  it("exige tradução somente para idioma explícito e fixa todas as opções", () => {
     const profile = aiProfileSchema.parse({
       ...createInitialAiProfile("user-1", "local", "pt-BR"),
+      language: "pt-BR",
       refinement: {
         generation: { seed: 0, temperature: 0, think: false },
         maxChunkCharacters: 3_000,
@@ -50,7 +53,6 @@ describe("perfis de IA", () => {
         consolidationPrompt: null,
         extractionPrompt: null,
         generation: { seed: 0, temperature: 0, think: false },
-        language: "pt-BR",
         maxChunkCharacters: 3_000,
         model: "qwen3:4b-instruct-2507-q4_K_M",
         provider: "ollama",
@@ -58,7 +60,6 @@ describe("perfis de IA", () => {
       transcription: {
         batchSize: 2,
         interSpeechSilenceMs: 0,
-        language: "pt-BR",
         mergeMaxGapMs: 2_000,
         model: "medium",
         prompt: "Transcreva literalmente.",
@@ -66,10 +67,17 @@ describe("perfis de IA", () => {
         providerOptions: { vendor: { diarize: false } },
         temperature: 0,
       },
+      translation: {
+        generation: { seed: 7, temperature: 0.1, think: false },
+        model: "qwen3:4b-instruct-2507-q4_K_M",
+        prompt: "Preserve os termos protegidos.",
+        provider: "ollama",
+      },
     });
 
     expect(isAiProfileComplete(profile)).toBe(true);
     expect(resolveAiProfile(profile)).toEqual({
+      language: "pt-BR",
       refinement: {
         generation: { seed: 0, temperature: 0, think: false },
         maxChunkCharacters: 3_000,
@@ -82,7 +90,6 @@ describe("perfis de IA", () => {
         consolidationPrompt: null,
         extractionPrompt: null,
         generation: { seed: 0, temperature: 0, think: false },
-        language: "pt-BR",
         maxChunkCharacters: 3_000,
         model: "qwen3:4b-instruct-2507-q4_K_M",
         provider: "ollama",
@@ -90,7 +97,6 @@ describe("perfis de IA", () => {
       transcription: {
         batchSize: 2,
         interSpeechSilenceMs: 0,
-        language: "pt-BR",
         mergeMaxGapMs: 2_000,
         model: "medium",
         prompt: "Transcreva literalmente.",
@@ -107,7 +113,79 @@ describe("perfis de IA", () => {
           threshold: 0.5,
         },
       },
+      translation: {
+        generation: { seed: 7, temperature: 0.1, think: false },
+        model: "qwen3:4b-instruct-2507-q4_K_M",
+        prompt: "Preserve os termos protegidos.",
+        provider: "ollama",
+      },
     });
+  });
+
+  it("aceita somente o catálogo BCP 47 canônico definido pelo produto", () => {
+    expect(supportedProfileLanguages).toEqual([
+      "auto",
+      "ar",
+      "cs",
+      "da",
+      "de",
+      "el",
+      "en",
+      "en-GB",
+      "en-US",
+      "es",
+      "es-ES",
+      "es-MX",
+      "fi",
+      "fr",
+      "fr-CA",
+      "he",
+      "hi",
+      "hu",
+      "id",
+      "it",
+      "ja",
+      "ko",
+      "nl",
+      "no",
+      "pl",
+      "pt",
+      "pt-BR",
+      "pt-PT",
+      "ro",
+      "ru",
+      "sv",
+      "th",
+      "tr",
+      "uk",
+      "vi",
+      "zh",
+      "zh-CN",
+      "zh-TW",
+    ]);
+    expect(profileLanguageSchema.safeParse("pt-BR").success).toBe(true);
+    expect(profileLanguageSchema.safeParse("PT-br").success).toBe(false);
+    expect(profileLanguageSchema.safeParse("xx-inventado").success).toBe(false);
+  });
+
+  it("fica incompleto imediatamente ao selecionar idioma explícito sem modelo de tradução", () => {
+    const base = createInitialAiProfile("user-1", "external", "pt-BR");
+    const configured = aiProfileSchema.parse({
+      ...base,
+      language: "es",
+      refinement: { ...base.refinement, model: "vendor/refinement" },
+      summary: { ...base.summary, model: "vendor/summary" },
+      transcription: { ...base.transcription, model: "vendor/transcription" },
+      translation: {
+        generation: {},
+        model: null,
+        prompt: null,
+        provider: "openrouter",
+      },
+    });
+
+    expect(isAiProfileComplete(configured)).toBe(false);
+    expect(() => resolveAiProfile(configured)).toThrow(/incomplete/i);
   });
 
   it("não escolhe outro modelo e classifica recomendações apenas como aviso", () => {

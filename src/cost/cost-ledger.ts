@@ -2,7 +2,7 @@ import { z } from "zod";
 
 import type { RecordingManifest } from "../recording/manifest.js";
 
-export const costPhaseSchema = z.enum(["transcription", "refinement", "summary"]);
+export const costPhaseSchema = z.enum(["transcription", "refinement", "summary", "translation"]);
 export type CostPhase = z.infer<typeof costPhaseSchema>;
 
 export const financialStatusSchema = z.enum([

@@ -1,4 +1,4 @@
-import type { AiProfile } from "../ai-profile.js";
+import type { AiProfile, ProfileLanguage } from "../ai-profile.js";
 
 type ProfileFields = Pick<
   AiProfile["transcription"],
@@ -6,6 +6,6 @@ type ProfileFields = Pick<
 > & { prompt?: string };
 
 export type TranscriptionModelProfile = ProfileFields & {
-  language?: AiProfile["transcription"]["language"];
+  language?: ProfileLanguage;
   mergeMaxGapMs?: AiProfile["transcription"]["mergeMaxGapMs"];
 };

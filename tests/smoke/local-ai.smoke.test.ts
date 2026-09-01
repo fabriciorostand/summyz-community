@@ -23,9 +23,17 @@ describe("serviços locais de IA", () => {
     expect(preparation.ok).toBe(true);
     expect(
       z
-        .object({ device: z.enum(["cpu", "cuda"]), fallbackApplied: z.boolean() })
+        .object({
+          device: z.enum(["cpu", "cuda"]),
+          fallbackApplied: z.boolean(),
+          multilingual: z.literal(true),
+        })
         .parse(await preparation.json()),
-    ).toMatchObject({ device: expectedWhisperDevice, fallbackApplied: false });
+    ).toMatchObject({
+      device: expectedWhisperDevice,
+      fallbackApplied: false,
+      multilingual: true,
+    });
 
     const form = new FormData();
     form.set("audio", new Blob([createSilentWav(500)]), "synthetic.wav");

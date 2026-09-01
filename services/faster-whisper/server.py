@@ -27,6 +27,7 @@ from execution_policy import (
 )
 from structured_logging import configure_structured_logging
 from transcription_options import create_transcription_options
+from model_capability import require_multilingual_capability
 
 configure_structured_logging()
 logger = logging.getLogger("summyz.faster_whisper")
@@ -51,6 +52,7 @@ class LoadedRuntime:
     device: RuntimeDevice
     fallback_applied: bool
     model: WhisperModel
+    multilingual: bool
     transcriber: Transcriber
 
 
@@ -71,6 +73,7 @@ class ModelStatus(BaseModel):
     device: Literal["cpu", "cuda"]
     fallbackApplied: bool
     model: str
+    multilingual: bool
     status: Literal["ready"]
 
 
@@ -125,6 +128,7 @@ def create_runtime(directory: Path, device: RuntimeDevice, batch_size: int) -> L
         device=device,
         fallback_applied=False,
         model=model,
+        multilingual=require_multilingual_capability(model.model),
         transcriber=transcriber,
     )
 
@@ -170,6 +174,7 @@ def load_model(
             device=active_device,
             fallback_applied=fallback_applied,
             model=runtime.model,
+            multilingual=runtime.multilingual,
             transcriber=runtime.transcriber,
         )
         loaded_key = key
@@ -181,6 +186,7 @@ def load_model(
                 "device": active_device,
                 "fallback_applied": fallback_applied,
                 "model": model,
+                "multilingual": loaded_runtime.multilingual,
             },
         )
         return loaded_runtime
@@ -202,16 +208,16 @@ def transcribe_audio(
     language: str,
     prompt: str | None,
     vad_options: dict[str, object],
-) -> tuple[list[str], list[dict[str, object]]]:
+) -> tuple[list[str], list[dict[str, object]], object]:
     options = create_transcription_options(language, runtime.batch_size, prompt, vad_options)
-    segments, _ = runtime.transcriber.transcribe(str(path), **options)
+    segments, info = runtime.transcriber.transcribe(str(path), **options)
     words: list[dict[str, object]] = []
     text_parts: list[str] = []
     for segment in segments:
         text_parts.append(segment.text.strip())
         for word in segment.words or []:
             words.append({"end": word.end, "start": word.start, "word": word.word.strip()})
-    return text_parts, words
+    return text_parts, words, info
 
 
 @app.get("/health")
@@ -243,6 +249,7 @@ async def prepare_model(request: ModelRequest) -> ModelStatus:
             device=runtime.device,
             fallbackApplied=runtime.fallback_applied,
             model=request.model,
+            multilingual=runtime.multilingual,
             status="ready",
         )
     except AccelerationUnavailableError as error:
@@ -292,7 +299,7 @@ async def transcribe(
             while chunk := await audio.read(1024 * 1024):
                 temporary.write(chunk)
         runtime = await run_in_threadpool(load_model, model, device, fallback, batch_size)
-        text_parts, words = await run_in_threadpool(
+        text_parts, words, info = await run_in_threadpool(
             transcribe_audio, runtime, temporary_path, language, prompt, vad_options
         )
         logger.info(
@@ -305,7 +312,12 @@ async def transcribe(
                 "word_count": len(words),
             },
         )
-        return {"text": " ".join(part for part in text_parts if part), "words": words}
+        return {
+            "language": info.language,
+            "languageProbability": info.language_probability,
+            "text": " ".join(part for part in text_parts if part),
+            "words": words,
+        }
     except HTTPException:
         raise
     except AccelerationUnavailableError as error:

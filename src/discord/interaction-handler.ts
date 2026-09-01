@@ -16,6 +16,8 @@ import { canConfigureSummaryForum, canManageRecordingRoles, canRecord } from "..
 import type { AppConfig } from "../config.js";
 import { CostReportError } from "../cost/cost-report.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
+import { MultilingualCheckpointRequiredError } from "../local-ai/local-model-manager.js";
+import { OpenRouterModelPreflightError } from "../openrouter/model-preflight.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import {
   RecordingAlreadyActiveError,
@@ -306,6 +308,7 @@ async function handleRecord(
     const handle = await coordinator.start({
       guildId: context.guildId,
       notificationChannelId: interaction.channelId,
+      startedByUserId: interaction.user.id,
       voiceChannelId: voiceChannel.id,
       voiceChannelName: voiceChannel.name,
     });
@@ -321,6 +324,14 @@ async function handleRecord(
   } catch (error) {
     if (error instanceof RecordingAlreadyActiveError) {
       await interaction.editReply(text.recordingAlreadyActive);
+      return;
+    }
+    if (error instanceof MultilingualCheckpointRequiredError) {
+      await interaction.editReply(text.multilingualCheckpointRequired);
+      return;
+    }
+    if (error instanceof OpenRouterModelPreflightError) {
+      await interaction.editReply(text.modelPreflightFailed);
       return;
     }
     throw error;

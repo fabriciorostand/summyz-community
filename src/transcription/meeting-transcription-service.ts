@@ -3,7 +3,11 @@ import { rm } from "node:fs/promises";
 import type { Logger } from "pino";
 
 import { convertPcmToOgg as defaultConvertPcmToOgg } from "../recording/audio-converter.js";
-import type { RecordingManifest, RecordingSegment } from "../recording/manifest.js";
+import {
+  setPredominantLanguage,
+  type RecordingManifest,
+  type RecordingSegment,
+} from "../recording/manifest.js";
 import type { ManifestStore } from "../recording/manifest-store.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import type { SpeechAnalyzer } from "./speech-analyzer.js";
@@ -26,6 +30,11 @@ import {
 import type { TranscriptionStore } from "./transcription-store.js";
 import { IncompatibleTranscriptionResponseError } from "./transcription-provider.js";
 import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
+import {
+  aggregatePredominantLanguage,
+  type LanguageEvidence,
+  type PredominantLanguageResult,
+} from "./predominant-language.js";
 import { writePcmAsWav as defaultWritePcmAsWav } from "./wav.js";
 
 interface PreparedAudio {
@@ -41,6 +50,7 @@ interface MeetingTranscriptionServiceOptions {
   logger: Logger;
   manifestStore: ManifestStore;
   notifyFailure(manifest: RecordingManifest): Promise<void>;
+  publishTranscriptOnly?(manifest: RecordingManifest, transcriptPath: string): Promise<void>;
   now?: () => Date;
   provider?: TranscriptionProvider;
   resolveProvider?: (manifest: RecordingManifest) => Promise<TranscriptionProvider>;
@@ -70,6 +80,13 @@ class AudioAnalysisError extends Error {
   }
 }
 
+class LanguageDetectionError extends Error {
+  public constructor() {
+    super("The predominant meeting language could not be determined");
+    this.name = "LanguageDetectionError";
+  }
+}
+
 export class MeetingTranscriptionService {
   readonly #concurrency: number;
   readonly #convertPcmToOgg: (inputPath: string, outputPath: string) => Promise<void>;
@@ -79,6 +96,9 @@ export class MeetingTranscriptionService {
   readonly #notifyFailure: (manifest: RecordingManifest) => Promise<void>;
   readonly #now: () => Date;
   readonly #provider: TranscriptionProvider | undefined;
+  readonly #publishTranscriptOnly:
+    | ((manifest: RecordingManifest, transcriptPath: string) => Promise<void>)
+    | undefined;
   readonly #resolveProvider:
     | ((manifest: RecordingManifest) => Promise<TranscriptionProvider>)
     | undefined;
@@ -100,6 +120,7 @@ export class MeetingTranscriptionService {
     this.#notifyFailure = options.notifyFailure;
     this.#now = options.now ?? (() => new Date());
     this.#provider = options.provider;
+    this.#publishTranscriptOnly = options.publishTranscriptOnly;
     this.#resolveProvider = options.resolveProvider;
     this.#resolveSpeechAnalyzer = options.resolveSpeechAnalyzer;
     this.#speechAnalyzer = options.speechAnalyzer;
@@ -137,6 +158,23 @@ export class MeetingTranscriptionService {
         return;
       }
       let processingState = state;
+      if (
+        manifest.aiConfiguration !== undefined &&
+        manifest.predominantLanguage === undefined &&
+        processingState.status === "processing" &&
+        processingState.segments.some((segment) => segment.status === "completed")
+      ) {
+        processingState = createTranscriptionState(
+          manifest.meetingId,
+          manifest.segments.map((segment) => segment.segmentId),
+          this.#now().toISOString(),
+        );
+        state = processingState;
+        this.#logger.info(
+          { meetingId: manifest.meetingId },
+          "Transcription restarted to determine language from all audio batches",
+        );
+      }
       await this.#transcriptionStore.save(processingState);
       this.#logger.info(
         { meetingId: manifest.meetingId, segmentCount: manifest.segments.length },
@@ -174,6 +212,7 @@ export class MeetingTranscriptionService {
           maxWindowMs: this.#transcriptionWindowMaxMs,
         },
       );
+      const languageEvidence: Array<LanguageEvidence & { segmentIds: readonly string[] }> = [];
       let stateQueue = Promise.resolve();
       const persistGroup = (
         group: readonly RecordingSegment[],
@@ -256,10 +295,18 @@ export class MeetingTranscriptionService {
               audio: batch.audio,
               audioDurationMs: batch.audioDurationMs,
               format: "wav",
-              ...(manifest.aiConfiguration === undefined
-                ? {}
-                : { language: manifest.aiConfiguration.transcription.language }),
+              language: "auto",
             });
+            if (result.detectedLanguage !== undefined) {
+              languageEvidence.push({
+                durationMs: batch.audioDurationMs,
+                language: result.detectedLanguage.language,
+                ...(result.detectedLanguage.probability === undefined
+                  ? {}
+                  : { probability: result.detectedLanguage.probability }),
+                segmentIds: batch.segmentIds,
+              });
+            }
             await persistGroup(
               speechGroup.map((item) => item.segment),
               {
@@ -294,6 +341,25 @@ export class MeetingTranscriptionService {
       const transcribedSegments = toTranscribedSegments(processingState);
       const transcript = assembleTranscript(manifest, transcribedSegments);
       await this.#transcriptionStore.writeTranscript(manifest.meetingId, transcript);
+      if (manifest.aiConfiguration !== undefined && manifest.predominantLanguage === undefined) {
+        let language: PredominantLanguageResult;
+        try {
+          language = aggregatePredominantLanguage(languageEvidence);
+        } catch {
+          throw new LanguageDetectionError();
+        }
+        await this.#manifestStore.save(setPredominantLanguage(manifest, language.language));
+        this.#logger.info(
+          {
+            confidence: language.confidence,
+            distribution: language.distribution,
+            evidenceSegmentIds: languageEvidence.flatMap((item) => item.segmentIds),
+            meetingId: manifest.meetingId,
+            predominantLanguage: language.language,
+          },
+          "Meeting predominant language identified",
+        );
+      }
       processingState = markTranscriptionCompleted(processingState, this.#now().toISOString());
       state = processingState;
       await this.#transcriptionStore.save(processingState);
@@ -304,7 +370,9 @@ export class MeetingTranscriptionService {
     } catch (error) {
       const failureCode = getFailureCode(error);
       try {
-        await this.#transcriptionStore.removeTranscript(manifest.meetingId);
+        if (!(error instanceof LanguageDetectionError)) {
+          await this.#transcriptionStore.removeTranscript(manifest.meetingId);
+        }
         const failureState =
           state ??
           createTranscriptionState(
@@ -331,6 +399,20 @@ export class MeetingTranscriptionService {
         },
         "Meeting transcription failed",
       );
+      if (error instanceof LanguageDetectionError && this.#publishTranscriptOnly !== undefined) {
+        try {
+          await this.#publishTranscriptOnly(
+            manifest,
+            this.#transcriptionStore.transcriptPath(manifest.meetingId),
+          );
+        } catch (publicationError) {
+          this.#logger.error(
+            { errorType: getErrorType(publicationError), meetingId: manifest.meetingId },
+            "Unable to publish transcript after language detection failure",
+          );
+        }
+        return;
+      }
       if ((options.notifyTerminalFailure ?? true) || failureCode !== "provider_failed") {
         try {
           await this.#notifyFailure(manifest);
@@ -461,6 +543,9 @@ function getFailureCode(error: unknown): TranscriptionFailureCode {
   }
   if (error instanceof AudioPreparationError) {
     return "audio_conversion_failed";
+  }
+  if (error instanceof LanguageDetectionError) {
+    return "language_detection_failed";
   }
   return isStorageError(error) ? "storage_failed" : "provider_failed";
 }

@@ -14,7 +14,7 @@
 
 <p align="center">
   <img src="https://img.shields.io/badge/version-1.0.0-blue" alt="Version">
-  <img src="https://img.shields.io/badge/node-%3E%3D22.5-339933?logo=node.js&logoColor=white" alt="Node >= 22.5" />
+  <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white" alt="Node >= 22.12" />
   <img src="https://img.shields.io/badge/PRs-welcome-23A559" alt="PRs welcome" />
   <img src="https://img.shields.io/badge/self--hosted-100%25-0A0B0F" alt="Self-hosted" />
 </p>
@@ -29,27 +29,35 @@ executive summary, discussed topics, decisions, tasks, and full transcript in a 
 
 ## Requirements
 
-- Node.js 22.12 or later;
-- npm;
-- Docker with Compose to run the bot, PostgreSQL, and local services;
-- PostgreSQL 18;
+- Docker with Compose;
 - a bot application created in the Discord Developer Portal;
 - an OpenRouter account with credits and an API key only for stages configured with `openrouter`;
-- FFmpeg does not need to be installed separately: the project uses a bundled binary.
+- compatible host drivers and Docker integration when NVIDIA or AMD acceleration is enabled.
+
+Node.js 22.12, npm, and an FFmpeg installation with `libopus` are required only for native
+development. PostgreSQL, Ollama, faster-whisper, Python, Node, and FFmpeg are prepared automatically
+by the Docker workflow.
 
 ## Local setup
 
-1. Install the dependencies with `npm install`.
-2. Copy `.env.example` to `.env`.
-3. Fill in `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY`, and `SUMMYZ_SETUP_TOKEN`.
-4. Run `npm run build`, start Compose, and open `http://127.0.0.1:8787` to configure the
+1. Copy `.env.example` to `.env`.
+2. Fill in `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY`, and `SUMMYZ_SETUP_TOKEN`.
+3. Run `./summyz up` on Linux or macOS, or `.\summyz.ps1 up` on Windows. The host launcher detects
+   CPU, NVIDIA, or AMD, selects the safe Compose overlays, and starts the complete stack.
+4. Open `http://127.0.0.1:8787` to configure the
    administrator account, Discord, SMTP, and optional OpenRouter credentials.
 5. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
-6. Run `npm run local-ai:up`. The launcher detects GPUs, selects the safe Compose overlays, and
-   starts the bot, PostgreSQL, Ollama, and faster-whisper. Selected local models are prepared when
-   needed.
-   `npm run dev` remains available for development while local AI services run in Compose.
+
+Use `./summyz status`, `./summyz logs`, `./summyz restart`, and
+`./summyz down` to administer the stack; use `.\summyz.ps1` instead on Windows.
+Direct Compose remains available for advanced use.
+The base `docker compose up -d --build` command uses CPU; NVIDIA and AMD require their respective
+overlay files.
+
+For native development, run `npm install` and configure an absolute `FFMPEG_PATH` or make
+`ffmpeg`/`ffmpeg.exe` available through `PATH`. The bot validates FFmpeg and `libopus` before
+connecting to Discord. Supporting services can remain in Compose.
 
 If local port `5432` is already in use, change `POSTGRES_PORT` and adjust the port in
 `DATABASE_URL`. PostgreSQL is exposed only on `127.0.0.1`; the connection between containers
@@ -159,26 +167,49 @@ in. The last profile of either type and any active profile cannot be deleted.
 
 Each server has at most one active profile, regardless of type. New servers start without one;
 until transcription, refinement, and summary have explicit models, `/record` shows an ephemeral
-warning and does not start. Changing a model preserves the profile's other parameters. When
+warning and does not start. Selecting an explicit language also makes the translation model
+mandatory, so the profile immediately becomes incomplete until it is filled. Changing a model
+preserves the profile's other parameters. When
 Discord server ownership changes, the former owner's profile is detached, the server disappears
 from that account, and the new owner must connect and configure their own account.
 
 There is no model `auto` or `openrouter/auto`. Model selection is unrestricted and Summyz never
 replaces a selected model. Local evaluation uses `recommended`, `compatible`,
 `above_recommended`, `unknown`, and `incompatible`; only `incompatible` blocks recording, while
-`above_recommended` and `unknown` produce private warnings. Each phase stores its own provider,
-model, language, and parameters, including STT batching/options, chunk sizing, and the generation
+`above_recommended` and `unknown` produce private warnings. Language is a primary profile setting
+with a searchable catalog of BCP 47 tags and defaults to `auto`. Each phase stores its own provider,
+model, and parameters, including STT batching/options, chunk sizing, and the generation
 options `temperature`, `seed`, and `think` where applicable. Unset values are not forced by Summyz,
 preserving provider defaults.
 
-The dashboard displays the complete transcription, refinement, summary extraction, and summary
-consolidation prompts. Each prompt can be replaced in full or disabled for a phase; when disabled,
-no system message is sent in that phase. Transcription defaults to no prompt. The remaining
+The dashboard displays the editable transcription, refinement, summary extraction, consolidation,
+and translation prompts. **No prompt** removes only the customization: Summyz always sends an
+immutable base prompt that pins language, structure, evidence, literal-value preservation, and
+security rules. Transcripts and editable prompts are untrusted content. Transcription defaults to
+no editable prompt. The remaining
 defaults are created in English or Brazilian Portuguese according to the account's dashboard
 language, while asking for the summary output language selected in the profile. Changing that
 language adapts prompts that still match the previous default and preserves customized text. The
-**Restore default** action uses the current dashboard language. The effective prompts, including
-the explicit decision to send none, are pinned in the meeting manifest.
+**Restore default** action uses the current dashboard language. Effective prompts and models are
+pinned in the meeting manifest and cannot silently change on resume.
+
+With `auto`, transcription preserves language switching, every batch contributes once to a single
+predominant primary tag, and the summary is published in that language. With an explicit tag, the
+base summary is validated and stored in the predominant language before translation. Translation is
+skipped when both exact tags match. Transcription and refinement are never translated. After
+translation retries are exhausted, Summyz publishes the base summary and sends a private DM only to
+the `/record` author; there is no public notice or DM fallback.
+
+External profiles preflight transcription modality and structured-output contracts through the
+OpenRouter catalog before recording. Local profiles load the faster-whisper checkpoint and require
+the real checkpoint to report `multilingual=true`. `tiny.en`, `base.en`, `small.en`, `medium.en`,
+equivalent converted checkpoints, and checkpoints with an unknown capability are blocked before
+audio capture or provider processing. Summyz adds no auxiliary detector and maintains no generative
+model/language compatibility catalog.
+
+Database migrations normalize profiles created before prompt keys became mandatory. Existing prompt
+text is preserved, missing transcription prompts become `null`, and missing refinement or summary
+prompts receive the localized defaults. Runtime code accepts only the current profile contract.
 
 ## Recording settings
 
@@ -202,18 +233,23 @@ Files are saved under
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout for each attempt; default `90000` ms;
 - `TRANSCRIPTION_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
 - `TRANSCRIPTION_RETRY_MAX_MS`: maximum delay between retries; default `30000` ms.
+- `TRANSLATION_MAX_ATTEMPTS`: translation attempts; default `3`;
+- `TRANSLATION_TIMEOUT_MS`: timeout per translation attempt; default `120000` ms;
+- `TRANSLATION_RETRY_BASE_MS`: initial translation retry delay; default `1000` ms;
+- `TRANSLATION_RETRY_MAX_MS`: maximum translation retry delay; default `30000` ms.
 
 The transcription phase of each profile defines:
 
 - `provider` and `model`, both required for a complete profile;
-- `language`: `auto` or an explicit language;
+- transcription always uses automatic detection; the profile language controls only the effective
+  summary language;
 - `temperature`: transcription temperature;
 - word timestamps are mandatory; an incompatible external API response fails transcription instead
   of approximating from segments or the complete batch duration;
 - `interSpeechSilenceMs`: WAV silence inserted only between actual speech intervals in the batch;
 - `mergeMaxGapMs`: optional override of the global maximum gap for consolidating utterances from
   the same person;
-- `prompt`: complete text instruction to guide transcription style, or `null` to send no prompt;
+- `prompt`: editable instruction to guide transcription style, or `null` to use only the base prompt;
 - `providerOptions`: optional provider-specific options grouped by provider slug according to the
   OpenRouter contract.
 
@@ -232,6 +268,10 @@ result totals exactly 100%. Silent attendees remain visible with `0%`.
 Dates and filter boundaries use `SUMMARY_TIME_ZONE`. Summary and transcript content is available only
 when retention was enabled for that meeting. Dashboard cost totals include all confirmed attempts and
 warn when pending or unattributed values remain.
+
+If the profile list or a server configuration cannot be loaded, the dashboard shows a generic error
+and offers an in-page retry. Dependency and persisted-data details remain only in structured server
+logs.
 
 VAD is configured in its own profile tab and can be disabled. External API profiles use Summyz's
 Silero detector before sending audio to OpenRouter. Local profiles skip that detector and use only

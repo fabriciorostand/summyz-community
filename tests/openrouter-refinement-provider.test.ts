@@ -25,7 +25,7 @@ function successResponse(id = "segment-1:000000"): Response {
 }
 
 describe("OpenRouterRefinementProvider", () => {
-  it("usa o prompt configurado integralmente e permite omitir a mensagem de sistema", async () => {
+  it("subordina o prompt configurado e mantém o prompt-base em Sem prompt", async () => {
     const fetch = vi.fn(async (_url: string, _init: RequestInit) => successResponse());
     const configured = new OpenRouterRefinementProvider({
       apiKey: "segredo",
@@ -41,10 +41,9 @@ describe("OpenRouterRefinementProvider", () => {
     const configuredBody = JSON.parse(String(fetch.mock.calls[0]?.[1].body)) as {
       messages: { content: string; role: string }[];
     };
-    expect(configuredBody.messages[0]).toEqual({
-      content: "Prompt personalizado completo.",
-      role: "system",
-    });
+    expect(configuredBody.messages[0]).toMatchObject({ role: "system" });
+    expect(configuredBody.messages[0]?.content).toContain("<editable-profile-prompt>");
+    expect(configuredBody.messages[0]?.content).toContain("Prompt personalizado completo.");
 
     const withoutPrompt = new OpenRouterRefinementProvider({
       apiKey: "segredo",
@@ -60,8 +59,9 @@ describe("OpenRouterRefinementProvider", () => {
     const bodyWithoutPrompt = JSON.parse(String(fetch.mock.calls[1]?.[1].body)) as {
       messages: { role: string }[];
     };
-    expect(bodyWithoutPrompt.messages).toHaveLength(1);
-    expect(bodyWithoutPrompt.messages[0]?.role).toBe("user");
+    expect(bodyWithoutPrompt.messages).toHaveLength(2);
+    expect(bodyWithoutPrompt.messages[0]?.role).toBe("system");
+    expect(JSON.stringify(bodyWithoutPrompt)).not.toContain("<editable-profile-prompt>");
   });
 
   it("solicita somente id e texto e preserva os metadados no código", async () => {

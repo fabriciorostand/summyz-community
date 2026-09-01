@@ -7,7 +7,13 @@ import type { TranscriptionStore } from "../transcription/transcription-store.js
 import type { MeetingSummaryGenerationResult } from "./meeting-summary-generator.js";
 import { createPublicSummary, type SummaryTranscriptEntry } from "./summary-result.js";
 import { createSummaryState, markSummaryCompleted, markSummaryFailed } from "./summary-state.js";
+import {
+  markTranslationCompleted,
+  markTranslationFailed,
+  type CompletedSummaryState,
+} from "./summary-state.js";
 import type { SummaryStore } from "./summary-store.js";
+import type { SummaryTranslationService } from "../translation/summary-translation.js";
 
 export interface SummaryGenerator {
   generate(entries: readonly SummaryTranscriptEntry[]): Promise<MeetingSummaryGenerationResult>;
@@ -20,6 +26,9 @@ interface MeetingSummaryServiceOptions {
   publisher: MeetingPublisher;
   refinementStore: RefinementStore;
   resolveGenerator?: (manifest: RecordingManifest) => SummaryGenerator | Promise<SummaryGenerator>;
+  resolveTranslator?: (
+    manifest: RecordingManifest,
+  ) => SummaryTranslationService | Promise<SummaryTranslationService>;
   summaryStore: SummaryStore;
   transcriptionStore: TranscriptionStore;
 }
@@ -39,6 +48,11 @@ export class MeetingSummaryService {
     | undefined;
   readonly #summaryStore: SummaryStore;
   readonly #transcriptionStore: TranscriptionStore;
+  readonly #resolveTranslator:
+    | ((
+        manifest: RecordingManifest,
+      ) => SummaryTranslationService | Promise<SummaryTranslationService>)
+    | undefined;
 
   public constructor(options: MeetingSummaryServiceOptions) {
     this.#generator = options.generator;
@@ -49,6 +63,7 @@ export class MeetingSummaryService {
     this.#resolveGenerator = options.resolveGenerator;
     this.#summaryStore = options.summaryStore;
     this.#transcriptionStore = options.transcriptionStore;
+    this.#resolveTranslator = options.resolveTranslator;
     if (this.#generator === undefined && this.#resolveGenerator === undefined) {
       throw new Error("A summary generator or resolver is required");
     }
@@ -69,11 +84,8 @@ export class MeetingSummaryService {
     const transcriptPath = this.#transcriptionStore.transcriptPath(manifest.meetingId);
     let state = await this.#summaryStore.tryLoad(manifest.meetingId);
     if (state?.status === "completed") {
-      await this.#publisher.publishSummary(
-        manifest,
-        createPublicSummary(state.summary),
-        transcriptPath,
-      );
+      const completed = await this.#translateIfPending(manifest, state);
+      await this.#publisher.publishSummary(manifest, completed.summary, transcriptPath);
       return;
     }
     if (state?.status === "failed") {
@@ -118,20 +130,84 @@ export class MeetingSummaryService {
 
     const completed = markSummaryCompleted(
       state,
-      generated.summary,
+      createPublicSummary(generated.summary),
       generated.attempts,
       this.#now().toISOString(),
+      manifest.predominantLanguage ?? "und",
+      manifest.aiConfiguration?.language ?? "auto",
+      generated.summary.protectedTerms ?? [],
     );
     await this.#summaryStore.save(completed);
     this.#logger.info(
       { attempts: generated.attempts, meetingId: manifest.meetingId },
       "Meeting summary completed",
     );
-    await this.#publisher.publishSummary(
-      manifest,
-      createPublicSummary(completed.summary),
-      transcriptPath,
-    );
+    const translated = await this.#translateIfPending(manifest, completed);
+    await this.#publisher.publishSummary(manifest, translated.summary, transcriptPath);
+  }
+
+  async #translateIfPending(
+    manifest: RecordingManifest,
+    state: CompletedSummaryState,
+  ): Promise<CompletedSummaryState> {
+    if (state.translation.status !== "pending") return state;
+    try {
+      if (this.#resolveTranslator === undefined) {
+        throw new Error("The translation provider is unavailable");
+      }
+      const translator = await this.#resolveTranslator(manifest);
+      const protectedTerms = [
+        ...manifest.participants.map((participant) => participant.displayName),
+        ...state.protectedTerms,
+        ...state.baseSummary.tasks.flatMap((task) => [
+          ...(task.ownerName === undefined ? [] : [task.ownerName]),
+          ...(task.deadlineText === undefined ? [] : [task.deadlineText]),
+        ]),
+      ];
+      const result = await translator.translate(
+        state.baseSummary,
+        state.translation.targetLanguage,
+        protectedTerms,
+      );
+      const completed = markTranslationCompleted(
+        state,
+        result.summary,
+        result.attempts,
+        this.#now().toISOString(),
+      );
+      await this.#summaryStore.save(completed);
+      this.#logger.info(
+        {
+          attempts: result.attempts,
+          meetingId: manifest.meetingId,
+          targetLanguage: state.translation.targetLanguage,
+        },
+        "Meeting summary translation completed",
+      );
+      return completed;
+    } catch (error) {
+      const failed = markTranslationFailed(
+        state,
+        Math.max(1, getAttemptCount(error)),
+        this.#now().toISOString(),
+      );
+      await this.#summaryStore.save(failed);
+      this.#logger.error(
+        {
+          attempts: failed.translation.status === "failed" ? failed.translation.attempts : 0,
+          errorType: getErrorType(error),
+          meetingId: manifest.meetingId,
+          targetLanguage: state.translation.targetLanguage,
+        },
+        "Meeting summary translation failed",
+      );
+      await this.#publisher.notifyTranslationFallback?.(
+        manifest,
+        state.translation.targetLanguage,
+        state.baseLanguage,
+      );
+      return failed;
+    }
   }
 }
 

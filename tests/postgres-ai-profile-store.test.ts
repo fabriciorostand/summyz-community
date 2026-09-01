@@ -14,6 +14,7 @@ describe("PostgresAiProfileStore", () => {
     expect(query).toHaveBeenCalledTimes(2);
     expect(query.mock.calls.every((call) => /INSERT INTO ai_profiles/i.test(call[0]))).toBe(true);
     expect(query.mock.calls.flatMap((call) => call[1] ?? [])).toContain("Perfil 1");
+    expect(query.mock.calls.flatMap((call) => call[1] ?? [])).toContain("auto");
     expect(query.mock.calls.map((call) => call[0]).join("\n")).not.toMatch(/active_ai_profile_id/i);
   });
 
@@ -144,5 +145,7 @@ function toRow(profile: ReturnType<typeof createInitialAiProfile>) {
     refinement: profile.refinement,
     summary: profile.summary,
     transcription: profile.transcription,
+    language: profile.language,
+    translation: profile.translation,
   };
 }

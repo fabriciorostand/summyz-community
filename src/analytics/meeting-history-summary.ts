@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { createPublicSummary, type PublicSummary } from "../summary/summary-result.js";
+import type { PublicSummary } from "../summary/summary-result.js";
+import { createPublicSummary, summaryDraftSchema } from "../summary/summary-result.js";
 import { summaryStateSchema } from "../summary/summary-state.js";
 
 const retainedMeetingManifestSchema = z.object({
@@ -8,22 +9,36 @@ const retainedMeetingManifestSchema = z.object({
 });
 
 export type MeetingHistorySummary =
-  | ({ language: "en" | "pt-BR"; status: "completed" } & PublicSummary)
-  | { language: "en" | "pt-BR"; status: "failed" };
+  | ({ language: string; status: "completed" } & PublicSummary)
+  | { language: string; status: "failed" };
+
+const legacyCompletedSummaryStateSchema = z.object({
+  status: z.literal("completed"),
+  summary: summaryDraftSchema,
+});
 
 export function createMeetingHistorySummary(
   summaryState: unknown,
   meetingManifest: unknown,
 ): MeetingHistorySummary {
   const { botLanguage: language } = retainedMeetingManifestSchema.parse(meetingManifest);
-  const state = summaryStateSchema.parse(summaryState);
+  const currentState = summaryStateSchema.safeParse(summaryState);
+  if (!currentState.success) {
+    const legacy = legacyCompletedSummaryStateSchema.parse(summaryState);
+    return {
+      ...createPublicSummary(legacy.summary),
+      language,
+      status: "completed",
+    };
+  }
+  const state = currentState.data;
   if (state.status === "processing") {
     throw new Error("A retained meeting summary cannot still be processing");
   }
   if (state.status === "failed") return { language, status: "failed" };
   return {
-    ...createPublicSummary(state.summary),
-    language,
+    ...state.summary,
+    language: state.effectiveLanguage,
     status: "completed",
   };
 }

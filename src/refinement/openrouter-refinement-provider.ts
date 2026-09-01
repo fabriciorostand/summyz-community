@@ -1,6 +1,7 @@
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import { composeProtectedPrompt } from "../ai-system-prompt.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 import { getOpenRouterGenerationId, readOpenRouterResponse } from "../cost/openrouter-response.js";
 
@@ -93,7 +94,11 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
     this.#logger = options.logger;
     this.#maxAttempts = options.maxAttempts;
     this.#model = options.model;
-    this.#prompt = options.prompt === undefined ? refinementInstruction : options.prompt;
+    this.#prompt = composeProtectedPrompt({
+      editablePrompt: options.prompt === undefined ? refinementInstruction : options.prompt,
+      phase: "refinement",
+      phaseLanguage: "preserve",
+    });
     this.#random = options.random ?? Math.random;
     this.#retryBaseMs = options.retryBaseMs;
     this.#retryMaxMs = options.retryMaxMs;
@@ -141,7 +146,7 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
       response = await this.#fetch(OPENROUTER_REFINEMENT_URL, {
         body: JSON.stringify({
           messages: [
-            ...(this.#prompt === null ? [] : [{ content: this.#prompt, role: "system" as const }]),
+            { content: this.#prompt, role: "system" as const },
             { content: JSON.stringify({ blocks: entries }), role: "user" },
           ],
           model: this.#model,

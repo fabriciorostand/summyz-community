@@ -1,8 +1,13 @@
+import { PassThrough } from "node:stream";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { createApiServer, type ApiServerDependencies } from "../src/api/server.js";
 import { createInitialAiProfile } from "../src/ai-profile.js";
 import { SessionTokenError } from "../src/auth/jwt-session.js";
+import { PostgresAiProfileStore } from "../src/database/postgres-ai-profile-store.js";
+import type { PostgresExecutor } from "../src/database/postgres-database.js";
+import { createLogger } from "../src/logger.js";
 
 const authenticatedUser = {
   dashboardLanguage: "pt-BR" as const,
@@ -351,6 +356,58 @@ describe("API dashboard", () => {
     expect(response.json()).toEqual({ error: "session_expired" });
     await app.close();
   });
+
+  it("trata perfil persistido inválido como falha interna estruturada sem vazar conteúdo", async () => {
+    const profile = createInitialAiProfile(authenticatedUser.userId, "local", "pt-BR");
+    const { prompt: _prompt, ...legacyTranscription } = profile.transcription;
+    const legacyRow = {
+      name: profile.name,
+      owner_user_id: profile.userId,
+      profile_id: profile.profileId,
+      profile_type: profile.profileType,
+      refinement: { ...profile.refinement, prompt: "super-secret-prompt" },
+      summary: profile.summary,
+      transcription: legacyTranscription,
+    };
+    const query = vi.fn<PostgresExecutor["query"]>(async (text) => {
+      if (/FROM ai_profiles\s+WHERE owner_user_id/i.test(text)) {
+        return { rowCount: 1, rows: [legacyRow] };
+      }
+      return { rowCount: 0, rows: [] };
+    });
+    const destination = new PassThrough();
+    let logs = "";
+    destination.on("data", (chunk: Buffer) => {
+      logs += chunk.toString("utf8");
+    });
+    const dependencies = {
+      ...createDependencies(),
+      aiProfiles: new PostgresAiProfileStore({ query }),
+      logger: createLogger("error", destination),
+    };
+    const app = await createApiServer(dependencies);
+
+    const profilesResponse = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/profiles",
+    });
+    const configurationResponse = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/configuration",
+    });
+
+    expect(profilesResponse.statusCode).toBe(500);
+    expect(profilesResponse.json()).toEqual({ error: "internal_error" });
+    expect(configurationResponse.statusCode).toBe(500);
+    expect(configurationResponse.json()).toEqual({ error: "internal_error" });
+    expect(logs).toContain('"errorCategory":"persisted_data"');
+    expect(logs).toContain('"operation":"list_ai_profiles"');
+    expect(logs).toContain('"operation":"load_guild_configuration"');
+    expect(logs).not.toContain("super-secret-prompt");
+    await app.close();
+  });
 });
 
 function createDependencies(): ApiServerDependencies {
@@ -439,6 +496,7 @@ function createDependencies(): ApiServerDependencies {
       getInstalledGuildIds: vi.fn(async () => new Set(["guild-installed"])),
       getResources: vi.fn(async () => ({ forums: [], roles: [] })),
     },
+    logger: createLogger("silent"),
     secureCookies: false,
     settings: {
       completeSetup: vi.fn(async () => undefined),

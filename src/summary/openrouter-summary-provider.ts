@@ -1,13 +1,15 @@
 import type { Logger } from "pino";
 import { z } from "zod";
 
+import { composeProtectedPrompt } from "../ai-system-prompt.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 import { getOpenRouterGenerationId, readOpenRouterResponse } from "../cost/openrouter-response.js";
 
 import {
+  artifactLabelsJsonSchema,
+  generatedSummaryDraftSchema,
   type SummaryDraft,
   type SummaryTranscriptEntry,
-  summaryDraftSchema,
 } from "./summary-result.js";
 import {
   IncompatibleSummaryResponseError,
@@ -45,7 +47,9 @@ const meetingSummaryJsonSchema = {
     },
     discussedTopics: { items: { minLength: 1, type: "string" }, type: "array" },
     executiveSummary: { minLength: 1, type: "string" },
+    labels: artifactLabelsJsonSchema,
     observations: { items: { minLength: 1, type: "string" }, type: "array" },
+    protectedTerms: { items: { minLength: 1, type: "string" }, type: "array" },
     tasks: {
       items: {
         additionalProperties: false,
@@ -65,7 +69,15 @@ const meetingSummaryJsonSchema = {
       type: "array",
     },
   },
-  required: ["decisions", "discussedTopics", "executiveSummary", "observations", "tasks"],
+  required: [
+    "decisions",
+    "discussedTopics",
+    "executiveSummary",
+    "labels",
+    "observations",
+    "protectedTerms",
+    "tasks",
+  ],
   type: "object",
   $defs: {
     groundedItem: {
@@ -193,13 +205,18 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
   }
 
   async #request(input: unknown, instruction: string | null): Promise<SummaryDraft> {
+    const protectedInstruction = composeProtectedPrompt({
+      editablePrompt: instruction,
+      phase: "summary",
+      phaseLanguage: this.#language,
+    });
     const costAttempt = await this.#costRecorder?.beginApi("openrouter");
     let response: Response;
     try {
       response = await this.#fetch(OPENROUTER_SUMMARY_URL, {
         body: JSON.stringify({
           messages: [
-            ...(instruction === null ? [] : [{ content: instruction, role: "system" as const }]),
+            { content: protectedInstruction, role: "system" as const },
             {
               content: JSON.stringify(input),
               role: "user",
@@ -266,7 +283,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
         throw new IncompatibleSummaryResponseError();
       }
       const result: unknown = JSON.parse(content);
-      summary = summaryDraftSchema.parse(result);
+      summary = generatedSummaryDraftSchema.parse(result);
     } catch {
       if (costAttempt !== undefined) {
         await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {

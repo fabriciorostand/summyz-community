@@ -10,7 +10,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /service
 COPY requirements.txt ./
 RUN pip install --no-cache-dir --requirement requirements.txt
-COPY execution_policy.py language.py server.py structured_logging.py transcription_options.py ./
+COPY execution_policy.py language.py model_capability.py server.py structured_logging.py transcription_options.py ./
 RUN mkdir -p /models/cache/huggingface /models/home /models/managed /tmp/summyz-audio && \
     chown -R nobody:nogroup /models /tmp/summyz-audio /service
 
@@ -34,7 +34,7 @@ RUN apt-get update && \
 WORKDIR /service
 COPY requirements.txt ./
 RUN python3 -m pip install --no-cache-dir --requirement requirements.txt
-COPY execution_policy.py language.py server.py structured_logging.py transcription_options.py ./
+COPY execution_policy.py language.py model_capability.py server.py structured_logging.py transcription_options.py ./
 RUN mkdir -p /models/cache/huggingface /models/home /models/managed /tmp/summyz-audio && \
     chown -R nobody:nogroup /models /tmp/summyz-audio /service
 

@@ -9,10 +9,18 @@ import { RefinementStore } from "../src/refinement/refinement-store.js";
 import {
   createRefinementState,
   markRefinementCompleted,
+  markRefinementFallback,
 } from "../src/refinement/refinement-state.js";
-import { addSegment, createManifest, markManifestCompleted } from "../src/recording/manifest.js";
+import {
+  addSegment,
+  createManifest,
+  markManifestCompleted,
+  recordingManifestSchema,
+  type RecordingManifest,
+} from "../src/recording/manifest.js";
 import type { MeetingPublisher } from "../src/discord/discord-meeting-publisher.js";
 import type { MeetingSummaryGenerationResult } from "../src/summary/meeting-summary-generator.js";
+import type { PublicSummary } from "../src/summary/summary-result.js";
 import {
   MeetingSummaryService,
   type SummaryGenerator,
@@ -25,6 +33,7 @@ import {
   markTranscriptionCompleted,
 } from "../src/transcription/transcription-state.js";
 import { TranscriptionStore } from "../src/transcription/transcription-store.js";
+import type { SummaryTranslationService } from "../src/translation/summary-translation.js";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -93,9 +102,15 @@ async function createContext() {
   const summaryStore = new SummaryStore(root);
   const publishSummary = vi.fn(async () => undefined);
   const publishTranscriptOnly = vi.fn(async () => undefined);
-  const publisher: MeetingPublisher = { publishSummary, publishTranscriptOnly };
+  const notifyTranslationFallback = vi.fn(async () => undefined);
+  const publisher: MeetingPublisher = {
+    notifyTranslationFallback,
+    publishSummary,
+    publishTranscriptOnly,
+  };
   return {
     manifest,
+    notifyTranslationFallback,
     publishSummary,
     publishTranscriptOnly,
     publisher,
@@ -113,11 +128,184 @@ const generated: MeetingSummaryGenerationResult = {
     discussedTopics: ["Fluxo A"],
     executiveSummary: "A equipe decidiu adotar o fluxo A.",
     observations: [],
+    protectedTerms: ["fluxo A"],
     tasks: [],
   },
 };
 
+function explicitLanguageManifest(manifest: RecordingManifest): RecordingManifest {
+  return recordingManifestSchema.parse({
+    ...manifest,
+    aiConfiguration: {
+      language: "es",
+      profileType: "external",
+      refinement: { model: "review", provider: "openrouter" },
+      summary: { model: "summary", provider: "openrouter" },
+      transcription: { model: "stt", provider: "openrouter", vad: {} },
+      translation: { model: "translation", provider: "openrouter" },
+    },
+    predominantLanguage: "pt",
+    startedByUserId: "user-1",
+  });
+}
+
 describe("MeetingSummaryService", () => {
+  it("exige gerador ou resolvedor na construção", async () => {
+    const context = await createContext();
+    expect(
+      () =>
+        new MeetingSummaryService({
+          logger: createLogger("silent"),
+          publisher: context.publisher,
+          refinementStore: context.refinementStore,
+          summaryStore: context.summaryStore,
+          transcriptionStore: context.transcriptionStore,
+        }),
+    ).toThrow(/generator or resolver/i);
+  });
+
+  it("persiste o resumo-base antes de traduzir e publica a tradução validada", async () => {
+    const context = await createContext();
+    const manifest = explicitLanguageManifest(context.manifest);
+    const translate = vi.fn(async () => ({
+      attempts: 1,
+      summary: {
+        decisions: ["Adoptar el flujo A."],
+        discussedTopics: ["Flujo A"],
+        executiveSummary: "El equipo adoptó el flujo A.",
+        observations: [],
+        tasks: [],
+      },
+    }));
+    const service = new MeetingSummaryService({
+      generator: { generate: vi.fn(async () => generated) },
+      logger: createLogger("silent"),
+      publisher: context.publisher,
+      refinementStore: context.refinementStore,
+      resolveTranslator: vi.fn(async () => ({ translate }) as unknown as SummaryTranslationService),
+      summaryStore: context.summaryStore,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await service.process(manifest);
+
+    await expect(context.summaryStore.load("meeting-1")).resolves.toMatchObject({
+      baseLanguage: "pt",
+      baseSummary: { executiveSummary: "A equipe decidiu adotar o fluxo A." },
+      effectiveLanguage: "es",
+      summary: { executiveSummary: "El equipo adoptó el flujo A." },
+      translation: { attempts: 1, status: "completed", targetLanguage: "es" },
+    });
+    expect(context.publishSummary).toHaveBeenCalledWith(
+      manifest,
+      expect.objectContaining({ executiveSummary: "El equipo adoptó el flujo A." }),
+      expect.any(String),
+    );
+    expect(translate).toHaveBeenCalledWith(
+      expect.any(Object),
+      "es",
+      expect.arrayContaining(["fluxo A"]),
+    );
+  });
+
+  it("publica o resumo-base e solicita DM privada quando a tradução esgota tentativas", async () => {
+    const context = await createContext();
+    const manifest = explicitLanguageManifest(context.manifest);
+    const service = new MeetingSummaryService({
+      generator: { generate: vi.fn(async () => generated) },
+      logger: createLogger("silent"),
+      publisher: context.publisher,
+      refinementStore: context.refinementStore,
+      resolveTranslator: vi.fn(
+        async () =>
+          ({
+            translate: vi.fn(async () => {
+              throw Object.assign(new Error("translation failed"), { attempts: 3 });
+            }),
+          }) as unknown as SummaryTranslationService,
+      ),
+      summaryStore: context.summaryStore,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await service.process(manifest);
+
+    await expect(context.summaryStore.load("meeting-1")).resolves.toMatchObject({
+      effectiveLanguage: "pt",
+      translation: { attempts: 3, status: "failed", targetLanguage: "es" },
+    });
+    expect(context.notifyTranslationFallback).toHaveBeenCalledWith(manifest, "es", "pt");
+    expect(context.publishSummary).toHaveBeenCalledWith(
+      manifest,
+      expect.objectContaining({ executiveSummary: "A equipe decidiu adotar o fluxo A." }),
+      expect.any(String),
+    );
+  });
+
+  it("faz fallback quando um perfil explícito não consegue resolver o tradutor", async () => {
+    const context = await createContext();
+    const manifest = explicitLanguageManifest(context.manifest);
+    const publisher: MeetingPublisher = {
+      publishSummary: context.publishSummary,
+      publishTranscriptOnly: context.publishTranscriptOnly,
+    };
+    const service = new MeetingSummaryService({
+      generator: { generate: vi.fn(async () => generated) },
+      logger: createLogger("silent"),
+      publisher,
+      refinementStore: context.refinementStore,
+      summaryStore: context.summaryStore,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await service.process(manifest);
+
+    await expect(context.summaryStore.load("meeting-1")).resolves.toMatchObject({
+      effectiveLanguage: "pt",
+      translation: { attempts: 1, status: "failed", targetLanguage: "es" },
+    });
+    expect(context.publishSummary).toHaveBeenCalledOnce();
+  });
+
+  it("protege participantes, responsáveis e prazos ao traduzir", async () => {
+    const context = await createContext();
+    const manifest = recordingManifestSchema.parse({
+      ...explicitLanguageManifest(context.manifest),
+      participants: [{ displayName: "Ana", userId: "user-1" }],
+    });
+    const translate = vi.fn(async (summary: PublicSummary) => ({ attempts: 1, summary }));
+    const generatedWithTask: MeetingSummaryGenerationResult = {
+      attempts: 1,
+      summary: {
+        ...generated.summary,
+        tasks: [
+          {
+            deadlineText: "sexta-feira",
+            ownerName: "Bruno",
+            sourceEntryIds: ["segment-1:000000"],
+            text: "Publicar o plano.",
+          },
+        ],
+      },
+    };
+    const service = new MeetingSummaryService({
+      generator: { generate: vi.fn(async () => generatedWithTask) },
+      logger: createLogger("silent"),
+      publisher: context.publisher,
+      refinementStore: context.refinementStore,
+      resolveTranslator: vi.fn(async () => ({ translate }) as unknown as SummaryTranslationService),
+      summaryStore: context.summaryStore,
+      transcriptionStore: context.transcriptionStore,
+    });
+
+    await service.process(manifest);
+
+    expect(translate).toHaveBeenCalledWith(
+      expect.any(Object),
+      "es",
+      expect.arrayContaining(["Ana", "Bruno", "sexta-feira", "fluxo A"]),
+    );
+  });
   it("rejeita gravações que ainda não foram concluídas", async () => {
     const context = await createContext();
     const service = new MeetingSummaryService({
@@ -306,5 +494,44 @@ describe("MeetingSummaryService", () => {
 
     expect(generate).not.toHaveBeenCalled();
     expect(context.publishSummary).not.toHaveBeenCalled();
+  });
+
+  it("aguarda o refinamento e aceita o fallback com a transcrição original", async () => {
+    const pendingContext = await createContext();
+    await pendingContext.refinementStore.save(
+      createRefinementState("meeting-1", "2026-08-17T10:02:00.000Z"),
+    );
+    const pendingGenerate = vi.fn(async () => generated);
+    const pendingService = new MeetingSummaryService({
+      generator: { generate: pendingGenerate },
+      logger: createLogger("silent"),
+      publisher: pendingContext.publisher,
+      refinementStore: pendingContext.refinementStore,
+      summaryStore: pendingContext.summaryStore,
+      transcriptionStore: pendingContext.transcriptionStore,
+    });
+    await pendingService.process(pendingContext.manifest);
+    expect(pendingGenerate).not.toHaveBeenCalled();
+
+    const fallbackContext = await createContext();
+    await fallbackContext.refinementStore.save(
+      markRefinementFallback(
+        createRefinementState("meeting-1", "2026-08-17T10:02:00.000Z"),
+        [],
+        3,
+        "2026-08-17T10:03:00.000Z",
+      ),
+    );
+    const fallbackGenerate = vi.fn(async () => generated);
+    const fallbackService = new MeetingSummaryService({
+      generator: { generate: fallbackGenerate },
+      logger: createLogger("silent"),
+      publisher: fallbackContext.publisher,
+      refinementStore: fallbackContext.refinementStore,
+      summaryStore: fallbackContext.summaryStore,
+      transcriptionStore: fallbackContext.transcriptionStore,
+    });
+    await fallbackService.process(fallbackContext.manifest);
+    expect(fallbackGenerate).toHaveBeenCalledWith([]);
   });
 });
