@@ -248,10 +248,12 @@ describe("MeetingTranscriptionService", () => {
     await expect(service.process(context.manifest)).resolves.toBeUndefined();
 
     await expect(access(context.transcriptionStore.transcriptPath("meeting-1"))).rejects.toThrow();
-    await expect(context.transcriptionStore.load("meeting-1")).resolves.toMatchObject({
+    const state = await context.transcriptionStore.load("meeting-1");
+    expect(state).toMatchObject({
       failureCode: "provider_failed",
       status: "failed",
     });
+    expect(state).not.toHaveProperty("transcriptionRecoveryReason");
     await expect(
       access(
         context.transcriptionStore.resolveMeetingFile(
@@ -312,6 +314,9 @@ describe("MeetingTranscriptionService", () => {
     await service.process(context.manifest);
     await new Promise((resolve) => setImmediate(resolve));
 
+    await expect(context.transcriptionStore.load("meeting-1")).resolves.toMatchObject({
+      transcriptionRecoveryReason: "missing_timestamps",
+    });
     expect(output).toContain('"incompatibilityReason":"missing_timestamps"');
     expect(output).not.toContain(sensitiveContent);
   });

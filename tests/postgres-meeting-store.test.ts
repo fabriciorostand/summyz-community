@@ -1,8 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
-import { PostgresMeetingStore } from "../src/database/postgres-meeting-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
+import { PostgresMeetingStore } from "../src/database/postgres-meeting-store.js";
+import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
 
 const activeManifest = createManifest({
   guildId: "guild-1",
@@ -55,6 +54,7 @@ describe("PostgresMeetingStore", () => {
         expect.any(String),
         expect.any(String),
         "Planejamento",
+        1,
       ],
     );
   });
@@ -93,6 +93,7 @@ describe("PostgresMeetingStore", () => {
       expect.any(String),
       expect.any(String),
       "Planejamento",
+      1,
     ]);
     expect(query.mock.calls[1]?.[0]).toContain("recording_status <>");
   });
@@ -116,18 +117,11 @@ describe("PostgresMeetingStore", () => {
     await store.markArtifactsDeleted("meeting-1");
 
     expect(query.mock.calls[0]?.[0]).toContain("artifacts_deleted_at IS NULL");
+    expect(query.mock.calls[0]?.[0]).toContain("artifacts_delete_after <= now()");
+    expect(query.mock.calls[0]?.[0]).toContain("artifacts_delete_after IS NULL");
+    expect(query.mock.calls[1]?.[0]).toContain("manifest = NULL");
+    expect(query.mock.calls[1]?.[0]).toContain("transcription_recovery_reason = NULL");
     expect(query.mock.calls[1]?.[1]).toEqual(["meeting-1"]);
-  });
-
-  it("consome a fila de limpeza local criada pela migração da entrega 2", async () => {
-    const { database, query } = createDatabase([{ meeting_id: "meeting-pending" }]);
-    const store = new PostgresMeetingStore(database);
-
-    await expect(store.listDelivery2CleanupMeetingIds()).resolves.toEqual(["meeting-pending"]);
-    await store.markDelivery2CleanupCompleted("meeting-pending");
-
-    expect(query.mock.calls[0]?.[0]).toContain("delivery_2_meeting_cleanup");
-    expect(query.mock.calls[1]?.[1]).toEqual(["meeting-pending"]);
   });
 
   it("atualiza o estágio e um código seguro de falha", async () => {

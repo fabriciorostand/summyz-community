@@ -143,10 +143,6 @@ export class TranscriptionStore {
     await this.save(retryFailedTranscription(state, now));
   }
 
-  public async deleteMeeting(meetingId: string): Promise<void> {
-    await rm(this.meetingDirectory(meetingId), { force: true, recursive: true });
-  }
-
   async #writeState(state: TranscriptionState): Promise<void> {
     const directory = this.meetingDirectory(state.meetingId);
     const finalPath = this.resolveMeetingFile(state.meetingId, "transcription.json");

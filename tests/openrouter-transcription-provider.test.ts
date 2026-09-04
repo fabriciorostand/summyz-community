@@ -1,3 +1,5 @@
+import { PassThrough } from "node:stream";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { createLogger } from "../src/logger.js";
@@ -290,7 +292,92 @@ describe("OpenRouterTranscriptionProvider", () => {
     expect(sleep).toHaveBeenCalledTimes(1);
   });
 
-  it("falha sem aproximar timestamps após esgotar respostas incompatíveis", async () => {
+  it("recupera texto válido quando o provedor devolve um timestamp 0–0", async () => {
+    const sensitiveTranscript = "fala recuperável sem expor conteúdo";
+    const fetch_ = vi.fn(async () =>
+      Response.json({
+        text: sensitiveTranscript,
+        words: [
+          { end: 0, start: 0, word: "fala" },
+          { end: 0.8, start: 0.2, word: "recuperável" },
+          { end: 1.3, start: 0.9, word: "sem expor" },
+          { end: 2, start: 1.4, word: "conteúdo" },
+        ],
+      }),
+    );
+    const { provider, sleep } = createProvider(fetch_);
+
+    await expect(
+      provider.transcribe({
+        audio: Buffer.from("audio"),
+        audioDurationMs: 2_020,
+        format: "wav",
+      }),
+    ).resolves.toMatchObject({
+      attempts: 1,
+      pieces: [{ endedAtMs: 2_020, startedAtMs: 0, text: sensitiveTranscript }],
+      words: [],
+    });
+    expect(fetch_).toHaveBeenCalledOnce();
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  it("registra o fallback 0–0 sem expor áudio, texto ou credenciais", async () => {
+    const destination = new PassThrough();
+    let output = "";
+    destination.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+    const sensitiveTranscript = "conteúdo confidencial da reunião";
+    const sensitiveAudio = Buffer.from("áudio confidencial");
+    const provider = new OpenRouterTranscriptionProvider({
+      apiKey: "chave confidencial",
+      fetch: async () =>
+        Response.json({
+          text: sensitiveTranscript,
+          words: [
+            { end: 0, start: 0, word: "conteúdo" },
+            { end: 2, start: 0.2, word: "confidencial" },
+          ],
+        }),
+      logger: createLogger("warn", destination),
+      maxAttempts: 1,
+      model: "openai/whisper-large-v3",
+      profile: whisperProfile,
+      retryBaseMs: 1_000,
+      retryMaxMs: 30_000,
+      timeoutMs: 90_000,
+    });
+
+    await expect(
+      provider.transcribe({
+        audio: sensitiveAudio,
+        audioDurationMs: 2_020,
+        format: "wav",
+      }),
+    ).resolves.toMatchObject({
+      pieces: [{ endedAtMs: 2_020, startedAtMs: 0, text: sensitiveTranscript }],
+      words: [],
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const diagnostic: unknown = JSON.parse(output);
+    expect(diagnostic).toMatchObject({
+      audioDurationMs: 2_020,
+      incompatibilityReason: "invalid_timestamps",
+      invalidTimestampCount: 1,
+      msg: "OpenRouter transcription timestamps replaced with audio duration",
+      provider: "openrouter",
+      providerAttempt: 1,
+      responseTextLength: sensitiveTranscript.length,
+      responseWordCount: 2,
+    });
+    expect(output).not.toContain(sensitiveTranscript);
+    expect(output).not.toContain(sensitiveAudio.toString("base64"));
+    expect(output).not.toContain("chave confidencial");
+  });
+
+  it("continua rejeitando timestamps inválidos quando a duração do áudio está ausente", async () => {
     const fetch_ = vi.fn(async () =>
       Response.json({
         segments: [{ end: 0.5, start: 0.5, text: "Inválido" }],
@@ -303,12 +390,265 @@ describe("OpenRouterTranscriptionProvider", () => {
     await expect(
       provider.transcribe({
         audio: Buffer.from("audio"),
-        audioDurationMs: 5_000,
         format: "wav",
       }),
     ).rejects.toMatchObject({ reason: "invalid_timestamps" });
     expect(fetch_).toHaveBeenCalledTimes(4);
     expect(sleep).toHaveBeenCalledTimes(3);
+  });
+
+  it("registra diagnóstico de timestamps inválidos sem expor conteúdo sensível", async () => {
+    const destination = new PassThrough();
+    let output = "";
+    destination.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+    const sensitiveTranscript = "conteúdo confidencial da reunião";
+    const sensitiveAudio = Buffer.from("áudio confidencial");
+    const provider = new OpenRouterTranscriptionProvider({
+      apiKey: "chave confidencial",
+      fetch: async () =>
+        Response.json(
+          {
+            model: "openai/whisper-large-v3",
+            segments: [{ end: 2, start: 0, text: sensitiveTranscript }],
+            text: sensitiveTranscript,
+            words: [
+              { end: 1.2344, start: 1.2341, word: sensitiveTranscript },
+              { end: 1.5, start: 2, word: sensitiveTranscript },
+            ],
+          },
+          { headers: { "x-generation-id": "generation-1" } },
+        ),
+      logger: createLogger("warn", destination),
+      maxAttempts: 1,
+      model: "openai/whisper-large-v3",
+      profile: whisperProfile,
+      retryBaseMs: 1_000,
+      retryMaxMs: 30_000,
+      timeoutMs: 90_000,
+    });
+
+    await expect(
+      provider.transcribe({
+        audio: sensitiveAudio,
+        audioDurationMs: 3_000,
+        format: "wav",
+      }),
+    ).rejects.toMatchObject({ reason: "invalid_timestamps" });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const diagnostic: unknown = JSON.parse(output);
+    expect(diagnostic).toMatchObject({
+      audioDurationMs: 3_000,
+      configuredModel: "openai/whisper-large-v3",
+      effectiveModel: "openai/whisper-large-v3",
+      generationId: "generation-1",
+      incompatibilityReason: "invalid_timestamps",
+      invalidTimestampCount: 2,
+      invalidTimestamps: [
+        {
+          endedAtMs: 1_234,
+          endSeconds: 1.2344,
+          index: 0,
+          issue: "collapsed_after_rounding",
+          startedAtMs: 1_234,
+          startSeconds: 1.2341,
+        },
+        {
+          endedAtMs: 1_500,
+          endSeconds: 1.5,
+          index: 1,
+          issue: "non_positive_duration",
+          startedAtMs: 2_000,
+          startSeconds: 2,
+        },
+      ],
+      msg: "OpenRouter transcription response rejected",
+      provider: "openrouter",
+      providerAttempt: 1,
+      responseSegmentCount: 1,
+      responseTextLength: sensitiveTranscript.length,
+      responseWordCount: 2,
+    });
+    expect(output).not.toContain(sensitiveTranscript);
+    expect(output).not.toContain(sensitiveAudio.toString("base64"));
+    expect(output).not.toContain("chave confidencial");
+  });
+
+  it("registra caminhos de validação sem incluir valores de uma resposta incompatível", async () => {
+    const destination = new PassThrough();
+    let output = "";
+    destination.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+    const sensitiveContent = "conteúdo privado em formato inesperado";
+    const provider = new OpenRouterTranscriptionProvider({
+      apiKey: "chave privada",
+      fetch: async () =>
+        Response.json(
+          { response: sensitiveContent, text: 123 },
+          { headers: { "x-generation-id": "generation-invalid-shape" } },
+        ),
+      logger: createLogger("warn", destination),
+      maxAttempts: 1,
+      model: "openai/whisper-large-v3",
+      profile: whisperProfile,
+      retryBaseMs: 1_000,
+      retryMaxMs: 30_000,
+      timeoutMs: 90_000,
+    });
+
+    await expect(
+      provider.transcribe({ audio: Buffer.from("áudio privado"), format: "wav" }),
+    ).rejects.toMatchObject({ reason: "invalid_response_shape" });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const diagnostic: unknown = JSON.parse(output);
+    expect(diagnostic).toMatchObject({
+      configuredModel: "openai/whisper-large-v3",
+      generationId: "generation-invalid-shape",
+      incompatibilityReason: "invalid_response_shape",
+      msg: "OpenRouter transcription response rejected",
+      provider: "openrouter",
+      providerAttempt: 1,
+      responseSchemaIssues: [{ code: "invalid_type", path: ["text"] }],
+    });
+    expect(output).not.toContain(sensitiveContent);
+    expect(output).not.toContain("chave privada");
+  });
+
+  it("diagnostica metadados ausentes durante retries sem registrar os valores recebidos", async () => {
+    const firstSensitiveContent = "transcrição privada sem timestamps";
+    const secondSensitiveContent = "transcrição privada sem palavra";
+    const fetch_ = vi
+      .fn<(url: string, init: RequestInit) => Promise<Response>>()
+      .mockResolvedValueOnce(Response.json({ text: firstSensitiveContent }))
+      .mockResolvedValueOnce(
+        Response.json({
+          text: secondSensitiveContent,
+          words: [
+            { end: 0.5, start: 0, word: "válida" },
+            { end: 1, start: 0.5 },
+          ],
+        }),
+      );
+    const logger = createLogger("silent");
+    const warn = vi.spyOn(logger, "warn");
+    const provider = new OpenRouterTranscriptionProvider({
+      apiKey: "chave privada",
+      fetch: fetch_,
+      logger,
+      maxAttempts: 2,
+      model: "openai/whisper-large-v3",
+      profile: whisperProfile,
+      random: () => 0,
+      retryBaseMs: 1,
+      retryMaxMs: 1,
+      sleep: async () => undefined,
+      timeoutMs: 90_000,
+    });
+
+    await expect(
+      provider.transcribe({ audio: Buffer.from("áudio privado"), format: "wav" }),
+    ).rejects.toMatchObject({ reason: "invalid_response_shape" });
+
+    expect(warn).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        incompatibilityReason: "missing_timestamps",
+        responseSegmentCount: 0,
+        responseWordCount: 0,
+      }),
+      "OpenRouter transcription response rejected",
+    );
+    expect(warn).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({
+        incompatibilityReason: "missing_timestamps",
+        status: undefined,
+      }),
+      "Transcription attempt failed; another attempt will be made",
+    );
+    expect(warn).toHaveBeenNthCalledWith(
+      3,
+      expect.objectContaining({
+        incompatibilityReason: "invalid_response_shape",
+        responseWordCount: 2,
+      }),
+      "OpenRouter transcription response rejected",
+    );
+    const logged = JSON.stringify(warn.mock.calls);
+    expect(logged).not.toContain(firstSensitiveContent);
+    expect(logged).not.toContain(secondSensitiveContent);
+    expect(logged).not.toContain("chave privada");
+  });
+
+  it("limita a amostra de timestamps inválidos e informa quando houve truncamento", async () => {
+    const destination = new PassThrough();
+    let output = "";
+    destination.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
+    const sensitiveWord = "palavra confidencial";
+    const invalidWords = Array.from({ length: 21 }, (_, index) => ({
+      end: index + 1,
+      start: index + 1,
+      word: sensitiveWord,
+    }));
+    const provider = new OpenRouterTranscriptionProvider({
+      apiKey: "chave confidencial",
+      fetch: async () =>
+        Response.json({
+          text: sensitiveWord,
+          words: [{ end: 0.5, start: 0, word: sensitiveWord }, ...invalidWords],
+        }),
+      logger: createLogger("warn", destination),
+      maxAttempts: 1,
+      model: "openai/whisper-large-v3",
+      profile: whisperProfile,
+      retryBaseMs: 1_000,
+      retryMaxMs: 30_000,
+      timeoutMs: 90_000,
+    });
+
+    await expect(
+      provider.transcribe({ audio: Buffer.from("áudio confidencial"), format: "wav" }),
+    ).rejects.toMatchObject({ reason: "invalid_timestamps" });
+    await new Promise((resolve) => setImmediate(resolve));
+
+    const diagnostic: unknown = JSON.parse(output);
+    expect(diagnostic).toMatchObject({
+      invalidTimestampCount: 21,
+      invalidTimestamps: Array.from({ length: 20 }, () => expect.any(Object)),
+      invalidTimestampsTruncated: true,
+      responseSegmentCount: 0,
+      responseWordCount: 22,
+    });
+    expect(output).not.toContain(sensitiveWord);
+    expect(output).not.toContain("chave confidencial");
+  });
+
+  it("detecta o idioma quando o perfil usa seleção automática", async () => {
+    const fetch_ = vi.fn(async (_url: string, init: RequestInit) => {
+      expect(JSON.parse(String(init.body))).not.toHaveProperty("language");
+      return Response.json({
+        language: "pt",
+        language_probability: 0.98,
+        text: "Olá.",
+        words: [{ end: 0.5, start: 0, word: "Olá." }],
+      });
+    });
+    const { provider } = createProvider(fetch_, undefined, "openai/whisper-large-v3", {
+      interSpeechSilenceMs: 0,
+      language: "auto",
+    });
+
+    await expect(
+      provider.transcribe({ audio: Buffer.from("audio"), format: "wav" }),
+    ).resolves.toMatchObject({
+      detectedLanguage: { language: "pt", probability: 0.98 },
+    });
   });
 
   it("aceita um segmento sem fala quando o provedor confirma texto vazio", async () => {

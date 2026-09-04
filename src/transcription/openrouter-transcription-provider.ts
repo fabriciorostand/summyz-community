@@ -21,6 +21,7 @@ export type { TranscriptionIncompatibilityReason } from "./transcription-provide
 import type { TranscriptionModelProfile } from "./transcription-model-profile.js";
 
 const OPENROUTER_TRANSCRIPTION_URL = "https://openrouter.ai/api/v1/audio/transcriptions";
+const MAX_LOGGED_INVALID_TIMESTAMPS = 20;
 
 const timedTextSchema = z.object({
   end: z.number().nonnegative(),
@@ -95,7 +96,7 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
     let lastError: unknown;
     for (let attempt = 1; attempt <= this.#maxAttempts; attempt += 1) {
       try {
-        const result = await this.#request(input);
+        const result = await this.#request(input, attempt);
         return { attempts: attempt, ...result };
       } catch (error) {
         lastError = error;
@@ -124,7 +125,10 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
     throw lastError;
   }
 
-  async #request(input: Parameters<TranscriptionProvider["transcribe"]>[0]): Promise<{
+  async #request(
+    input: Parameters<TranscriptionProvider["transcribe"]>[0],
+    providerAttempt: number,
+  ): Promise<{
     detectedLanguage?: NonNullable<TranscriptionProviderResult["detectedLanguage"]>;
     pieces: TranscriptPiece[];
     words: TranscriptPiece[];
@@ -200,13 +204,33 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
           outcome: "failure",
         });
       }
-      if (body === undefined) throw new IncompatibleTranscriptionResponseError("invalid_json");
-      throw new IncompatibleTranscriptionResponseError("invalid_response_shape");
+      const reason = body === undefined ? "invalid_json" : "invalid_response_shape";
+      this.#logger?.warn(
+        {
+          ...createRejectedResponseBase({
+            configuredModel: this.#model,
+            generationId,
+            input,
+            providerAttempt,
+            reason,
+          }),
+          responseSchemaIssues: result.error.issues.map((issue) => ({
+            code: issue.code,
+            path: issue.path.map(String),
+          })),
+        },
+        "OpenRouter transcription response rejected",
+      );
+      throw new IncompatibleTranscriptionResponseError(reason);
     }
     const parsed = result.data;
-    let pieces: { pieces: TranscriptPiece[]; words: TranscriptPiece[] };
+    let pieces: {
+      pieces: TranscriptPiece[];
+      usedAudioDurationFallback: boolean;
+      words: TranscriptPiece[];
+    };
     try {
-      pieces = parseTranscriptPieces(parsed);
+      pieces = parseTranscriptPieces(parsed, input.audioDurationMs);
     } catch (error) {
       if (costAttempt !== undefined) {
         await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
@@ -216,7 +240,33 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
           outcome: "failure",
         });
       }
+      if (error instanceof IncompatibleTranscriptionResponseError) {
+        this.#logger?.warn(
+          createRejectedResponseDiagnostic({
+            configuredModel: this.#model,
+            generationId,
+            input,
+            parsed,
+            providerAttempt,
+            reason: error.reason,
+          }),
+          "OpenRouter transcription response rejected",
+        );
+      }
       throw error;
+    }
+    if (pieces.usedAudioDurationFallback) {
+      this.#logger?.warn(
+        createRejectedResponseDiagnostic({
+          configuredModel: this.#model,
+          generationId,
+          input,
+          parsed,
+          providerAttempt,
+          reason: "invalid_timestamps",
+        }),
+        "OpenRouter transcription timestamps replaced with audio duration",
+      );
     }
     if (language === undefined && parsed.text.trim().length > 0 && parsed.language === undefined) {
       if (costAttempt !== undefined) {
@@ -227,6 +277,17 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
           outcome: "failure",
         });
       }
+      this.#logger?.warn(
+        createRejectedResponseDiagnostic({
+          configuredModel: this.#model,
+          generationId,
+          input,
+          parsed,
+          providerAttempt,
+          reason: "missing_language",
+        }),
+        "OpenRouter transcription response rejected",
+      );
       throw new IncompatibleTranscriptionResponseError("missing_language");
     }
     if (costAttempt !== undefined) {
@@ -238,7 +299,8 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
       });
     }
     return {
-      ...pieces,
+      pieces: pieces.pieces,
+      words: pieces.words,
       ...(parsed.language === undefined
         ? {}
         : {
@@ -253,21 +315,103 @@ export class OpenRouterTranscriptionProvider implements TranscriptionProvider {
   }
 }
 
-function parseTranscriptPieces(parsed: z.infer<typeof responseSchema>): {
+interface RejectedResponseDiagnosticInput {
+  configuredModel: string;
+  generationId: string | undefined;
+  input: Parameters<TranscriptionProvider["transcribe"]>[0];
+  parsed: z.infer<typeof responseSchema>;
+  providerAttempt: number;
+  reason: IncompatibleTranscriptionResponseError["reason"];
+}
+
+function createRejectedResponseDiagnostic(input: RejectedResponseDiagnosticInput) {
+  const invalidTimestamps = (input.parsed.words ?? [])
+    .map((word, index) => createInvalidTimestampDiagnostic(word, index))
+    .filter((item) => item !== undefined);
+  return {
+    ...createRejectedResponseBase(input),
+    ...(input.parsed.model === undefined ? {} : { effectiveModel: input.parsed.model }),
+    invalidTimestampCount: invalidTimestamps.length,
+    invalidTimestamps: invalidTimestamps.slice(0, MAX_LOGGED_INVALID_TIMESTAMPS),
+    invalidTimestampsTruncated: invalidTimestamps.length > MAX_LOGGED_INVALID_TIMESTAMPS,
+    responseSegmentCount: input.parsed.segments?.length ?? 0,
+    responseTextLength: input.parsed.text.length,
+    responseWordCount: input.parsed.words?.length ?? 0,
+  };
+}
+
+function createRejectedResponseBase(input: Omit<RejectedResponseDiagnosticInput, "parsed">) {
+  return {
+    ...(input.input.audioDurationMs === undefined
+      ? {}
+      : { audioDurationMs: input.input.audioDurationMs }),
+    configuredModel: input.configuredModel,
+    ...(input.generationId === undefined ? {} : { generationId: input.generationId }),
+    incompatibilityReason: input.reason,
+    provider: "openrouter",
+    providerAttempt: input.providerAttempt,
+  };
+}
+
+function createInvalidTimestampDiagnostic(item: z.infer<typeof timedTextSchema>, index: number) {
+  const startedAtMs = Math.round(item.start * 1_000);
+  const endedAtMs = Math.round(item.end * 1_000);
+  if (endedAtMs > startedAtMs) return undefined;
+  return {
+    endedAtMs,
+    endSeconds: item.end,
+    index,
+    issue: item.end <= item.start ? "non_positive_duration" : "collapsed_after_rounding",
+    startedAtMs,
+    startSeconds: item.start,
+  };
+}
+
+function parseTranscriptPieces(
+  parsed: z.infer<typeof responseSchema>,
+  audioDurationMs: number | undefined,
+): {
   pieces: TranscriptPiece[];
+  usedAudioDurationFallback: boolean;
   words: TranscriptPiece[];
 } {
-  const wordsResult = parseTimedItems(parsed.words, true);
+  const wordsResult = parseTimedItems(parsed.words);
   if (wordsResult?.success === true) {
     const words = parsed.words?.map(toTranscriptPiece) ?? [];
-    return { pieces: wordsResult.pieces, words };
+    return { pieces: wordsResult.pieces, usedAudioDurationFallback: false, words };
   }
   if (wordsResult === undefined) {
     const text = parsed.text.trim();
-    if (text.length === 0) return { pieces: [], words: [] };
+    if (text.length === 0) {
+      return { pieces: [], usedAudioDurationFallback: false, words: [] };
+    }
     throw new IncompatibleTranscriptionResponseError("missing_timestamps");
   }
+  const text = parsed.text.trim();
+  if (
+    wordsResult.reason === "invalid_timestamps" &&
+    hasOnlyZeroLengthOriginTimestamps(parsed.words) &&
+    text.length > 0 &&
+    audioDurationMs !== undefined &&
+    Number.isFinite(audioDurationMs) &&
+    audioDurationMs > 0
+  ) {
+    return {
+      pieces: [{ endedAtMs: audioDurationMs, startedAtMs: 0, text }],
+      usedAudioDurationFallback: true,
+      words: [],
+    };
+  }
   throw new IncompatibleTranscriptionResponseError(wordsResult.reason);
+}
+
+function hasOnlyZeroLengthOriginTimestamps(
+  items: readonly z.infer<typeof timedTextSchema>[] | undefined,
+): boolean {
+  const invalidItems = (items ?? []).filter((item) => hasInvalidTimestamp(toTranscriptPiece(item)));
+  return (
+    invalidItems.length > 0 && invalidItems.every((item) => item.start === 0 && item.end === 0)
+  );
 }
 
 type TimedItemsResult =
@@ -276,7 +420,6 @@ type TimedItemsResult =
 
 function parseTimedItems(
   items: readonly z.infer<typeof timedTextSchema>[] | undefined,
-  shouldGroupWords: boolean,
 ): TimedItemsResult | undefined {
   if (items === undefined || !items.some((item) => getTimedItemText(item).length > 0)) {
     return undefined;
@@ -289,7 +432,7 @@ function parseTimedItems(
     return { reason: "invalid_timestamps", success: false };
   }
   return {
-    pieces: shouldGroupWords ? groupWords(items) : rawPieces,
+    pieces: groupWords(items),
     success: true,
   };
 }

@@ -701,29 +701,32 @@ ALTER TABLE provider_cost_attempts
   ADD CONSTRAINT provider_cost_attempts_phase_check CHECK (
     phase IN ('transcription', 'refinement', 'summary', 'translation')
   );
+`,
+  },
+  {
+    version: 11,
+    sql: `
+ALTER TABLE processing_jobs
+  ADD COLUMN transcription_recovery_version integer NOT NULL DEFAULT 1,
+  ADD CONSTRAINT processing_jobs_transcription_recovery_version_check
+    CHECK (transcription_recovery_version > 0);
 
-CREATE TABLE delivery_2_meeting_cleanup (
-  meeting_id text PRIMARY KEY
-);
+ALTER TABLE meetings
+  ADD COLUMN transcription_recovery_reason text,
+  ADD COLUMN artifacts_delete_after timestamptz,
+  ADD CONSTRAINT meetings_transcription_recovery_reason_check CHECK (
+    transcription_recovery_reason IS NULL OR transcription_recovery_reason IN (
+      'invalid_json',
+      'invalid_response_shape',
+      'invalid_timestamps',
+      'missing_language',
+      'missing_timestamps'
+    )
+  );
 
-INSERT INTO delivery_2_meeting_cleanup (meeting_id)
-SELECT meeting_id FROM meetings
-WHERE pipeline_status IN (
-  'recording', 'queued', 'transcribing', 'refining', 'summarizing', 'publishing'
-);
-
-DELETE FROM provider_cost_attempts
-WHERE meeting_id IN (
-  SELECT meeting_id FROM meetings
-  WHERE pipeline_status IN (
-    'recording', 'queued', 'transcribing', 'refining', 'summarizing', 'publishing'
-  )
-);
-
-DELETE FROM meetings
-WHERE pipeline_status IN (
-  'recording', 'queued', 'transcribing', 'refining', 'summarizing', 'publishing'
-);
+CREATE INDEX meetings_artifact_cleanup_idx
+  ON meetings (artifacts_delete_after)
+  WHERE artifacts_deleted_at IS NULL AND pipeline_status IN ('completed', 'failed');
 `,
   },
 ] as const;

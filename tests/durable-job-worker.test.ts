@@ -24,7 +24,7 @@ function createQueue(claimed: ClaimedProcessingJob = job) {
   return {
     claim: vi.fn(async (): ReturnType<ProcessingQueue["claim"]> => claimed),
     complete: vi.fn(async () => undefined),
-    fail: vi.fn(async (): Promise<"failed" | "scheduled"> => "scheduled"),
+    fail: vi.fn(async (): Promise<"failed" | "retained" | "scheduled"> => "scheduled"),
     renew: vi.fn(async () => undefined),
   } satisfies ProcessingQueue;
 }
@@ -120,6 +120,56 @@ describe("DurableJobWorker", () => {
 
     expect(queue.fail).toHaveBeenCalledWith(job, "audio_invalid", "worker-1", true);
     expect(cleanup).toHaveBeenCalledWith("meeting-1");
+  });
+
+  it("preserva artefatos de uma incompatibilidade elegível para recuperação", async () => {
+    const queue = createQueue();
+    queue.fail.mockResolvedValueOnce("retained");
+    const cleanup = vi.fn(async () => undefined);
+    const worker = new DurableJobWorker({
+      handler: {
+        cleanup,
+        process: vi.fn(async () => {
+          throw new ProcessingJobError("provider_failed", true, "invalid_timestamps");
+        }),
+      },
+      logger: createLogger("silent"),
+      queue,
+      workerId: "worker-1",
+    });
+
+    await worker.processNext();
+
+    expect(queue.fail).toHaveBeenCalledWith(
+      job,
+      "provider_failed",
+      "worker-1",
+      true,
+      "invalid_timestamps",
+    );
+    expect(cleanup).not.toHaveBeenCalled();
+  });
+
+  it("respeita uma retenção existente quando uma nova tentativa falha sem resposta", async () => {
+    const queue = createQueue();
+    queue.fail.mockResolvedValueOnce("retained");
+    const cleanup = vi.fn(async () => undefined);
+    const worker = new DurableJobWorker({
+      handler: {
+        cleanup,
+        process: vi.fn(async () => {
+          throw new ProcessingJobError("provider_unavailable", true);
+        }),
+      },
+      logger: createLogger("silent"),
+      queue,
+      workerId: "worker-1",
+    });
+
+    await worker.processNext();
+
+    expect(queue.fail).toHaveBeenCalledWith(job, "provider_unavailable", "worker-1", true);
+    expect(cleanup).not.toHaveBeenCalled();
   });
 
   it("limpa o workspace depois de concluir o job de resumo", async () => {

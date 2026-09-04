@@ -174,6 +174,8 @@ describe("ManifestStore", () => {
     });
     const index = { save: vi.fn(async () => undefined) };
     await mkdir(join(root, "legacy"));
+    const preservedArtifactPath = join(root, "legacy", "segment.ogg");
+    await writeFile(preservedArtifactPath, "audio-sentinel", "utf8");
     await writeFile(
       join(root, "legacy", "manifest.json"),
       JSON.stringify({ ...current, participants: undefined, schemaVersion: 2 }),
@@ -184,6 +186,7 @@ describe("ManifestStore", () => {
     await expect(store.migrateLegacyManifests()).resolves.toBe(1);
     await expect(store.migrateLegacyManifests()).resolves.toBe(0);
     await expect(store.load("legacy")).resolves.toMatchObject({ schemaVersion: 3 });
+    await expect(readFile(preservedArtifactPath, "utf8")).resolves.toBe("audio-sentinel");
     expect(index.save).not.toHaveBeenCalled();
   });
 

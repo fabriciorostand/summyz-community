@@ -5,53 +5,53 @@ import { loadEnvFile } from "node:process";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 
 import { assessModelCompatibility, resolveAiProfile } from "./ai-profile.js";
-import { CostReconciler } from "./cost/cost-reconciler.js";
+import { loadConfig, resolveBotConfig } from "./config.js";
 import type { CostPhase } from "./cost/cost-ledger.js";
+import { CostReconciler } from "./cost/cost-reconciler.js";
 import { createCostReportService } from "./cost/cost-report.js";
 import { PostgresCostLedgerStore } from "./cost/postgres-cost-ledger-store.js";
 import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
-
-import { loadConfig, resolveBotConfig } from "./config.js";
 import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js";
 import { PostgresAnalyticsStore } from "./database/postgres-analytics-store.js";
+import { createPostgresDatabase, type PostgresDatabase } from "./database/postgres-database.js";
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
 import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
 import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
 import { PostgresMeetingContentStore } from "./database/postgres-meeting-content-store.js";
 import { PostgresMeetingStore } from "./database/postgres-meeting-store.js";
-import { createPostgresDatabase, type PostgresDatabase } from "./database/postgres-database.js";
 import { DiscordMeetingPublisher } from "./discord/discord-meeting-publisher.js";
 import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
 import { notifyTranscriptionFailure } from "./discord/transcription-notifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
-import { createLogger } from "./logger.js";
-import { OpenRouterModelPreflight } from "./openrouter/model-preflight.js";
-import { SecretBox } from "./security/secret-box.js";
-import { LocalModelManager } from "./local-ai/local-model-manager.js";
 import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-size.js";
 import { detectLocalHardware } from "./local-ai/hardware-detection.js";
-import { resolveLocalExecutionPlan, type LocalAiPhase } from "./local-ai/local-execution-policy.js";
+import { type LocalAiPhase, resolveLocalExecutionPlan } from "./local-ai/local-execution-policy.js";
+import { LocalModelManager } from "./local-ai/local-model-manager.js";
+import { createLogger } from "./logger.js";
 import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
+import { OpenRouterModelPreflight } from "./openrouter/model-preflight.js";
 import { DurableJobQueue } from "./processing/durable-job-queue.js";
 import { DurableJobWorker } from "./processing/durable-job-worker.js";
 import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
+import { MeetingArtifactMaintenance } from "./processing/meeting-artifact-maintenance.js";
 import { MeetingFinalizer } from "./processing/meeting-finalizer.js";
 import { MeetingProcessingHandler } from "./processing/meeting-processing-handler.js";
+import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
+import {
+  meetingAiConfigurationSchema,
+  type RecordingManifest,
+  type ResolvedMeetingAiConfiguration,
+  requireCurrentMeetingAiConfiguration,
+} from "./recording/manifest.js";
+import { ManifestStore } from "./recording/manifest-store.js";
+import { RecordingCoordinator } from "./recording/recording-coordinator.js";
 import { MeetingRefinementGenerator } from "./refinement/meeting-refinement-generator.js";
 import { MeetingRefinementService } from "./refinement/meeting-refinement-service.js";
 import { OllamaRefinementProvider } from "./refinement/ollama-refinement-provider.js";
 import { OpenRouterRefinementProvider } from "./refinement/openrouter-refinement-provider.js";
 import { RefinementStore } from "./refinement/refinement-store.js";
-import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
-import {
-  meetingAiConfigurationSchema,
-  requireCurrentMeetingAiConfiguration,
-  type ResolvedMeetingAiConfiguration,
-  type RecordingManifest,
-} from "./recording/manifest.js";
-import { ManifestStore } from "./recording/manifest-store.js";
-import { RecordingCoordinator } from "./recording/recording-coordinator.js";
+import { SecretBox } from "./security/secret-box.js";
 import { MeetingSummaryGenerator } from "./summary/meeting-summary-generator.js";
 import { MeetingSummaryService } from "./summary/meeting-summary-service.js";
 import { OllamaSummaryProvider } from "./summary/ollama-summary-provider.js";
@@ -59,8 +59,8 @@ import { OpenRouterSummaryProvider } from "./summary/openrouter-summary-provider
 import { PublicationStore } from "./summary/publication-store.js";
 import { SummaryStore } from "./summary/summary-store.js";
 import { configureTerminalEncoding } from "./terminal-encoding.js";
-import { MeetingTranscriptionService } from "./transcription/meeting-transcription-service.js";
 import { FasterWhisperTranscriptionProvider } from "./transcription/faster-whisper-transcription-provider.js";
+import { MeetingTranscriptionService } from "./transcription/meeting-transcription-service.js";
 import { OpenRouterTranscriptionProvider } from "./transcription/openrouter-transcription-provider.js";
 import {
   createAudioDecoder,
@@ -68,8 +68,9 @@ import {
   SileroSpeechAnalyzer,
 } from "./transcription/speech-analyzer.js";
 import type { TranscriptionModelProfile } from "./transcription/transcription-model-profile.js";
-import { TranscriptionStore } from "./transcription/transcription-store.js";
 import type { TranscriptionProvider } from "./transcription/transcription-provider.js";
+import { TranscriptionStore } from "./transcription/transcription-store.js";
+import { CURRENT_TRANSCRIPTION_RECOVERY_VERSION } from "./transcription/transcription-recovery-policy.js";
 import { OllamaSummaryTranslator } from "./translation/ollama-summary-translator.js";
 import { OpenRouterSummaryTranslator } from "./translation/openrouter-summary-translator.js";
 import { SummaryTranslationService } from "./translation/summary-translation.js";
@@ -145,11 +146,6 @@ const recordingsDirectory = join(config.dataDir, "recordings");
 const postgresMeetingStore = new PostgresMeetingStore(database);
 const manifestStore = new ManifestStore(recordingsDirectory, postgresMeetingStore);
 const transcriptionStore = new TranscriptionStore(recordingsDirectory);
-for (const meetingId of await postgresMeetingStore.listDelivery2CleanupMeetingIds()) {
-  await transcriptionStore.deleteMeeting(meetingId);
-  await postgresMeetingStore.markDelivery2CleanupCompleted(meetingId);
-  logger.info({ meetingId }, "Obsolete pending meeting artifacts deleted");
-}
 const migratedManifestCount = await manifestStore.migrateLegacyManifests();
 if (migratedManifestCount > 0) {
   logger.info({ migratedManifestCount }, "Legacy recording manifests migrated");
@@ -359,6 +355,13 @@ const processingHandler = new MeetingProcessingHandler({
   transcriber: transcriptionService,
   transcriptionStore,
 });
+const artifactMaintenance = new MeetingArtifactMaintenance({
+  cleanup: (meetingId) => processingHandler.cleanup(meetingId),
+  logger,
+  meetingStore: postgresMeetingStore,
+  queue: postgresQueue,
+  recoveryVersion: CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
+});
 const worker = new DurableJobWorker({ handler: processingHandler, logger, queue: postgresQueue });
 
 async function enqueueCompleted(manifest: RecordingManifest): Promise<void> {
@@ -404,9 +407,16 @@ client.once(Events.ClientReady, async (readyClient) => {
   }
 
   try {
-    for (const meetingId of await postgresMeetingStore.listTerminalMeetingIds()) {
-      await processingHandler.cleanup(meetingId);
-    }
+    await artifactMaintenance.runOnce();
+  } catch (error) {
+    logger.error(
+      { errorType: getErrorType(error) },
+      "Initial artifact and transcription recovery maintenance failed",
+    );
+  }
+  artifactMaintenance.start();
+
+  try {
     for (const manifest of await manifestStore.listRecoverable()) {
       await coordinator.resume(manifest);
     }
@@ -435,6 +445,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   shuttingDown = true;
   logger.info({ signal }, "Summyz shutdown requested");
   await coordinator.shutdown();
+  await artifactMaintenance.shutdown();
   await worker.shutdown();
   client.destroy();
   await database.close().catch((error: unknown) => {
@@ -454,6 +465,7 @@ try {
   await client.login(config.discordToken);
 } catch (error) {
   logger.fatal({ errorType: getErrorType(error) }, "Unable to connect Summyz to Discord");
+  await artifactMaintenance.shutdown();
   await worker.shutdown();
   await database.close().catch(() => undefined);
   process.exitCode = 1;

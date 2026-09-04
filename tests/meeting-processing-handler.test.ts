@@ -128,12 +128,19 @@ describe("MeetingProcessingHandler", () => {
       createTranscriptionState("meeting-1", [], "2026-08-24T10:01:00.000Z"),
       "provider_failed",
       "2026-08-24T10:02:00.000Z",
+      "invalid_timestamps",
     );
     const { dependencies, handler } = createContext(failed);
 
     await expect(
       handler.process(createJob("transcription", { attemptCount: 6, finalAttempt: true })),
-    ).rejects.toEqual(expect.objectContaining({ failureCode: "provider_failed", terminal: true }));
+    ).rejects.toEqual(
+      expect.objectContaining({
+        failureCode: "provider_failed",
+        terminal: true,
+        transcriptionRecoveryReason: "invalid_timestamps",
+      }),
+    );
     expect(dependencies.retention.deleteWorkspace).not.toHaveBeenCalled();
   });
 

@@ -3,6 +3,12 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 
 import type { PostgresExecutor } from "../database/postgres-database.js";
+import {
+  CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
+  TRANSCRIPTION_FAILURE_RETENTION_MS,
+  type TranscriptionRecoveryReason,
+  transcriptionRecoveryReasonSchema,
+} from "../transcription/transcription-recovery-policy.js";
 
 const jobTypeSchema = z.enum(["transcription", "refinement", "summary"]);
 export type ProcessingJobType = z.infer<typeof jobTypeSchema>;
@@ -57,8 +63,9 @@ export class DurableJobQueue {
     const result = await this.#database.query(
       `
 INSERT INTO processing_jobs (
-  job_id, meeting_id, job_type, status, available_at, max_attempts
-) VALUES ($1, $2, $3, 'scheduled', $4, $5)
+  job_id, meeting_id, job_type, status, available_at, max_attempts,
+  transcription_recovery_version
+) VALUES ($1, $2, $3, 'scheduled', $4, $5, $6)
 ON CONFLICT (meeting_id, job_type) DO NOTHING
 RETURNING job_id
 `,
@@ -68,6 +75,7 @@ RETURNING job_id
         validatedJobType,
         this.#now().toISOString(),
         MAX_JOB_ATTEMPTS,
+        CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
       ],
     );
     return result.rowCount === 1;
@@ -169,7 +177,8 @@ WHERE job_id = $1 AND status = 'active' AND lease_owner = $2
     failureCode: string,
     workerId: string,
     terminal = false,
-  ): Promise<"failed" | "scheduled"> {
+    transcriptionRecoveryReason?: TranscriptionRecoveryReason,
+  ): Promise<"failed" | "retained" | "scheduled"> {
     const validatedFailureCode = z
       .string()
       .min(1)
@@ -177,8 +186,15 @@ WHERE job_id = $1 AND status = 'active' AND lease_owner = $2
       .regex(/^[a-z0-9_]+$/)
       .parse(failureCode);
     const now = this.#now();
+    const validatedRecoveryReason =
+      transcriptionRecoveryReason === undefined
+        ? null
+        : transcriptionRecoveryReasonSchema.parse(transcriptionRecoveryReason);
     if (terminal || job.finalAttempt || job.attemptCount >= job.maxAttempts) {
-      await this.#database.query(
+      const artifactsDeleteAfter = new Date(
+        now.getTime() + TRANSCRIPTION_FAILURE_RETENTION_MS,
+      ).toISOString();
+      const result = await this.#database.query(
         `
 WITH failed_job AS (
 UPDATE processing_jobs
@@ -189,15 +205,63 @@ SET
   lease_expires_at = NULL,
   updated_at = $4
 WHERE job_id = $1 AND status = 'active' AND lease_owner = $2
-RETURNING meeting_id
+RETURNING meeting_id, job_type
 )
-UPDATE meetings
-SET pipeline_status = 'failed', failure_code = $3, manifest = NULL, updated_at = $4
+UPDATE meetings AS meeting
+SET
+  pipeline_status = 'failed',
+  failure_code = $3,
+  manifest = CASE
+    WHEN EXISTS (SELECT 1 FROM failed_job WHERE job_type = 'transcription')
+      AND (
+        $5::text IS NOT NULL
+        OR (
+          meeting.transcription_recovery_reason IS NOT NULL
+          AND meeting.artifacts_delete_after > $4::timestamptz
+        )
+      )
+      THEN manifest
+    ELSE NULL
+  END,
+  transcription_recovery_reason = CASE
+    WHEN EXISTS (SELECT 1 FROM failed_job WHERE job_type = 'transcription')
+      AND (
+        $5::text IS NOT NULL
+        OR (
+          meeting.transcription_recovery_reason IS NOT NULL
+          AND meeting.artifacts_delete_after > $4::timestamptz
+        )
+      )
+      THEN COALESCE($5::text, meeting.transcription_recovery_reason)
+    ELSE NULL
+  END,
+  artifacts_delete_after = CASE
+    WHEN EXISTS (SELECT 1 FROM failed_job WHERE job_type = 'transcription')
+      AND (
+        $5::text IS NOT NULL
+        OR (
+          meeting.transcription_recovery_reason IS NOT NULL
+          AND meeting.artifacts_delete_after > $4::timestamptz
+        )
+      )
+      THEN COALESCE(artifacts_delete_after, $6::timestamptz)
+    ELSE NULL
+  END,
+  updated_at = $4
 WHERE meeting_id IN (SELECT meeting_id FROM failed_job)
+RETURNING artifacts_delete_after IS NOT NULL
+  AND artifacts_delete_after > $4::timestamptz AS artifacts_retained
 `,
-        [job.jobId, workerId, validatedFailureCode, now.toISOString()],
+        [
+          job.jobId,
+          workerId,
+          validatedFailureCode,
+          now.toISOString(),
+          validatedRecoveryReason,
+          artifactsDeleteAfter,
+        ],
       );
-      return "failed";
+      return result.rows[0]?.artifacts_retained === true ? "retained" : "failed";
     }
 
     const delayMs = RETRY_DELAYS_MS[job.attemptCount - 1];
@@ -220,5 +284,51 @@ WHERE job_id = $1 AND status = 'active' AND lease_owner = $2
       [job.jobId, workerId, availableAt, validatedFailureCode, now.toISOString()],
     );
     return "scheduled";
+  }
+
+  public async recoverEligibleTranscriptions(recoveryVersion: number): Promise<string[]> {
+    const validatedRecoveryVersion = z.number().int().positive().parse(recoveryVersion);
+    const now = this.#now().toISOString();
+    const result = await this.#database.query(
+      `
+WITH eligible AS (
+  SELECT job.job_id
+  FROM processing_jobs AS job
+  JOIN meetings AS meeting ON meeting.meeting_id = job.meeting_id
+  WHERE job.job_type = 'transcription'
+    AND job.status = 'failed'
+    AND job.transcription_recovery_version < $1
+    AND meeting.pipeline_status = 'failed'
+    AND meeting.transcription_recovery_reason IS NOT NULL
+    AND meeting.artifacts_delete_after > $2
+    AND meeting.artifacts_deleted_at IS NULL
+    AND meeting.manifest IS NOT NULL
+  FOR UPDATE OF job SKIP LOCKED
+), recovered_jobs AS (
+  UPDATE processing_jobs AS job
+  SET
+    status = 'scheduled',
+    attempt_count = 0,
+    max_attempts = $3,
+    available_at = $2,
+    last_failure_code = NULL,
+    lease_owner = NULL,
+    lease_expires_at = NULL,
+    completed_at = NULL,
+    transcription_recovery_version = $1,
+    updated_at = $2
+  FROM eligible
+  WHERE job.job_id = eligible.job_id
+  RETURNING job.meeting_id
+)
+UPDATE meetings AS meeting
+SET pipeline_status = 'queued', failure_code = NULL, updated_at = $2
+FROM recovered_jobs
+WHERE meeting.meeting_id = recovered_jobs.meeting_id
+RETURNING meeting.meeting_id
+`,
+      [validatedRecoveryVersion, now, MAX_JOB_ATTEMPTS],
+    );
+    return result.rows.map((row) => z.string().min(1).max(128).parse(row.meeting_id));
   }
 }

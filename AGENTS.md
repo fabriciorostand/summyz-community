@@ -87,6 +87,18 @@ with enough context for diagnosis.
 
 Messages sent to Discord must not reveal stack traces, internal paths, or secrets.
 
+## Database migrations
+
+- Migrations from version 10 onward must be expand-only and preserve every non-terminal meeting.
+- Never delete or truncate business data, drop tables or columns, introduce cascading deletion, or
+  update meeting processing data from a schema migration.
+- Data cleanup belongs to the explicit retention lifecycle and may run only after a meeting reaches
+  a terminal state. Startup and schema migration paths must never remove pending meeting artifacts.
+- Every upgrade that changes processing or manifest schemas must include a contract test proving
+  that meetings, jobs, cost attempts, manifests, and audio catalogs survive and remain recoverable.
+- Applied migrations are immutable. The database records a SHA-256 checksum and startup must fail
+  closed when the checked-in SQL differs from the recorded checksum.
+
 ## Git
 
 ### Commits and authorship

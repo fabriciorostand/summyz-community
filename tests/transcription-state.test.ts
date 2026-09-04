@@ -68,4 +68,23 @@ describe("retryFailedTranscription", () => {
       ),
     ).toThrow(/retry/i);
   });
+
+  it("persiste a incompatibilidade recuperável e a remove ao iniciar um novo ciclo", () => {
+    const initial = createTranscriptionState(
+      "meeting-1",
+      ["segment-1"],
+      "2026-08-24T10:00:00.000Z",
+    );
+    const failed = markTranscriptionFailed(
+      initial,
+      "provider_failed",
+      "2026-08-24T10:01:00.000Z",
+      "invalid_timestamps",
+    );
+
+    expect(failed).toMatchObject({ transcriptionRecoveryReason: "invalid_timestamps" });
+    expect(retryFailedTranscription(failed, "2026-08-24T10:02:00.000Z")).not.toHaveProperty(
+      "transcriptionRecoveryReason",
+    );
+  });
 });

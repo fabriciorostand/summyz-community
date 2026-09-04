@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { type RecordingManifest, recordingManifestSchema } from "../recording/manifest.js";
 import type { ManifestIndex } from "../recording/manifest-store.js";
+import { CURRENT_TRANSCRIPTION_RECOVERY_VERSION } from "../transcription/transcription-recovery-policy.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const pipelineStatusSchema = z.enum([
@@ -71,9 +72,10 @@ ON CONFLICT (meeting_id) DO UPDATE SET
 RETURNING meeting_id
 )
 INSERT INTO processing_jobs (
-  job_id, meeting_id, job_type, status, available_at, max_attempts
+  job_id, meeting_id, job_type, status, available_at, max_attempts,
+  transcription_recovery_version
 )
-SELECT $13, meeting_id, 'transcription', 'scheduled', $14, 6
+SELECT $13, meeting_id, 'transcription', 'scheduled', $14, 6, $16
 FROM saved_meeting
 WHERE $5 = 'completed'
 ON CONFLICT (meeting_id, job_type) DO NOTHING
@@ -94,6 +96,7 @@ ON CONFLICT (meeting_id, job_type) DO NOTHING
         randomUUID(),
         new Date().toISOString(),
         validated.voiceChannelName ?? null,
+        CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
       ],
     );
     if (validated.participants.length > 0) {
@@ -162,27 +165,23 @@ WHERE meeting_id = $1
 
   public async listTerminalMeetingIds(): Promise<string[]> {
     const result = await this.#database.query(
-      "SELECT meeting_id FROM meetings WHERE pipeline_status IN ('completed', 'failed') AND artifacts_deleted_at IS NULL ORDER BY created_at",
+      `SELECT meeting_id
+       FROM meetings
+       WHERE pipeline_status IN ('completed', 'failed')
+         AND artifacts_deleted_at IS NULL
+         AND (artifacts_delete_after IS NULL OR artifacts_delete_after <= now())
+       ORDER BY created_at`,
     );
     return result.rows.map((row) => z.string().min(1).max(128).parse(row.meeting_id));
-  }
-
-  public async listDelivery2CleanupMeetingIds(): Promise<string[]> {
-    const result = await this.#database.query(
-      "SELECT meeting_id FROM delivery_2_meeting_cleanup ORDER BY meeting_id",
-    );
-    return result.rows.map((row) => z.string().min(1).max(128).parse(row.meeting_id));
-  }
-
-  public async markDelivery2CleanupCompleted(meetingId: string): Promise<void> {
-    await this.#database.query("DELETE FROM delivery_2_meeting_cleanup WHERE meeting_id = $1", [
-      z.string().min(1).max(128).parse(meetingId),
-    ]);
   }
 
   public async markArtifactsDeleted(meetingId: string): Promise<void> {
     await this.#database.query(
-      "UPDATE meetings SET artifacts_deleted_at = now(), updated_at = now() WHERE meeting_id = $1",
+      `UPDATE meetings
+       SET artifacts_deleted_at = now(), manifest = NULL,
+           transcription_recovery_reason = NULL, artifacts_delete_after = NULL,
+           updated_at = now()
+       WHERE meeting_id = $1`,
       [z.string().min(1).max(128).parse(meetingId)],
     );
   }

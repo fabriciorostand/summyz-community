@@ -152,7 +152,13 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
       throw new ProcessingJobError("provider_unavailable");
     }
     const terminalCode = failureCode ?? "transcription_incomplete";
-    throw new ProcessingJobError(terminalCode, true);
+    const transcriptionRecoveryReason =
+      state?.status === "failed"
+        ? state.transcriptionRecoveryReason
+        : previous?.status === "failed"
+          ? previous.transcriptionRecoveryReason
+          : undefined;
+    throw new ProcessingJobError(terminalCode, true, transcriptionRecoveryReason);
   }
 
   async #processRefinement(job: ClaimedProcessingJob, manifest: RecordingManifest): Promise<void> {

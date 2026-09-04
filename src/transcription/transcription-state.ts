@@ -1,6 +1,10 @@
 import { z } from "zod";
 
 import type { TranscriptionProviderResult } from "./transcription-provider.js";
+import {
+  type TranscriptionRecoveryReason,
+  transcriptionRecoveryReasonSchema,
+} from "./transcription-recovery-policy.js";
 
 export const transcriptionFailureCodeSchema = z.enum([
   "audio_analysis_failed",
@@ -61,6 +65,7 @@ export const transcriptionStateSchema = z.object({
   segments: z.array(transcriptionSegmentStateSchema),
   startedAt: z.iso.datetime(),
   status: z.enum(["processing", "completed", "failed"]),
+  transcriptionRecoveryReason: transcriptionRecoveryReasonSchema.optional(),
   updatedAt: z.iso.datetime(),
   wordTimingAvailable: z.boolean().default(false),
 });
@@ -182,12 +187,14 @@ export function markTranscriptionFailed(
   state: TranscriptionState,
   failureCode: TranscriptionFailureCode,
   now: string,
+  transcriptionRecoveryReason?: TranscriptionRecoveryReason,
 ): TranscriptionState {
   return transcriptionStateSchema.parse({
     ...state,
     failedAt: now,
     failureCode,
     status: "failed",
+    ...(transcriptionRecoveryReason === undefined ? {} : { transcriptionRecoveryReason }),
     updatedAt: now,
   });
 }

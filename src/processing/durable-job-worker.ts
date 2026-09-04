@@ -4,6 +4,10 @@ import type { Logger } from "pino";
 import { z } from "zod";
 
 import type { ClaimedProcessingJob } from "./durable-job-queue.js";
+import {
+  type TranscriptionRecoveryReason,
+  transcriptionRecoveryReasonSchema,
+} from "../transcription/transcription-recovery-policy.js";
 
 export interface ProcessingQueue {
   claim(workerId: string): Promise<ClaimedProcessingJob | undefined>;
@@ -13,7 +17,8 @@ export interface ProcessingQueue {
     failureCode: string,
     workerId: string,
     terminal?: boolean,
-  ): Promise<"failed" | "scheduled">;
+    transcriptionRecoveryReason?: TranscriptionRecoveryReason,
+  ): Promise<"failed" | "retained" | "scheduled">;
   renew(job: ClaimedProcessingJob, workerId: string): Promise<void>;
 }
 
@@ -25,8 +30,13 @@ export interface ProcessingJobHandler {
 export class ProcessingJobError extends Error {
   public readonly failureCode: string;
   public readonly terminal: boolean;
+  public readonly transcriptionRecoveryReason: TranscriptionRecoveryReason | undefined;
 
-  public constructor(failureCode: string, terminal = false) {
+  public constructor(
+    failureCode: string,
+    terminal = false,
+    transcriptionRecoveryReason?: TranscriptionRecoveryReason,
+  ) {
     const validated = z
       .string()
       .min(1)
@@ -37,6 +47,10 @@ export class ProcessingJobError extends Error {
     this.name = "ProcessingJobError";
     this.failureCode = validated;
     this.terminal = terminal;
+    this.transcriptionRecoveryReason =
+      transcriptionRecoveryReason === undefined
+        ? undefined
+        : transcriptionRecoveryReasonSchema.parse(transcriptionRecoveryReason);
   }
 }
 
@@ -145,7 +159,18 @@ export class DurableJobWorker {
       const failureCode =
         error instanceof ProcessingJobError ? error.failureCode : "unexpected_error";
       const terminal = error instanceof ProcessingJobError && error.terminal;
-      const status = await this.#queue.fail(job, failureCode, this.#workerId, terminal);
+      const transcriptionRecoveryReason =
+        error instanceof ProcessingJobError ? error.transcriptionRecoveryReason : undefined;
+      const status =
+        transcriptionRecoveryReason === undefined
+          ? await this.#queue.fail(job, failureCode, this.#workerId, terminal)
+          : await this.#queue.fail(
+              job,
+              failureCode,
+              this.#workerId,
+              terminal,
+              transcriptionRecoveryReason,
+            );
       this.#logger.warn(
         {
           attemptCount: job.attemptCount,

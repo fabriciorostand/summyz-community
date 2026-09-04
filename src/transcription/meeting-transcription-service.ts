@@ -30,6 +30,7 @@ import {
 import type { TranscriptionStore } from "./transcription-store.js";
 import { IncompatibleTranscriptionResponseError } from "./transcription-provider.js";
 import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
+import type { TranscriptionRecoveryReason } from "./transcription-recovery-policy.js";
 import {
   aggregatePredominantLanguage,
   type LanguageEvidence,
@@ -380,7 +381,12 @@ export class MeetingTranscriptionService {
             manifest.segments.map((segment) => segment.segmentId),
             this.#now().toISOString(),
           );
-        state = markTranscriptionFailed(failureState, failureCode, this.#now().toISOString());
+        state = markTranscriptionFailed(
+          failureState,
+          failureCode,
+          this.#now().toISOString(),
+          getTranscriptionRecoveryReason(error),
+        );
         await this.#transcriptionStore.save(state);
       } catch (storageError) {
         this.#logger.error(
@@ -548,6 +554,11 @@ function getFailureCode(error: unknown): TranscriptionFailureCode {
     return "language_detection_failed";
   }
   return isStorageError(error) ? "storage_failed" : "provider_failed";
+}
+
+function getTranscriptionRecoveryReason(error: unknown): TranscriptionRecoveryReason | undefined {
+  if (!(error instanceof IncompatibleTranscriptionResponseError)) return undefined;
+  return error.reason === "invalid_audio_duration" ? undefined : error.reason;
 }
 
 function isStorageError(error: unknown): boolean {

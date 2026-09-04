@@ -35,7 +35,7 @@ describe("DurableJobQueue", () => {
 
     expect(query).toHaveBeenCalledWith(
       expect.stringContaining("ON CONFLICT (meeting_id, job_type) DO NOTHING"),
-      [claimedRow.job_id, "meeting-1", "transcription", "2026-08-24T10:00:00.000Z", 6],
+      [claimedRow.job_id, "meeting-1", "transcription", "2026-08-24T10:00:00.000Z", 6, 1],
     );
   });
 
@@ -96,6 +96,93 @@ describe("DurableJobQueue", () => {
     ).resolves.toBe("failed");
 
     expect(query.mock.calls[0]?.[0]).toContain("WITH failed_job AS");
+    expect(query.mock.calls[0]?.[1]).toEqual([
+      claimedRow.job_id,
+      "worker-1",
+      "audio_invalid",
+      "2026-08-24T10:00:00.000Z",
+      null,
+      "2026-08-25T10:00:00.000Z",
+    ]);
+  });
+
+  it("preserva por 24 horas uma incompatibilidade recuperável sem renovar o prazo", async () => {
+    const { executor, query } = createExecutor([
+      { rowCount: 1, rows: [{ artifacts_retained: true }] },
+    ]);
+    const queue = new DurableJobQueue(executor, {
+      now: () => new Date("2026-08-24T10:00:00.000Z"),
+    });
+
+    await expect(
+      queue.fail(
+        { ...toClaimedJob(claimedRow), attemptCount: 6, finalAttempt: true },
+        "provider_failed",
+        "worker-1",
+        true,
+        "invalid_timestamps",
+      ),
+    ).resolves.toBe("retained");
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringMatching(/COALESCE\(artifacts_delete_after, \$6::timestamptz\)/),
+      [
+        claimedRow.job_id,
+        "worker-1",
+        "provider_failed",
+        "2026-08-24T10:00:00.000Z",
+        "invalid_timestamps",
+        "2026-08-25T10:00:00.000Z",
+      ],
+    );
+  });
+
+  it("não cancela uma retenção existente quando a recuperação termina com falha de rede", async () => {
+    const { executor, query } = createExecutor([
+      { rowCount: 1, rows: [{ artifacts_retained: true }] },
+    ]);
+    const queue = new DurableJobQueue(executor, {
+      now: () => new Date("2026-08-24T10:00:00.000Z"),
+    });
+
+    await expect(
+      queue.fail(
+        { ...toClaimedJob(claimedRow), attemptCount: 6, finalAttempt: true },
+        "provider_unavailable",
+        "worker-1",
+        true,
+      ),
+    ).resolves.toBe("retained");
+
+    expect(query.mock.calls[0]?.[0]).toMatch(
+      /transcription_recovery_reason IS NOT NULL[\s\S]+artifacts_delete_after > \$4::timestamptz/,
+    );
+  });
+
+  it("reabre uma incompatibilidade uma única vez por versão de recuperação", async () => {
+    const { executor, query } = createExecutor([
+      { rowCount: 1, rows: [{ meeting_id: "meeting-1" }] },
+    ]);
+    const queue = new DurableJobQueue(executor, {
+      now: () => new Date("2026-08-24T10:00:00.000Z"),
+    });
+
+    await expect(queue.recoverEligibleTranscriptions(2)).resolves.toEqual(["meeting-1"]);
+
+    expect(query).toHaveBeenCalledWith(
+      expect.stringMatching(
+        /transcription_recovery_version < \$1[\s\S]+attempt_count = 0[\s\S]+transcription_recovery_version = \$1/,
+      ),
+      [2, "2026-08-24T10:00:00.000Z", 6],
+    );
+  });
+
+  it("rejeita uma versão de recuperação inválida antes de consultar o banco", async () => {
+    const { executor, query } = createExecutor([]);
+    const queue = new DurableJobQueue(executor);
+
+    await expect(queue.recoverEligibleTranscriptions(0)).rejects.toThrow();
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("conclui o job e o estágio terminal na mesma operação", async () => {
