@@ -756,7 +756,7 @@ export function GuildsPage() {
     <Page
       title="Seus servidores"
       eyebrow="Visão geral"
-      description="Escolha onde você quer configurar o Summyz. Só aparecem servidores dos quais sua conta Discord é proprietária."
+      description="Escolha onde você quer configurar o Summyz Community. Só aparecem servidores dos quais sua conta Discord é proprietária."
     >
       {guilds.length === 0 ? (
         <EmptyState title="Conecte sua conta Discord">
@@ -859,7 +859,7 @@ export function AccountPage() {
             <UserRound />
           </div>
           <div>
-            <h2>Conta Summyz</h2>
+            <h2>Conta Summyz Community</h2>
             <p>{user.email}</p>
           </div>
           <span className="status good">
@@ -1865,7 +1865,7 @@ function PhaseEditor({
             </div>
             <PromptEditor
               defaultPrompt={promptDefaults?.transcription ?? null}
-              disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
+              disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz Community continuará ativo."
               label="Prompt da transcrição"
               toggleLabel="Enviar prompt de transcrição"
               value={value.prompt}
@@ -1968,7 +1968,7 @@ function PhaseEditor({
       {phase === "Refinamento" ? (
         <PromptEditor
           defaultPrompt={promptDefaults?.refinement}
-          disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
+          disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz Community continuará ativo."
           label="Prompt de refinamento"
           toggleLabel="Enviar prompt de refinamento"
           value={profile.refinement.prompt}
@@ -1980,7 +1980,7 @@ function PhaseEditor({
         <div className="summary-prompts">
           <PromptEditor
             defaultPrompt={promptDefaults?.summaryExtraction}
-            disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
+            disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz Community continuará ativo."
             label="Prompt do resumo — extração"
             toggleLabel="Enviar prompt de extração"
             value={profile.summary.extractionPrompt}
@@ -1993,7 +1993,7 @@ function PhaseEditor({
           />
           <PromptEditor
             defaultPrompt={promptDefaults?.summaryConsolidation}
-            disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
+            disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz Community continuará ativo."
             label="Prompt do resumo — consolidação"
             toggleLabel="Enviar prompt de consolidação"
             value={profile.summary.consolidationPrompt}
@@ -2095,7 +2095,7 @@ function TranslationEditor({
         />
         <PromptEditor
           defaultPrompt="Traduza somente os campos permitidos e preserve os termos protegidos."
-          disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz continuará ativo."
+          disabledMessage="Sem prompt editável. O prompt-base imutável do Summyz Community continuará ativo."
           label="Prompt de tradução"
           toggleLabel="Usar prompt de tradução"
           value={value.prompt}
@@ -2229,7 +2229,7 @@ export function InstallationPage() {
   const currentSettings = settings;
   const smtp = currentSettings.smtp ?? {
     fromEmail: "",
-    fromName: "Summyz",
+    fromName: "Summyz Community",
     host: "smtp-relay.brevo.com",
     port: 587,
     replyTo: null,

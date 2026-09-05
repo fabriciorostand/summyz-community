@@ -55,10 +55,10 @@ export class SmtpAuthenticationEmailSender implements AuthenticationEmailSender 
   public async sendVerification(input: { email: string; token: string }): Promise<void> {
     await this.#send({
       actionPath: "/verify-email",
-      body: "Confirme seu endereço de e-mail para concluir o cadastro no Summyz.",
+      body: "Confirme seu endereço de e-mail para concluir o cadastro no Summyz Community.",
       email: input.email,
       linkLabel: "Confirmar e-mail",
-      subject: "Confirme seu e-mail no Summyz",
+      subject: "Confirme seu e-mail no Summyz Community",
       token: input.token,
     });
   }
@@ -69,7 +69,7 @@ export class SmtpAuthenticationEmailSender implements AuthenticationEmailSender 
       body: "Use o link abaixo para definir uma nova senha. Se você não fez essa solicitação, ignore este e-mail.",
       email: input.email,
       linkLabel: "Redefinir senha",
-      subject: "Redefinição de senha do Summyz",
+      subject: "Redefinição de senha do Summyz Community",
       token: input.token,
     });
   }

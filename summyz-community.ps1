@@ -8,7 +8,7 @@ $remainingArguments = @($args | Select-Object -Skip 1)
 $dryRun = $remainingArguments -contains "--dry-run"
 $unexpectedArguments = @($remainingArguments | Where-Object { $_ -ne "--dry-run" })
 if ($commandName -eq "" -or $unexpectedArguments.Count -gt 0) {
-  [Console]::Error.WriteLine("Usage: .\summyz.ps1 <up|down|restart|status|logs> [--dry-run]")
+  [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs> [--dry-run]")
   exit 2
 }
 
@@ -207,7 +207,7 @@ switch ($commandName) {
   "status" { Invoke-Compose "ps" }
   "logs" { Invoke-Compose "logs" "--follow" }
   default {
-    [Console]::Error.WriteLine("Usage: .\summyz.ps1 <up|down|restart|status|logs> [--dry-run]")
+    [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs> [--dry-run]")
     exit 2
   }
 }

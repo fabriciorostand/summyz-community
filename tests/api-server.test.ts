@@ -540,7 +540,7 @@ function setupPayload() {
       },
       smtp: {
         fromEmail: "hello@example.com",
-        fromName: "Summyz",
+        fromName: "Summyz Community",
         host: "smtp-relay.brevo.com",
         port: 587,
         replyTo: null,

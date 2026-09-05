@@ -10,7 +10,7 @@ export function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="brand">
       <span className="brand-mark">R</span>
-      {!compact && <span>Summyz</span>}
+      {!compact && <span>Summyz Community</span>}
     </div>
   );
 }
@@ -90,7 +90,7 @@ export function Loading() {
   return (
     <div className="loading" role="status">
       <span />
-      Preparando o Summyz…
+      Preparando o Summyz Community…
     </div>
   );
 }

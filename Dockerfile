@@ -11,10 +11,13 @@ RUN npm run build
 
 FROM build AS test
 RUN apt-get update && \
-    apt-get install --yes --no-install-recommends ffmpeg && \
+    apt-get install --yes --no-install-recommends ffmpeg python3 python-is-python3 && \
     rm -rf /var/lib/apt/lists/*
+COPY biome.json ./
 COPY tests ./tests
 COPY scripts ./scripts
+COPY services ./services
+COPY Dockerfile .env.example docker-compose.yaml docker-compose.nvidia.yaml docker-compose.amd.yaml summyz-community summyz-community.ps1 ./
 COPY vitest.config.ts vitest.smoke.config.ts ./
 CMD ["npm", "run", "test:smoke:local-ai"]
 

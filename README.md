@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <b>Summyz</b> records voice calls on command, transcribes each participant's audio, and publishes
+  <b>Summyz Community</b> records voice calls on command, transcribes each participant's audio, and publishes
   summaries with decisions and tasks.
 </p>
 
@@ -42,15 +42,15 @@ by the Docker workflow.
 
 1. Copy `.env.example` to `.env`.
 2. Fill in `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY`, and `SUMMYZ_SETUP_TOKEN`.
-3. Run `./summyz up` on Linux or macOS, or `.\summyz.ps1 up` on Windows. The host launcher detects
+3. Run `./summyz-community up` on Linux or macOS, or `.\summyz-community.ps1 up` on Windows. The host launcher detects
    CPU, NVIDIA, or AMD, selects the safe Compose overlays, and starts the complete stack.
 4. Open `http://127.0.0.1:8787` to configure the
    administrator account, Discord, SMTP, and optional OpenRouter credentials.
 5. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
 
-Use `./summyz status`, `./summyz logs`, `./summyz restart`, and
-`./summyz down` to administer the stack; use `.\summyz.ps1` instead on Windows.
+Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community restart`, and
+`./summyz-community down` to administer the stack; use `.\summyz-community.ps1` instead on Windows.
 Direct Compose remains available for advanced use.
 The base `docker compose up -d --build` command uses CPU; NVIDIA and AMD require their respective
 overlay files.
@@ -67,7 +67,7 @@ Never commit the `.env` file or publish the bot token.
 
 Migrations and the PostgreSQL connection are validated before the Discord login; if the database
 is unavailable or the URL is invalid, the process exits with a safe message. The
-`postgres_data` and `summyz_data` volumes preserve the database and required files across
+`postgres_data` and `summyz_community_data` volumes preserve the database and required files across
 restarts.
 
 ## Persistence and privacy

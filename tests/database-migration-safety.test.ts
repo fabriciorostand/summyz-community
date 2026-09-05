@@ -11,8 +11,12 @@ describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
     expect(databaseMigrations.at(-1)).toMatchObject({ version: 11 });
-    expect(databaseMigrations.at(-1)?.sql).toContain("transcription_recovery_version");
-    expect(databaseMigrations.at(-1)?.sql).toContain("artifacts_delete_after");
+    expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
+      "transcription_recovery_version",
+    );
+    expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
+      "artifacts_delete_after",
+    );
   });
 
   it.each([

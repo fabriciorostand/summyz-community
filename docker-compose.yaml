@@ -1,3 +1,5 @@
+name: summyz-community
+
 services:
   ollama:
     image: ollama/ollama:0.11.4
@@ -15,6 +17,7 @@ services:
       OLLAMA_LLM_LIBRARY: cpu
 
   faster-whisper:
+    image: summyz-community-faster-whisper
     build:
       context: ./services/faster-whisper
       target: cpu
@@ -39,9 +42,9 @@ services:
     image: postgres:18.4-alpine
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB:-summyz}
+      POSTGRES_DB: ${POSTGRES_DB:-summyz-community-db}
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-troque-esta-senha}
-      POSTGRES_USER: ${POSTGRES_USER:-summyz}
+      POSTGRES_USER: ${POSTGRES_USER:-summyz_community}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
       interval: 5s
@@ -53,6 +56,7 @@ services:
       - postgres_data:/var/lib/postgresql
 
   bot:
+    image: summyz-community-bot
     build:
       context: .
       target: bot-runtime
@@ -69,9 +73,10 @@ services:
     environment:
       DATA_DIR: /app/data
     volumes:
-      - summyz_data:/app/data
+      - summyz_community_data:/app/data
 
   dashboard:
+    image: summyz-community-dashboard
     build:
       context: .
       target: dashboard-runtime
@@ -117,4 +122,4 @@ volumes:
   faster_whisper_models:
   ollama_models:
   postgres_data:
-  summyz_data:
+  summyz_community_data:

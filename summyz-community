@@ -8,7 +8,7 @@ cd "$repository_dir"
 
 command_name=${1:-}
 if [ -z "$command_name" ]; then
-  echo "Usage: ./summyz <up|down|restart|status|logs> [--dry-run]" >&2
+  echo "Usage: ./summyz-community <up|down|restart|status|logs> [--dry-run]" >&2
   exit 2
 fi
 shift
@@ -205,7 +205,7 @@ case "$command_name" in
   status) run_compose ps ;;
   logs) run_compose logs --follow ;;
   *)
-    echo "Usage: ./summyz <up|down|restart|status|logs> [--dry-run]" >&2
+    echo "Usage: ./summyz-community <up|down|restart|status|logs> [--dry-run]" >&2
     exit 2
     ;;
 esac

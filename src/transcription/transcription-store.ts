@@ -1,5 +1,5 @@
 import { link, mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
-import { isAbsolute, relative, resolve } from "node:path";
+import { isAbsolute, relative, resolve, win32 } from "node:path";
 
 import {
   retryFailedTranscription,
@@ -23,7 +23,7 @@ export class TranscriptionStore {
   }
 
   public resolveMeetingFile(meetingId: string, relativePath: string): string {
-    if (relativePath.length === 0 || isAbsolute(relativePath)) {
+    if (relativePath.length === 0 || isAbsolute(relativePath) || win32.isAbsolute(relativePath)) {
       throw new Error("O caminho deve permanecer dentro do diretório da reunião");
     }
     const directory = this.meetingDirectory(meetingId);

@@ -1,4 +1,4 @@
-import { isAbsolute, normalize } from "node:path";
+import { isAbsolute, normalize, win32 } from "node:path";
 
 import { z } from "zod";
 
@@ -287,5 +287,10 @@ function assertRelativeSafePath(filePath: string): void {
 
 function isRelativeSafePath(filePath: string): boolean {
   const normalized = normalize(filePath).replaceAll("\\", "/");
-  return !isAbsolute(filePath) && normalized !== ".." && !normalized.startsWith("../");
+  return (
+    !isAbsolute(filePath) &&
+    !win32.isAbsolute(filePath) &&
+    normalized !== ".." &&
+    !normalized.startsWith("../")
+  );
 }

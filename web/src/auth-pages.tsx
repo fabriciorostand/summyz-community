@@ -59,7 +59,7 @@ export function LoginPage({ registrationEnabled }: { registrationEnabled: boolea
     }
   }
   return (
-    <AuthFrame eyebrow="Bem-vindo de volta" title="Entre no Summyz">
+    <AuthFrame eyebrow="Bem-vindo de volta" title="Entre no Summyz Community">
       <form className="stack" onSubmit={submit}>
         <Field autoComplete="email" label="E-mail" name="email" required type="email" />
         <Field
@@ -254,7 +254,7 @@ export function SetupPage({
       <div className="setup-grid">
         <section>
           <p className="eyebrow">Primeira execução</p>
-          <h1>Deixe o Summyz pronto para a sua equipe.</h1>
+          <h1>Deixe o Summyz Community pronto para a sua equipe.</h1>
           <p className="lede">
             Crie o administrador e conecte a aplicação do Discord. Os segredos serão criptografados
             antes de chegarem ao banco.
@@ -303,7 +303,12 @@ export function SetupPage({
           <Field label="Login SMTP" name="smtpUser" required />
           <Field label="Senha SMTP" name="smtpPassword" required type="password" />
           <Field label="E-mail remetente" name="smtpFromEmail" required type="email" />
-          <Field defaultValue="Summyz" label="Nome do remetente" name="smtpFromName" required />
+          <Field
+            defaultValue="Summyz Community"
+            label="Nome do remetente"
+            name="smtpFromName"
+            required
+          />
           <label className="check">
             <input defaultChecked name="registrationEnabled" type="checkbox" /> Permitir novos
             cadastros

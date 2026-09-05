@@ -123,7 +123,7 @@ a todo o seu conteúdo apenas porque o Ollama é MIT.
 
 Após mover Tailwind e o plugin Vite para `devDependencies`, o lockfile registra 172 pacotes de
 produção: 140 MIT, 11 Apache-2.0, 7 ISC, 5 BlueOak-1.0.0, 5 BSD-3-Clause e quatro em outras
-licenças permissivas. A entrada sem licença é o próprio workspace privado `summyz-web`, não um
+licenças permissivas. A entrada sem licença é o próprio workspace privado `summyz-community-web`, não um
 pacote externo.
 
 O conjunto completo de desenvolvimento também contém MPL-2.0 e CC-BY, sobretudo em ferramentas

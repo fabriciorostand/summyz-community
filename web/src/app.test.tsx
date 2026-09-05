@@ -338,7 +338,9 @@ describe("App", () => {
       </MemoryRouter>,
     );
 
-    expect(await screen.findByRole("heading", { name: "Entre no Summyz" })).toBeInTheDocument();
+    expect(
+      await screen.findByRole("heading", { name: "Entre no Summyz Community" }),
+    ).toBeInTheDocument();
     expect(screen.getByLabelText("E-mail")).toBeInTheDocument();
     expect(screen.getByLabelText("Senha")).toBeInTheDocument();
   });
@@ -602,7 +604,7 @@ describe("App", () => {
     }
     expect(screen.getByLabelText("Pesquisar idioma")).toBeInTheDocument();
     expect(
-      screen.getByText(/prompt-base imutável do Summyz continuará ativo/i),
+      screen.getByText(/prompt-base imutável do Summyz Community continuará ativo/i),
     ).toBeInTheDocument();
     const vadTab = screen.getByRole("tab", { name: "VAD" });
     fireEvent.click(vadTab);

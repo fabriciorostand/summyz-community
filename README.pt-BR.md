@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <b>Summyz</b> é um bot para Discord que grava calls sob comando, transcreve o áudio de cada participante e publica resumos
+  <b>Summyz Community</b> é um bot para Discord que grava calls sob comando, transcreve o áudio de cada participante e publica resumos
   com decisões e tarefas.
 </p>
 
@@ -45,17 +45,17 @@ automaticamente no fluxo Docker.
 1. Copie `.env.example` para `.env`.
 2. Preencha `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY` e `SUMMYZ_SETUP_TOKEN`. Use o
    host `postgres` no Compose ou `localhost` ao executar os processos diretamente pelo npm.
-3. No Linux ou macOS, execute `./summyz up`. No Windows, execute
-   `.\summyz.ps1 up`. O launcher roda
+3. No Linux ou macOS, execute `./summyz-community up`. No Windows, execute
+   `.\summyz-community.ps1 up`. O launcher roda
    no host, detecta CPU, NVIDIA ou AMD, escolhe os overlays seguros e chama o Docker Compose.
 4. Abra `http://127.0.0.1:8787` para criar a conta
    administradora e configurar Discord, SMTP e, se necessário, OpenRouter.
 5. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
 
-Use `./summyz status`, `./summyz logs`, `./summyz restart` e
-`./summyz down` para administrar a instalação; no Windows, substitua `./summyz` por
-`.\summyz.ps1`. O Compose direto continua
+Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community restart` e
+`./summyz-community down` para administrar a instalação; no Windows, substitua `./summyz-community` por
+`.\summyz-community.ps1`. O Compose direto continua
 disponível para operadores avançados. `docker compose up -d --build` usa CPU; para NVIDIA ou AMD,
 inclua manualmente `docker-compose.nvidia.yaml` ou `docker-compose.amd.yaml`.
 
@@ -72,7 +72,7 @@ Nunca versione o arquivo `.env` nem publique o token do bot.
 
 As migrações e a conexão PostgreSQL são validadas antes do login no Discord; se o banco estiver
 indisponível ou a URL for inválida, o processo encerra com uma mensagem segura. Os volumes
-`postgres_data`, `summyz_data`, `ollama_models` e `faster_whisper_models` preservam o banco, os
+`postgres_data`, `summyz_community_data`, `ollama_models` e `faster_whisper_models` preservam o banco, os
 arquivos e os modelos gerenciados após reinício.
 
 ## Persistência e privacidade
@@ -340,7 +340,7 @@ uma etapa futura.
 Docker Desktop no Windows expõe GPU NVIDIA, não AMD; por isso o inicializador interrompe uma fase
 Ollama/AMD nesse ambiente, salvo quando o fallback para CPU foi autorizado. GPUs Intel, Apple e de
 fabricante desconhecido são detectadas, mas sem um perfil de container compatível nesta etapa o
-mesmo princípio se aplica. Use `./summyz down` ou `.\summyz.ps1 down` para encerrar
+mesmo princípio se aplica. Use `./summyz-community down` ou `.\summyz-community.ps1 down` para encerrar
 a pilha.
 
 Se o modelo escolhido estiver acima da recomendação de hardware, o Summyz mantém a escolha e avisa
@@ -489,8 +489,7 @@ O benchmark de faster-whisper usa `transcript.raw.txt` como referência, calcula
 fator de tempo real, e não inclui o conteúdo das reuniões no relatório. Configure
 `BENCHMARK_DEVICE`, `BENCHMARK_BATCH_SIZE` e `BENCHMARK_MODEL`, depois execute
 `docker compose --profile benchmark run --rm benchmark`. Ele só mede reuniões
-que ainda possuem todos os áudios. O inventário inicial está em
-[`docs/benchmarks.md`](./docs/benchmarks.md).
+que ainda possuem todos os áudios.
 
 ## Contribuição
 

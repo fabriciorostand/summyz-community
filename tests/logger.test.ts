@@ -24,6 +24,9 @@ describe("logger", () => {
         refreshToken: "refresh-token-sensitive",
         secretsKey: "master-key-sensitive",
         smtpPassword: "smtp-password-sensitive",
+        SUMMYZ_SECRETS_KEY: "summyz-master-key-sensitive",
+        SUMMYZ_SETUP_TOKEN: "summyz-setup-token-sensitive",
+        headers: { "x-summyz-setup-token": "summyz-header-sensitive" },
         summary: "resumo sensível da reunião",
         transcript: "conteúdo da call",
       },
@@ -38,6 +41,9 @@ describe("logger", () => {
     expect(output).not.toContain("refresh-token-sensitive");
     expect(output).not.toContain("master-key-sensitive");
     expect(output).not.toContain("smtp-password-sensitive");
+    expect(output).not.toContain("summyz-master-key-sensitive");
+    expect(output).not.toContain("summyz-setup-token-sensitive");
+    expect(output).not.toContain("summyz-header-sensitive");
     expect(output).not.toContain("conteúdo da call");
     expect(output).not.toContain("conteúdo do áudio");
     expect(output).not.toContain("conteúdo em blocos");

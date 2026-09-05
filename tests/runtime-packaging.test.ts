@@ -77,8 +77,8 @@ describe("runtime packaging", () => {
 
   it("não concede privilégios ou Docker Socket aos launchers", async () => {
     const launchers = await Promise.all([
-      readFile(new URL("summyz", repositoryRoot), "utf8"),
-      readFile(new URL("summyz.ps1", repositoryRoot), "utf8"),
+      readFile(new URL("summyz-community", repositoryRoot), "utf8"),
+      readFile(new URL("summyz-community.ps1", repositoryRoot), "utf8"),
     ]);
 
     for (const launcher of launchers) {

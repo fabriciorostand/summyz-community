@@ -73,7 +73,7 @@ async function runLauncher(environment: NodeJS.ProcessEnv): Promise<string> {
         "-ExecutionPolicy",
         "Bypass",
         "-File",
-        new URL("summyz.ps1", repositoryRoot).pathname.slice(1),
+        new URL("summyz-community.ps1", repositoryRoot).pathname.slice(1),
         "up",
         "--dry-run",
       ],
@@ -84,7 +84,7 @@ async function runLauncher(environment: NodeJS.ProcessEnv): Promise<string> {
 
   const result = await execFileAsync(
     "sh",
-    [new URL("summyz", repositoryRoot).pathname, "up", "--dry-run"],
+    [new URL("summyz-community", repositoryRoot).pathname, "up", "--dry-run"],
     { encoding: "utf8", env: commonEnvironment },
   );
   return result.stdout;

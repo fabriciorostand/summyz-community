@@ -253,7 +253,7 @@ CREATE TABLE installation_settings (
   smtp_secure boolean NOT NULL DEFAULT false,
   smtp_user text,
   smtp_from_email text,
-  smtp_from_name text NOT NULL DEFAULT 'Summyz',
+  smtp_from_name text NOT NULL DEFAULT 'Summyz Community',
   smtp_reply_to text,
   registration_enabled boolean NOT NULL DEFAULT false,
   public_base_url text,

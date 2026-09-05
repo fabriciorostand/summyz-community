@@ -160,7 +160,7 @@ export class PostgresInstallationSettingsStore {
         settings.smtp?.secure ?? false,
         settings.smtp?.user ?? null,
         settings.smtp?.fromEmail ?? null,
-        settings.smtp?.fromName ?? "Summyz",
+        settings.smtp?.fromName ?? "Summyz Community",
         settings.smtp?.replyTo ?? null,
         settings.registrationEnabled,
         settings.publicBaseUrl,
