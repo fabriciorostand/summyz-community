@@ -1,7 +1,8 @@
 {
   "name": "summyz-community",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
+  "license": "SEE LICENSE IN LICENSE.md",
   "workspaces": [
     "web"
   ],
@@ -16,6 +17,7 @@
     "build:web": "npm run build --workspace web",
     "benchmark:transcription": "tsx scripts/benchmark-transcription.ts",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run typecheck:web && npm run test:python && npm run test:coverage && npm run test:web",
+    "cla:sign": "node scripts/cla/create-signature.mjs",
     "dev": "tsx --env-file=.env src/main.ts",
     "dev:api": "tsx --env-file=.env src/api/main.ts",
     "dev:web": "npm run dev --workspace web",

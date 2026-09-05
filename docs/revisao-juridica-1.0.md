@@ -18,8 +18,10 @@ Source Initiative exige livre redistribuição e proíbe restrições a campos d
 inclusive uso empresarial. A Sustainable Use License 1.0, por sua vez, restringe uso e
 redistribuição comercial de forma expressa.
 
-O repositório ainda não contém `LICENSE`, CLA nem identificação do licenciante. Esses arquivos
-não foram criados nesta revisão porque exigem decisões jurídicas do titular. Também existe um
+O repositório agora contém a `Summyz Community License 1.0`, sua tradução informativa para
+pt-BR, CLAs individual e corporativo, política de contribuição, política de marcas e avisos.
+Esses textos registram as decisões do titular, mas, por serem instrumentos jurídicos próprios,
+ainda precisam de revisão por advogado antes da publicação da versão 1.0. Também existe um
 bloqueio material no serviço de transcrição: as wheels binárias de PyAV incluem FFmpeg e a
 configuração oficial usada para produzi-las inclui componentes GPL. Isso ocorre dentro do
 processo Python, não apenas por execução de um programa separado, e precisa ser eliminado ou
@@ -30,7 +32,7 @@ restritiva.
 
 | Severidade | Constatação | Condição para liberação |
 | --- | --- | --- |
-| Crítica | Não há licença pública nem titular legal identificado no repositório. | Definir o licenciante e adotar texto final revisado por advogado. |
+| Alta | A licença própria e os CLAs estão redigidos, mas ainda não foram revisados por advogado habilitado. | Obter parecer sobre a redação final, sua aplicabilidade e o fluxo eletrônico de aceite. |
 | Crítica | PyAV é instalado por wheel no `faster-whisper`; essas wheels incluem bibliotecas FFmpeg, e a receita oficial inclui x264/x265. O FFmpeg torna-se GPL quando compilado com partes GPL. | Construir e auditar PyAV contra FFmpeg compatível apenas com LGPL, ou obter parecer que aprove a arquitetura e cumprir integralmente a licença aplicável. |
 | Alta | O pacote Debian `ffmpeg` da imagem do bot foi inspecionado localmente e informa `--enable-gpl`, além de codecs GPL. | Manter o binário isolado como subprocesso somente após parecer, publicar avisos e código-fonte correspondente, ou trocar por build LGPL mínimo e reproduzível. |
 | Alta | As imagens usam tags mutáveis e não digests por plataforma. | Escolher arquiteturas suportadas, fixar digests e gerar SBOM de cada imagem final. |
@@ -42,33 +44,44 @@ restritiva.
 
 ## Licença do Summyz Community e contribuições
 
-A [Sustainable Use License 1.0](https://github.com/n8n-io/n8n/blob/master/LICENSE.md)
-autoriza uso interno, pessoal ou não comercial e restringe redistribuição e disponibilização
-comercial. Isso se aproxima da intenção declarada para o Community, mas a redação deve ser
-avaliada em relação a casos como consultoria, uso interno em empresas, revenda de appliance,
-serviço gerenciado e fork hospedado.
+O projeto adotou uma licença própria, a `Summyz Community License 1.0`, inspirada no modelo de
+uso sustentável, mas escrita para os casos concretos definidos pelo titular. Ela permite uso
+pessoal, educacional e empresarial interno, redistribuição gratuita e instâncias externas
+inteiramente gratuitas. Ela reserva ao titular os usos comerciais do software e proíbe tanto
+cobrança direta quanto monetização indireta de uma instância, incluindo publicidade,
+patrocínio condicionado, geração de leads, exploração de dados, associação paga e repasse de
+custos aos usuários.
+
+Consultores podem cobrar por gestão de infraestrutura controlada pelo cliente, como VPS,
+sistema operacional, Docker, rede, armazenamento, banco de dados, backup, monitoramento e
+segurança. Não podem cobrar, nem embutir na remuneração, atividades específicas do Summyz
+Community, como instalação, configuração, atualização, depuração, modificação, forks, plugins
+ou integrações. Modificações usadas apenas internamente podem permanecer privadas; quando uma
+versão modificada é distribuída ou disponibilizada externamente, o código-fonte correspondente
+e as instruções de construção e instalação devem ser oferecidos sob a mesma licença.
 
 Como a [Open Source Definition](https://opensource.org/osd) não permite restringir venda ou
 uso empresarial, a comunicação pública deve empregar “código-fonte disponível”,
 “source-available” ou “fair-code”, e não “open source”.
 
-O histórico Git consultado contém uma única identidade autoral, mas isso não prova, sozinho,
-titularidade patrimonial: trabalho feito para empregador, cliente ou com código copiado pode
-alterar o titular. Antes da publicação é necessário confirmar a cadeia de titularidade.
+O histórico Git consultado contém uma única identidade autoral. Fabricio Rostand Morais
+declarou que o projeto foi desenvolvido desde o início como projeto pessoal, em equipamento
+pessoal, sem vínculo com empregador ou cliente e sem colaboradores anteriores. Essa declaração
+resolve a investigação factual interna, embora não substitua uma análise jurídica nem a revisão
+de eventuais semelhanças com projetos que serviram apenas de inspiração.
 
-Para preservar o direito de oferecer o Hosted sob licença comercial, contribuições externas
-devem ser aceitas apenas depois da implantação de um CLA. O
-[Harmony Contributor Agreement](https://www.harmonyagreements.org/docs/ha-combined-v1)
-oferece uma alternativa que permite relicenciamento, mas ainda exige escolher:
+Para preservar o direito de oferecer o Hosted sob licença comercial, o projeto adotou CLA de
+licença ampla, sem cessão: o colaborador mantém a titularidade e concede direitos para
+relicenciamento comercial, proprietário e hospedado, inclusive por sucessor ou futura empresa
+do titular. Há textos individual e corporativo, mas, enquanto não existir canal privado adequado
+para comprovar representação empresarial, apenas contribuições de pessoas físicas serão
+aceitas.
 
-- licença de contribuição ou cessão de copyright;
-- CLA individual, corporativo ou ambos;
-- lei aplicável, foro, identidade e endereço do projeto;
-- mecanismo verificável de assinatura e vínculo do aceite ao commit;
-- tratamento de contribuições anteriores ao CLA.
-
-Uma licença de contribuição ampla preserva autoria do colaborador; uma cessão transfere direitos
-e costuma impor mais fricção. A escolha não deve ser feita apenas por conveniência técnica.
+O aceite individual é registrado no próprio pull request por arquivo estruturado e vinculado à
+conta GitHub, versão do CLA, repositório, pull request e commits abrangidos. O registro público
+contém nome civil e usuário GitHub, mas não exige endereço, CPF ou e-mail. A verificação usa
+somente permissões de leitura e código do branch padrão, evitando executar código não confiável
+do pull request em contexto privilegiado.
 
 ## Imagens Docker
 
@@ -208,32 +221,44 @@ inclusive em CycloneDX. Os artefatos devem ser gerados no pipeline a partir das 
 assinados ou vinculados ao digest e publicados com a release. O `THIRD_PARTY_NOTICES` deve ser
 derivado desses SBOMs, preservar copyrights e acompanhar ofertas de código-fonte quando exigidas.
 
-## Decisões pendentes do titular
+## Decisões jurídicas registradas
 
-Nenhuma das escolhas abaixo foi presumida nesta revisão:
+- licenciante pessoa física: Fabricio Rostand Morais, seus sucessores e cessionários;
+- texto jurídico principal em inglês e tradução pt-BR expressamente informativa;
+- lei brasileira aplicável, sem eleição de foro exclusivo e sem endereço público;
+- licença própria source-available, com direito comercial reservado ao licenciante;
+- uso empresarial interno permitido e serviço externo permitido somente quando inteiramente
+  gratuito e sem monetização direta ou indireta;
+- consultoria remunerada limitada à gestão da infraestrutura controlada pelo cliente;
+- copyleft de rede para versões modificadas disponibilizadas externamente;
+- CLA de licença ampla, sem cessão de titularidade, nas versões individual e corporativa;
+- somente CLA individual aceito no fluxo público inicial;
+- proteção de patentes limitada às reivindicações necessariamente infringidas pela contribuição,
+  com terminação defensiva;
+- cura da primeira violação em 30 dias, sem apagar pretensões relativas ao período da infração,
+  e terminação permanente em caso de reincidência;
+- marca `Summyz` reservada; forks devem usar identidade distinta e podem se identificar apenas
+  como “fork of Summyz Community”.
 
-1. Qual é o nome legal completo do licenciante: pessoa física ou empresa?
-2. Será usada a Sustainable Use License 1.0 sem alterações ou uma licença própria revisada?
-3. Quais usos empresariais internos, consultoria e serviços gratuitos devem ser permitidos?
-4. O CLA será licença ampla ou cessão de direitos? Haverá versões individual e corporativa?
-5. Qual lei, foro, endereço e processo de assinatura regerão licença comercial e CLA?
-6. Quais sistemas operacionais e arquiteturas de CPU serão oficialmente suportados na 1.0?
-7. O projeto adotará build LGPL próprio de FFmpeg/PyAV ou buscará parecer para a pilha atual?
-8. Quais versões e digests de Node, Python, PostgreSQL, Ollama, CUDA/cuDNN e ROCm serão congelados?
-9. Quais modelos entram na allowlist inicial do Community e do Hosted, por finalidade e idioma?
-10. Por quanto tempo a oferta de código-fonte de componentes copyleft ficará disponível e onde?
+## Decisões técnicas pendentes
+
+1. Quais sistemas operacionais e arquiteturas de CPU serão oficialmente suportados na 1.0?
+2. O projeto adotará build LGPL próprio de FFmpeg/PyAV ou buscará parecer para a pilha atual?
+3. Quais versões e digests de Node, Python, PostgreSQL, Ollama, CUDA/cuDNN e ROCm serão congelados?
+4. Quais modelos entram na allowlist inicial do Community e do Hosted, por finalidade e idioma?
+5. Por quanto tempo a oferta de código-fonte de componentes copyleft ficará disponível e onde?
 
 ## Gate de publicação
 
 A versão 1.0 só deve ser marcada depois de:
 
-- respostas documentadas para todas as decisões acima;
-- parecer jurídico sobre licença pública, CLA, GPL/LGPL, NVIDIA e modelos;
-- `LICENSE`, CLA e política de contribuição publicados;
+- respostas documentadas para todas as decisões técnicas pendentes;
+- parecer jurídico sobre a licença própria, os CLAs, GPL/LGPL, NVIDIA e modelos;
+- licença, CLAs, política de contribuição, política de marcas e avisos publicados;
 - build reproduzível de Python com hashes;
 - imagens fixadas por digest e verificadas por arquitetura;
 - resolução comprovada do PyAV/FFmpeg e teste automatizado da configuração de build;
 - SBOMs e `THIRD_PARTY_NOTICES` gerados a partir das imagens finais;
 - varredura de vulnerabilidades e segredos sem achados impeditivos;
 - revisão dos textos públicos para substituir “open source” por “source-available”;
-- confirmação da cadeia de titularidade de todo o código existente.
+- registro e revisão jurídica da declaração de cadeia de titularidade do código existente.

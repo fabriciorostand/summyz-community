@@ -17,6 +17,7 @@
   <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white" alt="Node >= 22.12" />
   <img src="https://img.shields.io/badge/PRs-welcome-23A559" alt="PRs welcome" />
   <img src="https://img.shields.io/badge/self--hosted-100%25-0A0B0F" alt="Self-hosted" />
+  <img src="https://img.shields.io/badge/licen%C3%A7a-source--available-6E40C9" alt="Licença source-available" />
 </p>
 
 ---
@@ -493,11 +494,29 @@ que ainda possuem todos os áudios.
 
 ## Contribuição
 
-Contribuições são bem-vindas.
+Contribuições individuais são bem-vindas. Contribuições corporativas não são aceitas
+atualmente.
 
 1. Faça um fork do repositório e crie uma branch para a funcionalidade.
 2. Mantenha os módulos pequenos e com uma única responsabilidade, siga a estrutura existente.
 3. Adicione testes para novas lógicas — `npm test` deve passar.
-4. Abra um pull request descrevendo a mudança e sua motivação.
+4. Leia e aceite o CLA Individual e crie o registro público de aceitação.
+5. Abra um pull request descrevendo a mudança e sua motivação.
 
-Para relatar bugs ou solicitar funcionalidades, abra uma issue.
+Consulte [CONTRIBUTING.pt-BR.md](./CONTRIBUTING.pt-BR.md) e
+[CLA-INDIVIDUAL.pt-BR.md](./CLA-INDIVIDUAL.pt-BR.md). Para relatar bugs ou solicitar
+funcionalidades, abra uma issue.
+
+## Licença
+
+Summyz Community é software source-available sob a
+[Summyz Community License 1.0](./LICENSE.pt-BR.md). Ela permite uso pessoal, uso
+empresarial interno gratuito, disponibilização externa gratuita sob suas condições e
+administração remunerada de infraestrutura controlada pelo cliente dentro da exceção
+prevista. Ela não permite vender o bot, cobrar por seus serviços ou sua configuração,
+nem oferecer acesso hospedado monetizado.
+
+Esta não é uma licença open source aprovada pela Open Source Initiative. Os nomes e
+Ativos de Marca são regidos pela [política de marcas](./TRADEMARKS.pt-BR.md), e
+Materiais de Terceiros mantêm seus próprios termos. Consulte
+[NOTICE.pt-BR.md](./NOTICE.pt-BR.md).

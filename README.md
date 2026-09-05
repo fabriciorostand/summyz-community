@@ -17,6 +17,7 @@
   <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white" alt="Node >= 22.12" />
   <img src="https://img.shields.io/badge/PRs-welcome-23A559" alt="PRs welcome" />
   <img src="https://img.shields.io/badge/self--hosted-100%25-0A0B0F" alt="Self-hosted" />
+  <img src="https://img.shields.io/badge/license-source--available-6E40C9" alt="Source-available license" />
 </p>
 
 ---
@@ -449,11 +450,28 @@ may take a while on its first run. Real Discord interactions are not presented a
 
 ## Contributing
 
-Contributions are welcome.
+Individual contributions are welcome. Corporate contributions are not currently
+accepted.
 
 1. Fork the repo and create a feature branch.
 2. Keep modules small and single-purpose; follow the existing structure.
 3. Add tests for new logic — `npm test` must pass.
-4. Open a pull request describing the change and the reasoning.
+4. Read and accept the Individual CLA and create the public acceptance record.
+5. Open a pull request describing the change and the reasoning.
 
-For bugs and feature requests, please open an issue.
+See [CONTRIBUTING.md](./CONTRIBUTING.md) and
+[CLA-INDIVIDUAL.md](./CLA-INDIVIDUAL.md). For bugs and feature requests, please open an
+issue.
+
+## License
+
+Summyz Community is source-available software under the
+[Summyz Community License 1.0](./LICENSE.md). It permits personal use, free internal
+business use, free external availability under its conditions, and paid administration
+of customer-controlled infrastructure within the stated exception. It does not permit
+selling the bot, charging for its services or configuration, or offering monetized
+hosted access.
+
+This is not an Open Source Initiative-approved open-source license. The names and Brand
+Assets are governed by the [trademark policy](./TRADEMARKS.md), and Third-Party
+Materials retain their own terms. See [NOTICE.md](./NOTICE.md).
