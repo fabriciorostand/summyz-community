@@ -12,6 +12,55 @@ if ($commandName -eq "" -or $unexpectedArguments.Count -gt 0) {
   exit 2
 }
 
+function New-RandomBase64Url {
+  param([Parameter(Mandatory = $true)][int]$ByteCount)
+
+  $bytes = [byte[]]::new($ByteCount)
+  $generator = [Security.Cryptography.RandomNumberGenerator]::Create()
+  try {
+    $generator.GetBytes($bytes)
+  } finally {
+    $generator.Dispose()
+  }
+  return [Convert]::ToBase64String($bytes).TrimEnd("=").Replace("+", "-").Replace("/", "_")
+}
+
+function Initialize-DotEnv {
+  $environmentPath = Join-Path $repositoryDirectory ".env"
+  if (-not (Test-Path -LiteralPath $environmentPath -PathType Leaf)) {
+    $templatePath = Join-Path $repositoryDirectory ".env.example"
+    if (-not (Test-Path -LiteralPath $templatePath -PathType Leaf)) {
+      throw ".env.example is missing"
+    }
+    $databasePassword = New-RandomBase64Url -ByteCount 32
+    $contents = [IO.File]::ReadAllText($templatePath)
+    $contents = $contents -replace '(?m)^SUMMYZ_SECRETS_KEY=.*$', "SUMMYZ_SECRETS_KEY=$(New-RandomBase64Url -ByteCount 32)"
+    $contents = $contents -replace '(?m)^SUMMYZ_SETUP_TOKEN=.*$', "SUMMYZ_SETUP_TOKEN=$(New-RandomBase64Url -ByteCount 32)"
+    $contents = $contents -replace '(?m)^DATABASE_URL=.*$', "DATABASE_URL=postgresql://summyz_community:$databasePassword@postgres:5432/summyz-community-db"
+    $contents = $contents -replace '(?m)^POSTGRES_PASSWORD=.*$', "POSTGRES_PASSWORD=$databasePassword"
+    [IO.File]::WriteAllText($environmentPath, $contents, [Text.UTF8Encoding]::new($false))
+    Write-Output "Created .env with random local secrets. Keep this file private."
+  }
+
+  $password = Get-DotEnvSetting -Name "POSTGRES_PASSWORD"
+  $databaseUrl = Get-DotEnvSetting -Name "DATABASE_URL"
+  $secretsKey = Get-DotEnvSetting -Name "SUMMYZ_SECRETS_KEY"
+  $setupToken = Get-DotEnvSetting -Name "SUMMYZ_SETUP_TOKEN"
+  $invalidValues = @("", "troque-esta-senha", "change-me", "changeme")
+  if ($null -eq $password -or $password.Trim().ToLowerInvariant() -in $invalidValues) {
+    throw "POSTGRES_PASSWORD must contain a non-placeholder value in .env"
+  }
+  if ($null -eq $databaseUrl -or $databaseUrl -match '(?i)troque-esta-senha|change-?me') {
+    throw "DATABASE_URL must contain a non-placeholder PostgreSQL password in .env"
+  }
+  if ([string]::IsNullOrWhiteSpace($secretsKey)) {
+    throw "SUMMYZ_SECRETS_KEY must be set in .env"
+  }
+  if ([string]::IsNullOrWhiteSpace($setupToken)) {
+    throw "SUMMYZ_SETUP_TOKEN must be set in .env"
+  }
+}
+
 function Get-DotEnvSetting {
   param([Parameter(Mandatory = $true)][string]$Name)
 
@@ -50,6 +99,10 @@ function Get-Setting {
     return $fileValue.Trim()
   }
   return $Default
+}
+
+if ($commandName -in @("up", "restart")) {
+  Initialize-DotEnv
 }
 
 $device = Get-Setting -Name "LOCAL_AI_DEVICE" -Default "auto"

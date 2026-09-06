@@ -1,264 +1,174 @@
-# Revisão técnica de licenças para a versão 1.0
+# Revisão técnica de licenças para a versão 1.0.0
 
-**Data da revisão:** 1º de setembro de 2026
-**Escopo:** código-fonte, imagens Docker, dependências Node.js e Python, FFmpeg/PyAV,
-CUDA/cuDNN, ROCm, modelos baixados e artefatos de conformidade.
-**Estado:** **não aprovado para publicação como versão 1.0** enquanto os bloqueios abaixo
-não forem resolvidos.
+**Revisão atualizada:** 5 de setembro de 2026
+**Escopo:** código-fonte, dependências Node.js e Python, imagens Docker, FFmpeg/PyAV,
+CUDA/cuDNN, ROCm, modelos baixados, avisos de terceiros e preparação do SBOM.
+**Estado:** candidato tecnicamente preparado para o gate final; **tag e release ainda não
+autorizadas**.
 
-Este documento é uma revisão técnica de conformidade e não substitui parecer de advogado
-habilitado nas jurisdições em que o Summyz será distribuído ou comercializado.
+Este documento registra uma análise técnica de conformidade. Não é parecer jurídico e
+não substitui a revisão futura por advogado escolhida pelo titular.
 
 ## Conclusão executiva
 
-A estratégia de disponibilizar o Summyz Community com código visível, uso não comercial e
-direito comercial reservado ao titular é possível como modelo **source-available** com
-licenciamento duplo. Ela não pode ser apresentada como “open source”: a definição da Open
-Source Initiative exige livre redistribuição e proíbe restrições a campos de atividade,
-inclusive uso empresarial. A Sustainable Use License 1.0, por sua vez, restringe uso e
-redistribuição comercial de forma expressa.
+A estratégia do Summyz Community continua coerente como software **source-available**,
+com uso não comercial permitido e direitos comerciais reservados ao titular. Ela não deve
+ser divulgada como open source: a definição da Open Source Initiative não aceita restrição
+à venda nem a campos de atividade.
 
-O repositório agora contém a `Summyz Community License 1.0`, sua tradução informativa para
-pt-BR, CLAs individual e corporativo, política de contribuição, política de marcas e avisos.
-Esses textos registram as decisões do titular, mas, por serem instrumentos jurídicos próprios,
-ainda precisam de revisão por advogado antes da publicação da versão 1.0. Também existe um
-bloqueio material no serviço de transcrição: as wheels binárias de PyAV incluem FFmpeg e a
-configuração oficial usada para produzi-las inclui componentes GPL. Isso ocorre dentro do
-processo Python, não apenas por execução de um programa separado, e precisa ser eliminado ou
-validado por parecer jurídico antes de combinar a distribuição com uma licença comercialmente
-restritiva.
+Os bloqueios técnicos antes identificados em FFmpeg/PyAV, versões Python não
+reproduzíveis, tags Docker mutáveis e ausência de avisos foram tratados neste candidato:
 
-## Bloqueios para a versão 1.0
+- FFmpeg 8.1.2 é compilado por receita própria, com fonte e checksum fixos, componentes
+  GPL/nonfree e rede desativados e configuração LGPL 2.1-or-later;
+- PyAV 18.1.0 é compilado do fonte e ligado dinamicamente às bibliotecas FFmpeg
+  controladas, em vez de usar wheel que incorpora outro build;
+- o grafo Python completo está em `requirements.lock`, com hashes;
+- bases e serviços externos têm versão e digest fixos;
+- `THIRD_PARTY_NOTICES.md`, instruções de instalação e checklist de release foram criados;
+- o gerador de SBOM produz CycloneDX e SPDX, manifesto ligado ao commit e checksums, mas
+  os documentos finais serão gerados somente no commit exato da release;
+- modelos arbitrários continuam permitidos, com aviso ao operador e inventário de
+  origem/revisão/digest/licença quando o provedor fornece esses dados.
 
-| Severidade | Constatação | Condição para liberação |
+A release planejada é **somente de código-fonte**. O projeto não distribuirá imagens
+Summyz pré-compiladas na 1.0.0; cada operador construirá as imagens da aplicação e baixará
+as imagens upstream fixadas. Essa escolha reduz o escopo de redistribuição binária pelo
+titular, mas não elimina as obrigações do operador que redistribuir suas próprias imagens.
+
+## Resultado por área
+
+| Área | Resultado técnico | Observação restante |
 | --- | --- | --- |
-| Alta | A licença própria e os CLAs estão redigidos, mas ainda não foram revisados por advogado habilitado. | Obter parecer sobre a redação final, sua aplicabilidade e o fluxo eletrônico de aceite. |
-| Crítica | PyAV é instalado por wheel no `faster-whisper`; essas wheels incluem bibliotecas FFmpeg, e a receita oficial inclui x264/x265. O FFmpeg torna-se GPL quando compilado com partes GPL. | Construir e auditar PyAV contra FFmpeg compatível apenas com LGPL, ou obter parecer que aprove a arquitetura e cumprir integralmente a licença aplicável. |
-| Alta | O pacote Debian `ffmpeg` da imagem do bot foi inspecionado localmente e informa `--enable-gpl`, além de codecs GPL. | Manter o binário isolado como subprocesso somente após parecer, publicar avisos e código-fonte correspondente, ou trocar por build LGPL mínimo e reproduzível. |
-| Alta | As imagens usam tags mutáveis e não digests por plataforma. | Escolher arquiteturas suportadas, fixar digests e gerar SBOM de cada imagem final. |
-| Alta | As dependências Python diretas têm versão fixada, mas as transitivas não possuem lock com hashes. | Adotar lock reproduzível por plataforma, com hashes e licenças resolvidas. |
-| Alta | O container CUDA carrega termos próprios da NVIDIA e é antigo; a distribuição de imagem derivada tem obrigações adicionais. | Atualizar para versão suportada, fixar digest, incluir avisos NVIDIA e validar a distribuição derivada com advogado. |
-| Alta | A imagem ROCm exata não foi baixada e auditada; ROCm usa licenças por componente, inclusive termos não uniformes. | Gerar SBOM e avisos do digest exato de `ollama` ROCm em cada arquitetura suportada. |
-| Alta | Ollama e faster-whisper podem baixar modelos escolhidos pelo usuário, cada um com licença própria. | Implementar verificação/registro de licença, revisão e aceite antes do download; definir uma allowlist para o serviço hospedado. |
-| Alta | Não há `THIRD_PARTY_NOTICES`, SBOM publicado nem procedimento de oferta de código-fonte correspondente. | Gerar esses artefatos a partir dos binários finais e anexá-los a cada release. |
+| Licença Summyz e CLAs | Textos principal em inglês, tradução informativa, lei brasileira sem foro exclusivo, CLA individual automatizado | Revisão jurídica profissional permanece recomendada, conforme decisão do titular |
+| Node.js | Lockfile; dependências externas de produção com licenças permissivas detectadas | O SBOM final é a lista autoritativa, não a contagem deste relatório |
+| Python | Oito dependências diretas atualizadas; 37 pacotes no lock universal com hashes; auditoria sem vulnerabilidades conhecidas | Regenerar e auditar no commit final |
+| FFmpeg/PyAV | Build LGPL controlado, fonte preservada, PyAV compilado do fonte e ligado dinamicamente | Confirmar novamente `ffmpeg -L` no build final |
+| Docker | Referências externas fixadas por versão e digest | Alguns digests fixam índices multi-arquitetura; cada arquitetura resolvida ainda exige build, teste e SBOM próprios |
+| NVIDIA | CUDA 12.6.3/cuDNN em Ubuntu 24.04; licença NGC presente; build e GPU testados em RTX 2060 | Respeitar EULA/redistribuíveis; não publicar imagem derivada sem nova revisão |
+| AMD | Ollama ROCm 0.33.3 fixado; imagem exata baixada e conteúdo ROCm 7.2 inspecionado | Hardware AMD/Linux ainda não foi testado e a imagem upstream não concentra todos os textos ROCm ao lado das bibliotecas |
+| Modelos | Nenhum peso incluído; escolha irrestrita; aviso e inventário não bloqueante | Metadata pode faltar ou estar errada; a licença continua responsabilidade do operador |
+| SBOM | Gerador e alvos preparados; formatos CycloneDX e SPDX, manifesto e SHA-256 | Gerar somente depois do commit final limpo e anexar à release |
+| Segredos/histórico | Varredura de 21 commits sem achados; identidades usam noreply; `.env` ignorado | Repetir Gitleaks após o commit candidato e antes da publicação |
+| Vulnerabilidades | Auditorias Node.js e Python atuais sem vulnerabilidades conhecidas | A varredura CVE das imagens ainda requer uma sessão autenticada no Docker Scout ou scanner equivalente |
 
-## Licença do Summyz Community e contribuições
+## FFmpeg, PyAV e libopus
 
-O projeto adotou uma licença própria, a `Summyz Community License 1.0`, inspirada no modelo de
-uso sustentável, mas escrita para os casos concretos definidos pelo titular. Ela permite uso
-pessoal, educacional e empresarial interno, redistribuição gratuita e instâncias externas
-inteiramente gratuitas. Ela reserva ao titular os usos comerciais do software e proíbe tanto
-cobrança direta quanto monetização indireta de uma instância, incluindo publicidade,
-patrocínio condicionado, geração de leads, exploração de dados, associação paga e repasse de
-custos aos usuários.
+O script `docker/ffmpeg/build-lgpl.sh` baixa o tar oficial do FFmpeg 8.1.2 por HTTPS,
+confere SHA-256 e habilita somente os codecs, formatos, filtros e protocolos necessários.
+Ele usa `--disable-gpl`, `--disable-nonfree`, `--disable-autodetect`,
+`--disable-network` e bibliotecas compartilhadas. A configuração resultante declarou
+“LGPL version 2.1 or later” no build validado.
 
-Consultores podem cobrar por gestão de infraestrutura controlada pelo cliente, como VPS,
-sistema operacional, Docker, rede, armazenamento, banco de dados, backup, monitoramento e
-segurança. Não podem cobrar, nem embutir na remuneração, atividades específicas do Summyz
-Community, como instalação, configuração, atualização, depuração, modificação, forks, plugins
-ou integrações. Modificações usadas apenas internamente podem permanecer privadas; quando uma
-versão modificada é distribuída ou disponibilizada externamente, o código-fonte correspondente
-e as instruções de construção e instalação devem ser oferecidos sob a mesma licença.
+O tar, URL, checksum, argumentos de configuração, `COPYING.LGPLv2.1` e `LICENSE.md` são
+copiados para `/opt/ffmpeg/share/source`. A imagem mantém libopus como biblioteca dinâmica,
+com o arquivo de copyright do pacote do sistema. O teste sintético converteu PCM estéreo
+para Ogg Opus e novamente para PCM float 16 kHz; a imagem Python decodificou o mesmo Ogg
+por PyAV.
 
-Como a [Open Source Definition](https://opensource.org/osd) não permite restringir venda ou
-uso empresarial, a comunicação pública deve empregar “código-fonte disponível”,
-“source-available” ou “fair-code”, e não “open source”.
+Essa arquitetura evita a wheel binária de PyAV que anteriormente podia carregar um build
+FFmpeg diferente. Ela também preserva a possibilidade técnica de substituir as bibliotecas
+dinâmicas. `THIRD_PARTY_NOTICES.md` aponta para fonte e termos. Desenvolvimento nativo não
+usa esse build: cada desenvolvedor responde pelo FFmpeg instalado no host.
 
-O histórico Git consultado contém uma única identidade autoral. Fabricio Rostand Morais
-declarou que o projeto foi desenvolvido desde o início como projeto pessoal, em equipamento
-pessoal, sem vínculo com empregador ou cliente e sem colaboradores anteriores. Essa declaração
-resolve a investigação factual interna, embora não substitua uma análise jurídica nem a revisão
-de eventuais semelhanças com projetos que serviram apenas de inspiração.
+## Dependências Node.js e Python
 
-Para preservar o direito de oferecer o Hosted sob licença comercial, o projeto adotou CLA de
-licença ampla, sem cessão: o colaborador mantém a titularidade e concede direitos para
-relicenciamento comercial, proprietário e hospedado, inclusive por sucessor ou futura empresa
-do titular. Há textos individual e corporativo, mas, enquanto não existir canal privado adequado
-para comprovar representação empresarial, apenas contribuições de pessoas físicas serão
-aceitas.
+O grafo Node de produção registrado no lockfile usa MIT, MIT-0, Apache-2.0,
+BSD-3-Clause, ISC, 0BSD, BlueOak-1.0.0 e `MIT OR CC0-1.0`. A única entrada sem licença no
+levantamento é o workspace privado do próprio dashboard, não uma dependência externa. Os
+arquivos de licença dos pacotes permanecem em `node_modules` nas imagens construídas.
 
-O aceite individual é registrado no próprio pull request por arquivo estruturado e vinculado à
-conta GitHub, versão do CLA, repositório, pull request e commits abrangidos. O registro público
-contém nome civil e usuário GitHub, mas não exige endereço, CPF ou e-mail. A verificação usa
-somente permissões de leitura e código do branch padrão, evitando executar código não confiável
-do pull request em contexto privilegiado.
+O lock Python contém, entre outros, MIT, BSD, Apache-2.0, MPL-2.0, PSF-2.0 e licenças de
+runtimes incorporados pelo NumPy. A metadata instalada de `tokenizers` não normaliza a
+licença, embora o projeto publique Apache-2.0; por isso o SBOM e os arquivos de licença da
+distribuição devem prevalecer sobre uma tabela manual. A auditoria do lock atual não
+encontrou vulnerabilidades conhecidas.
 
-## Imagens Docker
+Licenças permissivas não significam ausência de condições: avisos de copyright,
+atribuições, textos Apache/Mozilla e notices upstream devem ser preservados. O arquivo
+`THIRD_PARTY_NOTICES.md` resume os grupos; os SBOMs finais listarão pacote e versão.
 
-### Node.js e Python
+## Imagens Docker, CUDA e ROCm
 
-O projeto usa `node:22-bookworm-slim` e `python:3.12-slim-bookworm`. Os Dockerfiles oficiais de
-[Node.js](https://github.com/nodejs/docker-node) e
-[Python](https://github.com/docker-library/python) possuem licenças permissivas para seus arquivos
-de empacotamento, mas isso não licencia todo o conteúdo Debian incluído nas imagens. A obrigação
-de avisos e código-fonte deve ser calculada sobre cada imagem final, não apenas sobre o
-Dockerfile de origem.
+As bases Debian/Ubuntu/Alpine contêm muitos pacotes, cada um com sua licença. A licença do
+Dockerfile oficial não licencia a imagem inteira. O mesmo vale para PostgreSQL e Ollama:
+PostgreSQL License e MIT cobrem esses projetos, não todos os componentes adicionados.
 
-As tags também são flutuantes. Para uma release reproduzível, devem ser substituídas por digests
-específicos de cada plataforma depois que as arquiteturas suportadas forem definidas.
+A variante Ollama CPU/NVIDIA incorpora runtimes CUDA 12 e 13, cuDNN, NCCL, OpenBLAS,
+llama.cpp e outros componentes, além de arquivos de licença em `/usr/lib/ollama`. O target
+faster-whisper CUDA contém o contrato NGC em `/NGC-DL-CONTAINER-LICENSE` e o aviso
+fornecido pela imagem NVIDIA. Uso e eventual redistribuição precisam obedecer à EULA CUDA,
+aos componentes redistribuíveis e à limitação a hardware compatível NVIDIA.
 
-### PostgreSQL
+A variante Ollama ROCm exata contém bibliotecas ROCm 7.2, incluindo HIP, rocBLAS,
+hipBLAS/hipBLASLt, rocSOLVER, COMGR e HSA Runtime. A AMD publica licenciamento por
+componente, não uma licença única para toda a pilha. A imagem inspecionada preserva notices
+do Ollama/llama.cpp e copyrights de pacotes Ubuntu, mas não apresenta um diretório único
+com todos os textos das bibliotecas ROCm copiadas. Como a 1.0.0 apenas referencia a imagem
+upstream por digest, o projeto não a republicará; ainda assim, um redistribuidor de imagem
+deve coletar e cumprir os termos de cada componente.
 
-`postgres:18.4-alpine` contém PostgreSQL sob a
-[PostgreSQL License](https://www.postgresql.org/about/licence/), mas a imagem inclui componentes
-adicionais. A própria documentação da
-[imagem oficial](https://github.com/docker-library/docs/blob/master/postgres/README.md) alerta que
-o usuário é responsável por verificar as licenças de todo o software presente. A tag deve ser
-atualizada ou formalmente mantida, fixada por digest e incluída no SBOM.
+Alguns digests atuais fixam índices OCI multi-arquitetura e outros fixam artefatos de uma
+plataforma. A validação desta etapa ocorreu em Linux/amd64; em um índice, cada host resolve
+um manifesto-filho diferente. Uma publicação para outra arquitetura precisa de build,
+teste e SBOM próprios. Manter caminhos Linux/macOS/AMD no código não equivale a prometer
+que todos foram testados nesta máquina. A documentação registra a matriz de validação sem
+remover esses suportes.
 
-### Ollama
+## Modelos escolhidos pelo operador
 
-O código do [Ollama](https://github.com/ollama/ollama/blob/main/LICENSE) é MIT, porém isso não
-abrange os modelos. As tags `ollama/ollama:0.11.4` e `0.11.4-rocm` também não estão fixadas por
-digest e precisam de revisão de suporte e segurança antes da 1.0.
+Nenhum modelo é parte do repositório ou das imagens iniciais. O operador pode informar
+qualquer ID aceito pelo Ollama ou Hugging Face/faster-whisper. Isso é importante para a
+utilidade do Community, mas cria risco jurídico inevitável: pesos podem impor restrições
+comerciais, territoriais, de uso, atribuição, redistribuição ou aceite separado.
 
-### NVIDIA CUDA e cuDNN
+O dashboard agora informa essa responsabilidade. Para Hugging Face, o sidecar grava ao
+lado do modelo um inventário com ID, repositório, origem, revisão e licença declarada. Para
+Ollama, o bot registra digest, família, formato, tamanho, quantização, data e hash do texto
+de licença retornado, sem colocar o texto integral nos logs. Falha ou ausência de metadata
+não bloqueia o modelo e não deve ser interpretada como permissão. O Hosted futuro precisa
+de política própria e não está no escopo desta release Community.
 
-O target CUDA usa `nvidia/cuda:12.3.2-cudnn9-runtime-ubuntu22.04`. A
-[página oficial da imagem CUDA](https://hub.docker.com/r/nvidia/cuda/) remete aos contratos da
-NVIDIA, à política de ciclo de vida das tags e aos arquivos de código-fonte de componentes GPL.
-Os termos de CUDA/cuDNN permitem determinados runtimes redistribuíveis e imagens derivadas com
-funcionalidade adicional, mas exigem avisos, condições downstream e uso compatível. O runtime
-CUDA/cuDNN deve ser usado apenas com hardware NVIDIA conforme os termos aplicáveis.
+## SBOM e avisos de terceiros
 
-Há uma questão específica para advogado: os termos NVIDIA da imagem derivada e a presença de
-componentes GPL no mesmo serviço de transcrição precisam ser analisados em conjunto. A revisão
-técnica não conclui que essa combinação é permitida.
+Um SBOM é uma lista de materiais de software: registra componentes, versões, identificadores
+e licenças encontrados em um artefato. Seu valor depende de corresponder ao artefato exato.
+Por isso, versionar agora um documento produzido de uma árvore ainda suja daria uma falsa
+garantia.
 
-### AMD ROCm
+`npm run release:sbom` recusa árvore Git suja por padrão, lê os alvos fixados em
+`scripts/release/sbom-targets.json`, usa `npm sbom` para o grafo de produção da fonte e
+Docker Scout para gerar CycloneDX e SPDX de cada imagem. Também cria `manifest.json` com
+o commit e `SHA256SUMS`. A opção
+`--allow-dirty --source-only` existe apenas para validar localmente o mecanismo. A pasta
+`artifacts/sbom/` é ignorada pelo Git. No próximo estágio, os documentos deverão ser
+regenerados no commit final e anexados à release 1.0.0.
 
-A [documentação de licenciamento ROCm](https://rocm.docs.amd.com/en/docs-6.0.0/about/licensing.html)
-lista licenças por componente em vez de uma licença única para toda a pilha. A imagem
-`ollama/ollama:0.11.4-rocm` precisa ser auditada pelo seu digest real; não é correto atribuir MIT
-a todo o seu conteúdo apenas porque o Ollama é MIT.
+## Gate restante para publicação
 
-## Dependências Node.js
+Esta etapa deliberadamente **não** torna o repositório público, cria tag ou cria release.
+Antes da publicação:
 
-Após mover Tailwind e o plugin Vite para `devDependencies`, o lockfile registra 172 pacotes de
-produção: 140 MIT, 11 Apache-2.0, 7 ISC, 5 BlueOak-1.0.0, 5 BSD-3-Clause e quatro em outras
-licenças permissivas. A entrada sem licença é o próprio workspace privado `summyz-community-web`, não um
-pacote externo.
+1. executar toda a checklist em `docs/release-checklist.pt-BR.md` no commit final;
+2. repetir testes, builds, auditorias de vulnerabilidades e Gitleaks;
+3. validar fisicamente as plataformas disponíveis e declarar as lacunas restantes;
+4. construir todos os alvos com os nomes esperados e gerar os SBOMs finais em árvore limpa;
+5. comparar os SBOMs com `THIRD_PARTY_NOTICES.md` e resolver qualquer licença inesperada;
+6. configurar proteções do repositório público e checks obrigatórios;
+7. somente após aprovação explícita do titular, criar a tag verificada e a release 1.0.0.
 
-O conjunto completo de desenvolvimento também contém MPL-2.0 e CC-BY, sobretudo em ferramentas
-de build e dados de compatibilidade. Eles não são copiados para os targets de runtime após a
-correção, mas ainda devem aparecer no SBOM de build e nos avisos quando a respectiva licença o
-exigir. O `package-lock.json` é suficiente para reproduzir versões Node, mas não substitui a
-coleta de textos de licença e copyrights.
+A varredura CVE das imagens candidatas não foi concluída nesta máquina: o Docker Scout
+permitiu gerar SBOM local, mas exigiu autenticação para consultar vulnerabilidades. A
+release não deve avançar até que um scanner atualizado analise as imagens exatas e cada
+achado alto ou crítico seja corrigido, justificado ou documentado.
 
-`ffmpeg-static` foi removido das dependências Node. Em desenvolvimento, o executável `ffmpeg`
-deve existir no `PATH` ou ser indicado por `FFMPEG_PATH`; no Docker, ele é instalado pelo sistema
-operacional apenas nos targets que o utilizam.
+## Fontes técnicas principais
 
-## Dependências Python e o limite FFmpeg/PyAV
-
-As dependências diretas atualmente fixadas são:
-
-| Pacote | Versão | Licença declarada do projeto |
-| --- | ---: | --- |
-| CTranslate2 | 4.6.0 | MIT |
-| FastAPI | 0.116.1 | MIT |
-| faster-whisper | 1.2.0 | MIT |
-| NumPy | 2.2.6 | BSD-3-Clause |
-| python-multipart | 0.0.20 | Apache-2.0 |
-| Requests | 2.32.5 | Apache-2.0 |
-| Uvicorn | 0.35.0 | BSD-3-Clause |
-
-Essa tabela não basta para aprovar a imagem: `pip` resolve dependências transitivas no momento
-do build. O build realizado nesta revisão resolveu PyAV 18.1.0 por wheel. Um SBOM diagnóstico da
-imagem CPU encontrou 207 componentes e diversos identificadores GPL/LGPL; esse inventário
-temporário não é um artefato de release e não foi adicionado ao repositório. O projeto
-[PyAV](https://github.com/PyAV-Org/PyAV) declara que suas wheels incluem FFmpeg, enquanto o
-[FFmpeg](https://ffmpeg.org/legal.html) explica que ativar componentes GPL aplica GPL ao conjunto
-do FFmpeg e recomenda compilar sem `--enable-gpl` e `--enable-nonfree` para conformidade LGPL.
-
-O build CUDA, feito na mesma data e com o mesmo `requirements.txt`, resolveu PyAV 17.1.0 e
-ONNX Runtime 1.23.2, enquanto o CPU resolveu PyAV 18.1.0 e ONNX Runtime 1.29.0. Essa divergência
-confirma que as versões diretas fixadas não tornam as imagens reproduzíveis.
-
-O caminho tecnicamente mais controlável é produzir FFmpeg mínimo, sem componentes GPL/nonfree,
-compilar PyAV a partir do fonte contra essas bibliotecas compartilhadas e publicar receitas,
-fontes correspondentes, hashes e avisos. Isso é uma recomendação técnica, não uma decisão já
-tomada.
-
-## Licenças dos modelos
-
-Os pesos do [Whisper oficial](https://github.com/openai/whisper/blob/main/LICENSE) são publicados
-sob MIT, mas o Summyz aceita identificadores que podem apontar para conversões ou fine-tunes no
-Hugging Face. Os [model cards](https://huggingface.co/docs/hub/en/model-cards) podem declarar a
-licença no metadata, mas a presença e a correção desse campo não são garantidas.
-
-O mesmo vale para modelos do Ollama: alguns usam licenças permissivas e outros termos próprios.
-Portanto, “baixado pelo usuário” não elimina obrigação do distribuidor ou operador do Hosted.
-Antes da 1.0, o sistema precisa registrar no mínimo:
-
-- provedor, identificador, revisão e digest do modelo;
-- texto ou identificador SPDX da licença e URL da fonte;
-- data e identidade de quem aceitou os termos;
-- decisão de permitir, bloquear ou exigir revisão manual;
-- relação entre o modelo e as reuniões processadas para auditoria.
-
-Para o Hosted, recomenda-se uma allowlist pequena, revisada por versão e território. Para o
-Community, um aviso genérico não é suficiente: o download deve apresentar a licença ou bloquear
-modelos sem metadata até decisão explícita do administrador.
-
-## Avisos de terceiros e SBOM
-
-O repositório ainda não deve receber um `THIRD_PARTY_NOTICES` definitivo porque os binários,
-digests e modelos finais não foram escolhidos. Um aviso produzido agora ficaria incompleto ou
-obsoleto.
-
-Cada release deve gerar um SBOM CycloneDX ou SPDX para:
-
-- bot e dashboard;
-- faster-whisper CPU e CUDA;
-- imagens Ollama CPU e ROCm pelo digest efetivamente distribuído;
-- PostgreSQL pelo digest efetivamente distribuído;
-- cada arquitetura suportada;
-- modelos efetivamente baixados, em um inventário separado de pesos.
-
-O [Docker Scout](https://docs.docker.com/reference/cli/docker/scout/sbom/) exporta SBOM de imagens,
-inclusive em CycloneDX. Os artefatos devem ser gerados no pipeline a partir das imagens finais,
-assinados ou vinculados ao digest e publicados com a release. O `THIRD_PARTY_NOTICES` deve ser
-derivado desses SBOMs, preservar copyrights e acompanhar ofertas de código-fonte quando exigidas.
-
-## Decisões jurídicas registradas
-
-- licenciante pessoa física: Fabricio Rostand Morais, seus sucessores e cessionários;
-- texto jurídico principal em inglês e tradução pt-BR expressamente informativa;
-- lei brasileira aplicável, sem eleição de foro exclusivo e sem endereço público;
-- licença própria source-available, com direito comercial reservado ao licenciante;
-- uso empresarial interno permitido e serviço externo permitido somente quando inteiramente
-  gratuito e sem monetização direta ou indireta;
-- consultoria remunerada limitada à gestão da infraestrutura controlada pelo cliente;
-- copyleft de rede para versões modificadas disponibilizadas externamente;
-- CLA de licença ampla, sem cessão de titularidade, nas versões individual e corporativa;
-- somente CLA individual aceito no fluxo público inicial;
-- proteção de patentes limitada às reivindicações necessariamente infringidas pela contribuição,
-  com terminação defensiva;
-- cura da primeira violação em 30 dias, sem apagar pretensões relativas ao período da infração,
-  e terminação permanente em caso de reincidência;
-- marca `Summyz` reservada; forks devem usar identidade distinta e podem se identificar apenas
-  como “fork of Summyz Community”.
-
-## Decisões técnicas pendentes
-
-1. Quais sistemas operacionais e arquiteturas de CPU serão oficialmente suportados na 1.0?
-2. O projeto adotará build LGPL próprio de FFmpeg/PyAV ou buscará parecer para a pilha atual?
-3. Quais versões e digests de Node, Python, PostgreSQL, Ollama, CUDA/cuDNN e ROCm serão congelados?
-4. Quais modelos entram na allowlist inicial do Community e do Hosted, por finalidade e idioma?
-5. Por quanto tempo a oferta de código-fonte de componentes copyleft ficará disponível e onde?
-
-## Gate de publicação
-
-A versão 1.0 só deve ser marcada depois de:
-
-- respostas documentadas para todas as decisões técnicas pendentes;
-- parecer jurídico sobre a licença própria, os CLAs, GPL/LGPL, NVIDIA e modelos;
-- licença, CLAs, política de contribuição, política de marcas e avisos publicados;
-- build reproduzível de Python com hashes;
-- imagens fixadas por digest e verificadas por arquitetura;
-- resolução comprovada do PyAV/FFmpeg e teste automatizado da configuração de build;
-- SBOMs e `THIRD_PARTY_NOTICES` gerados a partir das imagens finais;
-- varredura de vulnerabilidades e segredos sem achados impeditivos;
-- revisão dos textos públicos para substituir “open source” por “source-available”;
-- registro e revisão jurídica da declaração de cadeia de titularidade do código existente.
+- Open Source Definition: https://opensource.org/osd
+- FFmpeg legal: https://ffmpeg.org/legal.html
+- PyAV: https://github.com/PyAV-Org/PyAV
+- NVIDIA CUDA EULA: https://docs.nvidia.com/cuda/eula/
+- Licenciamento ROCm: https://rocm.docs.amd.com/en/latest/about/license.html
+- PostgreSQL License: https://www.postgresql.org/about/licence/
+- Ollama License: https://github.com/ollama/ollama/blob/main/LICENSE
+- Docker Scout SBOM: https://docs.docker.com/reference/cli/docker/scout/sbom/

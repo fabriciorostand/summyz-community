@@ -113,9 +113,129 @@ describe("LocalModelManager", () => {
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(
       expect.arrayContaining([
         "http://ollama:11434/api/pull",
+        "http://ollama:11434/api/show",
+        "http://ollama:11434/api/tags",
         "http://ollama:11434/api/chat",
         "http://faster-whisper:8000/models/prepare",
       ]),
+    );
+  });
+
+  it("registra metadados disponíveis sem bloquear modelo Ollama sem licença", async () => {
+    const logger = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/models/prepare")) return multilingualWhisperStatus();
+      if (url.endsWith("/api/show")) {
+        return Response.json({
+          details: {
+            family: "qwen3",
+            format: "gguf",
+            parameter_size: "4.0B",
+            quantization_level: "Q4_K_M",
+          },
+          modified_at: "2026-09-05T00:00:00Z",
+        });
+      }
+      if (url.endsWith("/api/tags")) {
+        return Response.json({
+          models: [{ digest: "sha256:model", model: "qwen3:4b", name: "qwen3:4b" }],
+        });
+      }
+      if (url.endsWith("/api/chat")) {
+        const refinement = String(init.body).includes("block unchanged");
+        return Response.json({
+          message: {
+            content: JSON.stringify(
+              refinement
+                ? { blocks: [{ id: "probe-1", text: "Hello world." }] }
+                : {
+                    decisions: [],
+                    discussedTopics: [],
+                    executiveSummary: "Empty meeting.",
+                    observations: [],
+                    tasks: [],
+                  },
+            ),
+          },
+        });
+      }
+      return new Response("", { status: 200 });
+    });
+    const manager = new LocalModelManager({
+      configuration: configuration(),
+      fetch,
+      logger: logger as never,
+    });
+
+    await manager.prepare();
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        digest: "sha256:model",
+        licenseDeclared: false,
+        model: "qwen3:4b",
+        provider: "ollama",
+      }),
+      "Local model inventory recorded",
+    );
+  });
+
+  it("registra somente o hash da licença Ollama, sem colocar seu texto nos logs", async () => {
+    const logger = {
+      error: vi.fn(),
+      info: vi.fn(),
+      warn: vi.fn(),
+    };
+    const fetch = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/models/prepare")) return multilingualWhisperStatus();
+      if (url.endsWith("/api/show")) {
+        return Response.json({ license: "license text that must not be logged" });
+      }
+      if (url.endsWith("/api/tags")) {
+        return Response.json({ models: [{ digest: "sha256:licensed", name: "qwen3:4b" }] });
+      }
+      if (url.endsWith("/api/chat")) {
+        const refinement = String(init.body).includes("block unchanged");
+        return Response.json({
+          message: {
+            content: JSON.stringify(
+              refinement
+                ? { blocks: [{ id: "probe-1", text: "Hello world." }] }
+                : {
+                    decisions: [],
+                    discussedTopics: [],
+                    executiveSummary: "Empty meeting.",
+                    observations: [],
+                    tasks: [],
+                  },
+            ),
+          },
+        });
+      }
+      return new Response("", { status: 200 });
+    });
+    const manager = new LocalModelManager({
+      configuration: configuration(),
+      fetch,
+      logger: logger as never,
+    });
+
+    await manager.prepare();
+
+    expect(logger.info).toHaveBeenCalledWith(
+      expect.objectContaining({
+        digest: "sha256:licensed",
+        licenseDeclared: true,
+        licenseSha256: expect.stringMatching(/^[a-f0-9]{64}$/u),
+      }),
+      "Local model inventory recorded",
+    );
+    expect(JSON.stringify(logger.info.mock.calls)).not.toContain(
+      "license text that must not be logged",
     );
   });
 

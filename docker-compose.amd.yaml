@@ -1,6 +1,6 @@
 services:
   ollama:
-    image: ollama/ollama:0.11.4-rocm
+    image: ollama/ollama:0.33.3-rocm@sha256:5ca37b5898b84dc522f98927910d43d440acbed3774888267ea91a8452649c14
     devices:
       - /dev/kfd
       - /dev/dri

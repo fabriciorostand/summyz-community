@@ -43,15 +43,14 @@ automaticamente no fluxo Docker.
 
 ## Configuração local
 
-1. Copie `.env.example` para `.env`.
-2. Preencha `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY` e `SUMMYZ_SETUP_TOKEN`. Use o
-   host `postgres` no Compose ou `localhost` ao executar os processos diretamente pelo npm.
-3. No Linux ou macOS, execute `./summyz-community up`. No Windows, execute
-   `.\summyz-community.ps1 up`. O launcher roda
+1. No Linux ou macOS, execute `./summyz-community up`. No Windows, execute
+   `.\summyz-community.ps1 up`. No primeiro uso, o launcher cria `.env` com segredos locais
+   aleatórios sem imprimir seus valores.
+2. O launcher roda
    no host, detecta CPU, NVIDIA ou AMD, escolhe os overlays seguros e chama o Docker Compose.
-4. Abra `http://127.0.0.1:8787` para criar a conta
+3. Abra `http://127.0.0.1:8787` para criar a conta
    administradora e configurar Discord, SMTP e, se necessário, OpenRouter.
-5. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
+4. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
 
 Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community restart` e
@@ -507,6 +506,10 @@ Consulte [CONTRIBUTING.pt-BR.md](./CONTRIBUTING.pt-BR.md) e
 [CLA-INDIVIDUAL.pt-BR.md](./CLA-INDIVIDUAL.pt-BR.md). Para relatar bugs ou solicitar
 funcionalidades, abra uma issue.
 
+O guia completo está em [docs/installation.pt-BR.md](./docs/installation.pt-BR.md). Quem
+mantém releases também deve seguir
+[docs/release-checklist.pt-BR.md](./docs/release-checklist.pt-BR.md).
+
 ## Licença
 
 Summyz Community é software source-available sob a
@@ -519,4 +522,5 @@ nem oferecer acesso hospedado monetizado.
 Esta não é uma licença open source aprovada pela Open Source Initiative. Os nomes e
 Ativos de Marca são regidos pela [política de marcas](./TRADEMARKS.pt-BR.md), e
 Materiais de Terceiros mantêm seus próprios termos. Consulte
-[NOTICE.pt-BR.md](./NOTICE.pt-BR.md).
+[NOTICE.pt-BR.md](./NOTICE.pt-BR.md) e
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

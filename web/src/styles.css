@@ -1133,6 +1133,20 @@ select {
   display: flex;
   gap: 0.7rem;
 }
+.model-license-note {
+  display: grid;
+  gap: 0.25rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid #dacdbd;
+  border-radius: 0.65rem;
+  color: #655b50;
+  background: #fffaf2;
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+.model-license-note strong {
+  color: #4c4035;
+}
 .save-toast {
   position: fixed;
   z-index: 5;

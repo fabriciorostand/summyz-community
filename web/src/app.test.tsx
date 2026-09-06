@@ -604,6 +604,14 @@ describe("App", () => {
     }
     expect(screen.getByLabelText("Pesquisar idioma")).toBeInTheDocument();
     expect(
+      screen.getByText(
+        /modelos são fornecidos por terceiros e não fazem parte do Summyz Community/i,
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/verifique a licença e os termos de cada modelo antes de usá-lo/i),
+    ).toBeInTheDocument();
+    expect(
       screen.getByText(/prompt-base imutável do Summyz Community continuará ativo/i),
     ).toBeInTheDocument();
     const vadTab = screen.getByRole("tab", { name: "VAD" });

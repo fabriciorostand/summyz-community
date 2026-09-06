@@ -1,0 +1,32 @@
+{
+  "images": [
+    {
+      "name": "bot",
+      "reference": "summyz-community-bot:release"
+    },
+    {
+      "name": "dashboard",
+      "reference": "summyz-community-dashboard:release"
+    },
+    {
+      "name": "faster-whisper-cpu",
+      "reference": "summyz-community-faster-whisper:release-cpu"
+    },
+    {
+      "name": "faster-whisper-cuda",
+      "reference": "summyz-community-faster-whisper:release-cuda"
+    },
+    {
+      "name": "ollama-cpu-nvidia",
+      "reference": "ollama/ollama:0.33.3@sha256:32931b46719f673c05fdbaa81ccb26da18ea4a1c57590a754874ab28ba269eb2"
+    },
+    {
+      "name": "ollama-rocm",
+      "reference": "ollama/ollama:0.33.3-rocm@sha256:5ca37b5898b84dc522f98927910d43d440acbed3774888267ea91a8452649c14"
+    },
+    {
+      "name": "postgres",
+      "reference": "postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15"
+    }
+  ]
+}

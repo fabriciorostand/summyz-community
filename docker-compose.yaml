@@ -2,7 +2,7 @@ name: summyz-community
 
 services:
   ollama:
-    image: ollama/ollama:0.11.4
+    image: ollama/ollama:0.33.3@sha256:32931b46719f673c05fdbaa81ccb26da18ea4a1c57590a754874ab28ba269eb2
     restart: unless-stopped
     expose:
       - "11434"
@@ -19,7 +19,8 @@ services:
   faster-whisper:
     image: summyz-community-faster-whisper
     build:
-      context: ./services/faster-whisper
+      context: .
+      dockerfile: services/faster-whisper/Dockerfile
       target: cpu
     restart: unless-stopped
     expose:
@@ -39,11 +40,11 @@ services:
       - faster_whisper_models:/models
 
   postgres:
-    image: postgres:18.4-alpine
+    image: postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-summyz-community-db}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-troque-esta-senha}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
       POSTGRES_USER: ${POSTGRES_USER:-summyz_community}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]

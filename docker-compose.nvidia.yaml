@@ -6,7 +6,8 @@ services:
 
   faster-whisper:
     build:
-      context: ./services/faster-whisper
+      context: .
+      dockerfile: services/faster-whisper/Dockerfile
       target: cuda
     gpus: all
 

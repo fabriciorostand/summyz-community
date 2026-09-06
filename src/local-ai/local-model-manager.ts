@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Logger } from "pino";
 import { z } from "zod";
 
@@ -33,6 +35,27 @@ const ollamaProcessesSchema = z.object({
       model: z.string().optional(),
       name: z.string().optional(),
       size_vram: z.number().nonnegative(),
+    }),
+  ),
+});
+const ollamaShowSchema = z.object({
+  details: z
+    .object({
+      family: z.string().optional(),
+      format: z.string().optional(),
+      parameter_size: z.string().optional(),
+      quantization_level: z.string().optional(),
+    })
+    .optional(),
+  license: z.string().optional(),
+  modified_at: z.string().optional(),
+});
+const ollamaTagsSchema = z.object({
+  models: z.array(
+    z.object({
+      digest: z.string().optional(),
+      model: z.string().optional(),
+      name: z.string().optional(),
     }),
   ),
 });
@@ -202,6 +225,7 @@ export class LocalModelManager {
     const phases = [...(this.#ollamaUses.get(model) ?? [])];
     try {
       await this.#requestOllama("/api/pull", { model, stream: false });
+      await this.#recordOllamaInventory(model);
       this.#logger.info({ model }, "Ollama model is ready");
     } catch (error) {
       this.#logger.warn(
@@ -235,6 +259,54 @@ export class LocalModelManager {
           "Ollama model validation is unavailable; durable jobs will retry processing",
         );
       }
+    }
+  }
+
+  async #recordOllamaInventory(model: string): Promise<void> {
+    try {
+      const [showResponse, tagsResponse] = await Promise.all([
+        this.#fetch(`${this.#ollamaBaseUrl}/api/show`, {
+          body: JSON.stringify({ model, verbose: false }),
+          headers: { "Content-Type": "application/json" },
+          method: "POST",
+          signal: AbortSignal.timeout(30_000),
+        }),
+        this.#fetch(`${this.#ollamaBaseUrl}/api/tags`, {
+          method: "GET",
+          signal: AbortSignal.timeout(30_000),
+        }),
+      ]);
+      if (!showResponse.ok || !tagsResponse.ok) throw new Error("OllamaInventoryStatus");
+      const show = ollamaShowSchema.safeParse(await showResponse.json().catch(() => null));
+      const tags = ollamaTagsSchema.safeParse(await tagsResponse.json().catch(() => null));
+      if (!show.success || !tags.success) throw new Error("OllamaInventoryInvalidResponse");
+      const installed = tags.data.models.find(
+        (candidate) => candidate.model === model || candidate.name === model,
+      );
+      const declaredLicense = show.data.license?.trim();
+      this.#logger.info(
+        {
+          digest: installed?.digest,
+          family: show.data.details?.family,
+          format: show.data.details?.format,
+          licenseDeclared: declaredLicense !== undefined && declaredLicense.length > 0,
+          licenseSha256:
+            declaredLicense === undefined || declaredLicense.length === 0
+              ? undefined
+              : createHash("sha256").update(declaredLicense).digest("hex"),
+          model,
+          modifiedAt: show.data.modified_at,
+          parameterSize: show.data.details?.parameter_size,
+          provider: "ollama",
+          quantizationLevel: show.data.details?.quantization_level,
+        },
+        "Local model inventory recorded",
+      );
+    } catch (error) {
+      this.#logger.warn(
+        { errorType: getErrorType(error), model, provider: "ollama" },
+        "Local model metadata is unavailable; model use remains allowed",
+      );
     }
   }
 

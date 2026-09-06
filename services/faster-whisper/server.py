@@ -28,6 +28,7 @@ from execution_policy import (
 from structured_logging import configure_structured_logging
 from transcription_options import create_transcription_options
 from model_capability import require_multilingual_capability
+from model_inventory import create_model_inventory, write_model_inventory
 
 configure_structured_logging()
 logger = logging.getLogger("summyz.faster_whisper")
@@ -160,6 +161,18 @@ def load_model(
         directory = model_directory(model)
         directory.mkdir(parents=True, exist_ok=True)
         download_model(model, output_dir=str(directory))
+        inventory = create_model_inventory(model)
+        write_model_inventory(directory, inventory)
+        logger.info(
+            "Local model inventory recorded",
+            extra={
+                "license": inventory["license"],
+                "model": model,
+                "origin": inventory["origin"],
+                "provider": inventory["provider"],
+                "revision": inventory["revision"],
+            },
+        )
         unload_model()
 
         runtime, active_device, fallback_applied = load_with_device_policy(

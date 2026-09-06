@@ -41,14 +41,28 @@ describe("runtime packaging", () => {
     expect(webPackage.devDependencies).toHaveProperty("tailwindcss");
   });
 
-  it("instala FFmpeg no bot e nos testes, mas não no dashboard", async () => {
+  it("usa o build FFmpeg/PyAV controlado e compatível apenas com LGPL", async () => {
     const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
-    const testRuntime = dockerfile.split(" AS test")[1]?.split("FROM node:22-bookworm-slim")[0];
+    const ffmpegBuild = await readFile(
+      new URL("docker/ffmpeg/build-lgpl.sh", repositoryRoot),
+      "utf8",
+    );
+    const fasterWhisperDockerfile = await readFile(
+      new URL("services/faster-whisper/Dockerfile", repositoryRoot),
+      "utf8",
+    );
     const botRuntime = dockerfile.split(" AS bot-runtime")[1]?.split(" AS dashboard-runtime")[0];
     const dashboardRuntime = dockerfile.split(" AS dashboard-runtime")[1];
 
-    expect(botRuntime).toContain("apt-get install --yes --no-install-recommends ffmpeg");
-    expect(testRuntime).toContain("apt-get install --yes --no-install-recommends ffmpeg");
+    expect(ffmpegBuild).toContain("--disable-gpl");
+    expect(ffmpegBuild).toContain("--disable-nonfree");
+    expect(ffmpegBuild).toContain("--enable-libopus");
+    expect(dockerfile).toContain("FFMPEG_SHA256=");
+    expect(dockerfile).toContain("COPY docker/ffmpeg/build-lgpl.sh");
+    expect(botRuntime).toContain("COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg");
+    expect(botRuntime).not.toContain("apt-get install --yes --no-install-recommends ffmpeg");
+    expect(fasterWhisperDockerfile).toContain("--no-binary=av");
+    expect(fasterWhisperDockerfile).toContain("requirements.lock");
     expect(dashboardRuntime).not.toContain("apt-get install");
     expect(dockerfile).toContain("COPY package.json package-lock.json .npmrc ./");
     expect(dockerfile).not.toContain("COPY config");
@@ -75,6 +89,38 @@ describe("runtime packaging", () => {
     expect(dockerfile).toContain("model_capability.py");
   });
 
+  it("fixa imagens externas por versão e digest", async () => {
+    const files = await Promise.all([
+      readFile(new URL("Dockerfile", repositoryRoot), "utf8"),
+      readFile(new URL("services/faster-whisper/Dockerfile", repositoryRoot), "utf8"),
+      readFile(new URL("docker-compose.yaml", repositoryRoot), "utf8"),
+      readFile(new URL("docker-compose.amd.yaml", repositoryRoot), "utf8"),
+    ]);
+
+    for (const contents of files) {
+      for (const line of contents
+        .split("\n")
+        .filter((candidate) => /(?:FROM\s+\S+:\S+|image:\s+\S+\/\S+:\S+)/u.test(candidate))) {
+        expect(line).toMatch(/@sha256:[a-f0-9]{64}/u);
+      }
+    }
+    expect(files[2]).toContain("ollama/ollama:0.33.3@");
+    expect(files[3]).toContain("ollama/ollama:0.33.3-rocm@");
+  });
+
+  it("não aceita a senha PostgreSQL de exemplo como fallback", async () => {
+    const compose = await readFile(new URL("docker-compose.yaml", repositoryRoot), "utf8");
+    const launchers = await Promise.all([
+      readFile(new URL("summyz-community", repositoryRoot), "utf8"),
+      readFile(new URL("summyz-community.ps1", repositoryRoot), "utf8"),
+    ]);
+
+    expect(compose).not.toContain("troque-esta-senha");
+    expect(compose).toContain("${POSTGRES_PASSWORD:?");
+    expect(launchers[0]).toContain("initialize_dot_env");
+    expect(launchers[1]).toContain("Initialize-DotEnv");
+  });
+
   it("não concede privilégios ou Docker Socket aos launchers", async () => {
     const launchers = await Promise.all([
       readFile(new URL("summyz-community", repositoryRoot), "utf8"),
@@ -93,5 +139,23 @@ describe("runtime packaging", () => {
     const bot = overlay.split("\n  bot:")[1]?.split("\n  smoke:")[0];
 
     expect(bot).not.toContain("gpus:");
+  });
+});
+
+describe("release evidence", () => {
+  it("prepares reproducible SBOM generation without versioning generated artifacts", async () => {
+    const packageJson = await readFile(new URL("package.json", repositoryRoot), "utf8");
+    const gitignore = await readFile(new URL(".gitignore", repositoryRoot), "utf8");
+    const generator = await readFile(
+      new URL("scripts/release/generate-sbom.mjs", repositoryRoot),
+      "utf8",
+    );
+
+    expect(packageJson).toContain('"release:sbom"');
+    expect(gitignore).toContain("artifacts/sbom/");
+    expect(generator).toContain("docker scout sbom");
+    expect(generator).toContain("cyclonedx");
+    expect(generator).toContain("spdx");
+    expect(generator).toContain('run("git", ["status", "--porcelain"])');
   });
 });

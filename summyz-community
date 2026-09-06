@@ -48,6 +48,79 @@ read_env_setting() {
   ' .env
 }
 
+generate_secret() {
+  od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+}
+
+replace_env_setting() {
+  setting_name=$1
+  setting_value=$2
+  awk -v wanted="$setting_name" -v replacement="$setting_value" '
+    BEGIN { replaced = 0 }
+    {
+      key = $0
+      sub(/=.*/, "", key)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", key)
+      if (key == wanted) {
+        print wanted "=" replacement
+        replaced = 1
+      } else {
+        print
+      }
+    }
+    END { if (!replaced) print wanted "=" replacement }
+  ' .env > .env.tmp
+  mv .env.tmp .env
+}
+
+initialize_dot_env() {
+  # Secrets created by this function must never inherit a permissive umask.
+  umask 077
+  if [ ! -f .env ]; then
+    if [ ! -f .env.example ]; then
+      echo ".env.example is missing" >&2
+      exit 1
+    fi
+    cp .env.example .env
+    database_password=$(generate_secret)
+    replace_env_setting SUMMYZ_SECRETS_KEY "$(generate_secret)"
+    replace_env_setting SUMMYZ_SETUP_TOKEN "$(generate_secret)"
+    replace_env_setting POSTGRES_PASSWORD "$database_password"
+    replace_env_setting DATABASE_URL "postgresql://summyz_community:$database_password@postgres:5432/summyz-community-db"
+    echo "Created .env with random local secrets. Keep this file private."
+  fi
+  chmod 600 .env
+
+  password=$(read_env_setting POSTGRES_PASSWORD)
+  database_url=$(read_env_setting DATABASE_URL)
+  secrets_key=$(read_env_setting SUMMYZ_SECRETS_KEY)
+  setup_token=$(read_env_setting SUMMYZ_SETUP_TOKEN)
+  case "$(printf '%s' "$password" | tr '[:upper:]' '[:lower:]')" in
+    ""|troque-esta-senha|change-me|changeme)
+      echo "POSTGRES_PASSWORD must contain a non-placeholder value in .env" >&2
+      exit 1
+      ;;
+  esac
+  case "$(printf '%s' "$database_url" | tr '[:upper:]' '[:lower:]')" in
+    ""|*troque-esta-senha*|*change-me*|*changeme*)
+      echo "DATABASE_URL must contain a non-placeholder PostgreSQL password in .env" >&2
+      exit 1
+      ;;
+  esac
+  if [ -z "$secrets_key" ]; then
+    echo "SUMMYZ_SECRETS_KEY must be set in .env" >&2
+    exit 1
+  fi
+  if [ -z "$setup_token" ]; then
+    echo "SUMMYZ_SETUP_TOKEN must be set in .env" >&2
+    exit 1
+  fi
+}
+
+if [ "$command_name" = "up" ] || [ "$command_name" = "restart" ]; then
+  initialize_dot_env
+fi
+
 device=${LOCAL_AI_DEVICE:-}
 fallback=${LOCAL_AI_FALLBACK:-}
 [ -n "$device" ] || device=$(read_env_setting LOCAL_AI_DEVICE)

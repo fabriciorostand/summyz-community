@@ -41,13 +41,13 @@ by the Docker workflow.
 
 ## Local setup
 
-1. Copy `.env.example` to `.env`.
-2. Fill in `POSTGRES_PASSWORD`, `DATABASE_URL`, `SUMMYZ_SECRETS_KEY`, and `SUMMYZ_SETUP_TOKEN`.
-3. Run `./summyz-community up` on Linux or macOS, or `.\summyz-community.ps1 up` on Windows. The host launcher detects
+1. Run `./summyz-community up` on Linux or macOS, or `.\summyz-community.ps1 up` on Windows. On
+   first use, the launcher creates `.env` with random local secrets without printing their values.
+2. The host launcher detects
    CPU, NVIDIA, or AMD, selects the safe Compose overlays, and starts the complete stack.
-4. Open `http://127.0.0.1:8787` to configure the
+3. Open `http://127.0.0.1:8787` to configure the
    administrator account, Discord, SMTP, and optional OpenRouter credentials.
-5. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
+4. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
 
 Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community restart`, and
@@ -463,6 +463,9 @@ See [CONTRIBUTING.md](./CONTRIBUTING.md) and
 [CLA-INDIVIDUAL.md](./CLA-INDIVIDUAL.md). For bugs and feature requests, please open an
 issue.
 
+The complete setup guide is in [docs/installation.md](./docs/installation.md). Release
+maintainers must also follow [docs/release-checklist.md](./docs/release-checklist.md).
+
 ## License
 
 Summyz Community is source-available software under the
@@ -474,4 +477,5 @@ hosted access.
 
 This is not an Open Source Initiative-approved open-source license. The names and Brand
 Assets are governed by the [trademark policy](./TRADEMARKS.md), and Third-Party
-Materials retain their own terms. See [NOTICE.md](./NOTICE.md).
+Materials retain their own terms. See [NOTICE.md](./NOTICE.md) and
+[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

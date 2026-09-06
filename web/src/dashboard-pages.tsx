@@ -1575,6 +1575,14 @@ function ProfileEditor({
             setDraft(profileSchema.parse({ ...currentDraft, language, translation }));
           }}
         />
+        <aside className="model-license-note" role="note">
+          <strong>Licenças dos modelos</strong>
+          <span>
+            Modelos são fornecidos por terceiros e não fazem parte do Summyz Community. Verifique a
+            licença e os termos de cada modelo antes de usá-lo; IDs personalizados continuam
+            permitidos.
+          </span>
+        </aside>
         <p className="field-hint">
           Em auto, o resumo usa o idioma predominante. Se o idioma escolhido já for exatamente o
           predominante da call, a tradução será ignorada e não gerará custo.
