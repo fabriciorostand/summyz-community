@@ -1,146 +1,43 @@
-import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { randomUUID } from "node:crypto";
 
 import cookie from "@fastify/cookie";
 import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import staticFiles from "@fastify/static";
-import Fastify, { type FastifyReply, type FastifyRequest } from "fastify";
-import type { Logger } from "pino";
-import { z, ZodError } from "zod";
+import Fastify from "fastify";
+import { ZodError, z } from "zod";
 
-import { aiProfileSchema, externalAiProfileSchema, localAiProfileSchema } from "../ai-profile.js";
+import { aiProfileSchema } from "../ai-profile.js";
 import { createDefaultAiPrompts } from "../ai-prompts.js";
-import type { AuthenticatedUser } from "../auth/auth-domain.js";
-import type { AuthTokens, StoredDashboardUser } from "../auth/auth-service.js";
 import { AuthenticationError } from "../auth/auth-service.js";
 import { SessionTokenError } from "../auth/jwt-session.js";
-import {
-  type AiProfileStore,
-  StoredAiProfileValidationError,
-} from "../database/postgres-ai-profile-store.js";
-import type {
-  InstallationSecretName,
-  InstallationSettings,
-} from "../database/postgres-installation-settings-store.js";
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
-import type {
-  DiscordConnectionStatus,
-  OwnedDiscordGuild,
-} from "../discord/discord-oauth-service.js";
-import type { GuildConfigurationStore } from "../guild-config-store.js";
-import type {
-  DashboardAnalytics,
-  MeetingHistoryDetail,
-  MeetingHistoryFilters,
-  MeetingHistoryPage,
-} from "../database/postgres-analytics-store.js";
 
-const credentialsSchema = z.object({ email: z.email(), password: z.string().min(1).max(1_024) });
-const registrationSchema = credentialsSchema.extend({
-  dashboardLanguage: z.enum(["en", "pt-BR"]),
-});
-const setupSchema = z
-  .object({
-    administrator: registrationSchema,
-    installation: installationSettingsInputSchema.extend({
-      secrets: z.object({
-        discordBotToken: z.string().min(1),
-        discordClientSecret: z.string().min(1),
-        openRouterApiKey: z.string().min(1).optional(),
-        smtpPassword: z.string().min(1).optional(),
-      }),
-    }),
-  })
-  .superRefine((setup, context) => {
-    if (
-      setup.installation.registrationEnabled &&
-      (setup.installation.smtp === null || setup.installation.secrets.smtpPassword === undefined)
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "SMTP is required while public registration is enabled",
-        path: ["installation", "smtp"],
-      });
-    }
-  });
-const guildSettingsSchema = z.object({
-  botLanguage: z.enum(["en", "pt-BR"]),
-  persistMeetingAudio: z.boolean(),
-  persistMeetingContent: z.boolean(),
-});
-const guildParametersSchema = z.object({ guildId: z.string().min(1).max(128) });
-const profileParametersSchema = z.object({ profileId: z.string().min(1).max(256) });
-const profileBodySchema = z.discriminatedUnion("profileType", [
-  externalAiProfileSchema.omit({ profileId: true, userId: true }),
-  localAiProfileSchema.omit({ profileId: true, userId: true }),
-]);
+import {
+  type ApiServerDependencies,
+  credentialsSchema,
+  guildSettingsSchema,
+  profileBodySchema,
+  profileParametersSchema,
+  registrationSchema,
+  setupSchema,
+} from "./server-contracts.js";
+import {
+  authenticateRequest,
+  authorizeGuild,
+  clearSessionCookies,
+  createGuildAccessResolver,
+  getErrorStatusCode,
+  logApiFailure,
+  refreshDisplayNames,
+  requireAdministrator,
+  requireAnalytics,
+  runApiDependency,
+  safeEqual,
+  setSessionCookies,
+} from "./server-support.js";
 
-interface ApiAuthService {
-  authenticate(accessToken: string): Promise<AuthenticatedUser>;
-  createInitialAdministrator(
-    input: z.infer<typeof registrationSchema>,
-  ): Promise<StoredDashboardUser>;
-  login(email: string, password: string): Promise<AuthTokens>;
-  logout(accessToken: string): Promise<void>;
-  refresh(refreshToken: string): Promise<AuthTokens>;
-  register(input: z.infer<typeof registrationSchema>): Promise<void>;
-  requestPasswordReset(email: string): Promise<void>;
-  resetPassword(token: string, password: string): Promise<void>;
-  verifyEmail(token: string): Promise<void>;
-}
-
-interface ApiSettingsStore {
-  completeSetup(): Promise<void>;
-  getSettings(): Promise<InstallationSettings>;
-  removeSecret(name: InstallationSecretName): Promise<void>;
-  setSecret(name: InstallationSecretName, value: string): Promise<void>;
-  updateSettings(input: z.input<typeof installationSettingsInputSchema>): Promise<void>;
-}
-
-interface ApiDiscordService {
-  completeAuthorization(userId: string, code: string, state: string): Promise<void>;
-  createAuthorizationUrl(userId: string): Promise<string>;
-  disconnect(userId: string): Promise<void>;
-  getConnectionStatus(userId: string): Promise<DiscordConnectionStatus>;
-  listOwnedGuilds(
-    userId: string,
-    installedGuildIds: ReadonlySet<string>,
-  ): Promise<OwnedDiscordGuild[]>;
-}
-
-export interface GuildDirectory {
-  getInstalledGuildIds(): Promise<ReadonlySet<string>>;
-  getResources(guildId: string): Promise<{
-    forums: { id: string; name: string; tags: { id: string; name: string }[] }[];
-    roles: { id: string; name: string }[];
-  }>;
-  getMemberDisplayNames?(
-    guildId: string,
-    userIds: readonly string[],
-  ): Promise<ReadonlyMap<string, string>>;
-}
-
-interface ApiAnalyticsStore {
-  getDashboard(guildId: string): Promise<DashboardAnalytics>;
-  getMeeting(guildId: string, meetingId: string): Promise<MeetingHistoryDetail | undefined>;
-  listMeetings(guildId: string, filters: MeetingHistoryFilters): Promise<MeetingHistoryPage>;
-  updateDisplayNames(guildId: string, names: ReadonlyMap<string, string>): Promise<void>;
-}
-
-export interface ApiServerDependencies {
-  analytics?: ApiAnalyticsStore;
-  aiProfiles: AiProfileStore;
-  auth: ApiAuthService;
-  discord: ApiDiscordService;
-  guildConfig: GuildConfigurationStore;
-  guildDirectory: GuildDirectory;
-  logger: Logger;
-  secureCookies: boolean;
-  settings: ApiSettingsStore;
-  setupToken: string;
-  timeZone?: string;
-}
-
+export type { ApiServerDependencies, GuildDirectory } from "./server-contracts.js";
 export async function createApiServer(
   dependencies: ApiServerDependencies,
   options: { staticDirectory?: string } = {},
@@ -581,167 +478,4 @@ export async function createApiServer(
   }
 
   return app;
-}
-
-async function authenticateRequest(
-  request: FastifyRequest,
-  dependencies: ApiServerDependencies,
-): Promise<AuthenticatedUser> {
-  const accessToken = request.cookies.summyz_access;
-  if (accessToken === undefined) throw new AuthenticationError("session_expired");
-  return dependencies.auth.authenticate(accessToken);
-}
-
-async function authorizeGuild(
-  request: FastifyRequest,
-  dependencies: ApiServerDependencies,
-  resolveGuildAccess: GuildAccessResolver,
-): Promise<{ guildId: string; user: AuthenticatedUser }> {
-  const user = await authenticateRequest(request, dependencies);
-  const { guildId } = guildParametersSchema.parse(request.params);
-  const guilds = await resolveGuildAccess(user.userId);
-  if (!guilds.some((guild) => guild.id === guildId && guild.installed)) {
-    const error = new Error("guild_access_denied") as Error & { statusCode: number };
-    error.statusCode = 403;
-    throw error;
-  }
-  return { guildId, user };
-}
-
-type GuildAccessResolver = (userId: string) => Promise<readonly OwnedDiscordGuild[]>;
-
-function createGuildAccessResolver(dependencies: ApiServerDependencies): GuildAccessResolver {
-  const cache = new Map<
-    string,
-    { expiresAt: number; request: Promise<readonly OwnedDiscordGuild[]> }
-  >();
-  return async (userId) => {
-    const now = Date.now();
-    const cached = cache.get(userId);
-    if (cached !== undefined && cached.expiresAt > now) return cached.request;
-    const request = runApiDependency("discord", "resolve_guild_access", async () => {
-      const installedGuildIds = await dependencies.guildDirectory.getInstalledGuildIds();
-      return dependencies.discord.listOwnedGuilds(userId, installedGuildIds);
-    });
-    cache.set(userId, { expiresAt: now + 10_000, request });
-    try {
-      return await request;
-    } catch (error) {
-      if (cache.get(userId)?.request === request) cache.delete(userId);
-      throw error;
-    }
-  };
-}
-
-type ApiErrorCategory = "database" | "discord" | "persisted_data";
-
-class ApiDependencyError extends Error {
-  public constructor(
-    public readonly errorCategory: ApiErrorCategory,
-    public readonly operation: string,
-    cause: unknown,
-  ) {
-    super("Dashboard dependency failed", { cause });
-    this.name = "ApiDependencyError";
-  }
-}
-
-async function runApiDependency<T>(
-  errorCategory: Exclude<ApiErrorCategory, "persisted_data">,
-  operation: string,
-  action: () => Promise<T>,
-): Promise<T> {
-  try {
-    return await action();
-  } catch (error) {
-    if (error instanceof ApiDependencyError) throw error;
-    throw new ApiDependencyError(
-      error instanceof StoredAiProfileValidationError ? "persisted_data" : errorCategory,
-      operation,
-      error,
-    );
-  }
-}
-
-function logApiFailure(logger: Logger, request: FastifyRequest, error: unknown): void {
-  const dependencyError = error instanceof ApiDependencyError ? error : undefined;
-  logger.error(
-    {
-      errorCategory: dependencyError?.errorCategory ?? "internal",
-      errorType: getErrorType(dependencyError?.cause ?? error),
-      method: request.method,
-      operation: dependencyError?.operation ?? "handle_request",
-      requestId: request.id,
-      route: request.routeOptions.url,
-    },
-    "Dashboard request failed",
-  );
-}
-
-function getErrorType(error: unknown): string {
-  return error instanceof Error ? error.name : typeof error;
-}
-
-async function requireAdministrator(
-  request: FastifyRequest,
-  dependencies: ApiServerDependencies,
-): Promise<AuthenticatedUser> {
-  const user = await authenticateRequest(request, dependencies);
-  if (user.installationRole !== "administrator") {
-    const error = new Error("administrator_required") as Error & { statusCode: number };
-    error.statusCode = 403;
-    throw error;
-  }
-  return user;
-}
-
-function setSessionCookies(reply: FastifyReply, tokens: AuthTokens, secure: boolean): void {
-  const common = { httpOnly: true, path: "/", sameSite: "lax" as const, secure };
-  reply.setCookie("summyz_access", tokens.accessToken, { ...common, maxAge: 15 * 60 });
-  reply.setCookie("summyz_refresh", tokens.refreshToken, { ...common, maxAge: 30 * 24 * 60 * 60 });
-}
-
-function clearSessionCookies(reply: FastifyReply, secure: boolean): void {
-  const options = { httpOnly: true, path: "/", sameSite: "lax" as const, secure };
-  reply.clearCookie("summyz_access", options);
-  reply.clearCookie("summyz_refresh", options);
-}
-
-function safeEqual(left: string, right: string): boolean {
-  const leftHash = createHash("sha256").update(left).digest();
-  const rightHash = createHash("sha256").update(right).digest();
-  return timingSafeEqual(leftHash, rightHash);
-}
-
-function getErrorStatusCode(error: unknown): number {
-  if (
-    typeof error === "object" &&
-    error !== null &&
-    "statusCode" in error &&
-    typeof error.statusCode === "number"
-  ) {
-    return error.statusCode;
-  }
-  return 500;
-}
-
-function requireAnalytics(dependencies: ApiServerDependencies): ApiAnalyticsStore {
-  if (dependencies.analytics === undefined)
-    throw new Error("Dashboard analytics are not configured");
-  return dependencies.analytics;
-}
-
-async function refreshDisplayNames(
-  guildId: string,
-  userIds: readonly string[],
-  dependencies: ApiServerDependencies,
-): Promise<ReadonlyMap<string, string>> {
-  if (dependencies.guildDirectory.getMemberDisplayNames === undefined || userIds.length === 0) {
-    return new Map();
-  }
-  const names = await dependencies.guildDirectory
-    .getMemberDisplayNames(guildId, userIds)
-    .catch(() => new Map<string, string>());
-  await dependencies.analytics?.updateDisplayNames(guildId, names);
-  return names;
 }

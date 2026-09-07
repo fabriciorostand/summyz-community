@@ -212,27 +212,7 @@ WHERE meeting_id = $1 AND guild_id = $2
     filters: MeetingHistoryFilters,
   ): Promise<MeetingHistoryPage> {
     const validatedGuildId = identifierSchema.parse(guildId);
-    const validated = z
-      .object({
-        dateFrom: z.iso.date().optional(),
-        dateTo: z.iso.date().optional(),
-        meetingId: identifierSchema.optional(),
-        page: z.number().int().positive(),
-        pageSize: z.number().int().min(1).max(100),
-        state: historyStateSchema.optional(),
-        timeZone: z.string().min(1).max(100),
-      })
-      .parse(filters);
-    const values = [
-      validatedGuildId,
-      validated.meetingId ?? null,
-      validated.dateFrom ?? null,
-      validated.dateTo ?? null,
-      validated.state ?? null,
-      validated.timeZone,
-      validated.pageSize,
-      (validated.page - 1) * validated.pageSize,
-    ];
+    const validated = meetingHistoryFiltersSchema.parse(filters);
     const result = await this.#database.query(
       `
 SELECT meeting.meeting_id, meeting.started_at, meeting.completed_at, meeting.pipeline_status,
@@ -259,7 +239,7 @@ WHERE meeting.guild_id = $1
 ORDER BY meeting.started_at DESC, meeting.meeting_id
 LIMIT $7 OFFSET $8
 `,
-      values,
+      meetingHistoryQueryValues(validatedGuildId, validated),
     );
     const items = await Promise.all(
       result.rows.map(async (row) => this.#mapMeetingRow(row, validatedGuildId)),
@@ -268,7 +248,7 @@ LIMIT $7 OFFSET $8
       items,
       page: validated.page,
       pageSize: validated.pageSize,
-      total: z.coerce.number().int().nonnegative().catch(0).parse(result.rows[0]?.total),
+      total: parseMeetingHistoryTotal(result.rows[0]),
     };
   }
 
@@ -379,6 +359,38 @@ LIMIT $7 OFFSET $8
       };
     });
   }
+}
+
+const meetingHistoryFiltersSchema = z.object({
+  dateFrom: z.iso.date().optional(),
+  dateTo: z.iso.date().optional(),
+  meetingId: identifierSchema.optional(),
+  page: z.number().int().positive(),
+  pageSize: z.number().int().min(1).max(100),
+  state: historyStateSchema.optional(),
+  timeZone: z.string().min(1).max(100),
+});
+
+type ValidatedMeetingHistoryFilters = z.infer<typeof meetingHistoryFiltersSchema>;
+
+function meetingHistoryQueryValues(
+  guildId: string,
+  filters: ValidatedMeetingHistoryFilters,
+): unknown[] {
+  return [
+    guildId,
+    filters.meetingId ?? null,
+    filters.dateFrom ?? null,
+    filters.dateTo ?? null,
+    filters.state ?? null,
+    filters.timeZone,
+    filters.pageSize,
+    (filters.page - 1) * filters.pageSize,
+  ];
+}
+
+function parseMeetingHistoryTotal(row: Record<string, unknown> | undefined): number {
+  return z.coerce.number().int().nonnegative().catch(0).parse(row?.total);
 }
 
 function toDatabaseParticipant(participant: ParticipantTalkTime) {

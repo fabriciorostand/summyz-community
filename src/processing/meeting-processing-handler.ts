@@ -3,6 +3,7 @@ import type { RecordingManifest } from "../recording/manifest.js";
 import type { RefinementState } from "../refinement/refinement-state.js";
 import type { SummaryState } from "../summary/summary-state.js";
 import type { TranscriptionState } from "../transcription/transcription-state.js";
+import type { TranscriptionRecoveryReason } from "../transcription/transcription-recovery-policy.js";
 import type { ClaimedProcessingJob, ProcessingJobType } from "./durable-job-queue.js";
 import { ProcessingJobError, type ProcessingJobHandler } from "./durable-job-worker.js";
 import type { MeetingAudioCatalog } from "./meeting-audio-catalog.js";
@@ -133,9 +134,7 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
     await this.#audioCatalog.persist(manifest);
     await this.#meetingStore.updatePipeline(job.meetingId, "transcribing");
     const previous = await this.#transcriptionStore.tryLoad(job.meetingId);
-    if (previous?.status === "failed" && previous.failureCode === "provider_failed") {
-      await this.#transcriptionStore.prepareRetry(job.meetingId, this.#now().toISOString());
-    }
+    await this.#prepareTranscriptionRetry(job.meetingId, previous);
     await this.#transcriber.process(manifest, {
       notifyTerminalFailure: job.finalAttempt,
     });
@@ -152,13 +151,15 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
       throw new ProcessingJobError("provider_unavailable");
     }
     const terminalCode = failureCode ?? "transcription_incomplete";
-    const transcriptionRecoveryReason =
-      state?.status === "failed"
-        ? state.transcriptionRecoveryReason
-        : previous?.status === "failed"
-          ? previous.transcriptionRecoveryReason
-          : undefined;
-    throw new ProcessingJobError(terminalCode, true, transcriptionRecoveryReason);
+    throw new ProcessingJobError(terminalCode, true, transcriptionRecoveryReason(state, previous));
+  }
+
+  async #prepareTranscriptionRetry(
+    meetingId: string,
+    previous: Awaited<ReturnType<TranscriptionStateStore["tryLoad"]>>,
+  ): Promise<void> {
+    if (previous?.status !== "failed" || previous.failureCode !== "provider_failed") return;
+    await this.#transcriptionStore.prepareRetry(meetingId, this.#now().toISOString());
   }
 
   async #processRefinement(job: ClaimedProcessingJob, manifest: RecordingManifest): Promise<void> {
@@ -192,4 +193,12 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
     }
     await this.#finalizer.persist(manifest);
   }
+}
+
+function transcriptionRecoveryReason(
+  current: TranscriptionState | undefined,
+  previous: TranscriptionState | undefined,
+): TranscriptionRecoveryReason | undefined {
+  if (current?.status === "failed") return current.transcriptionRecoveryReason;
+  return previous?.status === "failed" ? previous.transcriptionRecoveryReason : undefined;
 }

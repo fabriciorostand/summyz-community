@@ -38,37 +38,39 @@ export class OpenRouterModelPreflight {
     transcriptionModel: string;
   }): Promise<void> {
     try {
-      const response = await this.#fetch("https://openrouter.ai/api/v1/models", {
-        headers: { Authorization: `Bearer ${this.#apiKey}` },
-        method: "GET",
-        signal: AbortSignal.timeout(30_000),
-      });
-      if (!response.ok) throw new OpenRouterModelPreflightError();
-      const parsed = catalogSchema.safeParse(await response.json().catch(() => null));
-      if (!parsed.success) throw new OpenRouterModelPreflightError();
-      const models = new Map(parsed.data.data.map((model) => [model.id, model]));
-      const transcription = models.get(input.transcriptionModel);
-      if (
-        transcription === undefined ||
-        !transcription.architecture.input_modalities.includes("audio") ||
-        !transcription.architecture.output_modalities.includes("text")
-      ) {
-        throw new OpenRouterModelPreflightError();
-      }
-      for (const id of new Set(input.generativeModels)) {
-        const model = models.get(id);
-        if (
-          model === undefined ||
-          !model.architecture.input_modalities.includes("text") ||
-          !model.architecture.output_modalities.includes("text") ||
-          !model.supported_parameters.includes("response_format")
-        ) {
-          throw new OpenRouterModelPreflightError();
-        }
-      }
+      const models = await this.#loadModels();
+      requireTranscriptionModel(models.get(input.transcriptionModel));
+      for (const id of new Set(input.generativeModels)) requireGenerativeModel(models.get(id));
     } catch (error) {
       if (error instanceof OpenRouterModelPreflightError) throw error;
       throw new OpenRouterModelPreflightError();
     }
   }
+
+  async #loadModels(): Promise<Map<string, z.infer<typeof modelSchema>>> {
+    const response = await this.#fetch("https://openrouter.ai/api/v1/models", {
+      headers: { Authorization: `Bearer ${this.#apiKey}` },
+      method: "GET",
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) throw new OpenRouterModelPreflightError();
+    const parsed = catalogSchema.safeParse(await response.json().catch(() => null));
+    if (!parsed.success) throw new OpenRouterModelPreflightError();
+    return new Map(parsed.data.data.map((model) => [model.id, model]));
+  }
+}
+
+type CatalogModel = z.infer<typeof modelSchema>;
+
+function requireTranscriptionModel(model: CatalogModel | undefined): void {
+  const supportsAudio = model?.architecture.input_modalities.includes("audio") === true;
+  const producesText = model?.architecture.output_modalities.includes("text") === true;
+  if (!supportsAudio || !producesText) throw new OpenRouterModelPreflightError();
+}
+
+function requireGenerativeModel(model: CatalogModel | undefined): void {
+  const acceptsText = model?.architecture.input_modalities.includes("text") === true;
+  const producesText = model?.architecture.output_modalities.includes("text") === true;
+  const producesJson = model?.supported_parameters.includes("response_format") === true;
+  if (!acceptsText || !producesText || !producesJson) throw new OpenRouterModelPreflightError();
 }

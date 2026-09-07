@@ -51,29 +51,42 @@ export const costAttemptSchema = z
     startedAt: z.iso.datetime(),
   })
   .superRefine((attempt, context) => {
-    if (attempt.financialStatus === "confirmed") {
-      if (attempt.cost === null || attempt.currency === null) {
-        context.addIssue({
-          code: "custom",
-          message: "Confirmed costs require amount and currency",
-        });
-      }
-    } else if (attempt.cost !== null || attempt.currency !== null) {
-      context.addIssue({ code: "custom", message: "Unconfirmed costs cannot contain an amount" });
-    }
-    if (attempt.execution === "local" && attempt.financialStatus !== "not_applicable") {
-      context.addIssue({ code: "custom", message: "Local execution has no external cost" });
-    }
-    if (attempt.outcome === "pending" && attempt.endedAt !== null) {
-      context.addIssue({ code: "custom", message: "Pending attempts cannot have an end time" });
-    }
-    if (attempt.outcome !== "pending" && attempt.endedAt === null) {
-      context.addIssue({ code: "custom", message: "Finished attempts require an end time" });
-    }
+    validateCostFields(attempt, context);
+    validateExecution(attempt, context);
+    validateCompletion(attempt, context);
   });
 
 export type CostMeetingRecord = z.infer<typeof costMeetingRecordSchema>;
 export type CostAttempt = z.infer<typeof costAttemptSchema>;
+
+type CostAttemptValidationContext = z.RefinementCtx<z.infer<typeof costAttemptSchema>>;
+
+function validateCostFields(attempt: CostAttempt, context: CostAttemptValidationContext): void {
+  if (attempt.financialStatus === "confirmed") {
+    if (attempt.cost === null || attempt.currency === null) {
+      context.addIssue({ code: "custom", message: "Confirmed costs require amount and currency" });
+    }
+    return;
+  }
+  if (attempt.cost !== null || attempt.currency !== null) {
+    context.addIssue({ code: "custom", message: "Unconfirmed costs cannot contain an amount" });
+  }
+}
+
+function validateExecution(attempt: CostAttempt, context: CostAttemptValidationContext): void {
+  if (attempt.execution === "local" && attempt.financialStatus !== "not_applicable") {
+    context.addIssue({ code: "custom", message: "Local execution has no external cost" });
+  }
+}
+
+function validateCompletion(attempt: CostAttempt, context: CostAttemptValidationContext): void {
+  if (attempt.outcome === "pending" && attempt.endedAt !== null) {
+    context.addIssue({ code: "custom", message: "Pending attempts cannot have an end time" });
+  }
+  if (attempt.outcome !== "pending" && attempt.endedAt === null) {
+    context.addIssue({ code: "custom", message: "Finished attempts require an end time" });
+  }
+}
 
 export interface CostMeetingWithAttempts {
   attempts: CostAttempt[];
@@ -126,11 +139,11 @@ export function finishCostAttempt(
   return costAttemptSchema.parse({
     ...attempt,
     ...input,
-    confirmationSource: input.confirmationSource ?? null,
-    cost: input.cost ?? null,
-    currency: input.currency ?? null,
-    generationId: input.generationId ?? attempt.generationId,
-    model: input.model ?? attempt.model,
+    confirmationSource: optionalOr(input.confirmationSource, null),
+    cost: optionalOr(input.cost, null),
+    currency: optionalOr(input.currency, null),
+    generationId: optionalOr(input.generationId, attempt.generationId),
+    model: optionalOr(input.model, attempt.model),
   });
 }
 
@@ -195,20 +208,31 @@ export function decimalAmountFromNumber(value: number): string {
 export function decimalAmountFromProviderText(text: string): string {
   const match = /^(0|[1-9]\d*)(?:\.(\d+))?(?:[eE]([+-]?\d+))?$/.exec(text);
   if (match === null || text.length > 256) throw new Error("Invalid provider cost");
-  const integer = match[1] ?? "0";
-  const fraction = match[2] ?? "";
-  const exponent = Number(match[3] ?? "0");
+  const integer = optionalOr(match[1], "0");
+  const fraction = optionalOr(match[2], "");
+  const exponent = parseProviderExponent(match[3]);
+  const digits = `${integer}${fraction}`;
+  const decimalPosition = integer.length + exponent;
+  const coefficient = coefficientAtPosition(digits, decimalPosition);
+  const scale = Math.max(0, digits.length - decimalPosition);
+  return formatDecimal(coefficient, scale);
+}
+
+function optionalOr<T>(value: T | undefined, fallback: T): T {
+  return value === undefined ? fallback : value;
+}
+
+function parseProviderExponent(value: string | undefined): number {
+  const exponent = Number(optionalOr(value, "0"));
   if (!Number.isSafeInteger(exponent) || Math.abs(exponent) > 1_000) {
     throw new Error("Invalid provider cost");
   }
-  const digits = `${integer}${fraction}`;
-  const decimalPosition = integer.length + exponent;
-  const coefficient =
-    decimalPosition >= digits.length
-      ? BigInt(digits) * 10n ** BigInt(decimalPosition - digits.length)
-      : BigInt(digits);
-  const scale = Math.max(0, digits.length - decimalPosition);
-  return formatDecimal(coefficient, scale);
+  return exponent;
+}
+
+function coefficientAtPosition(digits: string, decimalPosition: number): bigint {
+  if (decimalPosition < digits.length) return BigInt(digits);
+  return BigInt(digits) * 10n ** BigInt(decimalPosition - digits.length);
 }
 
 function parseDecimal(value: string): { coefficient: bigint; scale: number } {

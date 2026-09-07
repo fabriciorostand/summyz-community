@@ -41,6 +41,17 @@ describe("runtime packaging", () => {
     expect(webPackage.devDependencies).toHaveProperty("tailwindcss");
   });
 
+  it("mantém o gerenciador de pacotes fora das imagens finais", async () => {
+    const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
+    const runtimeBase = dockerfile.split(" AS runtime-base")[1]?.split(" AS bot-runtime")[0];
+    const botRuntime = dockerfile.split(" AS bot-runtime")[1]?.split(" AS dashboard-runtime")[0];
+    const dashboardRuntime = dockerfile.split(" AS dashboard-runtime")[1];
+
+    expect(runtimeBase).toContain("rm -rf /usr/local/lib/node_modules/npm");
+    expect(botRuntime).toContain('CMD ["node", "dist/main.js"]');
+    expect(dashboardRuntime).toContain('CMD ["node", "dist/api/main.js"]');
+  });
+
   it("usa o build FFmpeg/PyAV controlado e compatível apenas com LGPL", async () => {
     const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
     const ffmpegBuild = await readFile(
@@ -85,8 +96,10 @@ describe("runtime packaging", () => {
       new URL("services/faster-whisper/Dockerfile", repositoryRoot),
       "utf8",
     );
+    const testStage = dockerfile.split("FROM cpu AS test")[1];
 
     expect(dockerfile).toContain("model_capability.py");
+    expect(testStage).toMatch(/USER nobody\s*$/u);
   });
 
   it("fixa imagens externas por versão e digest", async () => {
@@ -106,6 +119,27 @@ describe("runtime packaging", () => {
     }
     expect(files[2]).toContain("ollama/ollama:0.33.3@");
     expect(files[3]).toContain("ollama/ollama:0.33.3-rocm@");
+  });
+
+  it("fixa os repositórios dos pacotes do sistema em snapshots datados", async () => {
+    const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
+    const fasterWhisperDockerfile = await readFile(
+      new URL("services/faster-whisper/Dockerfile", repositoryRoot),
+      "utf8",
+    );
+
+    for (const contents of [dockerfile, fasterWhisperDockerfile]) {
+      expect(contents).toContain("DEBIAN_SNAPSHOT=20260906T000000Z");
+      expect(contents).toMatch(/snapshot\.debian\.org\/archive\/debian\/\$\{DEBIAN_SNAPSHOT\}/u);
+      expect(contents).toMatch(
+        /snapshot\.debian\.org\/archive\/debian-security\/\$\{DEBIAN_SNAPSHOT\}/u,
+      );
+    }
+    expect(fasterWhisperDockerfile).toContain("UBUNTU_SNAPSHOT=20260906T000000Z");
+    expect(fasterWhisperDockerfile).toMatch(
+      /snapshot\.ubuntu\.com\/ubuntu\/\$\{UBUNTU_SNAPSHOT\}/u,
+    );
+    expect(fasterWhisperDockerfile).toContain("rm -f /etc/apt/sources.list.d/cuda.list");
   });
 
   it("não aceita a senha PostgreSQL de exemplo como fallback", async () => {

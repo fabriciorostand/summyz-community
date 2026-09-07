@@ -3,7 +3,6 @@ from __future__ import annotations
 import json
 import logging
 
-
 SAFE_LOG_FIELDS = (
     "batch_size",
     "compute_type",
@@ -25,7 +24,7 @@ class StructuredLogFormatter(logging.Formatter):
         }
         for field in SAFE_LOG_FIELDS:
             value = getattr(record, field, None)
-            if isinstance(value, (bool, float, int, str)):
+            if isinstance(value, bool | float | int | str):
                 payload[field] = value
         return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 

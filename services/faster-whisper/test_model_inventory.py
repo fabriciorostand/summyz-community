@@ -26,6 +26,26 @@ class ModelInventoryTests(unittest.TestCase):
         self.assertEqual(inventory["revision"], "abcdef123456")
         self.assertEqual(inventory["license"], "apache-2.0")
 
+    def test_resolves_metadata_at_the_requested_immutable_revision(self) -> None:
+        requested_revision = "d90ca5fe260221311c53c58e660288d3deb8d356"
+        requests: list[tuple[str, str | None]] = []
+
+        def model_info(repo_id: str, revision: str | None = None) -> object:
+            requests.append((repo_id, revision))
+            return FakeModelInfo()
+
+        inventory = create_model_inventory(
+            "Systran/faster-whisper-tiny",
+            model_info,
+            requested_revision=requested_revision,
+        )
+
+        self.assertEqual(
+            requests,
+            [("Systran/faster-whisper-tiny", requested_revision)],
+        )
+        self.assertEqual(inventory["requestedRevision"], requested_revision)
+
     def test_unknown_metadata_does_not_block_arbitrary_model(self) -> None:
         def unavailable(_repo_id: str) -> object:
             raise RuntimeError("offline")
@@ -33,6 +53,16 @@ class ModelInventoryTests(unittest.TestCase):
         inventory = create_model_inventory("org/private-model", unavailable)
 
         self.assertEqual(inventory["model"], "org/private-model")
+        self.assertIsNone(inventory["revision"])
+        self.assertIsNone(inventory["license"])
+
+    def test_rejects_unsafe_or_oversized_metadata(self) -> None:
+        class InvalidMetadata:
+            card_data = type("Card", (), {"license": ["a", 2]})()
+            sha = "x" * 201
+
+        inventory = create_model_inventory("org/model", lambda _repo_id: InvalidMetadata())
+
         self.assertIsNone(inventory["revision"])
         self.assertIsNone(inventory["license"])
 

@@ -99,17 +99,10 @@ export class SileroSpeechAnalyzer implements SpeechAnalyzer {
   #speechRanges: SpeechRange[] = [];
 
   public constructor(options: SileroSpeechAnalyzerOptions) {
-    this.#createVad = options.createVad ?? createSileroVad;
-    this.#decodeAudio =
-      options.decodeAudio ?? createAudioDecoder(options.maxDurationSeconds ?? 3_600);
-    this.#vadConfiguration = {
-      minSilenceFrames: Math.ceil((options.minSilenceDurationMs ?? 768) / 32),
-      minimumSpeechFrames: Math.ceil(options.minSpeechDurationMs / 32),
-      negativeSpeechThreshold:
-        options.negativeSpeechThreshold ?? Math.max(0, options.threshold - 0.15),
-      preSpeechPadFrames: Math.ceil((options.speechPadMs ?? 96) / 32),
-      threshold: options.threshold,
-    };
+    const resolved = resolveSileroOptions(options);
+    this.#createVad = resolved.createVad;
+    this.#decodeAudio = resolved.decodeAudio;
+    this.#vadConfiguration = resolved.vadConfiguration;
   }
 
   public async analyze(path: string): Promise<SpeechAnalysis> {
@@ -181,6 +174,27 @@ export class SileroSpeechAnalyzer implements SpeechAnalyzer {
     );
     return result;
   }
+}
+
+function resolveSileroOptions(options: SileroSpeechAnalyzerOptions) {
+  const defaultValue = <T>(value: T | undefined, fallback: T): T => value ?? fallback;
+  return {
+    createVad: defaultValue(options.createVad, createSileroVad),
+    decodeAudio: defaultValue(
+      options.decodeAudio,
+      createAudioDecoder(defaultValue(options.maxDurationSeconds, 3_600)),
+    ),
+    vadConfiguration: {
+      minSilenceFrames: Math.ceil(defaultValue(options.minSilenceDurationMs, 768) / 32),
+      minimumSpeechFrames: Math.ceil(options.minSpeechDurationMs / 32),
+      negativeSpeechThreshold: defaultValue(
+        options.negativeSpeechThreshold,
+        Math.max(0, options.threshold - 0.15),
+      ),
+      preSpeechPadFrames: Math.ceil(defaultValue(options.speechPadMs, 96) / 32),
+      threshold: options.threshold,
+    },
+  };
 }
 
 async function createSileroVad(

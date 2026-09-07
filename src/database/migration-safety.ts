@@ -75,81 +75,104 @@ export function databaseMigrationChecksum(migration: DatabaseMigration): string 
 }
 
 function stripCommentsAndStringLiterals(sql: string): string {
-  let output = "";
-  let index = 0;
-  let blockCommentDepth = 0;
-  let inLineComment = false;
-  let inString = false;
+  return new SqlLiteralMasker(sql).mask();
+}
 
-  while (index < sql.length) {
-    const current = sql[index];
-    const next = sql[index + 1];
+type SqlMaskState = "block-comment" | "line-comment" | "normal" | "string";
 
-    if (inLineComment) {
-      if (current === "\n") {
-        inLineComment = false;
-        output += "\n";
-      } else {
-        output += " ";
-      }
-      index += 1;
-      continue;
-    }
+class SqlLiteralMasker {
+  readonly #sql: string;
+  #blockCommentDepth = 0;
+  #index = 0;
+  #output = "";
+  #state: SqlMaskState = "normal";
 
-    if (blockCommentDepth > 0) {
-      if (current === "/" && next === "*") {
-        blockCommentDepth += 1;
-        output += "  ";
-        index += 2;
-        continue;
-      }
-      if (current === "*" && next === "/") {
-        blockCommentDepth -= 1;
-        output += "  ";
-        index += 2;
-        continue;
-      }
-      output += current === "\n" ? "\n" : " ";
-      index += 1;
-      continue;
-    }
-
-    if (inString) {
-      if (current === "'" && next === "'") {
-        output += "  ";
-        index += 2;
-        continue;
-      }
-      if (current === "'") {
-        inString = false;
-      }
-      output += current === "\n" ? "\n" : " ";
-      index += 1;
-      continue;
-    }
-
-    if (current === "-" && next === "-") {
-      inLineComment = true;
-      output += "  ";
-      index += 2;
-      continue;
-    }
-    if (current === "/" && next === "*") {
-      blockCommentDepth = 1;
-      output += "  ";
-      index += 2;
-      continue;
-    }
-    if (current === "'") {
-      inString = true;
-      output += " ";
-      index += 1;
-      continue;
-    }
-
-    output += current;
-    index += 1;
+  public constructor(sql: string) {
+    this.#sql = sql;
   }
 
-  return output;
+  public mask(): string {
+    while (this.#index < this.#sql.length) {
+      if (this.#state === "line-comment") this.#consumeLineComment();
+      else if (this.#state === "block-comment") this.#consumeBlockComment();
+      else if (this.#state === "string") this.#consumeString();
+      else this.#consumeNormal();
+    }
+    return this.#output;
+  }
+
+  #consumeLineComment(): void {
+    if (this.#current() === "\n") {
+      this.#state = "normal";
+      this.#append("\n");
+      return;
+    }
+    this.#append(" ");
+  }
+
+  #consumeBlockComment(): void {
+    if (this.#isPair("/", "*")) {
+      this.#blockCommentDepth += 1;
+      this.#appendPair();
+      return;
+    }
+    if (this.#isPair("*", "/")) {
+      this.#blockCommentDepth -= 1;
+      if (this.#blockCommentDepth === 0) this.#state = "normal";
+      this.#appendPair();
+      return;
+    }
+    this.#appendMaskedCurrent();
+  }
+
+  #consumeString(): void {
+    if (this.#isPair("'", "'")) {
+      this.#appendPair();
+      return;
+    }
+    if (this.#current() === "'") this.#state = "normal";
+    this.#appendMaskedCurrent();
+  }
+
+  #consumeNormal(): void {
+    if (this.#isPair("-", "-")) {
+      this.#state = "line-comment";
+      this.#appendPair();
+      return;
+    }
+    if (this.#isPair("/", "*")) {
+      this.#state = "block-comment";
+      this.#blockCommentDepth = 1;
+      this.#appendPair();
+      return;
+    }
+    if (this.#current() === "'") {
+      this.#state = "string";
+      this.#append(" ");
+      return;
+    }
+    this.#append(this.#current() ?? "");
+  }
+
+  #current(): string | undefined {
+    return this.#sql[this.#index];
+  }
+
+  #isPair(current: string, next: string): boolean {
+    return this.#current() === current && this.#sql[this.#index + 1] === next;
+  }
+
+  #append(value: string): void {
+    this.#output += value;
+    this.#index += 1;
+  }
+
+  #appendPair(): void {
+    this.#output += "  ";
+    this.#index += 2;
+  }
+
+  #appendMaskedCurrent(): void {
+    this.#append(this.#current() === "\n" ? "\n" : " ");
+  }
 }

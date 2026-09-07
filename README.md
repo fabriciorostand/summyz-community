@@ -35,7 +35,7 @@ executive summary, discussed topics, decisions, tasks, and full transcript in a 
 - an OpenRouter account with credits and an API key only for stages configured with `openrouter`;
 - compatible host drivers and Docker integration when NVIDIA or AMD acceleration is enabled.
 
-Node.js 22.12, npm, and an FFmpeg installation with `libopus` are required only for native
+Node.js 22.23.2, npm 10.9.8, and an FFmpeg installation with `libopus` are required only for native
 development. PostgreSQL, Ollama, faster-whisper, Python, Node, and FFmpeg are prepared automatically
 by the Docker workflow.
 
@@ -447,6 +447,34 @@ The MVP's Opus decoder is `opusscript`, avoiding the vulnerable dependency chain
 native dependency that was evaluated. The local-service smoke test is automated inside the private
 Compose network with `docker compose --profile smoke run --rm smoke`; it downloads small models and
 may take a while on its first run. Real Discord interactions are not presented as automated tests.
+
+## Continuous integration
+
+The `CI` workflow runs for pull requests targeting `main` and pushes to `main`. It exposes the
+blocking `Quality`, `Security`, `Tests`, and `Runtime / Images` gates, followed by the aggregate
+`Quality Gate`. A new commit cancels the previous run for the same pull request; pushes to `main`
+remain in one queue and do not cancel earlier runs.
+
+Server tests always use a real PostgreSQL 18.4 instance. The server, dashboard, and Python service
+must each reach at least 85% global line coverage and 85% in every domain group. Coverage on new or
+modified code is calculated once as a line-weighted aggregate across all three components and must
+also reach 85%. HTML, JUnit, JSON, and SARIF reports are retained as artifacts in addition to the
+run summary. Internal pull requests receive one persistent, fully English Quality Gate comment that
+is updated on every run; fork pull requests receive the same checks, summary, and artifacts without
+exposing secrets or granting write permission.
+
+The Security measure counts only unique fixable `HIGH` or `CRITICAL` vulnerabilities. Those
+findings block the gate. Lower-severity findings and vulnerabilities for which no fix has been
+published do not contribute to the measure and do not block the gate, but remain visible alongside
+quality and security diagnostics under **Issue details** and in the complete artifacts.
+
+The runtime gate builds the bot, dashboard, CPU faster-whisper, and NVIDIA packaging images,
+validates the Compose variants, and performs real local inference on CPU with verified model
+revisions. Execution on an actual GPU remains outside this workflow. Node.js 22.23.2, npm 10.9.8,
+Python 3.12.14, base images, actions, lock files, and Debian/Ubuntu repository snapshots are pinned.
+The `ubuntu-24.04` runner and scanner vulnerability databases remain services updated by GitHub and
+their vendors. npm, pip, BuildKit, and model caches make later runs faster without skipping version,
+hash, and digest checks.
 
 ## Contributing
 

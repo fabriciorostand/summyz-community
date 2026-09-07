@@ -30,8 +30,8 @@ def create_transcription_options(
             parameters["neg_threshold"] = negative_threshold
         minimum_silence = vad_options["minSilenceDurationMs"]
         parameters["min_silence_duration_ms"] = (
-            160 if batch_size > 0 else 2_000
-        ) if minimum_silence == "auto" else minimum_silence
+            (160 if batch_size > 0 else 2_000) if minimum_silence == "auto" else minimum_silence
+        )
         maximum_speech = vad_options["maxSpeechDurationSeconds"]
         if maximum_speech != "auto":
             parameters["max_speech_duration_s"] = maximum_speech

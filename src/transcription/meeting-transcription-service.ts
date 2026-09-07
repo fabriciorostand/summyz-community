@@ -1,8 +1,5 @@
-import { rm } from "node:fs/promises";
-
 import type { Logger } from "pino";
 
-import { convertPcmToOgg as defaultConvertPcmToOgg } from "../recording/audio-converter.js";
 import {
   setPredominantLanguage,
   type RecordingManifest,
@@ -10,6 +7,7 @@ import {
 } from "../recording/manifest.js";
 import type { ManifestStore } from "../recording/manifest-store.js";
 import { mapWithConcurrency } from "./concurrency.js";
+import { AudioPreparationError, MeetingAudioPreparer } from "./meeting-audio-preparer.js";
 import type { SpeechAnalyzer } from "./speech-analyzer.js";
 import {
   composeTranscriptionBatch,
@@ -36,13 +34,6 @@ import {
   type LanguageEvidence,
   type PredominantLanguageResult,
 } from "./predominant-language.js";
-import { writePcmAsWav as defaultWritePcmAsWav } from "./wav.js";
-
-interface PreparedAudio {
-  cleanup?: () => Promise<void>;
-  path: string;
-  segment: RecordingSegment;
-}
 
 interface MeetingTranscriptionServiceOptions {
   concurrency: number;
@@ -67,13 +58,6 @@ interface TranscriptionProcessingOptions {
   notifyTerminalFailure?: boolean;
 }
 
-class AudioPreparationError extends Error {
-  public constructor() {
-    super("Não foi possível preparar todos os segmentos de áudio");
-    this.name = "AudioPreparationError";
-  }
-}
-
 class AudioAnalysisError extends Error {
   public constructor() {
     super("Não foi possível analisar a presença de voz no áudio");
@@ -89,8 +73,8 @@ class LanguageDetectionError extends Error {
 }
 
 export class MeetingTranscriptionService {
+  readonly #audioPreparer: MeetingAudioPreparer;
   readonly #concurrency: number;
-  readonly #convertPcmToOgg: (inputPath: string, outputPath: string) => Promise<void>;
   readonly #interSpeechSilenceMs: number;
   readonly #logger: Logger;
   readonly #manifestStore: ManifestStore;
@@ -110,11 +94,10 @@ export class MeetingTranscriptionService {
   readonly #transcriptionStore: TranscriptionStore;
   readonly #transcriptionMergeMaxGapMs: number;
   readonly #transcriptionWindowMaxMs: number;
-  readonly #writePcmAsWav: (inputPath: string, outputPath: string) => Promise<void>;
 
   public constructor(options: MeetingTranscriptionServiceOptions) {
+    this.#audioPreparer = new MeetingAudioPreparer(options);
     this.#concurrency = options.concurrency;
-    this.#convertPcmToOgg = options.convertPcmToOgg ?? defaultConvertPcmToOgg;
     this.#interSpeechSilenceMs = options.interSpeechSilenceMs;
     this.#logger = options.logger;
     this.#manifestStore = options.manifestStore;
@@ -128,7 +111,6 @@ export class MeetingTranscriptionService {
     this.#transcriptionStore = options.transcriptionStore;
     this.#transcriptionMergeMaxGapMs = options.transcriptionMergeMaxGapMs;
     this.#transcriptionWindowMaxMs = options.transcriptionWindowMaxMs;
-    this.#writePcmAsWav = options.writePcmAsWav ?? defaultWritePcmAsWav;
     if (this.#provider === undefined && this.#resolveProvider === undefined) {
       throw new Error("A transcription provider or resolver is required");
     }
@@ -198,7 +180,7 @@ export class MeetingTranscriptionService {
         transcriptionConfiguration?.interSpeechSilenceMs ?? this.#interSpeechSilenceMs;
       const transcriptionMergeMaxGapMs =
         transcriptionConfiguration?.mergeMaxGapMs ?? this.#transcriptionMergeMaxGapMs;
-      const prepared = await this.#prepareAllAudio(
+      const prepared = await this.#audioPreparer.prepareAll(
         manifest,
         new Set(pending.map((segment) => segment.segmentId)),
       );
@@ -438,88 +420,6 @@ export class MeetingTranscriptionService {
           );
         });
       }
-    }
-  }
-
-  async #prepareAllAudio(
-    manifest: RecordingManifest,
-    pendingSegmentIds: ReadonlySet<string>,
-  ): Promise<PreparedAudio[]> {
-    const prepared: PreparedAudio[] = [];
-    try {
-      for (const segment of manifest.segments) {
-        if (pendingSegmentIds.has(segment.segmentId)) {
-          prepared.push(await this.#prepareAudio(manifest, segment));
-        }
-      }
-      return prepared;
-    } catch (error) {
-      await Promise.allSettled(
-        prepared.map((audio) =>
-          audio.cleanup === undefined ? Promise.resolve() : audio.cleanup(),
-        ),
-      );
-      if (error instanceof AudioPreparationError) {
-        throw error;
-      }
-      throw new AudioPreparationError();
-    }
-  }
-
-  async #prepareAudio(
-    manifest: RecordingManifest,
-    segment: RecordingSegment,
-  ): Promise<PreparedAudio> {
-    if (segment.status === "ready" && segment.format === "ogg_opus") {
-      return {
-        path: this.#transcriptionStore.resolveMeetingFile(manifest.meetingId, segment.file),
-        segment,
-      };
-    }
-    if (segment.status !== "conversion_failed" || segment.format !== "pcm_s16le") {
-      throw new AudioPreparationError();
-    }
-
-    const pcmPath = this.#transcriptionStore.resolveMeetingFile(manifest.meetingId, segment.file);
-    const paths = this.#manifestStore.segmentPaths(
-      manifest.meetingId,
-      segment.userId,
-      segment.segmentId,
-    );
-    try {
-      await this.#convertPcmToOgg(pcmPath, paths.finalPath);
-      return {
-        cleanup: () => rm(paths.finalPath, { force: true }),
-        path: paths.finalPath,
-        segment,
-      };
-    } catch (error) {
-      await rm(paths.finalPath, { force: true });
-      this.#logger.warn(
-        {
-          errorType: getErrorType(error),
-          meetingId: manifest.meetingId,
-          segmentId: segment.segmentId,
-        },
-        "Ogg conversion retry failed; using WAV fallback",
-      );
-    }
-
-    const wavPath = this.#transcriptionStore.resolveMeetingFile(
-      manifest.meetingId,
-      `participants/${segment.userId}/${segment.segmentId}.wav`,
-    );
-    await rm(wavPath, { force: true });
-    try {
-      await this.#writePcmAsWav(pcmPath, wavPath);
-      return {
-        cleanup: () => rm(wavPath, { force: true }),
-        path: wavPath,
-        segment,
-      };
-    } catch {
-      await rm(wavPath, { force: true });
-      throw new AudioPreparationError();
     }
   }
 }

@@ -2,31 +2,45 @@ FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe6
 
 ARG FFMPEG_VERSION=8.1.2
 ARG FFMPEG_SHA256=464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
+ARG DEBIAN_SNAPSHOT=20260906T000000Z
 
-RUN apt-get update && \
+RUN sed -i \
+      "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
+      /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o Acquire::Check-Valid-Until=false update && \
     apt-get install --yes --no-install-recommends \
       build-essential ca-certificates curl libopus-dev nasm pkg-config xz-utils && \
     rm -rf /var/lib/apt/lists/*
 COPY docker/ffmpeg/build-lgpl.sh /usr/local/bin/build-ffmpeg-lgpl
 RUN /usr/local/bin/build-ffmpeg-lgpl
 
-FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS python-wheels
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS python-wheels
 
+ARG DEBIAN_SNAPSHOT=20260906T000000Z
 ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PKG_CONFIG_PATH=/opt/ffmpeg/lib/pkgconfig
-RUN apt-get update && \
+RUN sed -i \
+      "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
+      /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o Acquire::Check-Valid-Until=false update && \
     apt-get install --yes --no-install-recommends build-essential libopus-dev pkg-config && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 COPY services/faster-whisper/requirements.txt services/faster-whisper/requirements.lock /requirements/
+COPY requirements-ci.lock /requirements/requirements-ci.lock
 RUN pip wheel \
       --no-binary=av \
       --require-hashes \
       --requirement /requirements/requirements.lock \
-      --wheel-dir /wheels
+      --wheel-dir /wheels && \
+    pip wheel \
+      --require-hashes \
+      --requirement /requirements/requirements-ci.lock \
+      --wheel-dir /ci-wheels
 
-FROM python:3.12-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS cpu
+FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS cpu
 
+ARG DEBIAN_SNAPSHOT=20260906T000000Z
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HOME=/models/home \
@@ -35,7 +49,10 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     SUMMYZ_MODEL_DIR=/models/managed \
     LD_LIBRARY_PATH=/opt/ffmpeg/lib
 
-RUN apt-get update && \
+RUN sed -i \
+      "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
+      /etc/apt/sources.list.d/debian.sources && \
+    apt-get -o Acquire::Check-Valid-Until=false update && \
     apt-get install --yes --no-install-recommends libopus0 && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /service
@@ -57,6 +74,7 @@ CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04@sha256:8aef630a54bc5c5146ae5ce68e6af5caa3df0fb690bb91544175c91f307e4356 AS cuda
 
+ARG UBUNTU_SNAPSHOT=20260906T000000Z
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -67,7 +85,11 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PATH=/opt/venv/bin:${PATH}
 
-RUN apt-get update && \
+RUN sed -i \
+      "s|http://archive.ubuntu.com/ubuntu/|https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/|g; s|http://security.ubuntu.com/ubuntu/|https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/|g" \
+      /etc/apt/sources.list.d/ubuntu.sources && \
+    rm -f /etc/apt/sources.list.d/cuda.list && \
+    apt-get -o Acquire::Check-Valid-Until=false update && \
     apt-get install --yes --no-install-recommends libopus0 python3 python3-pip python3-venv && \
     rm -rf /var/lib/apt/lists/* && \
     python3 -m venv /opt/venv
@@ -87,3 +109,18 @@ RUN mkdir -p /models/cache/huggingface /models/home /models/managed /tmp/summyz-
 USER nobody
 EXPOSE 8000
 CMD ["python3", "-m", "uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+
+FROM cpu AS test
+
+USER root
+COPY --from=python-wheels /ci-wheels /ci-wheels
+COPY requirements-ci.lock /requirements-ci.lock
+RUN pip install --no-cache-dir --no-index --find-links=/ci-wheels \
+      --require-hashes --requirement /requirements-ci.lock && \
+    rm -rf /ci-wheels
+WORKDIR /workspace
+COPY pyproject.toml ./
+COPY services/faster-whisper ./services/faster-whisper
+RUN mkdir -p reports && chown -R nobody:nogroup /workspace
+CMD ["python", "-m", "pytest", "services/faster-whisper"]
+USER nobody

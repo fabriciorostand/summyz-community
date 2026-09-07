@@ -1,0 +1,434 @@
+export const QUALITY_GATE_MARKER = "<!-- summyz-community-quality-gate -->";
+
+export interface GateConfig {
+  readonly complexityMaximum: number;
+  readonly coverageMinimum: number;
+  readonly duplicationMaximum: number;
+  readonly moduleSlocMaximum: number;
+}
+
+export interface Diagnostic {
+  readonly detailsUrl?: string;
+  readonly line: number;
+  readonly message: string;
+  readonly path: string;
+  readonly rule: string;
+  readonly tool: string;
+}
+
+export interface SecurityFinding {
+  readonly detailsUrl?: string;
+  readonly fixedVersions: readonly string[];
+  readonly id: string;
+  readonly line: number;
+  readonly message: string;
+  readonly packageName: string;
+  readonly path: string;
+  readonly severity: string;
+  readonly tool: string;
+}
+
+export interface ModuleSize {
+  readonly changed: boolean;
+  readonly path: string;
+  readonly sloc: number;
+}
+
+export interface DuplicateLocation {
+  readonly end: number;
+  readonly path: string;
+  readonly start: number;
+}
+
+export interface DuplicateGroup {
+  readonly lines: number;
+  readonly locations: readonly DuplicateLocation[];
+}
+
+export interface ComplexityFinding {
+  readonly complexity: number;
+  readonly line: number;
+  readonly name: string;
+  readonly path: string;
+}
+
+export interface GateMetrics {
+  readonly baseOversizedModuleCount?: number;
+  readonly baseRepositoryCoverage?: number;
+  readonly baseRepositoryDuplication?: number;
+  readonly baseRepositoryIssueCount?: number;
+  readonly baseRepositorySecurityCount?: number;
+  readonly baseSecurityFingerprints?: readonly string[];
+  readonly changedOversizedModuleCount: number;
+  readonly complexityFindings?: readonly ComplexityFinding[];
+  readonly duplicateGroups?: readonly DuplicateGroup[];
+  readonly jobResults: Readonly<Record<"quality" | "runtime" | "security" | "tests", string>>;
+  readonly modules: readonly ModuleSize[];
+  readonly newComplexityViolations: number;
+  readonly newCoverage: number;
+  readonly newDuplication: number;
+  readonly newIssues: readonly Diagnostic[];
+  readonly newMaxComplexity: number;
+  readonly repositoryCoverage: number;
+  readonly repositoryDuplication: number;
+  readonly repositoryIssues: readonly Diagnostic[];
+  readonly repositoryMaxComplexity: number;
+  readonly securityIssues?: readonly Diagnostic[];
+  readonly securityFindings: readonly SecurityFinding[];
+}
+
+export interface EvaluatedMetrics extends GateMetrics {
+  readonly newSecurity: readonly SecurityFinding[];
+  readonly repositorySecurity: readonly SecurityFinding[];
+}
+
+export interface GateResult {
+  readonly config: GateConfig;
+  readonly failures: readonly string[];
+  readonly metrics: EvaluatedMetrics;
+  readonly passed: boolean;
+}
+
+export interface MarkdownContext {
+  readonly commitSha: string;
+  readonly detailsUrl: string;
+  readonly repository: string;
+}
+
+export const DEFAULT_GATE_CONFIG: GateConfig = {
+  complexityMaximum: 10,
+  coverageMinimum: 85,
+  duplicationMaximum: 3,
+  moduleSlocMaximum: 500,
+};
+
+const normalizeSeverity = (severity: string): string => severity.trim().toUpperCase();
+
+export const diagnosticFingerprint = (diagnostic: Diagnostic): string =>
+  [diagnostic.tool, diagnostic.rule, diagnostic.path, diagnostic.message].join("\u0000");
+
+export const securityFindingFingerprint = (finding: SecurityFinding): string =>
+  [finding.id.trim().toUpperCase(), finding.packageName.trim().toLowerCase()].join("\u0000");
+
+const uniqueSecurityFindings = (
+  findings: readonly SecurityFinding[],
+): readonly SecurityFinding[] => {
+  const unique = new Map<string, SecurityFinding>();
+  for (const finding of findings) {
+    const fingerprint = securityFindingFingerprint(finding);
+    if (!unique.has(fingerprint)) unique.set(fingerprint, finding);
+  }
+  return [...unique.values()];
+};
+
+export const isActionableSecurityFinding = (finding: SecurityFinding): boolean =>
+  (normalizeSeverity(finding.severity) === "HIGH" ||
+    normalizeSeverity(finding.severity) === "CRITICAL") &&
+  finding.fixedVersions.some((version) => version.trim().length > 0);
+
+export const evaluateQualityGate = (
+  metrics: GateMetrics,
+  config: GateConfig = DEFAULT_GATE_CONFIG,
+): GateResult => {
+  const repositorySecurity = uniqueSecurityFindings(
+    metrics.securityFindings.filter(isActionableSecurityFinding),
+  );
+  const baseFingerprints = new Set(metrics.baseSecurityFingerprints ?? []);
+  const newSecurity = repositorySecurity.filter(
+    (finding) => !baseFingerprints.has(securityFindingFingerprint(finding)),
+  );
+  const failures: string[] = [];
+
+  if (metrics.repositoryCoverage < config.coverageMinimum) {
+    failures.push(
+      `Repository coverage ${metrics.repositoryCoverage.toFixed(2)}% is below ${config.coverageMinimum.toFixed(2)}%.`,
+    );
+  }
+  if (metrics.newCoverage < config.coverageMinimum) {
+    failures.push(
+      `New-code coverage ${metrics.newCoverage.toFixed(2)}% is below ${config.coverageMinimum.toFixed(2)}%.`,
+    );
+  }
+  if (metrics.repositoryDuplication > config.duplicationMaximum) {
+    failures.push(
+      `Repository duplication ${metrics.repositoryDuplication.toFixed(2)}% exceeds ${config.duplicationMaximum.toFixed(2)}%.`,
+    );
+  }
+  if (metrics.newDuplication > config.duplicationMaximum) {
+    failures.push(
+      `New-code duplication ${metrics.newDuplication.toFixed(2)}% exceeds ${config.duplicationMaximum.toFixed(2)}%.`,
+    );
+  }
+  if (metrics.newComplexityViolations > 0) {
+    failures.push(
+      `New code introduces ${metrics.newComplexityViolations} function(s) above complexity ${config.complexityMaximum}.`,
+    );
+  }
+  if (metrics.repositoryMaxComplexity > config.complexityMaximum) {
+    failures.push(
+      `Repository maximum complexity ${metrics.repositoryMaxComplexity} exceeds the configured limit of ${config.complexityMaximum}.`,
+    );
+  }
+
+  const oversizedModules = metrics.modules.filter(
+    (module) => module.sloc > config.moduleSlocMaximum,
+  );
+  for (const module of oversizedModules) {
+    failures.push(
+      `${module.path} has ${module.sloc} SLOC; the limit is ${config.moduleSlocMaximum}.`,
+    );
+  }
+  if (metrics.newIssues.length > 0) {
+    failures.push(`New code introduces ${metrics.newIssues.length} quality issue(s).`);
+  }
+  if (newSecurity.length > 0) {
+    failures.push(
+      `New code introduces ${newSecurity.length} fixable HIGH/CRITICAL vulnerability finding(s).`,
+    );
+  }
+  for (const [job, status] of Object.entries(metrics.jobResults)) {
+    if (status !== "success") failures.push(`Required job ${job} completed with status ${status}.`);
+  }
+
+  return {
+    config,
+    failures,
+    metrics: { ...metrics, newSecurity, repositorySecurity },
+    passed: failures.length === 0,
+  };
+};
+
+const escapeHtml = (value: string): string =>
+  value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
+const markdownPath = (value: string): string => encodeURI(value.replaceAll("\\", "/"));
+
+const icon = (
+  passed: boolean,
+  context: Pick<MarkdownContext, "commitSha" | "repository">,
+): string => {
+  const filename = passed ? "passed.svg" : "failed.svg";
+  const alt = passed ? "passed" : "failed";
+  const source = `https://github.com/${context.repository}/blob/${context.commitSha}/.github/assets/quality-gate/${filename}?raw=true`;
+  return `<img src="${escapeHtml(source)}" width="11" height="11" alt="${alt}">`;
+};
+
+const detailsLink = (value: string, detailsUrl: string): string =>
+  `<a href="${escapeHtml(detailsUrl)}">${value}</a>`;
+
+const linkedMetric = (statusIcon: string, value: string, detailsUrl: string): string =>
+  detailsLink(`${statusIcon}&nbsp;${escapeHtml(value)}`, detailsUrl);
+
+const delta = (current: number, base: number | undefined, suffix = ""): string => {
+  if (base === undefined) return "—";
+  const difference = current - base;
+  const sign = difference > 0 ? "+" : "";
+  return `${sign}${difference.toFixed(2)}${suffix}`;
+};
+
+const integerDelta = (current: number, base: number | undefined): string => {
+  if (base === undefined) return "—";
+  const difference = current - base;
+  return `${difference > 0 ? "+" : ""}${difference}`;
+};
+
+const sourceUrl = (
+  context: Pick<MarkdownContext, "commitSha" | "repository">,
+  path: string,
+  line: number,
+): string =>
+  `https://github.com/${context.repository}/blob/${context.commitSha}/${markdownPath(path)}#L${line}`;
+
+const renderDiagnostic = (
+  diagnostic: Diagnostic,
+  context: Pick<MarkdownContext, "commitSha" | "repository">,
+  isNew: boolean,
+): string => {
+  const location = `${escapeHtml(diagnostic.path)}:${diagnostic.line}`;
+  const ruleLink = diagnostic.detailsUrl ? ` ([rule](${escapeHtml(diagnostic.detailsUrl)}))` : "";
+  return `- [${location}](${sourceUrl(context, diagnostic.path, diagnostic.line)}) — ${isNew ? "**new** — " : ""}\`${escapeHtml(diagnostic.rule)}\`: ${escapeHtml(diagnostic.message)}${ruleLink}`;
+};
+
+const renderSecurityFinding = (
+  finding: SecurityFinding,
+  context: Pick<MarkdownContext, "commitSha" | "repository">,
+  isNew: boolean,
+): string => {
+  const location = `${escapeHtml(finding.path)}:${finding.line}`;
+  const fix =
+    finding.fixedVersions.length === 0
+      ? "No fix has been published."
+      : `Fix available: ${finding.fixedVersions.map(escapeHtml).join(", ")}.`;
+  const details = finding.detailsUrl ? ` ([advisory](${escapeHtml(finding.detailsUrl)}))` : "";
+  return `- [${location}](${sourceUrl(context, finding.path, finding.line)}) — ${isNew ? "**new** — " : ""}\`${escapeHtml(finding.id)}\`: ${escapeHtml(finding.message)} ${fix}${details}`;
+};
+
+export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownContext): string => {
+  const { config, metrics } = result;
+  const oversized = metrics.modules.filter((module) => module.sloc > config.moduleSlocMaximum);
+  const changedOversized = oversized.filter((module) => module.changed);
+  const newIssueFingerprints = new Set(metrics.newIssues.map(diagnosticFingerprint));
+  const newSecurityFingerprints = new Set(metrics.newSecurity.map(securityFindingFingerprint));
+  const reportSecurityFindings = uniqueSecurityFindings(metrics.securityFindings);
+
+  const rows: readonly (readonly string[])[] = [
+    [
+      "Issues",
+      linkedMetric(
+        icon(metrics.newIssues.length === 0, context),
+        String(metrics.newIssues.length),
+        context.detailsUrl,
+      ),
+      detailsLink(String(metrics.repositoryIssues.length), context.detailsUrl),
+      detailsLink(
+        integerDelta(metrics.repositoryIssues.length, metrics.baseRepositoryIssueCount),
+        context.detailsUrl,
+      ),
+      detailsLink("—", context.detailsUrl),
+    ],
+    [
+      "Security",
+      linkedMetric(
+        icon(metrics.newSecurity.length === 0, context),
+        String(metrics.newSecurity.length),
+        context.detailsUrl,
+      ),
+      detailsLink(String(metrics.repositorySecurity.length), context.detailsUrl),
+      detailsLink(
+        integerDelta(metrics.repositorySecurity.length, metrics.baseRepositorySecurityCount),
+        context.detailsUrl,
+      ),
+      detailsLink("HIGH/CRITICAL", context.detailsUrl),
+    ],
+    [
+      "Coverage",
+      linkedMetric(
+        icon(metrics.newCoverage >= config.coverageMinimum, context),
+        `${metrics.newCoverage.toFixed(2)}%`,
+        context.detailsUrl,
+      ),
+      detailsLink(`${metrics.repositoryCoverage.toFixed(2)}%`, context.detailsUrl),
+      detailsLink(
+        delta(metrics.repositoryCoverage, metrics.baseRepositoryCoverage, " pp"),
+        context.detailsUrl,
+      ),
+      detailsLink(`≥ ${config.coverageMinimum}%`, context.detailsUrl),
+    ],
+    [
+      "Duplication",
+      linkedMetric(
+        icon(metrics.newDuplication <= config.duplicationMaximum, context),
+        `${metrics.newDuplication.toFixed(2)}%`,
+        context.detailsUrl,
+      ),
+      detailsLink(`${metrics.repositoryDuplication.toFixed(2)}%`, context.detailsUrl),
+      detailsLink(
+        delta(metrics.repositoryDuplication, metrics.baseRepositoryDuplication, " pp"),
+        context.detailsUrl,
+      ),
+      detailsLink(`≤ ${config.duplicationMaximum}%`, context.detailsUrl),
+    ],
+    [
+      "Maximum complexity",
+      linkedMetric(
+        icon(metrics.newComplexityViolations === 0, context),
+        String(metrics.newMaxComplexity),
+        context.detailsUrl,
+      ),
+      detailsLink(String(metrics.repositoryMaxComplexity), context.detailsUrl),
+      detailsLink(`${metrics.newComplexityViolations} new violations`, context.detailsUrl),
+      detailsLink(`≤ ${config.complexityMaximum}`, context.detailsUrl),
+    ],
+    [
+      `Modules over ${config.moduleSlocMaximum} SLOC`,
+      linkedMetric(
+        icon(changedOversized.length === 0, context),
+        `${changedOversized.length} new`,
+        context.detailsUrl,
+      ),
+      detailsLink(`${oversized.length} of ${metrics.modules.length}`, context.detailsUrl),
+      detailsLink(
+        integerDelta(oversized.length, metrics.baseOversizedModuleCount),
+        context.detailsUrl,
+      ),
+      detailsLink(`≤ ${config.moduleSlocMaximum} SLOC`, context.detailsUrl),
+    ],
+  ];
+
+  const lines = [
+    QUALITY_GATE_MARKER,
+    `## ${result.passed ? "✅ Quality Gate passed" : "❌ Quality Gate failed"}`,
+    "",
+    "| Measure | New code | Main in PR | Δ from main | Rule |",
+    "|---|---:|---:|---:|---:|",
+    ...rows.map((row) => `| ${row.join(" | ")} |`),
+    "",
+    `[View analysis details](${escapeHtml(context.detailsUrl)})`,
+  ];
+
+  if (result.failures.length > 0) {
+    lines.push("", "<details>", "<summary>Failure reasons</summary>", "");
+    lines.push(...result.failures.map((failure) => `- ${escapeHtml(failure)}`));
+    lines.push("", "</details>");
+  }
+
+  const diagnostics = [
+    ...metrics.repositoryIssues,
+    ...(metrics.securityIssues ?? []),
+    ...reportSecurityFindings,
+  ];
+  if (diagnostics.length > 0) {
+    lines.push("", "<details>", "<summary>Issue details</summary>", "");
+    for (const diagnostic of metrics.repositoryIssues) {
+      const fingerprint = diagnosticFingerprint(diagnostic);
+      lines.push(renderDiagnostic(diagnostic, context, newIssueFingerprints.has(fingerprint)));
+    }
+    for (const diagnostic of metrics.securityIssues ?? []) {
+      lines.push(renderDiagnostic(diagnostic, context, false));
+    }
+    for (const finding of reportSecurityFindings) {
+      lines.push(
+        renderSecurityFinding(
+          finding,
+          context,
+          newSecurityFingerprints.has(securityFindingFingerprint(finding)),
+        ),
+      );
+    }
+    lines.push("", "</details>");
+  }
+
+  if ((metrics.duplicateGroups?.length ?? 0) > 0) {
+    lines.push("", "<details>", "<summary>Duplicated fragments</summary>", "");
+    for (const group of metrics.duplicateGroups ?? []) {
+      const locations = group.locations
+        .map(
+          (location) =>
+            `[${escapeHtml(location.path)}:${location.start}-${location.end}](${sourceUrl(context, location.path, location.start)})`,
+        )
+        .join(" · ");
+      lines.push(`- ${group.lines} lines: ${locations}`);
+    }
+    lines.push("", "</details>");
+  }
+
+  const complexityViolations = (metrics.complexityFindings ?? []).filter(
+    (finding) => finding.complexity > config.complexityMaximum,
+  );
+  if (complexityViolations.length > 0) {
+    lines.push("", "<details>", "<summary>Complex functions</summary>", "");
+    for (const finding of complexityViolations) {
+      lines.push(
+        `- [${escapeHtml(finding.path)}:${finding.line}](${sourceUrl(context, finding.path, finding.line)}) — \`${escapeHtml(finding.name)}\`: ${finding.complexity}`,
+      );
+    }
+    lines.push("", "</details>");
+  }
+
+  return `${lines.join("\n")}\n`;
+};

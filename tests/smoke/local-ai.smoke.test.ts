@@ -4,7 +4,12 @@ import { z } from "zod";
 const fasterWhisperUrl = process.env.FASTER_WHISPER_SMOKE_URL ?? "http://faster-whisper:8000";
 const ollamaUrl = process.env.OLLAMA_SMOKE_URL ?? "http://ollama:11434";
 const whisperModel = process.env.SMOKE_WHISPER_MODEL ?? "tiny";
+const whisperRevision =
+  process.env.SMOKE_WHISPER_REVISION ?? "d90ca5fe260221311c53c58e660288d3deb8d356";
 const ollamaModel = process.env.SMOKE_OLLAMA_MODEL ?? "qwen3:1.7b";
+const ollamaDigest =
+  process.env.SMOKE_OLLAMA_DIGEST ??
+  "sha256:8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7";
 const localAiDevice = process.env.SMOKE_LOCAL_AI_DEVICE === "gpu" ? "gpu" : "cpu";
 const expectedWhisperDevice = localAiDevice === "gpu" ? "cuda" : "cpu";
 
@@ -16,6 +21,7 @@ describe("serviços locais de IA", () => {
         device: localAiDevice,
         fallback: "none",
         model: whisperModel,
+        revision: whisperRevision,
       }),
       headers: { "Content-Type": "application/json" },
       method: "POST",
@@ -39,6 +45,7 @@ describe("serviços locais de IA", () => {
     form.set("audio", new Blob([createSilentWav(500)]), "synthetic.wav");
     form.set("language", "auto");
     form.set("model", whisperModel);
+    form.set("revision", whisperRevision);
     form.set("device", localAiDevice);
     form.set("fallback", "none");
     form.set("batchSize", "0");
@@ -62,6 +69,16 @@ describe("serviços locais de IA", () => {
       method: "POST",
     });
     expect(pull.ok).toBe(true);
+
+    const tags = await fetch(`${ollamaUrl}/api/tags`);
+    expect(tags.ok).toBe(true);
+    const pulledModel = z
+      .object({
+        models: z.array(z.object({ digest: z.string(), model: z.string() })),
+      })
+      .parse(await tags.json())
+      .models.find((model) => model.model === ollamaModel);
+    expect(canonicalSha256(pulledModel?.digest)).toBe(canonicalSha256(ollamaDigest));
 
     const response = await fetch(`${ollamaUrl}/api/chat`, {
       body: JSON.stringify({
@@ -119,4 +136,9 @@ function writeAscii(view: DataView, offset: number, value: string): void {
   for (let index = 0; index < value.length; index += 1) {
     view.setUint8(offset + index, value.charCodeAt(index));
   }
+}
+
+function canonicalSha256(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  return value.startsWith("sha256:") ? value : `sha256:${value}`;
 }

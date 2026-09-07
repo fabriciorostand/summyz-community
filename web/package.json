@@ -10,6 +10,7 @@
     "format": "biome format --write .",
     "lint": "biome lint .",
     "test": "vitest run",
+    "test:coverage": "vitest run --config vite.ci.config.ts --coverage",
     "typecheck": "tsc -b --pretty false"
   },
   "dependencies": {

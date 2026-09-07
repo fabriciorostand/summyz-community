@@ -159,30 +159,47 @@ function formatPhase(
   if (attempts.length === 0) {
     return `${label}\n${language === "pt-BR" ? "Sem execuções registradas" : "No recorded executions"}\n`;
   }
+  const details: string[] = [label];
+  for (const group of groupAttempts(attempts, language).values()) {
+    details.push(...formatAttemptGroup(group, language));
+  }
+  return `${details.join("\n")}\n`;
+}
+
+function groupAttempts(
+  attempts: readonly CostAttempt[],
+  language: AppConfig["botLanguage"],
+): Map<string, CostAttempt[]> {
   const groups = new Map<string, CostAttempt[]>();
   for (const attempt of attempts) {
-    const model = attempt.model ?? (language === "pt-BR" ? "Não informado" : "Not reported");
+    const model = attempt.model ?? missingModelLabel(language);
     const key = `${attempt.execution}:${attempt.provider}:${model}`;
     groups.set(key, [...(groups.get(key) ?? []), attempt]);
   }
-  const details: string[] = [label];
-  for (const group of groups.values()) {
-    const first = group[0];
-    if (first === undefined) continue;
-    details.push(
-      language === "pt-BR"
-        ? `Execução: ${first.execution === "api" ? `API — ${first.provider}` : "Local"}`
-        : `Execution: ${first.execution === "api" ? `API — ${first.provider}` : "Local"}`,
-      `${language === "pt-BR" ? "Modelo" : "Model"}: ${first.model ?? (language === "pt-BR" ? "Não informado" : "Not reported")}`,
-    );
-    if (first.execution === "api") {
-      details.push(
-        `${language === "pt-BR" ? "Requisições" : "Requests"}: ${String(group.length)}`,
-        `${language === "pt-BR" ? "Custo confirmado" : "Confirmed cost"}: USD ${confirmedCosts(group)}`,
-      );
-    }
-  }
-  return `${details.join("\n")}\n`;
+  return groups;
+}
+
+function formatAttemptGroup(
+  group: readonly CostAttempt[],
+  language: AppConfig["botLanguage"],
+): string[] {
+  const first = group[0];
+  if (first === undefined) return [];
+  const execution = first.execution === "api" ? `API — ${first.provider}` : "Local";
+  const details = [
+    `${language === "pt-BR" ? "Execução" : "Execution"}: ${execution}`,
+    `${language === "pt-BR" ? "Modelo" : "Model"}: ${first.model ?? missingModelLabel(language)}`,
+  ];
+  if (first.execution !== "api") return details;
+  return [
+    ...details,
+    `${language === "pt-BR" ? "Requisições" : "Requests"}: ${String(group.length)}`,
+    `${language === "pt-BR" ? "Custo confirmado" : "Confirmed cost"}: USD ${confirmedCosts(group)}`,
+  ];
+}
+
+function missingModelLabel(language: AppConfig["botLanguage"]): string {
+  return language === "pt-BR" ? "Não informado" : "Not reported";
 }
 
 function formatPeriod(
@@ -362,24 +379,28 @@ function zonedMidnightToUtc(date: CalendarDate, timeZone: string): Date {
     year: "numeric",
   });
   for (let iteration = 0; iteration < 3; iteration += 1) {
-    const parts = Object.fromEntries(
-      formatter
-        .formatToParts(new Date(result))
-        .filter((part) => part.type !== "literal")
-        .map((part) => [part.type, Number(part.value)]),
-    );
-    const hour = parts.hour === 24 ? 0 : parts.hour;
-    const observed = Date.UTC(
-      parts.year ?? 0,
-      (parts.month ?? 1) - 1,
-      parts.day ?? 1,
-      hour,
-      parts.minute ?? 0,
-      parts.second ?? 0,
-    );
-    result += desired - observed;
+    result += desired - observedUtc(formatter, result);
   }
   return new Date(result);
+}
+
+function observedUtc(formatter: Intl.DateTimeFormat, timestamp: number): number {
+  const parts = Object.fromEntries(
+    formatter
+      .formatToParts(new Date(timestamp))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, Number(part.value)]),
+  );
+  const part = (name: string, fallback: number): number => parts[name] ?? fallback;
+  const hour = part("hour", 0);
+  return Date.UTC(
+    part("year", 0),
+    part("month", 1) - 1,
+    part("day", 1),
+    hour === 24 ? 0 : hour,
+    part("minute", 0),
+    part("second", 0),
+  );
 }
 
 function displayDate(value: string): string {

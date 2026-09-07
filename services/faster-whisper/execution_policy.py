@@ -1,17 +1,16 @@
 from collections.abc import Callable
-from typing import Literal, TypeVar
+from typing import Literal
 
 DevicePreference = Literal["auto", "cpu", "gpu"]
 FallbackPreference = Literal["cpu", "none"]
 RuntimeDevice = Literal["cpu", "cuda"]
-Runtime = TypeVar("Runtime")
 
 
 class AccelerationUnavailableError(RuntimeError):
     pass
 
 
-def load_with_device_policy(
+def load_with_device_policy[Runtime](
     preference: DevicePreference,
     fallback: FallbackPreference,
     cuda_device_count: int,

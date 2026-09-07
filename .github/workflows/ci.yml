@@ -1,0 +1,34 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  pr:
+    name: PR
+    if: github.event_name == 'pull_request'
+    uses: ./.github/workflows/_ci.yml
+    concurrency:
+      group: ci-pr-${{ github.event.pull_request.number }}
+      cancel-in-progress: true
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+
+  main:
+    name: Main
+    if: github.event_name == 'push'
+    uses: ./.github/workflows/_ci.yml
+    concurrency:
+      group: ci-main
+      queue: max
+    permissions:
+      actions: read
+      contents: read

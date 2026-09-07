@@ -557,39 +557,41 @@ describe("App", () => {
         },
       },
     };
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (input: RequestInfo | URL) => {
-        const path = String(input);
-        if (path === "/api/setup/status") {
-          return Response.json({ setupCompleted: true, registrationEnabled: true });
-        }
-        if (path === "/api/auth/me") {
-          return Response.json({
-            dashboardLanguage: "pt-BR",
-            email: "owner@example.com",
-            emailVerified: true,
-            installationRole: "administrator",
-            userId: "00000000-0000-4000-8000-000000000001",
-          });
-        }
-        if (path === "/api/profiles") {
-          return Response.json([
-            { active: true, profile },
-            { active: false, profile: localProfile },
-          ]);
-        }
-        if (path.startsWith("/api/ai/prompts/defaults")) {
-          return Response.json({
-            refinement: "Você é um revisor conservador.",
-            summaryConsolidation: "Você consolida resumos em inglês.",
-            summaryExtraction: "Você extrai informações em inglês.",
-            transcription: null,
-          });
-        }
-        return new Response(undefined, { status: 204 });
-      }),
-    );
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === "/api/setup/status") {
+        return Response.json({ setupCompleted: true, registrationEnabled: true });
+      }
+      if (path === "/api/auth/me") {
+        return Response.json({
+          dashboardLanguage: "pt-BR",
+          email: "owner@example.com",
+          emailVerified: true,
+          installationRole: "administrator",
+          userId: "00000000-0000-4000-8000-000000000001",
+        });
+      }
+      if (path === "/api/profiles" && init?.method === "POST") {
+        return Response.json({ ...profile, name: "Perfil 2", profileId: "profile-2" });
+      }
+      if (path === "/api/profiles") {
+        return Response.json([
+          { active: true, profile },
+          { active: false, profile: localProfile },
+        ]);
+      }
+      if (path.startsWith("/api/ai/prompts/defaults")) {
+        return Response.json({
+          refinement: "Você é um revisor conservador.",
+          summaryConsolidation: "Você consolida resumos em inglês.",
+          summaryExtraction: "Você extrai informações em inglês.",
+          transcription: null,
+        });
+      }
+      return new Response(undefined, { status: 204 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
 
     render(
       <MemoryRouter initialEntries={["/profiles"]}>
@@ -603,6 +605,10 @@ describe("App", () => {
       expect(providerSelect).toBeDisabled();
     }
     expect(screen.getByLabelText("Pesquisar idioma")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Pesquisar idioma"), { target: { value: "zz" } });
+    expect(screen.getByText("Nenhuma outra tag corresponde à pesquisa.")).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText("Pesquisar idioma"), { target: { value: "" } });
+    fireEvent.change(screen.getByLabelText("Idioma"), { target: { value: "pt-BR" } });
     expect(
       screen.getByText(
         /modelos são fornecidos por terceiros e não fazem parte do Summyz Community/i,
@@ -612,8 +618,8 @@ describe("App", () => {
       screen.getByText(/verifique a licença e os termos de cada modelo antes de usá-lo/i),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/prompt-base imutável do Summyz Community continuará ativo/i),
-    ).toBeInTheDocument();
+      screen.getAllByText(/prompt-base imutável do Summyz Community continuará ativo/i).length,
+    ).toBeGreaterThan(0);
     const vadTab = screen.getByRole("tab", { name: "VAD" });
     fireEvent.click(vadTab);
     await waitFor(() =>
@@ -626,9 +632,30 @@ describe("App", () => {
     });
     fireEvent.click(refinementToggle);
     expect(screen.getByRole("alertdialog", { name: /desativar prompt/i })).toBeInTheDocument();
-    expect(screen.queryAllByText(/sem prompt editável/i)).toHaveLength(0);
+    expect(screen.queryAllByText(/sem prompt editável/i)).toHaveLength(1);
     fireEvent.click(screen.getByRole("button", { name: /desativar prompt/i }));
-    expect(screen.getAllByText(/sem prompt editável/i)).toHaveLength(1);
+    expect(screen.getAllByText(/sem prompt editável/i)).toHaveLength(2);
+    fireEvent.change(screen.getByLabelText("Nome do perfil"), {
+      target: { value: "Perfil revisado" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profiles/profile-1",
+        expect.objectContaining({ method: "PUT" }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Novo perfil" }));
+    expect(await screen.findByRole("button", { name: "Perfil 2" })).toBeInTheDocument();
+    const deleteButton = screen.getByRole("button", { name: "Excluir perfil" });
+    await waitFor(() => expect(deleteButton).toBeEnabled());
+    fireEvent.click(deleteButton);
+    await waitFor(() =>
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/profiles/profile-2",
+        expect.objectContaining({ method: "DELETE" }),
+      ),
+    );
 
     fireEvent.click(screen.getByRole("tab", { name: "Local" }));
     expect(await screen.findByLabelText(/^Silêncio para encerrar/)).toHaveValue("auto");

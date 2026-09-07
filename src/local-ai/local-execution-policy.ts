@@ -57,30 +57,24 @@ function resolvePhase(
   }
 
   const gpu = selectBestCompatibleGpu(phase, hardware.accelerators ?? []);
-  if (gpu !== undefined) {
-    return {
-      device: "gpu",
-      fallback,
-      fallbackApplied: false,
-      gpuId: gpu.id,
-      ...(gpu.memoryBytes === undefined ? {} : { gpuMemoryBytes: gpu.memoryBytes }),
-      gpuVendor: gpu.vendor,
-    };
-  }
+  if (gpu !== undefined) return gpuPhase(gpu, fallback);
 
-  if (preference === "auto") {
-    if ((hardware.accelerators ?? []).length === 0) {
-      return { device: "cpu", fallback, fallbackApplied: false };
-    }
-    if (fallback === "cpu") {
-      return { device: "cpu", fallback, fallbackApplied: true };
-    }
-    throw new Error(`${phase} requires a compatible GPU, but none was detected`);
+  if (preference === "auto" && (hardware.accelerators ?? []).length === 0) {
+    return { device: "cpu", fallback, fallbackApplied: false };
   }
-  if (fallback === "cpu") {
-    return { device: "cpu", fallback, fallbackApplied: true };
-  }
+  if (fallback === "cpu") return { device: "cpu", fallback, fallbackApplied: true };
   throw new Error(`${phase} requires a compatible GPU, but none was detected`);
+}
+
+function gpuPhase(gpu: GraphicsAccelerator, fallback: LocalAiFallback): PhaseExecution {
+  return {
+    device: "gpu",
+    fallback,
+    fallbackApplied: false,
+    gpuId: gpu.id,
+    ...(gpu.memoryBytes === undefined ? {} : { gpuMemoryBytes: gpu.memoryBytes }),
+    gpuVendor: gpu.vendor,
+  };
 }
 
 function selectBestCompatibleGpu(

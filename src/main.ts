@@ -4,13 +4,11 @@ import { loadEnvFile } from "node:process";
 
 import { Client, Events, GatewayIntentBits } from "discord.js";
 
-import { assessModelCompatibility, resolveAiProfile } from "./ai-profile.js";
+import { ApplicationAiRuntime, requireConfigured } from "./application-ai-runtime.js";
 import { loadConfig, resolveBotConfig } from "./config.js";
-import type { CostPhase } from "./cost/cost-ledger.js";
 import { CostReconciler } from "./cost/cost-reconciler.js";
 import { createCostReportService } from "./cost/cost-report.js";
 import { PostgresCostLedgerStore } from "./cost/postgres-cost-ledger-store.js";
-import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
 import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js";
 import { PostgresAnalyticsStore } from "./database/postgres-analytics-store.js";
 import { createPostgresDatabase, type PostgresDatabase } from "./database/postgres-database.js";
@@ -24,13 +22,9 @@ import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
 import { notifyTranscriptionFailure } from "./discord/transcription-notifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
-import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-size.js";
 import { detectLocalHardware } from "./local-ai/hardware-detection.js";
-import { type LocalAiPhase, resolveLocalExecutionPlan } from "./local-ai/local-execution-policy.js";
-import { LocalModelManager } from "./local-ai/local-model-manager.js";
 import { createLogger } from "./logger.js";
 import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
-import { OpenRouterModelPreflight } from "./openrouter/model-preflight.js";
 import { DurableJobQueue } from "./processing/durable-job-queue.js";
 import { DurableJobWorker } from "./processing/durable-job-worker.js";
 import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
@@ -38,12 +32,7 @@ import { MeetingArtifactMaintenance } from "./processing/meeting-artifact-mainte
 import { MeetingFinalizer } from "./processing/meeting-finalizer.js";
 import { MeetingProcessingHandler } from "./processing/meeting-processing-handler.js";
 import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
-import {
-  meetingAiConfigurationSchema,
-  type RecordingManifest,
-  type ResolvedMeetingAiConfiguration,
-  requireCurrentMeetingAiConfiguration,
-} from "./recording/manifest.js";
+import type { RecordingManifest } from "./recording/manifest.js";
 import { ManifestStore } from "./recording/manifest-store.js";
 import { RecordingCoordinator } from "./recording/recording-coordinator.js";
 import { MeetingRefinementGenerator } from "./refinement/meeting-refinement-generator.js";
@@ -59,16 +48,12 @@ import { OpenRouterSummaryProvider } from "./summary/openrouter-summary-provider
 import { PublicationStore } from "./summary/publication-store.js";
 import { SummaryStore } from "./summary/summary-store.js";
 import { configureTerminalEncoding } from "./terminal-encoding.js";
-import { FasterWhisperTranscriptionProvider } from "./transcription/faster-whisper-transcription-provider.js";
 import { MeetingTranscriptionService } from "./transcription/meeting-transcription-service.js";
-import { OpenRouterTranscriptionProvider } from "./transcription/openrouter-transcription-provider.js";
 import {
   createAudioDecoder,
   FullAudioSpeechAnalyzer,
   SileroSpeechAnalyzer,
 } from "./transcription/speech-analyzer.js";
-import type { TranscriptionModelProfile } from "./transcription/transcription-model-profile.js";
-import type { TranscriptionProvider } from "./transcription/transcription-provider.js";
 import { TranscriptionStore } from "./transcription/transcription-store.js";
 import { CURRENT_TRANSCRIPTION_RECOVERY_VERSION } from "./transcription/transcription-recovery-policy.js";
 import { OllamaSummaryTranslator } from "./translation/ollama-summary-translator.js";
@@ -151,22 +136,30 @@ if (migratedManifestCount > 0) {
   logger.info({ migratedManifestCount }, "Legacy recording manifests migrated");
 }
 const postgresCostLedger = new PostgresCostLedgerStore(database);
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+});
+const guildConfigStore = new PostgresGuildConfigStore(database);
+const aiProfileStore = new PostgresAiProfileStore(database);
+const aiRuntime = new ApplicationAiRuntime({
+  aiProfileStore,
+  client,
+  config,
+  costStore: postgresCostLedger,
+  hardware: localHardware,
+  installationSettings,
+  logger,
+});
 const costReport = createCostReportService({
   language: config.botLanguage,
   reconcile: async (guildId) => {
-    const apiKey = await resolveOpenRouterApiKey();
+    const apiKey = await aiRuntime.resolveOpenRouterApiKey();
     if (apiKey === undefined) return;
     await new CostReconciler({ apiKey, logger, store: postgresCostLedger }).reconcile(guildId);
   },
   store: postgresCostLedger,
   timeZone: config.summaryTimeZone,
 });
-
-const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
-});
-const guildConfigStore = new PostgresGuildConfigStore(database);
-const aiProfileStore = new PostgresAiProfileStore(database);
 const refinementStore = new RefinementStore(recordingsDirectory);
 const summaryStore = new SummaryStore(recordingsDirectory);
 const publicationStore = new PublicationStore(recordingsDirectory);
@@ -183,10 +176,10 @@ const summaryService = new MeetingSummaryService({
   publisher: meetingPublisher,
   refinementStore,
   resolveGenerator: async (manifest) => {
-    const selection = getMeetingAiConfiguration(manifest).summary;
+    const selection = aiRuntime.getMeetingConfiguration(manifest).summary;
     const apiKey =
-      selection.provider === "openrouter" ? await requireOpenRouterApiKey() : undefined;
-    const costRecorder = createProviderCostRecorder(manifest, "summary", apiKey);
+      selection.provider === "openrouter" ? await aiRuntime.requireOpenRouterApiKey() : undefined;
+    const costRecorder = aiRuntime.createCostRecorder(manifest, "summary", apiKey);
     const provider =
       selection.provider === "ollama"
         ? new OllamaSummaryProvider({
@@ -219,12 +212,12 @@ const summaryService = new MeetingSummaryService({
     return generator;
   },
   resolveTranslator: async (manifest) => {
-    const configuration = getMeetingAiConfiguration(manifest);
+    const configuration = aiRuntime.getMeetingConfiguration(manifest);
     const selection = configuration.translation;
     if (selection === null) throw new Error("The meeting does not have a translation phase");
     const apiKey =
-      selection.provider === "openrouter" ? await requireOpenRouterApiKey() : undefined;
-    const costRecorder = createProviderCostRecorder(manifest, "translation", apiKey);
+      selection.provider === "openrouter" ? await aiRuntime.requireOpenRouterApiKey() : undefined;
+    const costRecorder = aiRuntime.createCostRecorder(manifest, "translation", apiKey);
     const translator =
       selection.provider === "ollama"
         ? new OllamaSummaryTranslator({
@@ -256,10 +249,10 @@ const refinementService = new MeetingRefinementService({
   logger,
   refinementStore,
   resolveGenerator: async (manifest) => {
-    const selection = getMeetingAiConfiguration(manifest).refinement;
+    const selection = aiRuntime.getMeetingConfiguration(manifest).refinement;
     const apiKey =
-      selection.provider === "openrouter" ? await requireOpenRouterApiKey() : undefined;
-    const costRecorder = createProviderCostRecorder(manifest, "refinement", apiKey);
+      selection.provider === "openrouter" ? await aiRuntime.requireOpenRouterApiKey() : undefined;
+    const costRecorder = aiRuntime.createCostRecorder(manifest, "refinement", apiKey);
     const provider =
       selection.provider === "ollama"
         ? new OllamaRefinementProvider({
@@ -305,11 +298,11 @@ const transcriptionService = new MeetingTranscriptionService({
   publishTranscriptOnly: (manifest, transcriptPath) =>
     meetingPublisher.publishTranscriptOnly(manifest, transcriptPath),
   resolveProvider: (manifest) => {
-    const selection = getMeetingAiConfiguration(manifest).transcription;
-    return createTranscriptionProvider(selection, manifest);
+    const selection = aiRuntime.getMeetingConfiguration(manifest).transcription;
+    return aiRuntime.createTranscriptionProvider(selection, manifest);
   },
   resolveSpeechAnalyzer: (manifest) => {
-    const configuration = getMeetingAiConfiguration(manifest);
+    const configuration = aiRuntime.getMeetingConfiguration(manifest);
     if (configuration.profileType === "external" && configuration.transcription.vad.enabled) {
       const vad = configuration.transcription.vad;
       return new SileroSpeechAnalyzer({
@@ -375,7 +368,7 @@ const recordingFactory = new DiscordRecordingFactory(
   manifestStore,
   logger,
   enqueueCompleted,
-  resolveAndPrepareMeetingAiConfiguration,
+  (guildId) => aiRuntime.resolveAndPrepareMeetingConfiguration(guildId),
   (guildId) => guildConfigStore.getGuildSettings(guildId),
 );
 const coordinator = new RecordingCoordinator(recordingFactory);
@@ -388,8 +381,8 @@ installInteractionHandler(
   config.botLanguage,
   costReport,
   aiProfileStore,
-  assessActiveAiProfile,
-  async () => (await resolveOpenRouterApiKey()) !== undefined,
+  (guildId) => aiRuntime.assessActiveProfile(guildId),
+  async () => (await aiRuntime.resolveOpenRouterApiKey()) !== undefined,
   async (guildId) => (await guildConfigStore.getGuildSettings(guildId)).botLanguage,
 );
 installVoiceStateHandler(client, coordinator, logger);
@@ -469,230 +462,6 @@ try {
   await worker.shutdown();
   await database.close().catch(() => undefined);
   process.exitCode = 1;
-}
-
-function getMeetingAiConfiguration(manifest: RecordingManifest): ResolvedMeetingAiConfiguration {
-  return requireCurrentMeetingAiConfiguration(manifest);
-}
-
-async function resolveAndPrepareMeetingAiConfiguration(
-  guildId: string,
-): Promise<ResolvedMeetingAiConfiguration> {
-  const profile = await getOwnedActiveProfile(guildId);
-  if (profile === undefined) {
-    throw new Error("The server does not have an active AI profile");
-  }
-  let configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
-  if (configuration.profileType === "external") {
-    const apiKey = await requireOpenRouterApiKey();
-    await new OpenRouterModelPreflight({ apiKey }).validate({
-      generativeModels: [
-        configuration.refinement.model,
-        configuration.summary.model,
-        ...(configuration.translation === null ? [] : [configuration.translation.model]),
-      ],
-      transcriptionModel: configuration.transcription.model,
-    });
-  }
-  const localAiPhases = localPhases(configuration);
-  const executionPlan = resolveLocalExecutionPlan({
-    device: config.localAiDevice,
-    enabledPhases: localAiPhases,
-    fallback: config.localAiFallback,
-    hardware: localHardware,
-  });
-  for (const phase of localAiPhases) {
-    const execution = executionPlan[phase];
-    const details = {
-      device: execution.device,
-      fallback: execution.fallback,
-      fallbackApplied: execution.fallbackApplied,
-      ...(execution.gpuVendor === undefined ? {} : { gpuVendor: execution.gpuVendor }),
-      phase,
-    };
-    if (execution.fallbackApplied) {
-      logger.warn(
-        { ...details, event: "local_ai_cpu_fallback_applied" },
-        "Local AI CPU fallback applied",
-      );
-    } else {
-      logger.info(details, "Local AI execution device selected");
-    }
-  }
-  if (configuration.transcription.provider === "faster-whisper") {
-    const batchSize = resolveFasterWhisperBatchSize(
-      configuration.transcription.batchSize,
-      configuration.transcription.model,
-      executionPlan.transcription,
-      config.transcriptionConcurrency,
-    );
-    configuration = meetingAiConfigurationSchema.parse({
-      ...configuration,
-      transcription: { ...configuration.transcription, batchSize },
-    });
-  }
-  if (localAiPhases.length > 0) {
-    await new LocalModelManager({
-      batchSize:
-        configuration.transcription.provider === "faster-whisper" &&
-        typeof configuration.transcription.batchSize === "number"
-          ? configuration.transcription.batchSize
-          : 0,
-      configuration,
-      executionPlan,
-      logger,
-    }).prepare();
-  }
-  return configuration;
-}
-
-function localPhases(configuration: ResolvedMeetingAiConfiguration): LocalAiPhase[] {
-  return [
-    ...(configuration.refinement.provider === "ollama" ? (["refinement"] as const) : []),
-    ...(configuration.summary.provider === "ollama" ? (["summary"] as const) : []),
-    ...(configuration.transcription.provider === "faster-whisper"
-      ? (["transcription"] as const)
-      : []),
-  ];
-}
-
-async function assessActiveAiProfile(guildId: string) {
-  const profile = await getOwnedActiveProfile(guildId);
-  if (profile === undefined) return [];
-  let configuration: ResolvedMeetingAiConfiguration;
-  try {
-    configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
-  } catch {
-    return [];
-  }
-  let executionPlan: ReturnType<typeof resolveLocalExecutionPlan>;
-  try {
-    executionPlan = resolveLocalExecutionPlan({
-      device: config.localAiDevice,
-      enabledPhases: localPhases(configuration),
-      fallback: config.localAiFallback,
-      hardware: localHardware,
-    });
-  } catch {
-    return ["incompatible" as const];
-  }
-  return [
-    ...(configuration.transcription.provider === "faster-whisper"
-      ? [
-          assessModelCompatibility({
-            device: executionPlan.transcription.device,
-            hardware: localHardware,
-            model: configuration.transcription.model,
-            phase: "transcription",
-            provider: "faster-whisper",
-          }),
-        ]
-      : []),
-    ...(configuration.refinement.provider === "ollama"
-      ? [
-          assessModelCompatibility({
-            device: executionPlan.refinement.device,
-            hardware: localHardware,
-            model: configuration.refinement.model,
-            phase: "refinement",
-            provider: "ollama",
-          }),
-        ]
-      : []),
-    ...(configuration.summary.provider === "ollama"
-      ? [
-          assessModelCompatibility({
-            device: executionPlan.summary.device,
-            hardware: localHardware,
-            model: configuration.summary.model,
-            phase: "summary",
-            provider: "ollama",
-          }),
-        ]
-      : []),
-  ];
-}
-
-async function getOwnedActiveProfile(guildId: string) {
-  const guild = client.guilds.cache.get(guildId) ?? (await client.guilds.fetch(guildId));
-  return aiProfileStore.getActiveProfileForDiscordOwner(guildId, guild.ownerId);
-}
-
-async function createTranscriptionProvider(
-  selection: ResolvedMeetingAiConfiguration["transcription"],
-  manifest: RecordingManifest,
-): Promise<TranscriptionProvider> {
-  if (selection.provider === "faster-whisper") {
-    const costRecorder = createProviderCostRecorder(manifest, "transcription");
-    const executionPlan = resolveLocalExecutionPlan({
-      device: config.localAiDevice,
-      enabledPhases: ["transcription"],
-      fallback: config.localAiFallback,
-      hardware: localHardware,
-    });
-    return new FasterWhisperTranscriptionProvider({
-      batchSize: typeof selection.batchSize === "number" ? selection.batchSize : 0,
-      costRecorder,
-      device: executionPlan.transcription.device,
-      fallback: executionPlan.transcription.fallback,
-      language: "auto",
-      model: selection.model,
-      prompt: selection.prompt,
-      timeoutMs: config.transcriptionTimeoutMs,
-      vad: selection.vad,
-    });
-  }
-  const profile: TranscriptionModelProfile = {
-    interSpeechSilenceMs: selection.interSpeechSilenceMs,
-    ...(selection.mergeMaxGapMs === undefined ? {} : { mergeMaxGapMs: selection.mergeMaxGapMs }),
-    ...(typeof selection.prompt === "string" ? { prompt: selection.prompt } : {}),
-    ...(selection.providerOptions === undefined
-      ? {}
-      : { providerOptions: selection.providerOptions }),
-    ...(selection.temperature === undefined ? {} : { temperature: selection.temperature }),
-  };
-  const apiKey = await requireOpenRouterApiKey();
-  const costRecorder = createProviderCostRecorder(manifest, "transcription", apiKey);
-  return new OpenRouterTranscriptionProvider({
-    apiKey,
-    costRecorder,
-    language: "auto",
-    logger,
-    maxAttempts: config.transcriptionMaxAttempts,
-    model: selection.model,
-    profile,
-    retryBaseMs: config.transcriptionRetryBaseMs,
-    retryMaxMs: config.transcriptionRetryMaxMs,
-    timeoutMs: config.transcriptionTimeoutMs,
-  });
-}
-
-function createProviderCostRecorder(
-  manifest: RecordingManifest,
-  phase: CostPhase,
-  openRouterApiKey?: string,
-): ProviderCostRecorder {
-  return new ProviderCostRecorder({
-    context: { guildId: manifest.guildId, meetingId: manifest.meetingId, phase },
-    logger,
-    ...(openRouterApiKey === undefined ? {} : { openRouter: { apiKey: openRouterApiKey } }),
-    store: postgresCostLedger,
-  });
-}
-
-async function resolveOpenRouterApiKey(): Promise<string | undefined> {
-  return installationSettings.getSecret("openrouter_api_key");
-}
-
-async function requireOpenRouterApiKey(): Promise<string> {
-  return requireConfigured(await resolveOpenRouterApiKey(), "OpenRouter API key");
-}
-
-function requireConfigured(value: string | undefined, settingName: string): string {
-  if (value === undefined) {
-    throw new Error(`${settingName} is required by the provider pinned to this meeting`);
-  }
-  return value;
 }
 
 function getErrorType(error: unknown): string {

@@ -1,6 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, profileSchema } from "./api";
+import { ApiError, api, profileSchema, type Profile } from "./api";
+
+afterEach(() => vi.unstubAllGlobals());
 
 describe("dashboard API client", () => {
   it("renova a sessão e repete uma requisição autenticada que recebeu 401", async () => {
@@ -29,9 +31,92 @@ describe("dashboard API client", () => {
 
     expect(profileSchema.safeParse({ ...profile, transcription }).success).toBe(false);
   });
+
+  it("serializes all mutation requests at the API boundary", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(undefined, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.completeDiscord("code value", "state value");
+    await api.deleteProfile("profile-1");
+    await api.disconnectDiscord();
+    await api.forgotPassword("owner@example.com");
+    await api.login("owner@example.com", "password");
+    await api.logout();
+    await api.register("owner@example.com", "password", "pt-BR");
+    await api.resetPassword("token", "new-password");
+    await api.setActiveProfile("guild-1", "profile-1");
+    await api.setup("setup-token", { owner: "owner@example.com" });
+    await api.updateForum("guild-1", null);
+    await api.updateForum("guild-1", { forumId: "forum-1", tagId: "tag-1" });
+    await api.updateGuildSettings("guild-1", {
+      botLanguage: "en",
+      persistMeetingAudio: true,
+      persistMeetingContent: false,
+    });
+    await api.updateInstallationSettings({
+      discordClientId: null,
+      publicBaseUrl: null,
+      registrationEnabled: false,
+      smtp: null,
+    });
+    await api.updateProfile(validProfile());
+    await api.updateRoles("guild-1", ["role-1"]);
+    await api.updateSecret("smtp_password", "secret");
+    await api.verifyEmail("verification-token");
+
+    expect(fetchMock).toHaveBeenCalledTimes(18);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/setup",
+      expect.objectContaining({
+        headers: expect.any(Headers),
+        method: "POST",
+      }),
+    );
+    const setupHeaders = findRequestHeaders(fetchMock, "/api/setup");
+    expect(setupHeaders.get("content-type")).toBe("application/json");
+    expect(setupHeaders.get("x-summyz-setup-token")).toBe("setup-token");
+  });
+
+  it("reports stable errors when refresh and response parsing fail", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(new Response(undefined, { status: 401 }))
+      .mockRejectedValueOnce(new Error("offline"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.listGuilds()).rejects.toEqual(new ApiError(401, "request_failed"));
+  });
+
+  it("validates the Discord authorization URL returned by the server", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          Response.json({ authorizationUrl: "https://discord.com/oauth2/authorize" }),
+        ),
+    );
+
+    await expect(api.connectDiscord()).resolves.toEqual({
+      authorizationUrl: "https://discord.com/oauth2/authorize",
+    });
+  });
 });
 
-function validProfile() {
+function findRequestHeaders(
+  fetchMock: ReturnType<typeof vi.fn<typeof fetch>>,
+  path: string,
+): Headers {
+  const call = fetchMock.mock.calls.find(([input]) => String(input) === path);
+  if (call === undefined) throw new Error(`Expected request to ${path}`);
+  const [, init] = call;
+  if (!(init?.headers instanceof Headers)) throw new Error(`Expected Headers for ${path}`);
+  return init.headers;
+}
+
+function validProfile(): Profile {
   return {
     language: "auto",
     name: "Perfil 1",

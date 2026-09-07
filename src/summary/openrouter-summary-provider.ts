@@ -138,17 +138,17 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
     this.#apiKey = options.apiKey;
     this.#consolidationPrompt = options.consolidationPrompt;
     this.#costRecorder = options.costRecorder;
-    this.#fetch = options.fetch ?? fetch;
-    this.#generation = options.generation ?? {};
+    this.#fetch = defaultValue(options.fetch, fetch);
+    this.#generation = defaultValue(options.generation, {});
     this.#extractionPrompt = options.extractionPrompt;
     this.#logger = options.logger;
-    this.#language = options.language ?? "auto";
+    this.#language = defaultValue(options.language, "auto");
     this.#maxAttempts = options.maxAttempts;
     this.#model = options.model;
-    this.#random = options.random ?? Math.random;
+    this.#random = defaultValue(options.random, Math.random);
     this.#retryBaseMs = options.retryBaseMs;
     this.#retryMaxMs = options.retryMaxMs;
-    this.#sleep = options.sleep ?? defaultSleep;
+    this.#sleep = defaultValue(options.sleep, defaultSleep);
     this.#timeoutMs = options.timeoutMs;
   }
 
@@ -211,9 +211,26 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
       phaseLanguage: this.#language,
     });
     const costAttempt = await this.#costRecorder?.beginApi("openrouter");
-    let response: Response;
+    const response = await this.#send(input, protectedInstruction, costAttempt);
+    const parsedResponse = await readOpenRouterResponse(response);
+    if (!response.ok) await this.#throwRequestFailure(response, parsedResponse, costAttempt);
     try {
-      response = await this.#fetch(OPENROUTER_SUMMARY_URL, {
+      const summary = parseSummaryResponse(parsedResponse.body);
+      await this.#finishResponse(response, parsedResponse, costAttempt, "success");
+      return summary;
+    } catch {
+      await this.#finishResponse(response, parsedResponse, costAttempt, "failure");
+      throw new IncompatibleSummaryResponseError();
+    }
+  }
+
+  async #send(
+    input: unknown,
+    protectedInstruction: string,
+    costAttempt: CostAttempt | undefined,
+  ): Promise<Response> {
+    try {
+      return await this.#fetch(OPENROUTER_SUMMARY_URL, {
         body: JSON.stringify({
           messages: [
             { content: protectedInstruction, role: "system" as const },
@@ -252,59 +269,55 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
       }
       throw new SummaryRequestError({ retryable: true });
     }
-
-    if (!response.ok) {
-      const parsedResponse = await readOpenRouterResponse(response);
-      const generationId = getOpenRouterGenerationId(response);
-      if (costAttempt !== undefined) {
-        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
-          body: parsedResponse.body,
-          exactCost: parsedResponse.exactCost,
-          ...(generationId === undefined ? {} : { generationId }),
-          outcome: "failure",
-        });
-      }
-      const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
-      throw new SummaryRequestError({
-        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
-        status: response.status,
-      });
-    }
-
-    const parsedResponse = await readOpenRouterResponse(response);
-    const body = parsedResponse.body;
-    const generationId = getOpenRouterGenerationId(response);
-    let summary: SummaryDraft;
-    try {
-      const parsed = responseSchema.parse(body);
-      const content = parsed.choices[0]?.message.content;
-      if (content === undefined) {
-        throw new IncompatibleSummaryResponseError();
-      }
-      const result: unknown = JSON.parse(content);
-      summary = generatedSummaryDraftSchema.parse(result);
-    } catch {
-      if (costAttempt !== undefined) {
-        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
-          body,
-          exactCost: parsedResponse.exactCost,
-          ...(generationId === undefined ? {} : { generationId }),
-          outcome: "failure",
-        });
-      }
-      throw new IncompatibleSummaryResponseError();
-    }
-    if (costAttempt !== undefined) {
-      await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
-        body,
-        exactCost: parsedResponse.exactCost,
-        ...(generationId === undefined ? {} : { generationId }),
-        outcome: "success",
-      });
-    }
-    return summary;
   }
+
+  async #throwRequestFailure(
+    response: Response,
+    parsedResponse: OpenRouterResponse,
+    costAttempt: CostAttempt | undefined,
+  ): Promise<never> {
+    await this.#finishResponse(response, parsedResponse, costAttempt, "failure");
+    const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+    throw new SummaryRequestError({
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+      retryable: isRetryableStatus(response.status),
+      status: response.status,
+    });
+  }
+
+  async #finishResponse(
+    response: Response,
+    parsedResponse: OpenRouterResponse,
+    costAttempt: CostAttempt | undefined,
+    outcome: "failure" | "success",
+  ): Promise<void> {
+    if (costAttempt === undefined) return;
+    const generationId = getOpenRouterGenerationId(response);
+    await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+      body: parsedResponse.body,
+      exactCost: parsedResponse.exactCost,
+      ...(generationId === undefined ? {} : { generationId }),
+      outcome,
+    });
+  }
+}
+
+type CostAttempt = Awaited<ReturnType<ProviderCostRecorder["beginApi"]>>;
+type OpenRouterResponse = Awaited<ReturnType<typeof readOpenRouterResponse>>;
+
+function parseSummaryResponse(body: unknown): SummaryDraft {
+  const content = responseSchema.parse(body).choices[0]?.message.content;
+  if (content === undefined) throw new IncompatibleSummaryResponseError();
+  const result: unknown = JSON.parse(content);
+  return generatedSummaryDraftSchema.parse(result);
+}
+
+function defaultValue<T>(value: T | undefined, fallback: T): T {
+  return value ?? fallback;
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 function createExtractionInstruction(language: string): string {

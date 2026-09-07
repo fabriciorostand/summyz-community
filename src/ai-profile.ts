@@ -363,32 +363,58 @@ export function assessModelCompatibility(
   input: AssessModelCompatibilityInput,
 ): AiProfileCompatibilityStatus {
   if (input.provider === "openrouter") return "unknown";
-  const entry = catalog.find(
+  const entry = findCatalogEntry(input);
+  if (entry === undefined) return "unknown";
+  const device = input.device ?? (input.hardware.gpuMemoryBytes === undefined ? "cpu" : "gpu");
+  if (device === "gpu") return assessGpuCompatibility(input.hardware, entry);
+  return assessCpuCompatibility(input.hardware, entry);
+}
+
+function findCatalogEntry(input: AssessModelCompatibilityInput): CatalogEntry | undefined {
+  return catalog.find(
     (candidate) =>
       candidate.model === input.model &&
       candidate.phase === input.phase &&
       candidate.provider === input.provider,
   );
-  if (entry === undefined) return "unknown";
-  const device = input.device ?? (input.hardware.gpuMemoryBytes === undefined ? "cpu" : "gpu");
-  if (device === "gpu") {
-    const accelerators = input.hardware.accelerators ?? [];
-    if (
-      entry.supportedGpuVendors !== undefined &&
-      !accelerators.some((gpu) => entry.supportedGpuVendors?.includes(gpu.vendor))
-    ) {
-      return "incompatible";
-    }
-    const available = input.hardware.gpuMemoryBytes ?? 0;
-    if (available < (entry.gpuMemoryBytes ?? entry.memoryBytes)) return "above_recommended";
-    const range = entry.recommendedGpuMemoryBytes;
-    return range !== undefined && available >= range[0] && available < range[1]
-      ? "recommended"
-      : "compatible";
-  }
+}
+
+function assessGpuCompatibility(
+  hardware: LocalHardwareProfile,
+  entry: CatalogEntry,
+): AiProfileCompatibilityStatus {
+  const accelerators = hardware.accelerators ?? [];
+  if (!hasSupportedGpuVendor(accelerators, entry.supportedGpuVendors)) return "incompatible";
+  const available = hardware.gpuMemoryBytes ?? 0;
+  if (available < (entry.gpuMemoryBytes ?? entry.memoryBytes)) return "above_recommended";
+  return isRecommendedGpuMemory(available, entry.recommendedGpuMemoryBytes)
+    ? "recommended"
+    : "compatible";
+}
+
+function hasSupportedGpuVendor(
+  accelerators: NonNullable<LocalHardwareProfile["accelerators"]>,
+  supportedVendors: readonly string[] | undefined,
+): boolean {
+  if (supportedVendors === undefined) return true;
+  return accelerators.some((gpu) => supportedVendors.includes(gpu.vendor));
+}
+
+function isRecommendedGpuMemory(
+  available: number,
+  range: CatalogEntry["recommendedGpuMemoryBytes"],
+): boolean {
+  if (range === undefined) return false;
+  return available >= range[0] && available < range[1];
+}
+
+function assessCpuCompatibility(
+  hardware: LocalHardwareProfile,
+  entry: CatalogEntry,
+): AiProfileCompatibilityStatus {
   if (
-    input.hardware.memoryBytes * 0.75 < entry.memoryBytes ||
-    input.hardware.cpuCores < entry.minimumCpuCores
+    hardware.memoryBytes * 0.75 < entry.memoryBytes ||
+    hardware.cpuCores < entry.minimumCpuCores
   ) {
     return "above_recommended";
   }

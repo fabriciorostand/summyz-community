@@ -5,19 +5,14 @@ import logging
 import os
 import shutil
 import tempfile
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
 from threading import Lock
-from typing import Annotated, Literal, Protocol
+from typing import Annotated, Literal, Never, Protocol
 
 import ctranslate2
 import numpy as np
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
-from faster_whisper import BatchedInferencePipeline, WhisperModel
-from faster_whisper.utils import download_model
-from pydantic import BaseModel, Field, ValidationError, model_validator
-from starlette.concurrency import run_in_threadpool
-
 from execution_policy import (
     AccelerationUnavailableError,
     DevicePreference,
@@ -25,10 +20,15 @@ from execution_policy import (
     RuntimeDevice,
     load_with_device_policy,
 )
-from structured_logging import configure_structured_logging
-from transcription_options import create_transcription_options
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from faster_whisper import BatchedInferencePipeline, WhisperModel
+from faster_whisper.utils import download_model
 from model_capability import require_multilingual_capability
 from model_inventory import create_model_inventory, write_model_inventory
+from pydantic import BaseModel, Field, ValidationError, model_validator
+from starlette.concurrency import run_in_threadpool
+from structured_logging import configure_structured_logging
+from transcription_options import create_transcription_options
 
 configure_structured_logging()
 logger = logging.getLogger("summyz.faster_whisper")
@@ -43,7 +43,25 @@ model_lock = Lock()
 
 
 class Transcriber(Protocol):
-    def transcribe(self, audio: object, **kwargs: object) -> tuple[object, object]: ...
+    def transcribe(
+        self, audio: object, **kwargs: object
+    ) -> tuple[Iterable[TranscriptionSegment], TranscriptionInfo]: ...
+
+
+class TranscriptionWord(Protocol):
+    end: float
+    start: float
+    word: str
+
+
+class TranscriptionSegment(Protocol):
+    text: str
+    words: Iterable[TranscriptionWord] | None
+
+
+class TranscriptionInfo(Protocol):
+    language: str
+    language_probability: float
 
 
 @dataclass(frozen=True)
@@ -58,11 +76,12 @@ class LoadedRuntime:
 
 
 loaded_runtime: LoadedRuntime | None = None
-loaded_key: tuple[str, DevicePreference, FallbackPreference, int] | None = None
+loaded_key: tuple[str, str | None, DevicePreference, FallbackPreference, int] | None = None
 
 
 class ModelRequest(BaseModel):
     model: str = Field(min_length=1, max_length=200, pattern=r"^[A-Za-z0-9._/-]+$")
+    revision: str | None = Field(default=None, pattern=r"^[a-f0-9]{40}$")
     device: DevicePreference = "auto"
     fallback: FallbackPreference = "none"
     batchSize: int = Field(default=0, ge=0, le=64)
@@ -88,7 +107,7 @@ class VadOptionsRequest(BaseModel):
     threshold: float = Field(default=0.5, ge=0, le=1)
 
     @model_validator(mode="after")
-    def validate_ranges(self) -> "VadOptionsRequest":
+    def validate_ranges(self) -> VadOptionsRequest:
         if isinstance(self.maxSpeechDurationSeconds, float) and not (
             0 < self.maxSpeechDurationSeconds <= 86_400
         ):
@@ -148,20 +167,21 @@ def warm_up(transcriber: Transcriber, batch_size: int) -> None:
 
 def load_model(
     model: str,
+    revision: str | None,
     device: DevicePreference,
     fallback: FallbackPreference,
     batch_size: int,
 ) -> LoadedRuntime:
     global loaded_key, loaded_runtime
-    key = (model, device, fallback, batch_size)
+    key = (model, revision, device, fallback, batch_size)
     with model_lock:
         if loaded_runtime is not None and loaded_key == key:
             return loaded_runtime
 
-        directory = model_directory(model)
+        directory = model_directory(f"{model}@{revision or 'default'}")
         directory.mkdir(parents=True, exist_ok=True)
-        download_model(model, output_dir=str(directory))
-        inventory = create_model_inventory(model)
+        download_model(model, output_dir=str(directory), revision=revision)
+        inventory = create_model_inventory(model, requested_revision=revision)
         write_model_inventory(directory, inventory)
         logger.info(
             "Local model inventory recorded",
@@ -205,11 +225,11 @@ def load_model(
         return loaded_runtime
 
 
-def remove_model(model: str) -> None:
+def remove_model(model: str, revision: str | None = None) -> None:
     with model_lock:
         if loaded_key is not None and loaded_key[0] == model:
             unload_model()
-        directory = model_directory(model)
+        directory = model_directory(f"{model}@{revision or 'default'}")
         if directory.exists():
             shutil.rmtree(directory)
             logger.warning("Rejected model removed from managed storage", extra={"model": model})
@@ -221,7 +241,7 @@ def transcribe_audio(
     language: str,
     prompt: str | None,
     vad_options: dict[str, object],
-) -> tuple[list[str], list[dict[str, object]], object]:
+) -> tuple[list[str], list[dict[str, object]], TranscriptionInfo]:
     options = create_transcription_options(language, runtime.batch_size, prompt, vad_options)
     segments, info = runtime.transcriber.transcribe(str(path), **options)
     words: list[dict[str, object]] = []
@@ -254,7 +274,12 @@ async def hardware() -> dict[str, int]:
 async def prepare_model(request: ModelRequest) -> ModelStatus:
     try:
         runtime = await run_in_threadpool(
-            load_model, request.model, request.device, request.fallback, request.batchSize
+            load_model,
+            request.model,
+            request.revision,
+            request.device,
+            request.fallback,
+            request.batchSize,
         )
         return ModelStatus(
             batchSize=runtime.batch_size,
@@ -270,9 +295,11 @@ async def prepare_model(request: ModelRequest) -> ModelStatus:
             "Required acceleration is unavailable",
             extra={"error_type": type(error).__name__, "model": request.model},
         )
-        raise HTTPException(status_code=409, detail="Required GPU acceleration is unavailable") from error
+        raise HTTPException(
+            status_code=409, detail="Required GPU acceleration is unavailable"
+        ) from error
     except Exception as error:
-        await run_in_threadpool(remove_model, request.model)
+        await run_in_threadpool(remove_model, request.model, request.revision)
         logger.error(
             "Model preparation failed",
             extra={"error_type": type(error).__name__, "model": request.model},
@@ -282,7 +309,7 @@ async def prepare_model(request: ModelRequest) -> ModelStatus:
 
 @app.post("/models/delete")
 async def delete_model(request: ModelRequest) -> dict[str, str]:
-    await run_in_threadpool(remove_model, request.model)
+    await run_in_threadpool(remove_model, request.model, request.revision)
     return {"status": "deleted"}
 
 
@@ -290,6 +317,7 @@ async def delete_model(request: ModelRequest) -> dict[str, str]:
 async def transcribe(
     audio: Annotated[UploadFile, File()],
     model: Annotated[str, Form(min_length=1, max_length=200)],
+    revision: Annotated[str | None, Form(pattern=r"^[a-f0-9]{40}$")] = None,
     language: Annotated[str, Form(min_length=2, max_length=35)] = "auto",
     device: Annotated[DevicePreference, Form()] = "auto",
     fallback: Annotated[FallbackPreference, Form()] = "none",
@@ -297,55 +325,102 @@ async def transcribe(
     prompt: Annotated[str | None, Form(min_length=1, max_length=20_000)] = None,
     vad_options_json: Annotated[str, Form(alias="vadOptions", max_length=2_000)] = "{}",
 ) -> dict[str, object]:
-    suffix = Path(audio.filename or "audio.wav").suffix.lower()
-    if suffix not in {".ogg", ".wav"}:
-        raise HTTPException(status_code=415, detail="Unsupported audio format")
-
     temporary_path: Path | None = None
     try:
-        try:
-            vad_options = VadOptionsRequest.model_validate_json(vad_options_json).model_dump()
-        except ValidationError as error:
-            raise HTTPException(status_code=422, detail="Invalid VAD configuration") from error
-        with tempfile.NamedTemporaryFile(dir=TEMP_ROOT, suffix=suffix, delete=False) as temporary:
-            temporary_path = Path(temporary.name)
-            while chunk := await audio.read(1024 * 1024):
-                temporary.write(chunk)
-        runtime = await run_in_threadpool(load_model, model, device, fallback, batch_size)
-        text_parts, words, info = await run_in_threadpool(
-            transcribe_audio, runtime, temporary_path, language, prompt, vad_options
+        suffix = require_audio_suffix(audio.filename)
+        vad_options = parse_vad_options(vad_options_json)
+        temporary_path = await save_upload(audio, suffix)
+        return await run_transcription(
+            temporary_path,
+            model,
+            revision,
+            language,
+            device,
+            fallback,
+            batch_size,
+            prompt,
+            vad_options,
         )
-        logger.info(
-            "Audio transcription completed",
-            extra={
-                "batch_size": runtime.batch_size,
-                "device": runtime.device,
-                "fallback_applied": runtime.fallback_applied,
-                "model": model,
-                "word_count": len(words),
-            },
-        )
-        return {
-            "language": info.language,
-            "languageProbability": info.language_probability,
-            "text": " ".join(part for part in text_parts if part),
-            "words": words,
-        }
     except HTTPException:
         raise
     except AccelerationUnavailableError as error:
-        logger.error(
-            "Required acceleration is unavailable",
-            extra={"error_type": type(error).__name__, "model": model},
-        )
-        raise HTTPException(status_code=409, detail="Required GPU acceleration is unavailable") from error
+        raise_acceleration_unavailable(error, model)
     except Exception as error:
-        logger.error(
-            "Audio transcription failed",
-            extra={"error_type": type(error).__name__, "model": model},
-        )
-        raise HTTPException(status_code=503, detail="Transcription is unavailable") from error
+        raise_transcription_unavailable(error, model)
     finally:
         await audio.close()
         if temporary_path is not None:
             temporary_path.unlink(missing_ok=True)
+
+
+def require_audio_suffix(filename: str | None) -> str:
+    suffix = Path(filename or "audio.wav").suffix.lower()
+    if suffix not in {".ogg", ".wav"}:
+        raise HTTPException(status_code=415, detail="Unsupported audio format")
+    return suffix
+
+
+def parse_vad_options(value: str) -> dict[str, object]:
+    try:
+        return VadOptionsRequest.model_validate_json(value).model_dump()
+    except ValidationError as error:
+        raise HTTPException(status_code=422, detail="Invalid VAD configuration") from error
+
+
+async def save_upload(audio: UploadFile, suffix: str) -> Path:
+    with tempfile.NamedTemporaryFile(dir=TEMP_ROOT, suffix=suffix, delete=False) as temporary:
+        path = Path(temporary.name)
+        while chunk := await audio.read(1024 * 1024):
+            temporary.write(chunk)
+    return path
+
+
+async def run_transcription(
+    path: Path,
+    model: str,
+    revision: str | None,
+    language: str,
+    device: DevicePreference,
+    fallback: FallbackPreference,
+    batch_size: int,
+    prompt: str | None,
+    vad_options: dict[str, object],
+) -> dict[str, object]:
+    runtime = await run_in_threadpool(load_model, model, revision, device, fallback, batch_size)
+    text_parts, words, info = await run_in_threadpool(
+        transcribe_audio, runtime, path, language, prompt, vad_options
+    )
+    logger.info(
+        "Audio transcription completed",
+        extra={
+            "batch_size": runtime.batch_size,
+            "device": runtime.device,
+            "fallback_applied": runtime.fallback_applied,
+            "model": model,
+            "word_count": len(words),
+        },
+    )
+    return {
+        "language": info.language,
+        "languageProbability": info.language_probability,
+        "text": " ".join(part for part in text_parts if part),
+        "words": words,
+    }
+
+
+def raise_acceleration_unavailable(error: AccelerationUnavailableError, model: str) -> Never:
+    logger.error(
+        "Required acceleration is unavailable",
+        extra={"error_type": type(error).__name__, "model": model},
+    )
+    raise HTTPException(
+        status_code=409, detail="Required GPU acceleration is unavailable"
+    ) from error
+
+
+def raise_transcription_unavailable(error: Exception, model: str) -> Never:
+    logger.error(
+        "Audio transcription failed",
+        extra={"error_type": type(error).__name__, "model": model},
+    )
+    raise HTTPException(status_code=503, detail="Transcription is unavailable") from error

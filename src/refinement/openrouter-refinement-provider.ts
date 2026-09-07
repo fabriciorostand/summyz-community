@@ -141,9 +141,25 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
 
   async #request(entries: readonly RefinementEntry[]): Promise<RefinementEntry[]> {
     const costAttempt = await this.#costRecorder?.beginApi("openrouter");
-    let response: Response;
+    const response = await this.#send(entries, costAttempt);
+    if (!response.ok) await this.#throwRequestFailure(response, costAttempt);
+    const parsedResponse = await this.#readResponse(response, costAttempt);
     try {
-      response = await this.#fetch(OPENROUTER_REFINEMENT_URL, {
+      const refined = parseRefinementResponse(entries, parsedResponse.body);
+      await this.#finishResponse(response, parsedResponse, costAttempt, "success");
+      return refined;
+    } catch {
+      await this.#finishResponse(response, parsedResponse, costAttempt, "failure");
+      throw new IncompatibleRefinementResponseError();
+    }
+  }
+
+  async #send(
+    entries: readonly RefinementEntry[],
+    costAttempt: CostAttempt | undefined,
+  ): Promise<Response> {
+    try {
+      return await this.#fetch(OPENROUTER_REFINEMENT_URL, {
         body: JSON.stringify({
           messages: [
             { content: this.#prompt, role: "system" as const },
@@ -180,62 +196,41 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
       const timedOut = isTimeoutError(error);
       throw new RefinementRequestError({ retryable: !timedOut, timedOut });
     }
-    if (!response.ok) {
-      const parsedResponse = await this.#readResponse(response, costAttempt);
-      const generationId = getOpenRouterGenerationId(response);
-      if (costAttempt !== undefined) {
-        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
-          body: parsedResponse.body,
-          exactCost: parsedResponse.exactCost,
-          ...(generationId === undefined ? {} : { generationId }),
-          outcome: "failure",
-        });
-      }
-      const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
-      throw new RefinementRequestError({
-        ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
-        retryable: response.status === 408 || response.status === 429 || response.status >= 500,
-        status: response.status,
-      });
-    }
+  }
+
+  async #throwRequestFailure(
+    response: Response,
+    costAttempt: CostAttempt | undefined,
+  ): Promise<never> {
     const parsedResponse = await this.#readResponse(response, costAttempt);
-    const body = parsedResponse.body;
+    await this.#finishResponse(response, parsedResponse, costAttempt, "failure");
+    const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+    throw new RefinementRequestError({
+      ...(retryAfterMs === undefined ? {} : { retryAfterMs }),
+      retryable: isRetryableStatus(response.status),
+      status: response.status,
+    });
+  }
+
+  async #finishResponse(
+    response: Response,
+    parsed: Awaited<ReturnType<typeof readOpenRouterResponse>>,
+    costAttempt: CostAttempt | undefined,
+    outcome: "failure" | "success",
+  ): Promise<void> {
+    if (costAttempt === undefined) return;
     const generationId = getOpenRouterGenerationId(response);
-    let refined: RefinementEntry[];
-    try {
-      const parsed = responseSchema.parse(body);
-      const content = parsed.choices[0]?.message.content;
-      if (content === undefined) {
-        throw new IncompatibleRefinementResponseError();
-      }
-      const result: unknown = JSON.parse(content);
-      const output = refinementResponseSchema.parse(result);
-      refined = applyRefinement(entries, output.blocks);
-    } catch {
-      if (costAttempt !== undefined) {
-        await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
-          body,
-          exactCost: parsedResponse.exactCost,
-          ...(generationId === undefined ? {} : { generationId }),
-          outcome: "failure",
-        });
-      }
-      throw new IncompatibleRefinementResponseError();
-    }
-    if (costAttempt !== undefined) {
-      await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
-        body,
-        exactCost: parsedResponse.exactCost,
-        ...(generationId === undefined ? {} : { generationId }),
-        outcome: "success",
-      });
-    }
-    return refined;
+    await this.#costRecorder?.finishOpenRouterResponse(costAttempt, {
+      body: parsed.body,
+      exactCost: parsed.exactCost,
+      ...(generationId === undefined ? {} : { generationId }),
+      outcome,
+    });
   }
 
   async #readResponse(
     response: Response,
-    costAttempt: Awaited<ReturnType<ProviderCostRecorder["beginApi"]>> | undefined,
+    costAttempt: CostAttempt | undefined,
   ): Promise<Awaited<ReturnType<typeof readOpenRouterResponse>>> {
     try {
       return await readOpenRouterResponse(response);
@@ -247,6 +242,22 @@ export class OpenRouterRefinementProvider implements RefinementProvider {
       throw new RefinementRequestError({ retryable: !timedOut, timedOut });
     }
   }
+}
+
+type CostAttempt = Awaited<ReturnType<ProviderCostRecorder["beginApi"]>>;
+
+function parseRefinementResponse(
+  entries: readonly RefinementEntry[],
+  body: unknown,
+): RefinementEntry[] {
+  const content = responseSchema.parse(body).choices[0]?.message.content;
+  if (content === undefined) throw new IncompatibleRefinementResponseError();
+  const result: unknown = JSON.parse(content);
+  return applyRefinement(entries, refinementResponseSchema.parse(result).blocks);
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 const refinementInstruction =

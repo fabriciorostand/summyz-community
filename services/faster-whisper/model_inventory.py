@@ -1,8 +1,9 @@
 import json
-from datetime import datetime, timezone
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
-from typing import Callable
 from urllib.parse import quote
+
 
 def _safe_metadata(value: object) -> str | None:
     if isinstance(value, str) and 0 < len(value) <= 200:
@@ -15,7 +16,8 @@ def _safe_metadata(value: object) -> str | None:
 
 def create_model_inventory(
     model: str,
-    get_model_info: Callable[[str], object] | None = None,
+    get_model_info: Callable[..., object] | None = None,
+    requested_revision: str | None = None,
 ) -> dict[str, object]:
     repository = model
     if "/" not in model:
@@ -31,12 +33,17 @@ def create_model_inventory(
         "model": model,
         "origin": f"https://huggingface.co/{quote(repository, safe='/')}",
         "provider": "huggingface",
-        "recordedAt": datetime.now(timezone.utc).isoformat(),
+        "recordedAt": datetime.now(UTC).isoformat(),
         "repository": repository,
+        "requestedRevision": requested_revision,
         "revision": None,
     }
     try:
-        metadata = get_model_info(repository)
+        metadata = (
+            get_model_info(repository)
+            if requested_revision is None
+            else get_model_info(repository, revision=requested_revision)
+        )
         inventory["revision"] = _safe_metadata(getattr(metadata, "sha", None))
         card_data = getattr(metadata, "card_data", None)
         inventory["license"] = _safe_metadata(getattr(card_data, "license", None))

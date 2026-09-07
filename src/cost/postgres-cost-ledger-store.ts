@@ -183,21 +183,25 @@ function parseMeeting(row: Record<string, unknown>): CostMeetingRecord {
 function parseAttempt(row: Record<string, unknown>): CostAttempt {
   return costAttemptSchema.parse({
     attemptId: row.attempt_id,
-    confirmationSource: row.confirmation_source ?? null,
-    cost: row.cost ?? null,
-    currency: row.currency ?? null,
+    confirmationSource: nullable(row.confirmation_source),
+    cost: nullable(row.cost),
+    currency: nullable(row.currency),
     endedAt: toIsoOrNull(row.ended_at),
     execution: row.execution,
     financialStatus: row.financial_status,
-    generationId: row.generation_id ?? null,
+    generationId: nullable(row.generation_id),
     guildId: row.guild_id,
     meetingId: row.meeting_id,
-    model: row.model ?? null,
+    model: nullable(row.model),
     outcome: row.outcome,
     phase: row.phase,
     provider: row.provider,
     startedAt: toIso(row.attempt_started_at),
   });
+}
+
+function nullable(value: unknown): unknown {
+  return value ?? null;
 }
 
 function toIso(value: unknown): string {

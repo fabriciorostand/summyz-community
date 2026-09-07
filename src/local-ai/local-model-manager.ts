@@ -264,42 +264,9 @@ export class LocalModelManager {
 
   async #recordOllamaInventory(model: string): Promise<void> {
     try {
-      const [showResponse, tagsResponse] = await Promise.all([
-        this.#fetch(`${this.#ollamaBaseUrl}/api/show`, {
-          body: JSON.stringify({ model, verbose: false }),
-          headers: { "Content-Type": "application/json" },
-          method: "POST",
-          signal: AbortSignal.timeout(30_000),
-        }),
-        this.#fetch(`${this.#ollamaBaseUrl}/api/tags`, {
-          method: "GET",
-          signal: AbortSignal.timeout(30_000),
-        }),
-      ]);
-      if (!showResponse.ok || !tagsResponse.ok) throw new Error("OllamaInventoryStatus");
-      const show = ollamaShowSchema.safeParse(await showResponse.json().catch(() => null));
-      const tags = ollamaTagsSchema.safeParse(await tagsResponse.json().catch(() => null));
-      if (!show.success || !tags.success) throw new Error("OllamaInventoryInvalidResponse");
-      const installed = tags.data.models.find(
-        (candidate) => candidate.model === model || candidate.name === model,
-      );
-      const declaredLicense = show.data.license?.trim();
+      const inventory = await this.#loadOllamaInventory(model);
       this.#logger.info(
-        {
-          digest: installed?.digest,
-          family: show.data.details?.family,
-          format: show.data.details?.format,
-          licenseDeclared: declaredLicense !== undefined && declaredLicense.length > 0,
-          licenseSha256:
-            declaredLicense === undefined || declaredLicense.length === 0
-              ? undefined
-              : createHash("sha256").update(declaredLicense).digest("hex"),
-          model,
-          modifiedAt: show.data.modified_at,
-          parameterSize: show.data.details?.parameter_size,
-          provider: "ollama",
-          quantizationLevel: show.data.details?.quantization_level,
-        },
+        ollamaInventoryLog(model, inventory.show, inventory.tags),
         "Local model inventory recorded",
       );
     } catch (error) {
@@ -310,6 +277,26 @@ export class LocalModelManager {
     }
   }
 
+  async #loadOllamaInventory(model: string): Promise<OllamaInventory> {
+    const [showResponse, tagsResponse] = await Promise.all([
+      this.#fetch(`${this.#ollamaBaseUrl}/api/show`, {
+        body: JSON.stringify({ model, verbose: false }),
+        headers: { "Content-Type": "application/json" },
+        method: "POST",
+        signal: AbortSignal.timeout(30_000),
+      }),
+      this.#fetch(`${this.#ollamaBaseUrl}/api/tags`, {
+        method: "GET",
+        signal: AbortSignal.timeout(30_000),
+      }),
+    ]);
+    if (!showResponse.ok || !tagsResponse.ok) throw new Error("OllamaInventoryStatus");
+    return {
+      show: ollamaShowSchema.parse(await showResponse.json().catch(() => null)),
+      tags: ollamaTagsSchema.parse(await tagsResponse.json().catch(() => null)),
+    };
+  }
+
   async #validateOllamaDevice(model: string, phase: OllamaPhase): Promise<void> {
     if (this.#executionPlan === undefined) return;
     const response = await this.#fetch(`${this.#ollamaBaseUrl}/api/ps`, {
@@ -317,9 +304,8 @@ export class LocalModelManager {
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) throw new Error(`OllamaProcessesStatus${String(response.status)}`);
-    const parsed = ollamaProcessesSchema.safeParse(await response.json().catch(() => null));
-    if (!parsed.success) throw new Error("OllamaProcessesInvalidResponse");
-    const process = parsed.data.models.find(
+    const parsed = ollamaProcessesSchema.parse(await response.json().catch(() => null));
+    const process = parsed.models.find(
       (candidate) => candidate.model === model || candidate.name === model,
     );
     if (process === undefined) throw new Error("OllamaModelProcessUnavailable");
@@ -330,6 +316,15 @@ export class LocalModelManager {
       { device: activeDevice, model, phase, vramBytes: process.size_vram },
       "Ollama execution device validated",
     );
+    this.#validateActiveOllamaDevice(activeDevice, execution, model, phase);
+  }
+
+  #validateActiveOllamaDevice(
+    activeDevice: "cpu" | "gpu",
+    execution: PhaseExecution,
+    model: string,
+    phase: OllamaPhase,
+  ): void {
     if (activeDevice === execution.device) return;
     if (execution.device === "gpu" && execution.fallback === "cpu") {
       this.#logger.warn(
@@ -379,55 +374,26 @@ export class LocalModelManager {
   async #prepareFasterWhisperModel(model: string): Promise<void> {
     const execution = this.#executionPlan?.transcription ?? cpuExecution();
     try {
-      const response = await this.#fetch(`${this.#fasterWhisperBaseUrl}/models/prepare`, {
-        body: JSON.stringify({
-          batchSize: this.#batchSize,
-          device: execution.device,
-          fallback: execution.fallback,
-          model,
-        }),
-        headers: { "Content-Type": "application/json" },
-        method: "POST",
-        signal: AbortSignal.timeout(30 * 60 * 1_000),
-      });
-      if (!response.ok) {
-        if (response.status === 422) {
-          await this.#deleteFasterWhisperModel(model);
-          this.#fasterWhisperPending = false;
-        }
-        throw new Error(`FasterWhisperPreparationStatus${String(response.status)}`);
-      }
-      const status = fasterWhisperStatusSchema.safeParse(await response.json().catch(() => null));
-      if (!status.success) throw new MultilingualCheckpointRequiredError();
-      if (!status.data.multilingual) throw new MultilingualCheckpointRequiredError();
-      if (
-        status.success &&
-        ((execution.device === "gpu" &&
-          execution.fallback === "none" &&
-          status.data.device !== "cuda") ||
-          (execution.device === "cpu" && status.data.device !== "cpu"))
-      ) {
-        throw new LocalAiDevicePolicyError(
-          "faster-whisper active device violates the configured policy",
-        );
-      }
+      const response = await this.#requestFasterWhisperPreparation(model, execution);
+      await this.#requireSuccessfulFasterWhisperResponse(response, model);
+      const status = parseFasterWhisperStatus(await response.json().catch(() => null));
+      requireMultilingualCheckpoint(status);
+      requireFasterWhisperDevice(status.device, execution);
       this.#fasterWhisperPending = false;
       this.#logger.info(
-        status.success
-          ? {
-              batchSize: status.data.batchSize,
-              computeType: status.data.computeType,
-              device: status.data.device,
-              fallbackApplied: status.data.fallbackApplied,
-              model,
-              phase: "transcription",
-            }
-          : { model, phase: "transcription" },
+        {
+          batchSize: status.batchSize,
+          computeType: status.computeType,
+          device: status.device,
+          fallbackApplied: status.fallbackApplied,
+          model,
+          phase: "transcription",
+        },
         "faster-whisper model is ready",
       );
-      if (status.success && status.data.fallbackApplied) {
+      if (status.fallbackApplied) {
         this.#logger.warn(
-          { device: status.data.device, fallbackApplied: true, model, phase: "transcription" },
+          { device: status.device, fallbackApplied: true, model, phase: "transcription" },
           "faster-whisper GPU acceleration is unavailable; explicit CPU fallback was applied",
         );
       }
@@ -438,6 +404,29 @@ export class LocalModelManager {
       );
       throw error;
     }
+  }
+
+  #requestFasterWhisperPreparation(model: string, execution: PhaseExecution): Promise<Response> {
+    return this.#fetch(`${this.#fasterWhisperBaseUrl}/models/prepare`, {
+      body: JSON.stringify({
+        batchSize: this.#batchSize,
+        device: execution.device,
+        fallback: execution.fallback,
+        model,
+      }),
+      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      signal: AbortSignal.timeout(30 * 60 * 1_000),
+    });
+  }
+
+  async #requireSuccessfulFasterWhisperResponse(response: Response, model: string): Promise<void> {
+    if (response.ok) return;
+    if (response.status === 422) {
+      await this.#deleteFasterWhisperModel(model);
+      this.#fasterWhisperPending = false;
+    }
+    throw new Error(`FasterWhisperPreparationStatus${String(response.status)}`);
   }
 
   async #deleteFasterWhisperModel(model: string): Promise<void> {
@@ -468,6 +457,66 @@ export class LocalModelManager {
 
   #isPreparationComplete(): boolean {
     return this.#pendingOllamaPhases.size === 0 && !this.#fasterWhisperPending;
+  }
+}
+
+type OllamaShow = z.infer<typeof ollamaShowSchema>;
+type OllamaTags = z.infer<typeof ollamaTagsSchema>;
+
+interface OllamaInventory {
+  show: OllamaShow;
+  tags: OllamaTags;
+}
+
+function ollamaInventoryLog(model: string, show: OllamaShow, tags: OllamaTags) {
+  const installed = tags.models.find(
+    (candidate) => candidate.model === model || candidate.name === model,
+  );
+  const declaredLicense = show.license?.trim();
+  return {
+    digest: installed?.digest,
+    family: show.details?.family,
+    format: show.details?.format,
+    licenseDeclared: isDeclaredLicense(declaredLicense),
+    licenseSha256: licenseChecksum(declaredLicense),
+    model,
+    modifiedAt: show.modified_at,
+    parameterSize: show.details?.parameter_size,
+    provider: "ollama",
+    quantizationLevel: show.details?.quantization_level,
+  };
+}
+
+function isDeclaredLicense(license: string | undefined): boolean {
+  return license !== undefined && license.length > 0;
+}
+
+function licenseChecksum(license: string | undefined): string | undefined {
+  return isDeclaredLicense(license)
+    ? createHash("sha256")
+        .update(license ?? "")
+        .digest("hex")
+    : undefined;
+}
+
+function parseFasterWhisperStatus(value: unknown): z.infer<typeof fasterWhisperStatusSchema> {
+  const parsed = fasterWhisperStatusSchema.safeParse(value);
+  if (!parsed.success) throw new MultilingualCheckpointRequiredError();
+  return parsed.data;
+}
+
+function requireMultilingualCheckpoint(status: z.infer<typeof fasterWhisperStatusSchema>): void {
+  if (!status.multilingual) throw new MultilingualCheckpointRequiredError();
+}
+
+function requireFasterWhisperDevice(device: "cpu" | "cuda", execution: PhaseExecution): void {
+  const violatesGpu =
+    execution.device === "gpu" && execution.fallback === "none" && device !== "cuda";
+  const violatesCpu = execution.device === "cpu" && device !== "cpu";
+  if (violatesGpu || violatesCpu) {
+    throw new LocalAiDevicePolicyError(
+      "faster-whisper active device violates the configured policy",
+    );
   }
 }
 

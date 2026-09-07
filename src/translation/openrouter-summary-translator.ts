@@ -34,108 +34,119 @@ export class OpenRouterSummaryTranslator implements SummaryTranslator {
 
   public async translate(summary: PublicSummary, targetLanguage: string): Promise<PublicSummary> {
     const costAttempt = await this.#options.costRecorder?.beginApi("openrouter");
-    let response: Response;
-    try {
-      response = await (this.#options.fetch ?? fetch)(
-        "https://openrouter.ai/api/v1/chat/completions",
-        {
-          body: JSON.stringify({
-            messages: [
-              {
-                content: composeProtectedPrompt({
-                  ...(this.#options.prompt === undefined
-                    ? {}
-                    : { editablePrompt: this.#options.prompt }),
-                  phase: "translation",
-                  phaseLanguage: targetLanguage,
-                }),
-                role: "system",
-              },
-              { content: JSON.stringify({ summary }), role: "user" },
-            ],
-            model: this.#options.model,
-            provider: { require_parameters: true },
-            response_format: {
-              json_schema: {
-                name: "translated_meeting_summary",
-                schema: publicSummaryJsonSchema,
-                strict: true,
-              },
-              type: "json_schema",
-            },
-            ...(this.#options.generation?.seed === undefined
-              ? {}
-              : { seed: this.#options.generation.seed }),
-            stream: false,
-            ...(this.#options.generation?.temperature === undefined
-              ? {}
-              : { temperature: this.#options.generation.temperature }),
-          }),
-          headers: {
-            Authorization: `Bearer ${this.#options.apiKey}`,
-            "Content-Type": "application/json",
-          },
-          method: "POST",
-          signal: AbortSignal.timeout(this.#options.timeoutMs),
-        },
-      );
-    } catch {
-      if (costAttempt !== undefined) {
-        await this.#options.costRecorder?.finishUnattributed(costAttempt, "failure");
-      }
-      throw new TranslationRequestError(true);
-    }
-    let parsedResponse: Awaited<ReturnType<typeof readOpenRouterResponse>>;
-    try {
-      parsedResponse = await readOpenRouterResponse(response);
-    } catch {
-      if (costAttempt !== undefined) {
-        await this.#options.costRecorder?.finishUnattributed(costAttempt, "failure");
-      }
-      throw new TranslationRequestError(true);
-    }
-    const generationId = getOpenRouterGenerationId(response);
+    const response = await this.#send(summary, targetLanguage, costAttempt);
+    const parsedResponse = await this.#readResponse(response, costAttempt);
     if (!response.ok) {
-      if (costAttempt !== undefined) {
-        await this.#options.costRecorder?.finishOpenRouterResponse(costAttempt, {
-          body: parsedResponse.body,
-          exactCost: parsedResponse.exactCost,
-          ...(generationId === undefined ? {} : { generationId }),
-          outcome: "failure",
-        });
-      }
-      throw new TranslationRequestError(
-        response.status === 408 || response.status === 429 || response.status >= 500,
-      );
+      await this.#finishResponse(response, parsedResponse, costAttempt, "failure");
+      throw new TranslationRequestError(isRetryableStatus(response.status));
     }
-    let translated: PublicSummary;
     try {
-      const body = responseSchema.parse(parsedResponse.body);
-      const content = body.choices[0]?.message.content;
-      if (content === undefined) throw new Error("Invalid translation response");
-      const parsed: unknown = JSON.parse(content);
-      translated = translatedPublicSummarySchema.parse(parsed);
+      const translated = parseTranslatedSummary(parsedResponse.body);
+      await this.#finishResponse(response, parsedResponse, costAttempt, "success");
+      return translated;
     } catch {
-      if (costAttempt !== undefined) {
-        await this.#options.costRecorder?.finishOpenRouterResponse(costAttempt, {
-          body: parsedResponse.body,
-          exactCost: parsedResponse.exactCost,
-          ...(generationId === undefined ? {} : { generationId }),
-          outcome: "failure",
-        });
-      }
+      await this.#finishResponse(response, parsedResponse, costAttempt, "failure");
       throw new Error("The translation response did not match the required structure");
     }
-    if (costAttempt !== undefined) {
-      await this.#options.costRecorder?.finishOpenRouterResponse(costAttempt, {
-        body: parsedResponse.body,
-        exactCost: parsedResponse.exactCost,
-        ...(generationId === undefined ? {} : { generationId }),
-        outcome: "success",
-      });
-    }
-    return translated;
   }
+
+  async #send(
+    summary: PublicSummary,
+    targetLanguage: string,
+    costAttempt: CostAttempt | undefined,
+  ): Promise<Response> {
+    try {
+      return await (this.#options.fetch ?? fetch)("https://openrouter.ai/api/v1/chat/completions", {
+        body: JSON.stringify({
+          messages: [
+            {
+              content: composeProtectedPrompt({
+                ...(this.#options.prompt === undefined
+                  ? {}
+                  : { editablePrompt: this.#options.prompt }),
+                phase: "translation",
+                phaseLanguage: targetLanguage,
+              }),
+              role: "system",
+            },
+            { content: JSON.stringify({ summary }), role: "user" },
+          ],
+          model: this.#options.model,
+          provider: { require_parameters: true },
+          response_format: {
+            json_schema: {
+              name: "translated_meeting_summary",
+              schema: publicSummaryJsonSchema,
+              strict: true,
+            },
+            type: "json_schema",
+          },
+          ...(this.#options.generation?.seed === undefined
+            ? {}
+            : { seed: this.#options.generation.seed }),
+          stream: false,
+          ...(this.#options.generation?.temperature === undefined
+            ? {}
+            : { temperature: this.#options.generation.temperature }),
+        }),
+        headers: {
+          Authorization: `Bearer ${this.#options.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        method: "POST",
+        signal: AbortSignal.timeout(this.#options.timeoutMs),
+      });
+    } catch {
+      if (costAttempt !== undefined) {
+        await this.#options.costRecorder?.finishUnattributed(costAttempt, "failure");
+      }
+      throw new TranslationRequestError(true);
+    }
+  }
+
+  async #readResponse(
+    response: Response,
+    costAttempt: CostAttempt | undefined,
+  ): Promise<OpenRouterResponse> {
+    try {
+      return await readOpenRouterResponse(response);
+    } catch {
+      if (costAttempt !== undefined) {
+        await this.#options.costRecorder?.finishUnattributed(costAttempt, "failure");
+      }
+      throw new TranslationRequestError(true);
+    }
+  }
+
+  async #finishResponse(
+    response: Response,
+    parsedResponse: OpenRouterResponse,
+    costAttempt: CostAttempt | undefined,
+    outcome: "failure" | "success",
+  ): Promise<void> {
+    if (costAttempt === undefined) return;
+    const generationId = getOpenRouterGenerationId(response);
+    await this.#options.costRecorder?.finishOpenRouterResponse(costAttempt, {
+      body: parsedResponse.body,
+      exactCost: parsedResponse.exactCost,
+      ...(generationId === undefined ? {} : { generationId }),
+      outcome,
+    });
+  }
+}
+
+type CostAttempt = Awaited<ReturnType<ProviderCostRecorder["beginApi"]>>;
+type OpenRouterResponse = Awaited<ReturnType<typeof readOpenRouterResponse>>;
+
+function parseTranslatedSummary(body: unknown): PublicSummary {
+  const content = responseSchema.parse(body).choices[0]?.message.content;
+  if (content === undefined) throw new Error("Invalid translation response");
+  const parsed: unknown = JSON.parse(content);
+  return translatedPublicSummarySchema.parse(parsed);
+}
+
+function isRetryableStatus(status: number): boolean {
+  return status === 408 || status === 429 || status >= 500;
 }
 
 export const publicSummaryJsonSchema = {

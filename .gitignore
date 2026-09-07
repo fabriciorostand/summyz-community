@@ -1,6 +1,11 @@
 node_modules/
 dist/
 coverage/
+reports/
+.ci-cache/
+.coverage
+.mypy_cache/
+.pytest_cache/
 .env
 data/
 *.log

@@ -55,6 +55,16 @@ interface OpenRouterResponseResult {
   outcome: "success" | "failure";
 }
 
+type OpenRouterGeneration = z.infer<typeof generationResponseSchema>["data"];
+type OpenRouterMetadataResult = ReturnType<typeof openRouterResponseMetadataSchema.safeParse>;
+
+interface ResolvedOpenRouterCost {
+  directCost: number | string | undefined;
+  generation: OpenRouterGeneration | undefined;
+  generationId: string | null;
+  model: string | null;
+}
+
 export class ProviderCostRecorder {
   readonly #context: ProviderCostContext;
   readonly #id: () => string;
@@ -107,64 +117,88 @@ export class ProviderCostRecorder {
     attempt: CostAttempt,
     input: OpenRouterResponseResult,
   ): Promise<void> {
-    const direct = openRouterResponseMetadataSchema.safeParse(input.body);
-    const generationId = input.generationId ?? null;
-    let model = direct.success ? (direct.data.model ?? null) : null;
-    const directCost = input.exactCost ?? (direct.success ? direct.data.usage?.cost : undefined);
-    let generation: z.infer<typeof generationResponseSchema>["data"] | undefined;
-    if (generationId !== null && (directCost === undefined || model === null)) {
-      generation = await this.#getGeneration(generationId);
-      model ??= generation?.model ?? null;
-    }
-    if (directCost !== undefined) {
-      await this.#saveFinished(
-        finishCostAttempt(attempt, {
-          confirmationSource: "response",
-          cost:
-            typeof directCost === "string"
-              ? decimalAmountFromProviderText(directCost)
-              : decimalAmountFromNumber(directCost),
-          currency: "USD",
-          endedAt: this.#now().toISOString(),
-          financialStatus: "confirmed",
-          ...(generationId === null ? {} : { generationId }),
-          ...(model === null ? {} : { model }),
-          outcome: input.outcome,
-        }),
-      );
+    const resolved = await this.#resolveOpenRouterCost(input);
+    if (resolved.directCost !== undefined) {
+      await this.#finishDirectCost(attempt, input, resolved, resolved.directCost);
       return;
     }
-    if (generation !== undefined) {
-      await this.#saveFinished(
-        finishCostAttempt(attempt, {
-          confirmationSource: "generation",
-          cost:
-            typeof generation.total_cost === "string"
-              ? decimalAmountFromProviderText(generation.total_cost)
-              : decimalAmountFromNumber(generation.total_cost),
-          currency: "USD",
-          endedAt: this.#now().toISOString(),
-          financialStatus: "confirmed",
-          generationId: generation.id,
-          model: generation.model,
-          outcome: input.outcome,
-        }),
-      );
+    if (resolved.generation !== undefined) {
+      await this.#finishGenerationCost(attempt, input, resolved.generation);
       return;
     }
-    if (generationId !== null) {
-      await this.#saveFinished(
-        finishCostAttempt(attempt, {
-          endedAt: this.#now().toISOString(),
-          financialStatus: "pending",
-          generationId,
-          ...(model === null ? {} : { model }),
-          outcome: input.outcome,
-        }),
-      );
+    if (resolved.generationId !== null) {
+      await this.#finishPending(attempt, input, resolved, resolved.generationId);
       return;
     }
     await this.finishUnattributed(attempt, input.outcome);
+  }
+
+  async #resolveOpenRouterCost(input: OpenRouterResponseResult): Promise<ResolvedOpenRouterCost> {
+    const direct = openRouterResponseMetadataSchema.safeParse(input.body);
+    const generationId = input.generationId ?? null;
+    let model = directModel(direct);
+    const directCost = input.exactCost ?? directResponseCost(direct);
+    let generation: OpenRouterGeneration | undefined;
+    if (shouldLoadGeneration(generationId, directCost, model)) {
+      generation = await this.#getGeneration(generationId);
+      model = resolvedModel(model, generation);
+    }
+    return { directCost, generation, generationId, model };
+  }
+
+  async #finishDirectCost(
+    attempt: CostAttempt,
+    input: OpenRouterResponseResult,
+    resolved: ResolvedOpenRouterCost,
+    directCost: number | string,
+  ): Promise<void> {
+    await this.#saveFinished(
+      finishCostAttempt(attempt, {
+        confirmationSource: "response",
+        cost: providerCost(directCost),
+        currency: "USD",
+        endedAt: this.#now().toISOString(),
+        financialStatus: "confirmed",
+        ...trackingFields(resolved.generationId, resolved.model),
+        outcome: input.outcome,
+      }),
+    );
+  }
+
+  async #finishGenerationCost(
+    attempt: CostAttempt,
+    input: OpenRouterResponseResult,
+    generation: OpenRouterGeneration,
+  ): Promise<void> {
+    await this.#saveFinished(
+      finishCostAttempt(attempt, {
+        confirmationSource: "generation",
+        cost: providerCost(generation.total_cost),
+        currency: "USD",
+        endedAt: this.#now().toISOString(),
+        financialStatus: "confirmed",
+        generationId: generation.id,
+        model: generation.model,
+        outcome: input.outcome,
+      }),
+    );
+  }
+
+  async #finishPending(
+    attempt: CostAttempt,
+    input: OpenRouterResponseResult,
+    resolved: ResolvedOpenRouterCost,
+    generationId: string,
+  ): Promise<void> {
+    await this.#saveFinished(
+      finishCostAttempt(attempt, {
+        endedAt: this.#now().toISOString(),
+        financialStatus: "pending",
+        generationId,
+        ...trackingFields(null, resolved.model),
+        outcome: input.outcome,
+      }),
+    );
   }
 
   async #begin(
@@ -197,24 +231,7 @@ export class ProviderCostRecorder {
 
   async #saveFinished(attempt: CostAttempt): Promise<void> {
     await this.#store.saveAttempt(attempt);
-    this.#logger?.info(
-      {
-        attemptId: attempt.attemptId,
-        confirmationSource: attempt.confirmationSource ?? undefined,
-        cost: attempt.cost ?? undefined,
-        currency: attempt.currency ?? undefined,
-        execution: attempt.execution,
-        financialStatus: attempt.financialStatus,
-        generationId: attempt.generationId ?? undefined,
-        guildId: attempt.guildId,
-        meetingId: attempt.meetingId,
-        model: attempt.model ?? undefined,
-        outcome: attempt.outcome,
-        phase: attempt.phase,
-        provider: attempt.provider,
-      },
-      "Provider cost attempt finished",
-    );
+    this.#logger?.info(finishedAttemptLog(attempt), "Provider cost attempt finished");
   }
 
   async #getGeneration(
@@ -247,4 +264,69 @@ export class ProviderCostRecorder {
       return undefined;
     }
   }
+}
+
+function providerCost(value: number | string): string {
+  return typeof value === "string"
+    ? decimalAmountFromProviderText(value)
+    : decimalAmountFromNumber(value);
+}
+
+function trackingFields(
+  generationId: string | null,
+  model: string | null,
+): Partial<Pick<CostAttempt, "generationId" | "model">> {
+  return {
+    ...(generationId === null ? {} : { generationId }),
+    ...(model === null ? {} : { model }),
+  };
+}
+
+function finishedAttemptLog(attempt: CostAttempt) {
+  return {
+    attemptId: attempt.attemptId,
+    confirmationSource: nullAsUndefined(attempt.confirmationSource),
+    cost: nullAsUndefined(attempt.cost),
+    currency: nullAsUndefined(attempt.currency),
+    execution: attempt.execution,
+    financialStatus: attempt.financialStatus,
+    generationId: nullAsUndefined(attempt.generationId),
+    guildId: attempt.guildId,
+    meetingId: attempt.meetingId,
+    model: nullAsUndefined(attempt.model),
+    outcome: attempt.outcome,
+    phase: attempt.phase,
+    provider: attempt.provider,
+  };
+}
+
+function directModel(metadata: OpenRouterMetadataResult): string | null {
+  if (!metadata.success) return null;
+  return metadata.data.model ?? null;
+}
+
+function directResponseCost(metadata: OpenRouterMetadataResult): number | undefined {
+  if (!metadata.success) return undefined;
+  return metadata.data.usage?.cost;
+}
+
+function shouldLoadGeneration(
+  generationId: string | null,
+  directCost: number | string | undefined,
+  model: string | null,
+): generationId is string {
+  if (generationId === null) return false;
+  return directCost === undefined || model === null;
+}
+
+function resolvedModel(
+  model: string | null,
+  generation: OpenRouterGeneration | undefined,
+): string | null {
+  if (model !== null) return model;
+  return generation?.model ?? null;
+}
+
+function nullAsUndefined<T>(value: T | null): T | undefined {
+  return value === null ? undefined : value;
 }

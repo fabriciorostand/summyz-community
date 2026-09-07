@@ -1,0 +1,11 @@
+services:
+  ollama:
+    volumes:
+      - ${CI_OLLAMA_CACHE}:/root/.ollama
+
+  faster-whisper:
+    volumes:
+      - ${CI_WHISPER_CACHE}:/models
+
+  smoke:
+    image: summyz-community-smoke:latest

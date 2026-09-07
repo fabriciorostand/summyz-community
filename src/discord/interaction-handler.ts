@@ -113,18 +113,17 @@ async function handleRecordingCost(
     const to = interaction.options.getString("to", true);
     await interaction.editReply(await report.period(context.guildId, from, to));
   } catch (error) {
-    if (error instanceof CostReportError) {
-      const message =
-        error.code === "meeting_in_progress"
-          ? text.costMeetingInProgress
-          : error.code === "invalid_period"
-            ? text.costInvalidPeriod
-            : text.costMeetingNotFound;
-      await interaction.editReply(message);
-      return;
-    }
+    const message = costReportErrorMessage(error, text);
+    if (message !== undefined) return void (await interaction.editReply(message));
     throw error;
   }
+}
+
+function costReportErrorMessage(error: unknown, text: InteractionText): string | undefined {
+  if (!(error instanceof CostReportError)) return undefined;
+  if (error.code === "meeting_in_progress") return text.costMeetingInProgress;
+  if (error.code === "invalid_period") return text.costInvalidPeriod;
+  return text.costMeetingNotFound;
 }
 
 async function handleRecordingSummaryForum(
@@ -147,21 +146,44 @@ async function handleRecordingSummaryForum(
 
   const subcommand = interaction.options.getSubcommand(true);
   if (subcommand === "show") {
-    const configured = await store.getSummaryForum(context.guildId);
-    const content =
-      configured === undefined
-        ? text.noSummaryForum
-        : text.forumDisplay(configured.forumId, configured.tagId);
-    await interaction.reply(createEphemeralReply(content));
-    return;
+    return showSummaryForum(interaction, store, context.guildId, text);
   }
-
   if (subcommand === "clear") {
-    await store.clearSummaryForum(context.guildId);
-    await interaction.reply(createEphemeralReply(text.summaryForumCleared));
-    return;
+    return clearSummaryForum(interaction, store, context.guildId, text);
   }
+  await configureSummaryForum(interaction, store, context.guildId, text);
+}
 
+async function showSummaryForum(
+  interaction: ChatInputCommandInteraction,
+  store: GuildConfigurationStore,
+  guildId: string,
+  text: InteractionText,
+): Promise<void> {
+  const configured = await store.getSummaryForum(guildId);
+  const content =
+    configured === undefined
+      ? text.noSummaryForum
+      : text.forumDisplay(configured.forumId, configured.tagId);
+  await interaction.reply(createEphemeralReply(content));
+}
+
+async function clearSummaryForum(
+  interaction: ChatInputCommandInteraction,
+  store: GuildConfigurationStore,
+  guildId: string,
+  text: InteractionText,
+): Promise<void> {
+  await store.clearSummaryForum(guildId);
+  await interaction.reply(createEphemeralReply(text.summaryForumCleared));
+}
+
+async function configureSummaryForum(
+  interaction: ChatInputCommandInteraction,
+  store: GuildConfigurationStore,
+  guildId: string,
+  text: InteractionText,
+): Promise<void> {
   const selectedChannel = interaction.options.getChannel("forum", true, [ChannelType.GuildForum]);
   if (selectedChannel.type !== ChannelType.GuildForum) {
     await interaction.reply(createEphemeralReply(text.invalidForum));
@@ -172,29 +194,13 @@ async function handleRecordingSummaryForum(
   if (botMember === undefined) {
     throw new Error("Não foi possível identificar o usuário do bot no servidor");
   }
-  const permissions = forum.permissionsFor(botMember);
-  if (
-    !permissions?.has([
-      PermissionFlagsBits.ViewChannel,
-      PermissionFlagsBits.SendMessages,
-      PermissionFlagsBits.SendMessagesInThreads,
-      PermissionFlagsBits.AttachFiles,
-      PermissionFlagsBits.ReadMessageHistory,
-    ])
-  ) {
+  if (!hasSummaryForumPermissions(forum, botMember)) {
     await interaction.reply(createEphemeralReply(text.insufficientForumPermissions));
     return;
   }
 
   const tagInput = interaction.options.getString("tag") ?? undefined;
-  const tag =
-    tagInput === undefined
-      ? undefined
-      : forum.availableTags.find(
-          (candidate) =>
-            candidate.id === tagInput ||
-            candidate.name.localeCompare(tagInput, text.locale, { sensitivity: "accent" }) === 0,
-        );
+  const tag = findForumTag(forum, tagInput, text.locale);
   if (tagInput !== undefined && tag === undefined) {
     await interaction.reply(createEphemeralReply(text.tagNotFound));
     return;
@@ -204,11 +210,38 @@ async function handleRecordingSummaryForum(
     return;
   }
 
-  await store.setSummaryForum(context.guildId, {
+  await store.setSummaryForum(guildId, {
     forumId: forum.id,
     ...(tag === undefined ? {} : { tagId: tag.id }),
   });
   await interaction.reply(createEphemeralReply(text.forumConfigured(forum.id, tag?.name)));
+}
+
+function hasSummaryForumPermissions(forum: ForumChannel, botMember: GuildMember): boolean {
+  return (
+    forum
+      .permissionsFor(botMember)
+      ?.has([
+        PermissionFlagsBits.ViewChannel,
+        PermissionFlagsBits.SendMessages,
+        PermissionFlagsBits.SendMessagesInThreads,
+        PermissionFlagsBits.AttachFiles,
+        PermissionFlagsBits.ReadMessageHistory,
+      ]) === true
+  );
+}
+
+function findForumTag(
+  forum: ForumChannel,
+  input: string | undefined,
+  locale: string,
+): ForumChannel["availableTags"][number] | undefined {
+  if (input === undefined) return undefined;
+  return forum.availableTags.find(
+    (candidate) =>
+      candidate.id === input ||
+      candidate.name.localeCompare(input, locale, { sensitivity: "accent" }) === 0,
+  );
 }
 
 async function handleRecordingRole(

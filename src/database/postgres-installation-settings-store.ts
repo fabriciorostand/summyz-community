@@ -152,19 +152,8 @@ export class PostgresInstallationSettingsStore {
          registration_enabled = $9,
          public_base_url = $10,
          updated_at = now()
-       WHERE singleton = true`,
-      [
-        settings.discordClientId,
-        settings.smtp?.host ?? null,
-        settings.smtp?.port ?? null,
-        settings.smtp?.secure ?? false,
-        settings.smtp?.user ?? null,
-        settings.smtp?.fromEmail ?? null,
-        settings.smtp?.fromName ?? "Summyz Community",
-        settings.smtp?.replyTo ?? null,
-        settings.registrationEnabled,
-        settings.publicBaseUrl,
-      ],
+      WHERE singleton = true`,
+      serializeSettings(settings),
     );
   }
 
@@ -204,4 +193,34 @@ export class PostgresInstallationSettingsStore {
       ? undefined
       : this.#secretBox.decrypt(z.string().min(1).parse(value));
   }
+}
+
+function serializeSettings(settings: z.infer<typeof installationSettingsInputSchema>): unknown[] {
+  const smtp = settings.smtp;
+  if (smtp === null) {
+    return [
+      settings.discordClientId,
+      null,
+      null,
+      false,
+      null,
+      null,
+      "Summyz Community",
+      null,
+      settings.registrationEnabled,
+      settings.publicBaseUrl,
+    ];
+  }
+  return [
+    settings.discordClientId,
+    smtp.host,
+    smtp.port,
+    smtp.secure,
+    smtp.user,
+    smtp.fromEmail,
+    smtp.fromName,
+    smtp.replyTo,
+    settings.registrationEnabled,
+    settings.publicBaseUrl,
+  ];
 }

@@ -37,36 +37,9 @@ export function createTranscriptionGroups(
   segments: readonly RecordingSegment[],
   options: TranscriptionGroupOptions,
 ): RecordingSegment[][] {
-  const byUser = new Map<string, RecordingSegment[]>();
-  for (const segment of segments) {
-    const userSegments = byUser.get(segment.userId) ?? [];
-    userSegments.push(segment);
-    byUser.set(segment.userId, userSegments);
-  }
-
-  const groups: RecordingSegment[][] = [];
-  for (const userSegments of byUser.values()) {
-    userSegments.sort(compareSegments);
-    let current: RecordingSegment[] = [];
-    for (const segment of userSegments) {
-      const first = current[0];
-      const previous = current.at(-1);
-      const fits =
-        first !== undefined &&
-        previous !== undefined &&
-        segment.startedAtMs - previous.endedAtMs <= options.maxGapMs &&
-        segment.endedAtMs - first.startedAtMs <= options.maxWindowMs;
-      if (!fits && current.length > 0) {
-        groups.push(current);
-        current = [];
-      }
-      current.push(segment);
-    }
-    if (current.length > 0) {
-      groups.push(current);
-    }
-  }
-
+  const groups = [...recordingSegmentsByUser(segments).values()].flatMap((userSegments) =>
+    groupRecordingSegments(userSegments, options),
+  );
   return groups.sort((left, right) => compareSegments(left[0], right[0]));
 }
 
@@ -75,43 +48,105 @@ export function createAnalyzedTranscriptionGroups(
   options: TranscriptionGroupOptions,
   sampleRate = TRANSCRIPTION_SAMPLE_RATE,
 ): AnalyzedSegment[][] {
+  const groups = [...analyzedSegmentsByUser(analyzedSegments).values()].flatMap((userSegments) =>
+    groupAnalyzedSegments(userSegments, options, sampleRate),
+  );
+  return groups.sort((left, right) => compareAnalyzedSegments(left[0], right[0], sampleRate));
+}
+
+function recordingSegmentsByUser(
+  segments: readonly RecordingSegment[],
+): Map<string, RecordingSegment[]> {
+  const recordingByUser = new Map<string, RecordingSegment[]>();
+  for (const segment of segments) {
+    const userSegments = recordingByUser.get(segment.userId) ?? [];
+    userSegments.push(segment);
+    recordingByUser.set(segment.userId, userSegments);
+  }
+  return recordingByUser;
+}
+
+function analyzedSegmentsByUser(
+  analyzedSegments: readonly AnalyzedSegment[],
+): Map<string, AnalyzedSegment[]> {
   const byUser = new Map<string, AnalyzedSegment[]>();
   for (const analyzed of analyzedSegments) {
-    if (!analyzed.containsSpeech) {
-      continue;
-    }
+    if (!analyzed.containsSpeech) continue;
     const userSegments = byUser.get(analyzed.segment.userId) ?? [];
     userSegments.push(analyzed);
     byUser.set(analyzed.segment.userId, userSegments);
   }
+  return byUser;
+}
 
-  const groups: AnalyzedSegment[][] = [];
-  for (const userSegments of byUser.values()) {
-    userSegments.sort((left, right) => compareAnalyzedSegments(left, right, sampleRate));
-    let current: AnalyzedSegment[] = [];
-    for (const analyzed of userSegments) {
-      const first = current[0];
-      const previous = current.at(-1);
-      const currentBounds = speechTimelineBounds(analyzed, sampleRate);
-      const fits =
-        first !== undefined &&
-        previous !== undefined &&
-        currentBounds.startedAtMs - speechTimelineBounds(previous, sampleRate).endedAtMs <=
-          options.maxGapMs &&
-        currentBounds.endedAtMs - speechTimelineBounds(first, sampleRate).startedAtMs <=
-          options.maxWindowMs;
-      if (!fits && current.length > 0) {
-        groups.push(current);
-        current = [];
-      }
-      current.push(analyzed);
-    }
-    if (current.length > 0) {
-      groups.push(current);
-    }
+function groupRecordingSegments(
+  userSegments: RecordingSegment[],
+  options: TranscriptionGroupOptions,
+): RecordingSegment[][] {
+  userSegments.sort(compareSegments);
+  const groups: RecordingSegment[][] = [];
+  let current: RecordingSegment[] = [];
+  for (const segment of userSegments) {
+    if (!fitsRecordingGroup(current, segment, options)) current = startNextGroup(groups, current);
+    current.push(segment);
   }
+  startNextGroup(groups, current);
+  return groups;
+}
 
-  return groups.sort((left, right) => compareAnalyzedSegments(left[0], right[0], sampleRate));
+function fitsRecordingGroup(
+  current: readonly RecordingSegment[],
+  segment: RecordingSegment,
+  options: TranscriptionGroupOptions,
+): boolean {
+  const first = current[0];
+  const previous = current.at(-1);
+  if (first === undefined || previous === undefined) return true;
+  return (
+    segment.startedAtMs - previous.endedAtMs <= options.maxGapMs &&
+    segment.endedAtMs - first.startedAtMs <= options.maxWindowMs
+  );
+}
+
+function groupAnalyzedSegments(
+  userSegments: AnalyzedSegment[],
+  options: TranscriptionGroupOptions,
+  sampleRate: number,
+): AnalyzedSegment[][] {
+  const groups: AnalyzedSegment[][] = [];
+  userSegments.sort((left, right) => compareAnalyzedSegments(left, right, sampleRate));
+  let current: AnalyzedSegment[] = [];
+  for (const analyzed of userSegments) {
+    if (!fitsAnalyzedGroup(current, analyzed, options, sampleRate)) {
+      current = startNextGroup(groups, current);
+    }
+    current.push(analyzed);
+  }
+  startNextGroup(groups, current);
+  return groups;
+}
+
+function fitsAnalyzedGroup(
+  current: readonly AnalyzedSegment[],
+  analyzed: AnalyzedSegment,
+  options: TranscriptionGroupOptions,
+  sampleRate: number,
+): boolean {
+  const first = current[0];
+  const previous = current.at(-1);
+  if (first === undefined || previous === undefined) return true;
+  const currentBounds = speechTimelineBounds(analyzed, sampleRate);
+  return (
+    currentBounds.startedAtMs - speechTimelineBounds(previous, sampleRate).endedAtMs <=
+      options.maxGapMs &&
+    currentBounds.endedAtMs - speechTimelineBounds(first, sampleRate).startedAtMs <=
+      options.maxWindowMs
+  );
+}
+
+function startNextGroup<T>(groups: T[][], current: T[]): T[] {
+  if (current.length > 0) groups.push(current);
+  return [];
 }
 
 export function composeTranscriptionBatch(

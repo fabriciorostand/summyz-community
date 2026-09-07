@@ -18,37 +18,62 @@ export function calculateTalkTime(
   attendees: readonly MeetingAttendee[],
   intervals: readonly SpokenInterval[],
 ): ParticipantTalkTime[] {
-  const intervalsByUser = new Map<string, SpokenInterval[]>();
-  for (const interval of intervals) {
-    if (
-      !Number.isFinite(interval.startedAtMs) ||
-      !Number.isFinite(interval.endedAtMs) ||
-      interval.startedAtMs < 0 ||
-      interval.endedAtMs <= interval.startedAtMs
-    ) {
-      throw new Error("The spoken interval is invalid");
-    }
-    const current = intervalsByUser.get(interval.userId) ?? [];
-    current.push(interval);
-    intervalsByUser.set(interval.userId, current);
-  }
-
-  const durations = attendees.map((attendee, index) => ({
-    ...attendee,
-    index,
-    talkTimeMs: unionDuration(intervalsByUser.get(attendee.userId) ?? []),
-  }));
+  const intervalsByUser = groupValidIntervals(intervals);
+  const durations = participantDurations(attendees, intervalsByUser);
   const totalTalkTimeMs = durations.reduce(
     (total, participant) => total + participant.talkTimeMs,
     0,
   );
-  if (totalTalkTimeMs === 0) {
-    return durations.map(({ index: _index, ...participant }) => ({
-      ...participant,
-      percentage: 0,
-    }));
-  }
+  if (totalTalkTimeMs === 0) return zeroPercentages(durations);
+  return distributePercentages(durations, totalTalkTimeMs);
+}
 
+function groupValidIntervals(intervals: readonly SpokenInterval[]): Map<string, SpokenInterval[]> {
+  const intervalsByUser = new Map<string, SpokenInterval[]>();
+  for (const interval of intervals) {
+    requireValidInterval(interval);
+    const current = intervalsByUser.get(interval.userId) ?? [];
+    current.push(interval);
+    intervalsByUser.set(interval.userId, current);
+  }
+  return intervalsByUser;
+}
+
+function requireValidInterval(interval: SpokenInterval): void {
+  if (
+    !Number.isFinite(interval.startedAtMs) ||
+    !Number.isFinite(interval.endedAtMs) ||
+    interval.startedAtMs < 0 ||
+    interval.endedAtMs <= interval.startedAtMs
+  ) {
+    throw new Error("The spoken interval is invalid");
+  }
+}
+
+function participantDurations(
+  attendees: readonly MeetingAttendee[],
+  intervalsByUser: ReadonlyMap<string, readonly SpokenInterval[]>,
+) {
+  return attendees.map((attendee, index) => ({
+    ...attendee,
+    index,
+    talkTimeMs: unionDuration(intervalsByUser.get(attendee.userId) ?? []),
+  }));
+}
+
+function zeroPercentages(
+  durations: ReturnType<typeof participantDurations>,
+): ParticipantTalkTime[] {
+  return durations.map(({ index: _index, ...participant }) => ({
+    ...participant,
+    percentage: 0,
+  }));
+}
+
+function distributePercentages(
+  durations: ReturnType<typeof participantDurations>,
+  totalTalkTimeMs: number,
+): ParticipantTalkTime[] {
   const rounded = durations.map((participant) => {
     const exact = (participant.talkTimeMs / totalTalkTimeMs) * 100;
     return { ...participant, percentage: Math.floor(exact), remainder: exact - Math.floor(exact) };

@@ -3,11 +3,16 @@
   "files": {
     "includes": [
       "**",
+      "!!.ci-cache",
+      "!!.mypy_cache",
+      "!!.pytest_cache",
+      "!!.coverage",
       "!!**/coverage",
       "!!**/dist",
       "!!**/node_modules",
       "!!artifacts/sbom",
-      "!!data"
+      "!!data",
+      "!!reports"
     ]
   },
   "formatter": {

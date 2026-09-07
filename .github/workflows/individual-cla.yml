@@ -1,6 +1,6 @@
 name: Individual CLA
 
-on:
+on: # zizmor: ignore[dangerous-triggers] Only trusted default-branch code runs with read-only permissions.
   pull_request_target:
     types: [opened, edited, synchronize, reopened, ready_for_review]
 
@@ -11,7 +11,7 @@ permissions:
 jobs:
   validate-individual-cla:
     name: Validate individual CLA
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out the trusted default branch
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1

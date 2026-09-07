@@ -47,44 +47,64 @@ export class CostReconciler {
 
   public async reconcile(guildId?: string): Promise<void> {
     for (const attempt of await this.#store.listReconciliationCandidates(guildId)) {
-      const generationId = attempt.generationId;
-      if (generationId === null) continue;
-      try {
-        const response = await this.#fetch(
-          `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(generationId)}`,
-          { headers: { Authorization: `Bearer ${this.#apiKey}` }, method: "GET" },
-        );
-        if (!response.ok) continue;
-        const parsed = await readOpenRouterResponse(response, "total_cost");
-        const generation = generationSchema.parse(parsed.body).data;
-        const reconciled =
-          attempt.financialStatus === "confirmed"
-            ? { ...attempt, model: generation.model }
-            : finishCostAttempt(attempt, {
-                confirmationSource: "generation",
-                cost:
-                  parsed.exactCost === undefined
-                    ? decimalAmountFromNumber(generation.total_cost)
-                    : decimalAmountFromProviderText(parsed.exactCost),
-                currency: "USD",
-                endedAt: attempt.endedAt ?? new Date().toISOString(),
-                financialStatus: "confirmed",
-                generationId: generation.id,
-                model: generation.model,
-                outcome: attempt.outcome === "pending" ? "failure" : attempt.outcome,
-              });
-        await this.#store.saveAttempt(reconciled);
-      } catch (error) {
-        this.#logger?.warn(
-          {
-            attemptId: attempt.attemptId,
-            errorType: error instanceof Error ? error.name : typeof error,
-            generationId,
-            meetingId: attempt.meetingId,
-          },
-          "OpenRouter cost reconciliation remains pending",
-        );
-      }
+      await this.#reconcileAttempt(attempt);
     }
   }
+
+  async #reconcileAttempt(attempt: CostAttempt): Promise<void> {
+    const generationId = attempt.generationId;
+    if (generationId === null) return;
+    try {
+      const generation = await this.#fetchGeneration(generationId);
+      if (generation === undefined) return;
+      await this.#store.saveAttempt(reconcileCostAttempt(attempt, generation));
+    } catch (error) {
+      this.#logger?.warn(
+        {
+          attemptId: attempt.attemptId,
+          errorType: error instanceof Error ? error.name : typeof error,
+          generationId,
+          meetingId: attempt.meetingId,
+        },
+        "OpenRouter cost reconciliation remains pending",
+      );
+    }
+  }
+
+  async #fetchGeneration(generationId: string): Promise<ReconciledGeneration | undefined> {
+    const response = await this.#fetch(
+      `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(generationId)}`,
+      { headers: { Authorization: `Bearer ${this.#apiKey}` }, method: "GET" },
+    );
+    if (!response.ok) return undefined;
+    const parsed = await readOpenRouterResponse(response, "total_cost");
+    return { exactCost: parsed.exactCost, generation: generationSchema.parse(parsed.body).data };
+  }
+}
+
+interface ReconciledGeneration {
+  exactCost: string | undefined;
+  generation: z.infer<typeof generationSchema>["data"];
+}
+
+function reconcileCostAttempt(attempt: CostAttempt, result: ReconciledGeneration): CostAttempt {
+  if (attempt.financialStatus === "confirmed") {
+    return { ...attempt, model: result.generation.model };
+  }
+  return finishCostAttempt(attempt, {
+    confirmationSource: "generation",
+    cost: resolvedGenerationCost(result),
+    currency: "USD",
+    endedAt: attempt.endedAt ?? new Date().toISOString(),
+    financialStatus: "confirmed",
+    generationId: result.generation.id,
+    model: result.generation.model,
+    outcome: attempt.outcome === "pending" ? "failure" : attempt.outcome,
+  });
+}
+
+function resolvedGenerationCost(result: ReconciledGeneration): string {
+  return result.exactCost === undefined
+    ? decimalAmountFromNumber(result.generation.total_cost)
+    : decimalAmountFromProviderText(result.exactCost);
 }

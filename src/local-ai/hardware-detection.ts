@@ -33,18 +33,30 @@ export async function detectLocalHardware(
 ): Promise<LocalHardwareProfile> {
   const runCommand = options.runCommand ?? runExternalCommand;
   const platform = options.platform ?? process.platform;
-  const detected: GraphicsAccelerator[] = [];
+  const detected = [
+    ...detectInjectedAdapter(options.environment ?? process.env),
+    ...(await detectNvidia(runCommand)),
+    ...(await detectPlatformAdapters(platform, runCommand)),
+  ];
 
-  detected.push(...detectInjectedAdapter(options.environment ?? process.env));
-  detected.push(...(await detectNvidia(runCommand)));
+  return hardwareProfile(options, detected);
+}
+
+async function detectPlatformAdapters(
+  platform: NodeJS.Platform,
+  runCommand: RunCommand,
+): Promise<GraphicsAccelerator[]> {
   if (platform === "win32") {
-    detected.push(...(await detectWindowsAdapters(runCommand)));
-  } else if (platform === "darwin") {
-    detected.push(...(await detectMacAdapters(runCommand)));
-  } else {
-    detected.push(...(await detectLinuxAdapters(runCommand)));
+    return detectWindowsAdapters(runCommand);
   }
+  if (platform === "darwin") return detectMacAdapters(runCommand);
+  return detectLinuxAdapters(runCommand);
+}
 
+function hardwareProfile(
+  options: DetectLocalHardwareOptions,
+  detected: readonly GraphicsAccelerator[],
+): LocalHardwareProfile {
   return {
     accelerators: mergeAccelerators(detected),
     cpuCores: options.cpuCores ?? availableParallelism(),

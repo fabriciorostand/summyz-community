@@ -8,8 +8,9 @@
   ],
   "description": "Bot para Discord que grava calls, transcreve participantes e publica resumos.",
   "type": "module",
+  "packageManager": "npm@10.9.8",
   "engines": {
-    "node": ">=22.12.0"
+    "node": "22.23.2"
   },
   "scripts": {
     "build": "npm run build:server && npm run build:web",
@@ -30,8 +31,11 @@
     "start:api": "node dist/api/main.js",
     "test": "vitest run",
     "test:python": "python -m unittest discover -s services/faster-whisper -p \"test_*.py\"",
+    "test:python:coverage": "python -m pytest services/faster-whisper --cov=services/faster-whisper --cov-branch --cov-report=term-missing --cov-report=xml:reports/python/coverage.xml --cov-report=html:reports/python/coverage --junitxml=reports/python/junit.xml",
     "test:coverage": "vitest run --coverage",
+    "test:coverage:ci": "vitest run --config vitest.ci.config.ts --coverage",
     "test:web": "npm test --workspace web",
+    "test:web:coverage": "npm run test:coverage --workspace web",
     "test:smoke:local-ai": "vitest run --config vitest.smoke.config.ts",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
@@ -61,6 +65,7 @@
     "@types/nodemailer": "^8.0.1",
     "@types/pg": "8.23.1",
     "@vitest/coverage-v8": "4.1.10",
+    "jscpd": "5.1.2",
     "tsx": "4.23.12",
     "typescript": "7.0.2",
     "vitest": "4.1.10"
