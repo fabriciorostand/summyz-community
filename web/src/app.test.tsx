@@ -53,8 +53,15 @@ describe("App", () => {
       if (path === "/api/guilds/guild-1/dashboard") {
         return Response.json({
           averageDurationMs: 3_600_000,
-          confirmedCost: [{ amount: 0.25, currency: "USD" }],
-          hasUnresolvedCosts: true,
+          calls: { current: 12, deltaPercentage: 16, previous: 10 },
+          cost: {
+            attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 2 },
+            breakdown: [],
+            confirmed: [{ amount: "0.25", currency: "USD" }],
+          },
+          openTaskCount: 0,
+          period: "30d",
+          statusSeries: [],
           timeZone: "America/Sao_Paulo",
           topSpeakers: [{ displayName: "Ana", talkTimeMs: 94_440_000, userId: "ana" }],
           totalCalls: 12,
@@ -76,7 +83,7 @@ describe("App", () => {
     expect(screen.getByText("26h 14m")).toBeInTheDocument();
     expect(screen.getByText("12")).toBeInTheDocument();
     expect(screen.getByLabelText("Servidor")).toHaveValue("guild-1");
-    expect(screen.getByText(/custos pendentes/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 sem custo confirmado/i)).toBeInTheDocument();
   });
 
   it("apresenta percentuais de talk time na lista do histórico", async () => {

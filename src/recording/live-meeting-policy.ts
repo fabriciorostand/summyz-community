@@ -1,0 +1,1 @@
+export const LIVE_STATE_REFRESH_INTERVAL_MS = 2_000;

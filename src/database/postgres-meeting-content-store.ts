@@ -1,7 +1,10 @@
+import { randomUUID } from "node:crypto";
+
 import { z } from "zod";
 
 import { recordingManifestSchema } from "../recording/manifest.js";
 import { publicationStateSchema } from "../summary/publication-state.js";
+import { summaryStateSchema } from "../summary/summary-state.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const contentInputSchema = z.object({
@@ -34,8 +37,10 @@ export class PostgresMeetingContentStore {
     const serializedSummary = serializeJson(validated.summary);
     const serializedPublication = serializeJson(validated.publication);
     const serializedManifest = serializeJson(validated.manifest);
+    const serializedTasks = serializeJson(extractTasks(validated.summary));
     await this.#database.query(
       `
+WITH saved_content AS (
 INSERT INTO meeting_contents (
   meeting_id, raw_transcript, transcript, summary, publication, meeting_manifest
 ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb)
@@ -46,6 +51,29 @@ ON CONFLICT (meeting_id) DO UPDATE SET
   publication = EXCLUDED.publication,
   meeting_manifest = EXCLUDED.meeting_manifest,
   persisted_at = now()
+RETURNING meeting_id
+)
+INSERT INTO meeting_tasks (
+  task_id, meeting_id, guild_id, task_index, task_text, owner_name, owner_user_id,
+  deadline_text, deadline_date, deadline_time, deadline_time_zone, deadline_precision
+)
+SELECT task.task_id::uuid, saved_content.meeting_id, meeting.guild_id, task.task_index,
+       task.task_text, task.owner_name, owner.user_id, task.deadline_text,
+       task.deadline_date::date, task.deadline_time::time, task.deadline_time_zone,
+       task.deadline_precision
+FROM saved_content
+JOIN meetings meeting ON meeting.meeting_id = saved_content.meeting_id
+CROSS JOIN jsonb_to_recordset($7::jsonb) AS task(
+  task_id text, task_index integer, task_text text, owner_name text, deadline_text text,
+  deadline_date text, deadline_time text, deadline_time_zone text, deadline_precision text
+)
+LEFT JOIN LATERAL (
+  SELECT CASE WHEN count(*) = 1 THEN min(participant.user_id) END AS user_id
+  FROM meeting_participants participant
+  WHERE participant.meeting_id = saved_content.meeting_id
+    AND lower(participant.display_name) = lower(task.owner_name)
+) owner ON true
+ON CONFLICT (meeting_id, task_index) DO NOTHING
 `,
       [
         validated.meetingId,
@@ -54,10 +82,41 @@ ON CONFLICT (meeting_id) DO UPDATE SET
         serializedSummary,
         serializedPublication,
         serializedManifest,
+        serializedTasks,
       ],
     );
     return true;
   }
+
+  public async persistPublication(meetingId: string, input: unknown): Promise<void> {
+    const validatedMeetingId = z.string().min(1).max(128).parse(meetingId);
+    const publication = publicationStateSchema.parse(input);
+    if (publication.status !== "completed") {
+      throw new Error("Only a completed Discord publication can be persisted");
+    }
+    await this.#database.query(
+      `UPDATE meetings
+       SET publication_thread_id = $2, publication_root_message_id = $3, updated_at = now()
+       WHERE meeting_id = $1`,
+      [validatedMeetingId, publication.threadId, publication.rootMessageId],
+    );
+  }
+}
+
+function extractTasks(summary: unknown): Record<string, unknown>[] {
+  const state = summaryStateSchema.safeParse(summary);
+  if (!state.success || state.data.status !== "completed") return [];
+  return state.data.summary.tasks.map((task, taskIndex) => ({
+    deadline_date: task.deadlineDate ?? null,
+    deadline_precision: task.deadlinePrecision ?? null,
+    deadline_text: task.deadlineText ?? null,
+    deadline_time: task.deadlineTime ?? null,
+    deadline_time_zone: task.deadlineTimeZone ?? null,
+    owner_name: task.ownerName ?? null,
+    task_id: randomUUID(),
+    task_index: taskIndex,
+    task_text: task.text,
+  }));
 }
 
 function serializeJson(value: unknown): string {

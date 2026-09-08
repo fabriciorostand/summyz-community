@@ -10,6 +10,7 @@ export interface MeetingContentStore {
     summary: unknown;
     transcript: string;
   }): Promise<boolean>;
+  persistPublication(meetingId: string, publication: unknown): Promise<void>;
 }
 
 interface FinalizationTranscriptionStore {
@@ -81,12 +82,13 @@ export class MeetingFinalizer {
         await this.#participationStore.persistParticipation(manifest, transcription);
       }
     }
+    const publication = await this.#publicationStore.load(meetingId);
+    await this.#contentStore.persistPublication(meetingId, publication);
     if (manifest.persistMeetingContent) {
-      const [rawTranscript, transcript, summary, publication] = await Promise.all([
+      const [rawTranscript, transcript, summary] = await Promise.all([
         this.#transcriptionStore.readRawTranscript(meetingId),
         this.#transcriptionStore.readTranscript(meetingId),
         this.#summaryStore.load(meetingId),
-        this.#publicationStore.load(meetingId),
       ]);
       await this.#contentStore.persist({
         manifest,

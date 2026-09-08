@@ -1,4 +1,5 @@
 import type { RecordingManifest } from "./manifest.js";
+import type { LiveMeetingParticipant } from "../database/postgres-live-meeting-store.js";
 
 export type RecordingStopReason = "channel_empty" | "command" | "reconnect_exhausted" | "shutdown";
 
@@ -22,9 +23,10 @@ export interface RecordingHandle {
   guildId: string;
   meetingId: string;
   notificationChannelId: string;
-  recordParticipant?(userId: string, displayName: string): Promise<void>;
+  recordParticipant?(userId: string, displayName: string, avatarUrl?: string | null): Promise<void>;
   stop(request: RecordingStopRequest): Promise<void>;
   voiceChannelId: string;
+  updateLiveParticipants?(participants: readonly LiveMeetingParticipant[]): Promise<void>;
 }
 
 export interface RecordingSessionFactory {
@@ -123,10 +125,22 @@ export class RecordingCoordinator {
     voiceChannelId: string,
     userId: string,
     displayName: string,
+    avatarUrl?: string | null,
   ): Promise<void> {
     const handle = this.#recordings.get(guildId);
     if (handle?.voiceChannelId !== voiceChannelId) return;
-    await handle.recordParticipant?.(userId, displayName);
+    if (avatarUrl === undefined) await handle.recordParticipant?.(userId, displayName);
+    else await handle.recordParticipant?.(userId, displayName, avatarUrl);
+  }
+
+  public async updateLiveParticipants(
+    guildId: string,
+    voiceChannelId: string,
+    participants: readonly LiveMeetingParticipant[],
+  ): Promise<void> {
+    const handle = this.#recordings.get(guildId);
+    if (handle?.voiceChannelId !== voiceChannelId) return;
+    await handle.updateLiveParticipants?.(participants);
   }
 
   public async shutdown(): Promise<void> {

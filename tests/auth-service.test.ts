@@ -10,6 +10,7 @@ import type { PasswordHasher } from "../src/auth/password-hasher.js";
 
 const user: StoredDashboardUser = {
   dashboardLanguage: "pt-BR",
+  dashboardTheme: "system",
   email: "person@example.com",
   emailVerified: true,
   installationRole: "member",
@@ -26,10 +27,11 @@ function createFixture(overrides: { storedUser?: StoredDashboardUser } = {}) {
     findUserByEmail: vi.fn(async () => overrides.storedUser ?? user),
     findUserById: vi.fn(async () => overrides.storedUser ?? user),
     replaceAuthToken: vi.fn(async () => undefined),
+    replacePasswordAndRevokeSessions: vi.fn(async () => undefined),
     revokeAllSessions: vi.fn(async () => undefined),
     revokeSession: vi.fn(async () => undefined),
     rotateSession: vi.fn(async () => ({ sessionId: "session-1", userId: "user-1" })),
-    updatePassword: vi.fn(async () => undefined),
+    updatePreferences: vi.fn(async () => undefined),
   };
   const hasher: PasswordHasher = {
     hash: vi.fn(async () => "hashed-password"),
@@ -174,6 +176,7 @@ describe("AuthService", () => {
 
     await expect(service.authenticate("access-token")).resolves.toEqual({
       dashboardLanguage: "pt-BR",
+      dashboardTheme: "system",
       email: "person@example.com",
       emailVerified: true,
       installationRole: "member",
@@ -205,12 +208,45 @@ describe("AuthService", () => {
       expect.objectContaining({ email: "person@example.com", token: expect.any(String) }),
     );
     await service.resetPassword("reset-token", "another secure password");
-    expect(repository.updatePassword).toHaveBeenCalledWith("user-1", "hashed-password");
-    expect(repository.revokeAllSessions).toHaveBeenCalledWith("user-1");
+    expect(repository.replacePasswordAndRevokeSessions).toHaveBeenCalledWith(
+      "user-1",
+      "hashed-password",
+    );
 
     vi.mocked(repository.consumeAuthToken).mockResolvedValueOnce(undefined);
     await expect(service.resetPassword("expired-token", "another secure password")).rejects.toEqual(
       new AuthenticationError("invalid_or_expired_token"),
     );
+  });
+
+  it("changes an authenticated password only after verifying the current password", async () => {
+    const { hasher, repository, service } = createFixture();
+
+    await service.changePassword("user-1", "current secure password", "new secure password");
+
+    expect(hasher.verify).toHaveBeenCalledWith("hashed-password", "current secure password");
+    expect(repository.replacePasswordAndRevokeSessions).toHaveBeenCalledWith(
+      "user-1",
+      "hashed-password",
+    );
+
+    vi.mocked(hasher.verify).mockResolvedValueOnce(false);
+    await expect(
+      service.changePassword("user-1", "wrong current password", "new secure password"),
+    ).rejects.toEqual(new AuthenticationError("invalid_credentials"));
+  });
+
+  it("persists language and theme preferences on the account", async () => {
+    const { repository, service } = createFixture();
+
+    await service.updatePreferences("user-1", {
+      dashboardLanguage: "en",
+      dashboardTheme: "dark",
+    });
+
+    expect(repository.updatePreferences).toHaveBeenCalledWith("user-1", {
+      dashboardLanguage: "en",
+      dashboardTheme: "dark",
+    });
   });
 });

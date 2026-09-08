@@ -127,8 +127,11 @@ provider retries, a transient failure schedules durable runs after 1 minute, 5 m
 1. Open the Summyz application in the Discord Developer Portal.
 2. Under **Bot**, create or reset the token and enter it during dashboard setup. It is encrypted in
    PostgreSQL with the master key kept in `.env`.
-3. Still under **Bot**, keep **Privileged Gateway Intents** disabled. The current implementation
-   uses only the standard `Guilds` and `Guild Voice States` intents.
+3. Ainda em **Bot**, ative o intent privilegiado **Server Members Intent**. O Summyz usa os
+   intents `Guilds`, `Guild Members` e `Guild Voice States`; o intent de membros permite contar
+   somente os membros humanos visíveis ao bot em cada cargo. Se ele estiver desativado, gravação e
+   publicação continuam funcionando, mas a API informa
+   `discord_members_intent_unavailable` e não exibe contagens possivelmente incorretas.
 4. Under **Installation**, configure **Guild Install** with the `bot` and
    `applications.commands` scopes.
 5. In the default installation permissions, grant the bot:

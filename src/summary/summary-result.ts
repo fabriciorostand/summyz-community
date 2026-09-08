@@ -5,6 +5,12 @@ export const summaryTranscriptEntrySchema = z.object({
   id: z.string().min(1),
   speaker: z.string().trim().min(1),
   startedAtMs: z.number().int().nonnegative(),
+  spokenAt: z
+    .object({
+      instant: z.iso.datetime(),
+      timeZone: z.string().trim().min(1).max(100),
+    })
+    .optional(),
   text: z.string().trim().min(1),
 });
 export type SummaryTranscriptEntry = z.infer<typeof summaryTranscriptEntrySchema>;
@@ -14,10 +20,23 @@ const groundedItemSchema = z.object({
   text: z.string().trim().min(1),
 });
 
-const groundedTaskSchema = groundedItemSchema.extend({
+const normalizedDeadlineShape = {
+  deadlineDate: z.iso.date().optional(),
+  deadlinePrecision: z.enum(["date", "minute"]).optional(),
   deadlineText: z.string().trim().min(1).optional(),
-  ownerName: z.string().trim().min(1).optional(),
-});
+  deadlineTime: z
+    .string()
+    .regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/)
+    .optional(),
+  deadlineTimeZone: z.string().trim().min(1).max(100).optional(),
+};
+
+const groundedTaskSchema = groundedItemSchema
+  .extend({
+    ...normalizedDeadlineShape,
+    ownerName: z.string().trim().min(1).optional(),
+  })
+  .superRefine(validateNormalizedDeadline);
 
 export const artifactLabelsSchema = z.object({
   assignee: z.string().trim().min(1),
@@ -85,11 +104,13 @@ export const publicSummarySchema = z.object({
   labels: artifactLabelsSchema.optional(),
   observations: z.array(z.string().trim().min(1)),
   tasks: z.array(
-    z.object({
-      deadlineText: z.string().trim().min(1).optional(),
-      ownerName: z.string().trim().min(1).optional(),
-      text: z.string().trim().min(1),
-    }),
+    z
+      .object({
+        ...normalizedDeadlineShape,
+        ownerName: z.string().trim().min(1).optional(),
+        text: z.string().trim().min(1),
+      })
+      .superRefine(validateNormalizedDeadline),
   ),
 });
 export type PublicSummary = z.infer<typeof publicSummarySchema>;
@@ -122,10 +143,27 @@ export function validateGroundedSummary(
     const sourceText = sourceEntryIds
       .map((entryId) => entriesById.get(entryId)?.text ?? "")
       .join("\n");
+    const hasGroundedDeadline =
+      task.deadlineText !== undefined && sourceText.includes(task.deadlineText);
+    const hasGroundedDeadlineNormalization =
+      task.deadlineTimeZone !== undefined &&
+      sourceEntryIds.some(
+        (entryId) => entriesById.get(entryId)?.spokenAt?.timeZone === task.deadlineTimeZone,
+      );
     return [
       {
-        ...(task.deadlineText !== undefined && sourceText.includes(task.deadlineText)
-          ? { deadlineText: task.deadlineText }
+        ...(hasGroundedDeadline
+          ? {
+              deadlineText: task.deadlineText,
+              ...(hasGroundedDeadlineNormalization
+                ? {
+                    deadlineDate: task.deadlineDate,
+                    deadlinePrecision: task.deadlinePrecision,
+                    ...(task.deadlineTime === undefined ? {} : { deadlineTime: task.deadlineTime }),
+                    deadlineTimeZone: task.deadlineTimeZone,
+                  }
+                : {}),
+            }
           : {}),
         ...(task.ownerName !== undefined && sourceText.includes(task.ownerName)
           ? { ownerName: task.ownerName }
@@ -160,11 +198,51 @@ export function createPublicSummary(summary: SummaryDraft): PublicSummary {
     ...(validated.labels === undefined ? {} : { labels: validated.labels }),
     observations: [...validated.observations],
     tasks: validated.tasks.map((task) => ({
+      ...(task.deadlineDate === undefined ? {} : { deadlineDate: task.deadlineDate }),
+      ...(task.deadlinePrecision === undefined
+        ? {}
+        : { deadlinePrecision: task.deadlinePrecision }),
       ...(task.deadlineText === undefined ? {} : { deadlineText: task.deadlineText }),
+      ...(task.deadlineTime === undefined ? {} : { deadlineTime: task.deadlineTime }),
+      ...(task.deadlineTimeZone === undefined ? {} : { deadlineTimeZone: task.deadlineTimeZone }),
       ...(task.ownerName === undefined ? {} : { ownerName: task.ownerName }),
       text: task.text,
     })),
   });
+}
+
+function validateNormalizedDeadline(
+  task: {
+    deadlineDate?: string | undefined;
+    deadlinePrecision?: "date" | "minute" | undefined;
+    deadlineText?: string | undefined;
+    deadlineTime?: string | undefined;
+    deadlineTimeZone?: string | undefined;
+  },
+  context: z.RefinementCtx,
+): void {
+  const normalizedFields = [
+    task.deadlineDate,
+    task.deadlinePrecision,
+    task.deadlineTime,
+    task.deadlineTimeZone,
+  ];
+  if (normalizedFields.every((value) => value === undefined)) return;
+  const valid =
+    task.deadlineText !== undefined &&
+    task.deadlineDate !== undefined &&
+    task.deadlinePrecision !== undefined &&
+    task.deadlineTimeZone !== undefined &&
+    (task.deadlinePrecision === "minute"
+      ? task.deadlineTime !== undefined
+      : task.deadlineTime === undefined);
+  if (!valid) {
+    context.addIssue({
+      code: "custom",
+      message: "Normalized deadline fields must form a complete date or minute deadline",
+      path: ["deadlineDate"],
+    });
+  }
 }
 
 function validSourceIds(

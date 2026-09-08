@@ -11,6 +11,7 @@ import type { CostLedgerStore, CostPhase } from "./cost/cost-ledger.js";
 import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
 import type { AiProfileStore } from "./database/postgres-ai-profile-store.js";
 import type { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
+import type { PostgresInstallationHealthStore } from "./database/postgres-installation-health-store.js";
 import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-size.js";
 import type { LocalHardwareProfile } from "./local-ai/hardware-profile.js";
 import { type LocalAiPhase, resolveLocalExecutionPlan } from "./local-ai/local-execution-policy.js";
@@ -34,6 +35,7 @@ interface ApplicationAiRuntimeOptions {
   costStore: CostLedgerStore;
   hardware: LocalHardwareProfile;
   installationSettings: Pick<PostgresInstallationSettingsStore, "getSecret">;
+  installationHealth?: Pick<PostgresInstallationHealthStore, "writeHeartbeat">;
   logger: Logger;
 }
 
@@ -44,6 +46,7 @@ export class ApplicationAiRuntime {
   readonly #costStore: CostLedgerStore;
   readonly #hardware: LocalHardwareProfile;
   readonly #installationSettings: Pick<PostgresInstallationSettingsStore, "getSecret">;
+  readonly #installationHealth: Pick<PostgresInstallationHealthStore, "writeHeartbeat"> | undefined;
   readonly #logger: Logger;
 
   public constructor(options: ApplicationAiRuntimeOptions) {
@@ -53,6 +56,7 @@ export class ApplicationAiRuntime {
     this.#costStore = options.costStore;
     this.#hardware = options.hardware;
     this.#installationSettings = options.installationSettings;
+    this.#installationHealth = options.installationHealth;
     this.#logger = options.logger;
   }
 
@@ -63,6 +67,14 @@ export class ApplicationAiRuntime {
   public async resolveAndPrepareMeetingConfiguration(
     guildId: string,
   ): Promise<ResolvedMeetingAiConfiguration> {
+    return (await this.resolveAndPrepareMeetingProfile(guildId)).configuration;
+  }
+
+  public async resolveAndPrepareMeetingProfile(guildId: string): Promise<{
+    configuration: ResolvedMeetingAiConfiguration;
+    name: string;
+    profileId: string;
+  }> {
     const profile = await this.#getOwnedActiveProfile(guildId);
     if (profile === undefined) {
       throw new Error("The server does not have an active AI profile");
@@ -85,8 +97,32 @@ export class ApplicationAiRuntime {
         executionPlan,
         logger: this.#logger,
       }).prepare();
+      await this.#writeLocalReadiness(configuration);
     }
-    return configuration;
+    return { configuration, name: profile.name, profileId: profile.profileId };
+  }
+
+  async #writeLocalReadiness(configuration: ResolvedMeetingAiConfiguration): Promise<void> {
+    if (this.#installationHealth === undefined || configuration.profileType !== "local") return;
+    const ollamaModels = [
+      configuration.refinement.model,
+      configuration.summary.model,
+      ...(configuration.translation === null ? [] : [configuration.translation.model]),
+    ];
+    await Promise.all([
+      this.#installationHealth.writeHeartbeat({
+        componentId: "faster-whisper-main",
+        componentType: "faster_whisper",
+        details: { models: [configuration.transcription.model] },
+        status: "ready",
+      }),
+      this.#installationHealth.writeHeartbeat({
+        componentId: "ollama-main",
+        componentType: "ollama",
+        details: { models: [...new Set(ollamaModels)] },
+        status: "ready",
+      }),
+    ]);
   }
 
   public async assessActiveProfile(

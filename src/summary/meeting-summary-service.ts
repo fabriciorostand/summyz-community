@@ -30,6 +30,7 @@ interface MeetingSummaryServiceOptions {
     manifest: RecordingManifest,
   ) => SummaryTranslationService | Promise<SummaryTranslationService>;
   summaryStore: SummaryStore;
+  timeZone?: string;
   transcriptionStore: TranscriptionStore;
 }
 
@@ -48,6 +49,7 @@ export class MeetingSummaryService {
     | undefined;
   readonly #summaryStore: SummaryStore;
   readonly #transcriptionStore: TranscriptionStore;
+  readonly #timeZone: string;
   readonly #resolveTranslator:
     | ((
         manifest: RecordingManifest,
@@ -63,6 +65,7 @@ export class MeetingSummaryService {
     this.#resolveGenerator = options.resolveGenerator;
     this.#summaryStore = options.summaryStore;
     this.#transcriptionStore = options.transcriptionStore;
+    this.#timeZone = options.timeZone ?? "UTC";
     this.#resolveTranslator = options.resolveTranslator;
     if (this.#generator === undefined && this.#resolveGenerator === undefined) {
       throw new Error("A summary generator or resolver is required");
@@ -108,7 +111,17 @@ export class MeetingSummaryService {
           ? this.#generator
           : await this.#resolveGenerator(manifest);
       if (generator === undefined) throw new Error("The summary generator is unavailable");
-      generated = await generator.generate(refinement.entries);
+      generated = await generator.generate(
+        refinement.entries.map((entry) => ({
+          ...entry,
+          spokenAt: {
+            instant: new Date(
+              new Date(manifest.startedAt).getTime() + entry.startedAtMs,
+            ).toISOString(),
+            timeZone: this.#timeZone,
+          },
+        })),
+      );
     } catch (error) {
       if (!(options.fallbackOnProviderFailure ?? true)) {
         throw error;

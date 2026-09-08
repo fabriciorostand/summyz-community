@@ -7,6 +7,7 @@ import type { AuthTokens, StoredDashboardUser } from "../auth/auth-service.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type {
   DashboardAnalytics,
+  DashboardAnalyticsOptions,
   MeetingHistoryDetail,
   MeetingHistoryFilters,
   MeetingHistoryPage,
@@ -15,6 +16,9 @@ import type {
   InstallationSecretName,
   InstallationSettings,
 } from "../database/postgres-installation-settings-store.js";
+import type { DashboardTask } from "../database/postgres-task-store.js";
+import type { LiveMeetingState } from "../database/postgres-live-meeting-store.js";
+import type { InstallationHealthStatus } from "../database/postgres-installation-health-store.js";
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
 import type {
   DiscordConnectionStatus,
@@ -67,6 +71,7 @@ export const profileBodySchema = z.discriminatedUnion("profileType", [
 
 export interface ApiAuthService {
   authenticate(accessToken: string): Promise<AuthenticatedUser>;
+  changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void>;
   createInitialAdministrator(
     input: z.infer<typeof registrationSchema>,
   ): Promise<StoredDashboardUser>;
@@ -76,6 +81,10 @@ export interface ApiAuthService {
   register(input: z.infer<typeof registrationSchema>): Promise<void>;
   requestPasswordReset(email: string): Promise<void>;
   resetPassword(token: string, password: string): Promise<void>;
+  updatePreferences(
+    userId: string,
+    preferences: { dashboardLanguage: "en" | "pt-BR"; dashboardTheme: "system" | "light" | "dark" },
+  ): Promise<void>;
   verifyEmail(token: string): Promise<void>;
 }
 
@@ -99,22 +108,37 @@ export interface ApiDiscordService {
 }
 
 export interface GuildDirectory {
+  getForums?(
+    guildId: string,
+  ): Promise<{ id: string; name: string; tags: { id: string; name: string }[] }[]>;
   getInstalledGuildIds(): Promise<ReadonlySet<string>>;
   getResources(guildId: string): Promise<{
     forums: { id: string; name: string; tags: { id: string; name: string }[] }[];
-    roles: { id: string; name: string }[];
+    memberCounts:
+      | { status: "available" }
+      | { code: "discord_members_intent_unavailable"; status: "unavailable" };
+    roles: { id: string; memberCount: number | null; name: string }[];
   }>;
   getMemberDisplayNames?(
     guildId: string,
     userIds: readonly string[],
   ): Promise<ReadonlyMap<string, string>>;
+  getMemberProfiles?(
+    guildId: string,
+    userIds: readonly string[],
+  ): Promise<ReadonlyMap<string, { avatarUrl: string | null; displayName: string }>>;
 }
 
 export interface ApiAnalyticsStore {
-  getDashboard(guildId: string): Promise<DashboardAnalytics>;
+  getGuildCallCount(guildId: string): Promise<number>;
+  getDashboard(guildId: string, options: DashboardAnalyticsOptions): Promise<DashboardAnalytics>;
   getMeeting(guildId: string, meetingId: string): Promise<MeetingHistoryDetail | undefined>;
   listMeetings(guildId: string, filters: MeetingHistoryFilters): Promise<MeetingHistoryPage>;
   updateDisplayNames(guildId: string, names: ReadonlyMap<string, string>): Promise<void>;
+  updateParticipantProfiles(
+    guildId: string,
+    profiles: ReadonlyMap<string, { avatarUrl: string | null; displayName: string }>,
+  ): Promise<void>;
 }
 
 export interface ApiServerDependencies {
@@ -124,9 +148,23 @@ export interface ApiServerDependencies {
   discord: ApiDiscordService;
   guildConfig: GuildConfigurationStore;
   guildDirectory: GuildDirectory;
+  health: { getStatus(): Promise<InstallationHealthStatus> };
   logger: Logger;
+  liveMeetings: { getForGuild(guildId: string): Promise<LiveMeetingState | null> };
   secureCookies: boolean;
   settings: ApiSettingsStore;
   setupToken: string;
   timeZone?: string;
+  tasks: {
+    list(
+      guildId: string,
+      filters?: { completed?: boolean; meetingId?: string },
+    ): Promise<DashboardTask[]>;
+    setCompleted(
+      guildId: string,
+      taskId: string,
+      completedByUserId: string,
+      completed: boolean,
+    ): Promise<void>;
+  };
 }

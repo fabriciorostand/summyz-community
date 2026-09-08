@@ -161,7 +161,11 @@ export const publicSummaryJsonSchema = {
       items: {
         additionalProperties: false,
         properties: {
+          deadlineDate: { format: "date", type: "string" },
+          deadlinePrecision: { enum: ["date", "minute"], type: "string" },
           deadlineText: { minLength: 1, type: "string" },
+          deadlineTime: { pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", type: "string" },
+          deadlineTimeZone: { minLength: 1, type: "string" },
           ownerName: { minLength: 1, type: "string" },
           text: { minLength: 1, type: "string" },
         },

@@ -52,8 +52,10 @@ INSERT INTO meetings (
   storage_mode,
   started_at,
   completed_at
-  , voice_channel_name
-) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $15)
+  , voice_channel_name,
+  ai_profile_id,
+  ai_profile_name
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $15, $17, $18)
 ON CONFLICT (meeting_id) DO UPDATE SET
   guild_id = EXCLUDED.guild_id,
   voice_channel_id = EXCLUDED.voice_channel_id,
@@ -68,6 +70,8 @@ ON CONFLICT (meeting_id) DO UPDATE SET
   manifest = EXCLUDED.manifest,
   completed_at = EXCLUDED.completed_at,
   voice_channel_name = EXCLUDED.voice_channel_name,
+  ai_profile_id = COALESCE(meetings.ai_profile_id, EXCLUDED.ai_profile_id),
+  ai_profile_name = COALESCE(meetings.ai_profile_name, EXCLUDED.ai_profile_name),
   updated_at = now()
 RETURNING meeting_id
 )
@@ -97,20 +101,27 @@ ON CONFLICT (meeting_id, job_type) DO NOTHING
         new Date().toISOString(),
         validated.voiceChannelName ?? null,
         CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
+        validated.aiProfile?.profileId ?? null,
+        validated.aiProfile?.name ?? null,
       ],
     );
     if (validated.participants.length > 0) {
       await this.#database.query(
-        `INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name)
-         SELECT $1, $2, participant.user_id, participant.display_name
-         FROM jsonb_to_recordset($3::jsonb) AS participant(user_id text, display_name text)
-         ON CONFLICT (meeting_id, user_id) DO UPDATE SET display_name = EXCLUDED.display_name`,
+        `INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name, avatar_url)
+         SELECT $1, $2, participant.user_id, participant.display_name, participant.avatar_url
+         FROM jsonb_to_recordset($3::jsonb) AS participant(
+           user_id text, display_name text, avatar_url text
+         )
+         ON CONFLICT (meeting_id, user_id) DO UPDATE SET
+           display_name = EXCLUDED.display_name,
+           avatar_url = EXCLUDED.avatar_url`,
         [
           validated.meetingId,
           validated.guildId,
           JSON.stringify(
             validated.participants.map((participant) => ({
               display_name: participant.displayName,
+              avatar_url: participant.avatarUrl ?? null,
               user_id: participant.userId,
             })),
           ),

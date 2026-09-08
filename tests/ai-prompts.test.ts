@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { aiProfileSchema, createInitialAiProfile, resolveAiProfile } from "../src/ai-profile.js";
-import { createDefaultAiPrompts } from "../src/ai-prompts.js";
+import {
+  canonicalizeDefaultPrompt,
+  createDefaultAiPrompts,
+  localizeDefaultPrompt,
+} from "../src/ai-prompts.js";
 
 describe("AI prompts", () => {
   it("cria prompts em pt-BR que solicitam o idioma configurado para o resumo", () => {
@@ -66,13 +70,39 @@ describe("AI prompts", () => {
     });
 
     expect(resolveAiProfile(profile)).toMatchObject({
-      refinement: { prompt: expect.stringContaining("revisor conservador") },
+      refinement: { prompt: expect.stringContaining("conservative transcript reviewer") },
       summary: {
-        consolidationPrompt: expect.stringContaining("em inglês"),
-        extractionPrompt: expect.stringContaining("em inglês"),
+        consolidationPrompt: expect.stringContaining("meeting's predominant language"),
+        extractionPrompt: expect.stringContaining("meeting's predominant language"),
       },
       transcription: { prompt: null },
     });
+  });
+
+  it("executes canonical English defaults even when the dashboard displays Portuguese", () => {
+    const profile = createInitialAiProfile("user-1", "external", "pt-BR");
+    const complete = aiProfileSchema.parse({
+      ...profile,
+      refinement: { ...profile.refinement, model: "review" },
+      summary: { ...profile.summary, model: "summary" },
+      transcription: { ...profile.transcription, model: "audio" },
+    });
+
+    const resolved = resolveAiProfile(complete);
+
+    expect(resolved.refinement.prompt).toContain("conservative transcript reviewer");
+    expect(resolved.summary.extractionPrompt).toContain("You extract information");
+  });
+
+  it("continua reconhecendo um prompt padrão quando o idioma do resumo muda", () => {
+    const previous = createDefaultAiPrompts("pt-BR", "auto");
+
+    expect(canonicalizeDefaultPrompt(previous.summaryExtraction, "summaryExtraction", "en")).toBe(
+      createDefaultAiPrompts("en", "en").summaryExtraction,
+    );
+    expect(
+      localizeDefaultPrompt(previous.summaryConsolidation, "summaryConsolidation", "pt-BR", "en"),
+    ).toBe(createDefaultAiPrompts("pt-BR", "en").summaryConsolidation);
   });
 
   it("rejeita perfis sem os prompts persistidos", () => {

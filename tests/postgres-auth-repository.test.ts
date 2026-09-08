@@ -5,6 +5,7 @@ import type { PostgresExecutor } from "../src/database/postgres-database.js";
 
 const row = {
   dashboard_language: "pt-BR",
+  dashboard_theme: "system",
   email: "person@example.com",
   email_verified_at: "2026-08-27T10:00:00.000Z",
   installation_role: "member",
@@ -69,5 +70,32 @@ describe("PostgresAuthRepository", () => {
       }),
     ).resolves.toEqual({ sessionId: "session-1", userId: row.user_id });
     expect(query.mock.calls[0]?.[0]).toMatch(/refresh_token_hash = \$2/i);
+  });
+
+  it("updates account preferences atomically", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
+    const repository = new PostgresAuthRepository({ query });
+
+    await repository.updatePreferences(row.user_id, {
+      dashboardLanguage: "en",
+      dashboardTheme: "dark",
+    });
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("dashboard_theme = $3"), [
+      row.user_id,
+      "en",
+      "dark",
+    ]);
+  });
+
+  it("changes the password and revokes all sessions in one statement", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
+    const repository = new PostgresAuthRepository({ query });
+
+    await repository.replacePasswordAndRevokeSessions(row.user_id, "$argon2id$new-hash");
+
+    expect(query.mock.calls[0]?.[0]).toContain("WITH updated_user AS");
+    expect(query.mock.calls[0]?.[0]).toContain("UPDATE dashboard_sessions");
+    expect(query.mock.calls[0]?.[1]).toEqual([row.user_id, "$argon2id$new-hash"]);
   });
 });

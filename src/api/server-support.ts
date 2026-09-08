@@ -163,11 +163,18 @@ export function requireAnalytics(dependencies: ApiServerDependencies): ApiAnalyt
   return dependencies.analytics;
 }
 
-export async function refreshDisplayNames(
+export async function refreshParticipantProfiles(
   guildId: string,
   userIds: readonly string[],
   dependencies: ApiServerDependencies,
-): Promise<ReadonlyMap<string, string>> {
+): Promise<ReadonlyMap<string, { avatarUrl?: string | null; displayName: string }>> {
+  if (dependencies.guildDirectory.getMemberProfiles !== undefined && userIds.length > 0) {
+    const profiles = await dependencies.guildDirectory
+      .getMemberProfiles(guildId, userIds)
+      .catch(() => new Map<string, { avatarUrl: string | null; displayName: string }>());
+    await dependencies.analytics?.updateParticipantProfiles(guildId, profiles);
+    return profiles;
+  }
   if (dependencies.guildDirectory.getMemberDisplayNames === undefined || userIds.length === 0) {
     return new Map();
   }
@@ -175,5 +182,5 @@ export async function refreshDisplayNames(
     .getMemberDisplayNames(guildId, userIds)
     .catch(() => new Map<string, string>());
   await dependencies.analytics?.updateDisplayNames(guildId, names);
-  return names;
+  return new Map([...names].map(([userId, displayName]) => [userId, { displayName }]));
 }

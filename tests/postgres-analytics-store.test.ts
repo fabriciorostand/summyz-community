@@ -72,12 +72,49 @@ describe("PostgresAnalyticsStore", () => {
     expect(values?.[3]).toBe("Planejamento");
   });
 
-  it("resume somente calls concluídas e todos os custos confirmados", async () => {
+  it("returns rolling analytics, exact costs and terminal status series", async () => {
     const responses = [
-      { rows: [{ average_duration_ms: 120_000, total_calls: 2, total_duration_ms: 240_000 }] },
-      { rows: [{ amount: 0.25, currency: "USD" }] },
-      { rows: [{ display_name: "Ana", talk_time_ms: "4000", user_id: "ana" }] },
-      { rows: [{ has_unresolved: true }] },
+      {
+        rows: [
+          {
+            average_duration_ms: 120_000,
+            previous_calls: 3,
+            total_calls: 4,
+            total_duration_ms: 240_000,
+          },
+        ],
+      },
+      {
+        rows: [
+          { amount: "0.250000", attempt_count: 2, currency: "USD", financial_status: "confirmed" },
+          { amount: null, attempt_count: 2, currency: null, financial_status: "unattributed" },
+        ],
+      },
+      {
+        rows: [
+          {
+            amount: "0.250000",
+            attempt_count: 2,
+            currency: "USD",
+            execution: "api",
+            financial_status: "confirmed",
+            phase: "summary",
+            provider: "openrouter",
+          },
+        ],
+      },
+      {
+        rows: [
+          {
+            avatar_url: "https://cdn.discordapp.com/avatars/ana/avatar.png",
+            display_name: "Ana",
+            talk_time_ms: "4000",
+            user_id: "ana",
+          },
+        ],
+      },
+      { rows: [{ bucket_start: "2026-08-01", completed: 3, failed: 1 }] },
+      { rows: [{ open_task_count: 2 }] },
     ];
     const query = vi.fn(async (_text: string, _values?: readonly unknown[]) => ({
       rowCount: 1,
@@ -85,16 +122,45 @@ describe("PostgresAnalyticsStore", () => {
     }));
     const store = new PostgresAnalyticsStore({ query } satisfies PostgresExecutor);
 
-    await expect(store.getDashboard("guild-1")).resolves.toEqual({
+    await expect(
+      store.getDashboard("guild-1", {
+        now: "2026-08-30T15:00:00.000Z",
+        period: "30d",
+        timeZone: "America/Sao_Paulo",
+      }),
+    ).resolves.toEqual({
       averageDurationMs: 120_000,
-      confirmedCost: [{ amount: 0.25, currency: "USD" }],
-      hasUnresolvedCosts: true,
-      topSpeakers: [{ displayName: "Ana", talkTimeMs: 4_000, userId: "ana" }],
-      totalCalls: 2,
+      calls: { current: 4, deltaPercentage: 33, previous: 3 },
+      cost: {
+        attemptCounts: { confirmed: 2, notApplicable: 0, pending: 0, unattributed: 2 },
+        breakdown: [
+          {
+            attemptCounts: { confirmed: 2, notApplicable: 0, pending: 0, unattributed: 0 },
+            confirmed: [{ amount: "0.250000", currency: "USD" }],
+            execution: "api",
+            phase: "summary",
+            provider: "openrouter",
+          },
+        ],
+        confirmed: [{ amount: "0.250000", currency: "USD" }],
+      },
+      openTaskCount: 2,
+      period: "30d",
+      statusSeries: [{ bucketStart: "2026-08-01", completed: 3, failed: 1 }],
+      topSpeakers: [
+        {
+          avatarUrl: "https://cdn.discordapp.com/avatars/ana/avatar.png",
+          displayName: "Ana",
+          talkTimeMs: 4_000,
+          userId: "ana",
+        },
+      ],
+      totalCalls: 4,
       totalDurationMs: 240_000,
     });
-    expect(query.mock.calls[0]?.[0]).toContain("pipeline_status = 'completed'");
-    expect(query.mock.calls[1]?.[0]).toContain("financial_status = 'confirmed'");
+    expect(query.mock.calls[0]?.[0]).toContain("previous_calls");
+    expect(query.mock.calls[1]?.[0]).toContain("financial_status");
+    expect(query.mock.calls[2]?.[0]).toContain("phase");
   });
 
   it("projeta somente o resumo público com o idioma fixado na reunião", async () => {
@@ -105,12 +171,17 @@ describe("PostgresAnalyticsStore", () => {
         rows: [
           {
             completed_at: "2026-08-28T01:27:14.888Z",
+            ai_profile_id: "profile-1",
+            ai_profile_name: "Perfil principal",
+            audio_retained: true,
             content_retained: true,
             duration_ms: 9_359,
             failure_code: null,
             meeting_id: "meeting-1",
             meeting_manifest: { botLanguage: "pt-BR" },
             pipeline_status: "completed",
+            publication_root_message_id: "message-1",
+            publication_thread_id: "thread-1",
             raw_transcript: "Transcrição original",
             started_at: "2026-08-28T01:27:05.529Z",
             summary: {
@@ -142,6 +213,14 @@ describe("PostgresAnalyticsStore", () => {
           },
         ],
       })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 2,
+        rows: [
+          { amount: "0.125", attempt_count: 1, currency: "USD", financial_status: "confirmed" },
+          { amount: null, attempt_count: 1, currency: null, financial_status: "pending" },
+        ],
+      })
       .mockResolvedValueOnce({ rowCount: 0, rows: [] });
     const store = new PostgresAnalyticsStore({ query } satisfies PostgresExecutor);
 
@@ -161,6 +240,15 @@ describe("PostgresAnalyticsStore", () => {
           text: "Publicar o documento.",
         },
       ],
+    });
+    expect(meeting).toMatchObject({
+      aiProfile: { name: "Perfil principal", profileId: "profile-1" },
+      audioRetained: true,
+      cost: {
+        attemptCounts: { confirmed: 1, notApplicable: 0, pending: 1, unattributed: 0 },
+        confirmed: [{ amount: "0.125", currency: "USD" }],
+      },
+      discordUrl: "https://discord.com/channels/guild-1/thread-1/message-1",
     });
     expect(JSON.stringify(meeting?.summary)).not.toContain("sourceEntryIds");
   });
@@ -193,6 +281,27 @@ describe("PostgresAnalyticsStore", () => {
       "America/Sao_Paulo",
       20,
       0,
+      null,
+      null,
+      null,
     ]);
+  });
+
+  it("filters calls by channel, retention and participant", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>(async () => ({ rowCount: 0, rows: [] }));
+    const store = new PostgresAnalyticsStore({ query } satisfies PostgresExecutor);
+
+    await store.listMeetings("guild-1", {
+      channelName: "planejamento",
+      contentRetained: true,
+      page: 1,
+      pageSize: 20,
+      participantUserId: "user-1",
+      timeZone: "America/Sao_Paulo",
+    });
+
+    expect(query.mock.calls[0]?.[0]).toContain("voice_channel_name ILIKE");
+    expect(query.mock.calls[0]?.[0]).toContain("content.meeting_id IS NOT NULL");
+    expect(query.mock.calls[0]?.[0]).toContain("meeting_participants");
   });
 });

@@ -180,9 +180,15 @@ function mapSummaryStrings(
       map(value, `observations.${String(index)}`),
     ),
     tasks: summary.tasks.map((task, index) => ({
+      ...(task.deadlineDate === undefined ? {} : { deadlineDate: task.deadlineDate }),
+      ...(task.deadlinePrecision === undefined
+        ? {}
+        : { deadlinePrecision: task.deadlinePrecision }),
       ...(task.deadlineText === undefined
         ? {}
         : { deadlineText: map(task.deadlineText, `tasks.${String(index)}.deadlineText`) }),
+      ...(task.deadlineTime === undefined ? {} : { deadlineTime: task.deadlineTime }),
+      ...(task.deadlineTimeZone === undefined ? {} : { deadlineTimeZone: task.deadlineTimeZone }),
       ...(task.ownerName === undefined
         ? {}
         : { ownerName: map(task.ownerName, `tasks.${String(index)}.ownerName`) }),

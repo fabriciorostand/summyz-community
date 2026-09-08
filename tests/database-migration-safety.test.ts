@@ -10,13 +10,19 @@ import { databaseMigrations } from "../src/database/migrations.js";
 describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
-    expect(databaseMigrations.at(-1)).toMatchObject({ version: 11 });
+    expect(databaseMigrations.at(-1)).toMatchObject({ version: 12 });
     expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
       "transcription_recovery_version",
     );
     expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
       "artifacts_delete_after",
     );
+    const dashboardFoundation = databaseMigrations.find(({ version }) => version === 12)?.sql;
+    expect(dashboardFoundation).toContain("dashboard_theme");
+    expect(dashboardFoundation).toContain("meeting_tasks");
+    expect(dashboardFoundation).toContain("live_meeting_states");
+    expect(dashboardFoundation).toContain("runtime_component_heartbeats");
+    expect(dashboardFoundation).not.toContain("ON DELETE CASCADE");
   });
 
   it.each([

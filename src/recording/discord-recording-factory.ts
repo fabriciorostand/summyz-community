@@ -6,6 +6,7 @@ import type { Logger } from "pino";
 
 import type { AppConfig } from "../config.js";
 import type { GuildSettings } from "../guild-config-store.js";
+import type { LiveMeetingStateWriter } from "../database/postgres-live-meeting-store.js";
 import { DiscordVoiceRecording } from "./discord-voice-recording.js";
 import {
   addParticipant,
@@ -32,9 +33,14 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #manifestStore: ManifestStore;
   readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
   readonly #resolveMeetingAiConfiguration:
-    | ((guildId: string) => Promise<ResolvedMeetingAiConfiguration>)
+    | ((guildId: string) => Promise<{
+        configuration: ResolvedMeetingAiConfiguration;
+        name: string;
+        profileId: string;
+      }>)
     | undefined;
   readonly #resolveGuildSettings: ((guildId: string) => Promise<GuildSettings>) | undefined;
+  readonly #liveMeetingStore: LiveMeetingStateWriter | undefined;
 
   public constructor(
     client: Client,
@@ -42,8 +48,13 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     manifestStore: ManifestStore,
     logger: Logger,
     onCompleted?: (manifest: RecordingManifest) => Promise<void>,
-    resolveMeetingAiConfiguration?: (guildId: string) => Promise<ResolvedMeetingAiConfiguration>,
+    resolveMeetingAiConfiguration?: (guildId: string) => Promise<{
+      configuration: ResolvedMeetingAiConfiguration;
+      name: string;
+      profileId: string;
+    }>,
     resolveGuildSettings?: (guildId: string) => Promise<GuildSettings>,
+    liveMeetingStore?: LiveMeetingStateWriter,
   ) {
     this.#client = client;
     this.#config = config;
@@ -52,17 +63,23 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
     this.#resolveMeetingAiConfiguration = resolveMeetingAiConfiguration;
     this.#onCompleted = onCompleted;
     this.#resolveGuildSettings = resolveGuildSettings;
+    this.#liveMeetingStore = liveMeetingStore;
   }
 
   public async create(input: StartRecordingInput, onEnded?: () => void): Promise<RecordingHandle> {
-    const aiConfiguration = await this.#resolveMeetingAiConfiguration?.(input.guildId);
+    const aiProfile = await this.#resolveMeetingAiConfiguration?.(input.guildId);
     const guildSettings = (await this.#resolveGuildSettings?.(input.guildId)) ?? {
       botLanguage: this.#config.botLanguage,
       persistMeetingAudio: this.#config.persistMeetingAudio,
       persistMeetingContent: this.#config.persistMeetingContent,
     };
     const manifest = createManifest({
-      ...(aiConfiguration === undefined ? {} : { aiConfiguration }),
+      ...(aiProfile === undefined
+        ? {}
+        : {
+            aiConfiguration: aiProfile.configuration,
+            aiProfile: { name: aiProfile.name, profileId: aiProfile.profileId },
+          }),
       botLanguage: guildSettings.botLanguage,
       guildId: input.guildId,
       meetingId: randomUUID(),
@@ -170,9 +187,17 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       manifest.status === "interrupted"
         ? markManifestRecording(manifest, new Date().toISOString())
         : manifest;
+    const liveParticipants = voiceChannel.members
+      .filter((member) => !member.user.bot)
+      .map((member) => ({
+        avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
+        displayName: member.displayName,
+        userId: member.id,
+      }));
     for (const member of voiceChannel.members.values()) {
       if (!member.user.bot) {
         readyManifest = addParticipant(readyManifest, {
+          avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
           displayName: member.displayName,
           userId: member.id,
         });
@@ -187,10 +212,12 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       logger: this.#logger,
       manifest: readyManifest,
       manifestStore: this.#manifestStore,
+      ...(this.#liveMeetingStore === undefined ? {} : { liveMeetingStore: this.#liveMeetingStore }),
       notify: (message) => this.#notify(readyManifest.notificationChannelId, message),
       ...(this.#onCompleted === undefined ? {} : { onCompleted: this.#onCompleted }),
       ...(onEnded === undefined ? {} : { onEnded }),
     });
+    await recording.updateLiveParticipants(liveParticipants);
     recording.start();
     return recording;
   }

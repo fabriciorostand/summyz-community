@@ -13,7 +13,10 @@ import { PostgresAuthRepository } from "../database/postgres-auth-repository.js"
 import { PostgresDiscordConnectionStore } from "../database/postgres-discord-connection-store.js";
 import { PostgresGuildConfigStore } from "../database/postgres-guild-config-store.js";
 import { PostgresInstallationSettingsStore } from "../database/postgres-installation-settings-store.js";
+import { PostgresInstallationHealthStore } from "../database/postgres-installation-health-store.js";
 import { createPostgresDatabase } from "../database/postgres-database.js";
+import { PostgresTaskStore } from "../database/postgres-task-store.js";
+import { PostgresLiveMeetingStore } from "../database/postgres-live-meeting-store.js";
 import { DiscordOAuthService } from "../discord/discord-oauth-service.js";
 import { DiscordRestGuildDirectory } from "../discord/discord-rest-guild-directory.js";
 import { createLogger } from "../logger.js";
@@ -61,11 +64,14 @@ const app = await createApiServer(
     discord,
     guildConfig: new PostgresGuildConfigStore(database),
     guildDirectory,
+    health: new PostgresInstallationHealthStore(database),
     logger,
+    liveMeetings: new PostgresLiveMeetingStore(database),
     secureCookies: config.secureCookies,
     settings,
     setupToken: config.setupToken,
     timeZone: config.summaryTimeZone,
+    tasks: new PostgresTaskStore(database),
   },
   { staticDirectory: resolve(config.staticDirectory) },
 );

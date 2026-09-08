@@ -93,10 +93,12 @@ function DashboardMetrics({ dashboard }: { dashboard: DashboardAnalytics }) {
       <MetricCard
         icon={<WalletCards />}
         label="Custo confirmado"
-        {...(dashboard.hasUnresolvedCosts
-          ? { note: "Há custos pendentes ou não atribuídos." }
+        {...(dashboard.cost.attemptCounts.unattributed > 0
+          ? {
+              note: `${String(dashboard.cost.attemptCounts.unattributed)} sem custo confirmado`,
+            }
           : {})}
-        value={formatCosts(dashboard.confirmedCost)}
+        value={formatCosts(dashboard.cost.confirmed)}
       />
     </div>
   );

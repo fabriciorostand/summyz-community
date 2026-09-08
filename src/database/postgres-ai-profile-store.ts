@@ -1,6 +1,11 @@
 import { z } from "zod";
 
-import { aiProfileSchema, createInitialAiProfiles, type AiProfile } from "../ai-profile.js";
+import {
+  aiProfileSchema,
+  canonicalizeAiProfileDefaults,
+  createInitialAiProfiles,
+  type AiProfile,
+} from "../ai-profile.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(256);
@@ -28,6 +33,7 @@ export interface AiProfileStore {
   ): Promise<AiProfile | undefined>;
   listProfiles(userId: string): Promise<AiProfile[]>;
   listActiveProfileIds(userId: string): Promise<Set<string>>;
+  listActiveProfileCounts(userId: string): Promise<ReadonlyMap<string, number>>;
   setActiveProfile(guildId: string, userId: string, profileId: string): Promise<void>;
   updateProfile(userId: string, profile: AiProfile): Promise<void>;
 }
@@ -170,6 +176,28 @@ export class PostgresAiProfileStore implements AiProfileStore {
     );
   }
 
+  public async listActiveProfileCounts(userId: string): Promise<ReadonlyMap<string, number>> {
+    const result = await this.#database.query(
+      `SELECT guild.active_ai_profile_id AS profile_id, count(*)::int AS server_count
+       FROM guild_configurations guild
+       JOIN ai_profiles profile ON profile.profile_id = guild.active_ai_profile_id
+       WHERE profile.owner_user_id = $1::uuid
+       GROUP BY guild.active_ai_profile_id`,
+      [identifierSchema.parse(userId)],
+    );
+    return new Map(
+      z
+        .array(
+          z.object({
+            profile_id: z.string().min(1),
+            server_count: z.coerce.number().int().nonnegative(),
+          }),
+        )
+        .parse(result.rows)
+        .map((row) => [row.profile_id, row.server_count] as const),
+    );
+  }
+
   public async setActiveProfile(guildId: string, userId: string, profileId: string): Promise<void> {
     const result = await this.#database.query(
       `UPDATE guild_configurations
@@ -239,15 +267,16 @@ function parseProfileRow(input: unknown): AiProfile {
 }
 
 function serializeProfile(profile: AiProfile): readonly unknown[] {
+  const canonical = canonicalizeAiProfileDefaults(profile);
   return [
-    profile.profileId,
-    profile.userId,
-    profile.profileType,
-    profile.name,
-    JSON.stringify(profile.transcription),
-    JSON.stringify(profile.refinement),
-    JSON.stringify(profile.summary),
-    profile.language,
-    profile.translation === null ? null : JSON.stringify(profile.translation),
+    canonical.profileId,
+    canonical.userId,
+    canonical.profileType,
+    canonical.name,
+    JSON.stringify(canonical.transcription),
+    JSON.stringify(canonical.refinement),
+    JSON.stringify(canonical.summary),
+    canonical.language,
+    canonical.translation === null ? null : JSON.stringify(canonical.translation),
   ];
 }
