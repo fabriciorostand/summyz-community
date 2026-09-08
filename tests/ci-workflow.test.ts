@@ -188,6 +188,19 @@ describe("continuous integration contract", () => {
     expect(cudaBuild).not.toContain("load: true");
   });
 
+  it("retries CUDA snapshot updates and rejects partial package indexes", async () => {
+    const dockerfile = await readFile(new URL("services/faster-whisper/Dockerfile", root), "utf8");
+    const cudaSetup = dockerfile.slice(
+      dockerfile.indexOf("FROM nvidia/cuda:"),
+      dockerfile.indexOf("WORKDIR /service", dockerfile.indexOf("FROM nvidia/cuda:")),
+    );
+
+    expect(cudaSetup).toContain("for snapshot_update_attempt in 1 2 3");
+    expect(cudaSetup).toContain("Acquire::Retries=3");
+    expect(cudaSetup).toContain("APT::Update::Error-Mode=any");
+    expect(cudaSetup).toContain(`test "\${snapshot_update_status}" -eq 0`);
+  });
+
   it("reclaims duplicated build storage before runtime validation and smoke tests", async () => {
     const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
     const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));

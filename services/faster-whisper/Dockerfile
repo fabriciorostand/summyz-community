@@ -85,13 +85,28 @@ ENV DEBIAN_FRONTEND=noninteractive \
     LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PATH=/opt/venv/bin:${PATH}
 
-RUN sed -i \
+RUN set -eu; \
+    sed -i \
       "s|http://archive.ubuntu.com/ubuntu/|https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/|g; s|http://security.ubuntu.com/ubuntu/|https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/|g" \
-      /etc/apt/sources.list.d/ubuntu.sources && \
-    rm -f /etc/apt/sources.list.d/cuda.list && \
-    apt-get -o Acquire::Check-Valid-Until=false update && \
-    apt-get install --yes --no-install-recommends libopus0 python3 python3-pip python3-venv && \
-    rm -rf /var/lib/apt/lists/* && \
+      /etc/apt/sources.list.d/ubuntu.sources; \
+    rm -f /etc/apt/sources.list.d/cuda.list; \
+    snapshot_update_status=1; \
+    for snapshot_update_attempt in 1 2 3; do \
+      rm -rf /var/lib/apt/lists/*; \
+      if apt-get \
+        -o Acquire::Check-Valid-Until=false \
+        -o Acquire::Retries=3 \
+        -o APT::Update::Error-Mode=any \
+        update; then \
+        snapshot_update_status=0; \
+        break; \
+      fi; \
+      echo "Ubuntu snapshot update failed; retrying" >&2; \
+      sleep 5; \
+    done; \
+    test "${snapshot_update_status}" -eq 0; \
+    apt-get install --yes --no-install-recommends libopus0 python3 python3-pip python3-venv; \
+    rm -rf /var/lib/apt/lists/*; \
     python3 -m venv /opt/venv
 WORKDIR /service
 COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
