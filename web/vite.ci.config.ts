@@ -6,7 +6,7 @@ export default mergeConfig(baseConfig, {
   test: {
     coverage: {
       all: true,
-      exclude: ["src/main.tsx"],
+      exclude: ["src/main.tsx", "src/test-utils.tsx"],
       include: ["src/**/*.{ts,tsx}"],
       provider: "v8",
       reporter: ["text", "html", "json", "json-summary", "cobertura", "lcovonly"],

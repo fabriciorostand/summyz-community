@@ -46,35 +46,44 @@ const webDomains: readonly CoverageDomain[] = [
   {
     name: "authentication-onboarding-account",
     patterns: [
-      "/web/src/account-pages.tsx",
       "/web/src/app.tsx",
-      "/web/src/auth-pages.tsx",
-      "/web/src/installation-page.tsx",
+      "/web/src/pages/account-page.tsx",
+      "/web/src/pages/installation-page.tsx",
+      "/web/src/pages/login-page.tsx",
+      "/web/src/pages/setup-page.tsx",
     ],
   },
   {
     name: "guild-configuration-profiles",
     patterns: [
-      "/web/src/guild-configuration-page.tsx",
-      "/web/src/profile-editor.tsx",
-      "/web/src/profile-language.tsx",
-      "/web/src/profile-phase-editor.tsx",
-      "/web/src/profile-vad-editor.tsx",
-      "/web/src/profiles-page.tsx",
+      "/web/src/pages/guild-page.tsx",
+      "/web/src/pages/profiles/",
+      "/web/src/pages/servers-page.tsx",
     ],
   },
   {
     name: "analytics-meeting-history",
     patterns: [
-      "/web/src/analytics-dashboard-page.tsx",
-      "/web/src/analytics-format.ts",
-      "/web/src/meeting-history-detail-page.tsx",
-      "/web/src/meeting-history-page.tsx",
+      "/web/src/lib/format.ts",
+      "/web/src/lib/transcript.ts",
+      "/web/src/pages/call-detail-page.tsx",
+      "/web/src/pages/calls-page.tsx",
+      "/web/src/pages/overview-page.tsx",
     ],
   },
   {
+    name: "tasks-board",
+    patterns: ["/web/src/pages/tasks-page.tsx"],
+  },
+  {
     name: "api-client-shared-ui",
-    patterns: ["/web/src/api.ts", "/web/src/components.tsx"],
+    patterns: [
+      "/web/src/components/",
+      "/web/src/hooks/",
+      "/web/src/layout/",
+      "/web/src/lib/api-contracts.ts",
+      "/web/src/lib/api.ts",
+    ],
   },
 ];
 
