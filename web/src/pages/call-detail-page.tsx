@@ -1,0 +1,409 @@
+import { ArrowLeft, Check, Copy, Download, ExternalLink, FileText, Info } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+
+import { Disclosure } from "../components/disclosure";
+import { ErrorState, LoadingPanel } from "../components/states";
+import { Avatar, Badge, Button, Card, Meter, Notice } from "../components/ui";
+import { useDashboard } from "../layout/dashboard-layout";
+import { TopBar } from "../layout/top-bar";
+import { api, type MeetingHistoryDetail, type MeetingHistorySummary } from "../lib/api";
+import { downloadTextFile, meetingFileName } from "../lib/download";
+import {
+  formatCost,
+  formatDate,
+  formatDuration,
+  formatInteger,
+  pipelineStatus,
+} from "../lib/format";
+import { parseTranscript, transcriptStats } from "../lib/transcript";
+import { Screen } from "./screen";
+
+export function CallDetailPage() {
+  const { meetingId = "" } = useParams();
+  const { controls, guilds } = useDashboard();
+  const guildId = guilds.selectedGuildId;
+  const [meeting, setMeeting] = useState<MeetingHistoryDetail>();
+  const [loadError, setLoadError] = useState(false);
+  const [reloadToken, setReloadToken] = useState(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is the explicit refetch trigger.
+  useEffect(() => {
+    if (guildId.length === 0) return;
+    let active = true;
+    setMeeting(undefined);
+    setLoadError(false);
+    void api
+      .getMeeting(guildId, meetingId)
+      .then((next) => {
+        if (active) setMeeting(next);
+      })
+      .catch(() => {
+        if (active) setLoadError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [guildId, meetingId, reloadToken]);
+
+  const status = meeting === undefined ? undefined : pipelineStatus(meeting.pipelineStatus);
+  return (
+    <>
+      <TopBar
+        actions={
+          <>
+            {meeting !== undefined && <ExportButton guildId={guildId} meeting={meeting} />}
+            {meeting?.discordUrl != null && (
+              <a
+                className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
+                href={meeting.discordUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                <ExternalLink className="size-3.5" />
+                Abrir no Discord
+              </a>
+            )}
+            {controls}
+          </>
+        }
+        breadcrumb={
+          <Link
+            className="flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
+            to="/history"
+          >
+            <ArrowLeft className="size-3.5" />
+            Calls
+          </Link>
+        }
+        title={
+          <span className="flex items-center gap-3">
+            {meeting?.voiceChannelName ?? "Detalhes da call"}
+            {status !== undefined && (
+              <Badge tone={status.tone === "live" ? "live" : status.tone}>{status.label}</Badge>
+            )}
+          </span>
+        }
+      />
+      <Screen>
+        {loadError || guilds.error ? (
+          <ErrorState
+            code="request_failed"
+            onRetry={() => setReloadToken((token) => token + 1)}
+            secondaryAction={
+              <Link
+                className="rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
+                to="/history"
+              >
+                Voltar ao histórico
+              </Link>
+            }
+            title="Call indisponível"
+          >
+            Não foi possível carregar os detalhes desta reunião.
+          </ErrorState>
+        ) : meeting === undefined ? (
+          <LoadingPanel label="Carregando a call…" />
+        ) : (
+          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+            <div className="flex min-w-0 flex-col gap-6">
+              <SummaryCard summary={meeting.summary} />
+              <TranscriptCard transcript={meeting.transcript} />
+            </div>
+            <div className="flex flex-col gap-6">
+              <ParticipantsCard meeting={meeting} />
+              <FactsCard meeting={meeting} />
+            </div>
+          </div>
+        )}
+      </Screen>
+    </>
+  );
+}
+
+function ExportButton({ guildId, meeting }: { guildId: string; meeting: MeetingHistoryDetail }) {
+  const [busy, setBusy] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const available = meeting.summary?.status === "completed" && meeting.transcript !== null;
+  if (!available) return null;
+  async function exportMeeting() {
+    setBusy(true);
+    setFailed(false);
+    try {
+      const contents = await api.getMeetingExport(guildId, meeting.meetingId);
+      downloadTextFile(meetingFileName(meeting.voiceChannelName, meeting.meetingId), contents);
+    } catch {
+      setFailed(true);
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Button
+      disabled={busy}
+      onClick={() => void exportMeeting()}
+      type="button"
+      variant={failed ? "danger" : "secondary"}
+    >
+      <Download className="size-3.5" />
+      {failed ? "Falhou — tentar de novo" : busy ? "Exportando…" : "Exportar"}
+    </Button>
+  );
+}
+
+function SummaryCard({ summary }: { summary: MeetingHistorySummary | null }) {
+  if (summary === null) {
+    return (
+      <Card>
+        <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">Resumo</h2>
+        <p className="m-0 text-[12.5px] text-ink-muted">Conteúdo não retido.</p>
+      </Card>
+    );
+  }
+  if (summary.status === "failed") {
+    return (
+      <Card>
+        <h2 className="m-0 mb-3 text-[15px] font-semibold tracking-tight text-ink">Resumo</h2>
+        <Notice tone="warn">
+          Não foi possível gerar o resumo após as tentativas configuradas. A transcrição completa
+          continua disponível abaixo.
+        </Notice>
+      </Card>
+    );
+  }
+  const labels = summary.labels;
+  return (
+    <Card>
+      <div className="label-mono mb-3 text-ink-muted">
+        {labels?.executiveSummary ?? "Resumo executivo"}
+      </div>
+      <p className="m-0 text-[14px] leading-relaxed text-ink">{summary.executiveSummary}</p>
+      <SummaryList items={summary.decisions} title={labels?.decisions ?? "Decisões"} withCheck />
+      <SummaryList
+        items={summary.discussedTopics}
+        title={labels?.discussedTopics ?? "Tópicos discutidos"}
+      />
+      {summary.tasks.length > 0 && (
+        <section className="mt-6">
+          <h3 className="m-0 mb-3 text-[13px] font-semibold text-ink">
+            {labels?.tasks ?? "Tarefas por responsável"}
+          </h3>
+          <div className="flex flex-col gap-2">
+            {summary.tasks.map((task, index) => (
+              <div
+                className="flex items-start gap-2.5 rounded-lg border border-line bg-surface-raised px-3 py-2.5"
+                key={`${String(index)}:${task.text}`}
+              >
+                <Avatar name={task.ownerName ?? "?"} size={22} />
+                <div className="min-w-0 flex-1">
+                  <div className="text-[12.5px] text-ink">{task.text}</div>
+                  <div className="label-mono mt-1 text-ink-dim">
+                    {[
+                      task.ownerName,
+                      task.deadlineText === undefined
+                        ? undefined
+                        : `${labels?.deadline ?? "Prazo"} ${task.deadlineText}`,
+                    ]
+                      .filter((part): part is string => part !== undefined)
+                      .join(" · ")}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+      {summary.observations.length > 0 && (
+        <div className="mt-6">
+          <Notice icon={<Info className="mt-0.5 size-3.5 shrink-0" />}>
+            <strong className="block text-ink">
+              {labels?.observations ?? "Pendências e observações"}
+            </strong>
+            <span className="mt-1 block">{summary.observations.join(" ")}</span>
+          </Notice>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function SummaryList({
+  items,
+  title,
+  withCheck = false,
+}: {
+  items: readonly string[];
+  title: string;
+  withCheck?: boolean;
+}) {
+  if (items.length === 0) return null;
+  return (
+    <section className="mt-6">
+      <h3 className="m-0 mb-3 text-[13px] font-semibold text-ink">{title}</h3>
+      <div className="flex flex-col gap-2">
+        {items.map((item, index) => (
+          <div className="flex items-start gap-2.5" key={`${String(index)}:${item}`}>
+            {withCheck ? (
+              <Check className="mt-0.5 size-3.5 shrink-0 text-ok" />
+            ) : (
+              <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-accent" />
+            )}
+            <span className="text-[12.5px] leading-relaxed text-ink-secondary">{item}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TranscriptCard({ transcript }: { transcript: string | null }) {
+  const turns = useMemo(() => parseTranscript(transcript ?? ""), [transcript]);
+  const stats = transcriptStats(turns);
+  if (transcript === null) {
+    return (
+      <Card>
+        <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">Transcrição</h2>
+        <p className="m-0 text-[12.5px] text-ink-muted">Conteúdo não retido.</p>
+      </Card>
+    );
+  }
+  return (
+    <Disclosure
+      badge={
+        <span className="label-mono shrink-0 text-ink-dim">
+          {formatInteger(stats.turns)} falas · {formatInteger(stats.words)} palavras
+        </span>
+      }
+      icon={<FileText className="size-4" />}
+      title="Transcrição completa"
+    >
+      {turns.length === 0 ? (
+        <pre className="m-0 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink-secondary">
+          {transcript}
+        </pre>
+      ) : (
+        <div className="flex flex-col">
+          {turns.map((turn, index) => (
+            <div
+              className="grid grid-cols-[72px_120px_minmax(0,1fr)] gap-3 border-b border-line-soft py-2.5 last:border-0"
+              key={`${String(index)}:${turn.startedAt}`}
+            >
+              <span className="font-mono text-[11px] text-ink-dim">{turn.startedAt}</span>
+              <span className="truncate text-[12px] font-medium text-ink-secondary">
+                {turn.speaker}
+              </span>
+              <span className="text-[12.5px] leading-relaxed whitespace-pre-line text-ink">
+                {turn.text}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </Disclosure>
+  );
+}
+
+function ParticipantsCard({ meeting }: { meeting: MeetingHistoryDetail }) {
+  if (meeting.participants === null) {
+    return (
+      <Card>
+        <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">
+          Participantes
+        </h2>
+        <p className="m-0 text-[12.5px] text-ink-muted">Informação indisponível.</p>
+      </Card>
+    );
+  }
+  const silent = meeting.participants.every((participant) => participant.percentage === 0);
+  return (
+    <Card>
+      <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">Participantes</h2>
+      {silent && <p className="m-0 mb-3 text-[12px] text-ink-muted">Nenhuma fala detectada.</p>}
+      <div className="flex flex-col gap-3">
+        {meeting.participants.map((participant) => (
+          <div className="flex items-center gap-2.5" key={participant.userId}>
+            <Avatar avatarUrl={participant.avatarUrl} name={participant.displayName} size={26} />
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between gap-2">
+                <span className="truncate text-[12.5px] text-ink">{participant.displayName}</span>
+                <span className="font-mono text-[11px] text-ink-muted">
+                  {participant.percentage === null ? "—" : `${String(participant.percentage)}%`}
+                </span>
+              </div>
+              {participant.percentage !== null && (
+                <div className="mt-1.5">
+                  <Meter percentage={participant.percentage} />
+                </div>
+              )}
+            </div>
+          </div>
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function FactsCard({ meeting }: { meeting: MeetingHistoryDetail }) {
+  const facts: { label: string; value: string }[] = [
+    { label: "Início", value: formatDate(meeting.startedAt, meeting.timeZone) },
+    { label: "Duração", value: formatDuration(meeting.durationMs) },
+    { label: "Perfil usado", value: meeting.aiProfile?.name ?? "—" },
+    {
+      label: "Idioma do resumo",
+      value: meeting.summary === null ? "—" : meeting.summary.language,
+    },
+    { label: "Conteúdo retido", value: meeting.contentRetained ? "sim" : "não" },
+    { label: "Áudio retido", value: meeting.audioRetained ? "sim" : "não" },
+    { label: "Custo da call", value: formatCost(meeting.cost.confirmed) },
+  ];
+  return (
+    <Card>
+      <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">Ficha técnica</h2>
+      <div className="flex flex-col">
+        {facts.map((fact) => (
+          <div
+            className="flex items-baseline justify-between gap-3 border-b border-line-soft py-2 last:border-0"
+            key={fact.label}
+          >
+            <span className="text-[12px] text-ink-muted">{fact.label}</span>
+            <span className="text-right font-mono text-[11.5px] text-ink-secondary">
+              {fact.value}
+            </span>
+          </div>
+        ))}
+      </div>
+      <div className="mt-4">
+        <div className="label-mono mb-1.5 text-ink-muted">ID da reunião</div>
+        <CopyableId value={meeting.meetingId} />
+      </div>
+    </Card>
+  );
+}
+
+function CopyableId({ value }: { value: string }) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1_600);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  return (
+    <button
+      className="flex w-full items-center gap-2 rounded-lg border border-line bg-surface-raised px-2.5 py-2 text-left font-mono text-[11px] text-ink-secondary transition-colors hover:border-line-strong"
+      onClick={() => {
+        void navigator.clipboard.writeText(value).then(
+          () => setCopied(true),
+          () => setCopied(false),
+        );
+      }}
+      type="button"
+    >
+      <span className="min-w-0 flex-1 truncate">{value}</span>
+      {copied ? (
+        <Check className="size-3.5 shrink-0 text-ok" />
+      ) : (
+        <Copy className="size-3.5 shrink-0 text-ink-dim" />
+      )}
+    </button>
+  );
+}
