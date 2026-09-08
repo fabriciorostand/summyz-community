@@ -148,24 +148,48 @@ describe("continuous integration contract", () => {
     expect(initializationStep).toContain("chmod 0777 reports");
   });
 
-  it("validates CUDA packaging without loading the large image into the runner", async () => {
+  it("validates CUDA packaging after image scans without loading it into the runner", async () => {
     const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
-    const cudaBuild = implementation.slice(
-      implementation.indexOf("- name: Build NVIDIA packaging target"),
-      implementation.indexOf("- name: Build smoke-test image"),
+    const cudaBuildIndex = implementation.indexOf("- name: Build NVIDIA packaging target");
+    const imagePolicyIndex = implementation.indexOf(
+      "- name: Enforce fixable HIGH/CRITICAL image vulnerabilities",
     );
+    const storageCleanupIndex = implementation.indexOf(
+      "- name: Reclaim Docker storage before CUDA packaging",
+    );
+    const cudaBuild = implementation.slice(
+      cudaBuildIndex,
+      implementation.indexOf("- name: Upload runtime reports"),
+    );
+    const storageCleanup = implementation.slice(storageCleanupIndex, cudaBuildIndex);
 
+    expect(storageCleanupIndex).toBeGreaterThan(imagePolicyIndex);
+    expect(cudaBuildIndex).toBeGreaterThan(imagePolicyIndex);
+    expect(cudaBuildIndex).toBeGreaterThan(storageCleanupIndex);
+    expect(storageCleanup).toContain("docker image prune --all --force");
+    expect(storageCleanup).toContain("docker buildx prune --all --force");
     expect(cudaBuild).toContain("load: false");
     expect(cudaBuild).not.toContain("load: true");
   });
 
   it("does not require a developer .env file for CI Compose operations", async () => {
-    const overlay = await readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8");
+    const [overlay, implementation] = await Promise.all([
+      readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8"),
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+    ]);
 
     for (const service of ["bot", "dashboard"]) {
       const section = overlay.split(`\n  ${service}:`)[1]?.split(/\n {2}\S/u)[0];
       expect(section).toContain("env_file: !reset []");
     }
+
+    const validationStep = implementation.slice(
+      implementation.indexOf("- name: Validate image users, versions, and Compose overlays"),
+      implementation.indexOf("- name: Restore immutable local-model cache"),
+    );
+    expect(validationStep.match(/-f \.github\/ci\/docker-compose\.ci\.yaml/gu)).toHaveLength(3);
+    expect(validationStep).toContain("CI_OLLAMA_CACHE:");
+    expect(validationStep).toContain("CI_WHISPER_CACHE:");
   });
 
   it("enforces changed coverage once over the weighted server, dashboard, and Python total", async () => {
@@ -178,5 +202,8 @@ describe("continuous integration contract", () => {
     expect(changedCoverageStep).toContain("for component in server web python");
     expect(changedCoverageStep).not.toContain("--fail-under 85");
     expect(changedCoverageStep).toContain("scripts/ci/changed-coverage-cli.ts");
+    expect(changedCoverageStep).toContain("docker run --rm");
+    expect(changedCoverageStep).toContain('--user "$(id -u):$(id -g)"');
+    expect(changedCoverageStep).toContain("summyz-community-tests:ci");
   });
 });

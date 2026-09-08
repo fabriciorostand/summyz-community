@@ -396,7 +396,11 @@ jobs:
               exit 1
             fi
           done
-          ./node_modules/.bin/tsx scripts/ci/changed-coverage-cli.ts \
+          docker run --rm \
+            --user "$(id -u):$(id -g)" \
+            --volume "${{ github.workspace }}/reports:/app/reports" \
+            summyz-community-tests:ci \
+            ./node_modules/.bin/tsx scripts/ci/changed-coverage-cli.ts \
             reports/diff-coverage/server.json \
             reports/diff-coverage/web.json \
             reports/diff-coverage/python.json \
@@ -457,17 +461,6 @@ jobs:
           cache-from: type=gha,scope=summyz-python-runtime
           cache-to: type=gha,mode=max,scope=summyz-python-runtime,ignore-error=true
 
-      - name: Build NVIDIA packaging target
-        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
-        with:
-          context: .
-          file: services/faster-whisper/Dockerfile
-          target: cuda
-          load: false
-          tags: summyz-community-faster-whisper-cuda:ci
-          cache-from: type=gha,scope=summyz-python-cuda
-          cache-to: type=gha,mode=max,scope=summyz-python-cuda,ignore-error=true
-
       - name: Build smoke-test image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
@@ -481,6 +474,8 @@ jobs:
       - name: Validate image users, versions, and Compose overlays
         shell: bash
         env:
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
           POSTGRES_PASSWORD: ci-only-password
         run: |
           test "$(docker run --rm --entrypoint node summyz-community-bot:ci --version)" = "v${NODE_VERSION}"
@@ -489,9 +484,9 @@ jobs:
           test "$(docker run --rm --entrypoint id summyz-community-dashboard:ci -u)" != "0"
           test "$(docker run --rm --entrypoint python summyz-community-faster-whisper:ci --version 2>&1)" = "Python ${PYTHON_VERSION}"
           test "$(docker run --rm --entrypoint id summyz-community-faster-whisper:ci -u)" != "0"
-          docker compose -f docker-compose.yaml config --quiet
-          docker compose -f docker-compose.yaml -f docker-compose.nvidia.yaml config --quiet
-          docker compose -f docker-compose.yaml -f docker-compose.amd.yaml config --quiet
+          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
+          docker compose -f docker-compose.yaml -f docker-compose.nvidia.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
+          docker compose -f docker-compose.yaml -f docker-compose.amd.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
 
       - name: Restore immutable local-model cache # zizmor: ignore[cache-poisoning] PR cache scope is isolated and models are verified.
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
@@ -582,6 +577,22 @@ jobs:
           ' reports/runtime/trivy-bot.json \
             reports/runtime/trivy-dashboard.json \
             reports/runtime/trivy-faster-whisper.json
+
+      - name: Reclaim Docker storage before CUDA packaging
+        run: |
+          docker image prune --all --force
+          docker buildx prune --all --force
+
+      - name: Build NVIDIA packaging target
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: .
+          file: services/faster-whisper/Dockerfile
+          target: cuda
+          load: false
+          tags: summyz-community-faster-whisper-cuda:ci
+          cache-from: type=gha,scope=summyz-python-cuda
+          cache-to: type=gha,mode=max,scope=summyz-python-cuda,ignore-error=true
 
       - name: Upload runtime reports
         if: always()
