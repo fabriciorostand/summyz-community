@@ -17,7 +17,12 @@ import type { Logger } from "pino";
 import { opus } from "prism-media";
 
 import type { AppConfig } from "../config.js";
+import type {
+  LiveMeetingParticipant,
+  LiveMeetingStateWriter,
+} from "../database/postgres-live-meeting-store.js";
 import { convertPcmToOgg } from "./audio-converter.js";
+import { LIVE_STATE_REFRESH_INTERVAL_MS } from "./live-meeting-policy.js";
 import {
   addParticipant,
   addSegment,
@@ -53,6 +58,7 @@ interface DiscordVoiceRecordingInput {
   connection: VoiceConnection;
   guild: Guild;
   logger: Logger;
+  liveMeetingStore?: LiveMeetingStateWriter;
   manifest: RecordingManifest;
   manifestStore: ManifestStore;
   notify(message: string): Promise<void>;
@@ -70,6 +76,7 @@ export class DiscordVoiceRecording implements RecordingHandle {
   readonly #connection: VoiceConnection;
   readonly #guild: Guild;
   readonly #logger: Logger;
+  readonly #liveMeetingStore: LiveMeetingStateWriter | undefined;
   readonly #manifestStore: ManifestStore;
   readonly #notify: (message: string) => Promise<void>;
   readonly #onCompleted: ((manifest: RecordingManifest) => Promise<void>) | undefined;
@@ -78,6 +85,8 @@ export class DiscordVoiceRecording implements RecordingHandle {
   #ended = false;
   #manifest: RecordingManifest;
   #manifestQueue: Promise<void> = Promise.resolve();
+  #liveParticipants: LiveMeetingParticipant[];
+  #liveStateTimer: NodeJS.Timeout | undefined;
   #metricsTimer: NodeJS.Timeout | undefined;
   #recovering = false;
   readonly #startedCpuUsage = process.cpuUsage();
@@ -93,6 +102,12 @@ export class DiscordVoiceRecording implements RecordingHandle {
     this.#connection = input.connection;
     this.#guild = input.guild;
     this.#logger = input.logger;
+    this.#liveMeetingStore = input.liveMeetingStore;
+    this.#liveParticipants = input.manifest.participants.map((participant) => ({
+      avatarUrl: participant.avatarUrl ?? null,
+      displayName: participant.displayName,
+      userId: participant.userId,
+    }));
     this.#manifest = input.manifest;
     this.#manifestStore = input.manifestStore;
     this.#notify = input.notify;
@@ -104,6 +119,10 @@ export class DiscordVoiceRecording implements RecordingHandle {
   public start(): void {
     this.#connection.receiver.speaking.on("start", this.#handleSpeakingStart);
     this.#connection.on("stateChange", this.#handleConnectionStateChange);
+    this.#liveStateTimer = setInterval(() => {
+      void this.#syncLiveState();
+    }, LIVE_STATE_REFRESH_INTERVAL_MS);
+    this.#liveStateTimer.unref();
     this.#metricsTimer = setInterval(() => {
       this.#logger.info(
         {
@@ -116,6 +135,7 @@ export class DiscordVoiceRecording implements RecordingHandle {
       );
     }, 10_000);
     this.#metricsTimer.unref();
+    void this.#syncLiveState();
     this.#logger.info(
       { guildId: this.guildId, meetingId: this.meetingId, voiceChannelId: this.voiceChannelId },
       "Recording started",
@@ -127,9 +147,22 @@ export class DiscordVoiceRecording implements RecordingHandle {
     await this.#stopPromise;
   }
 
-  public async recordParticipant(userId: string, displayName: string): Promise<void> {
+  public async recordParticipant(
+    userId: string,
+    displayName: string,
+    avatarUrl: string | null = null,
+  ): Promise<void> {
     if (this.#ended) return;
-    await this.#updateManifest((manifest) => addParticipant(manifest, { displayName, userId }));
+    await this.#updateManifest((manifest) =>
+      addParticipant(manifest, { avatarUrl, displayName, userId }),
+    );
+  }
+
+  public async updateLiveParticipants(
+    participants: readonly LiveMeetingParticipant[],
+  ): Promise<void> {
+    this.#liveParticipants = [...participants];
+    await this.#syncLiveState();
   }
 
   readonly #handleSpeakingStart = (userId: string): void => {
@@ -155,12 +188,18 @@ export class DiscordVoiceRecording implements RecordingHandle {
       return;
     }
 
-    await this.recordParticipant(member.id, member.displayName);
+    await this.recordParticipant(
+      member.id,
+      member.displayName,
+      member.displayAvatarURL({ extension: "png", size: 128 }),
+    );
     const capture = this.#createCapture(userId, member.displayName);
     this.#activeCaptures.set(userId, capture);
+    void this.#syncLiveState();
     void capture.promise.finally(() => {
       if (this.#activeCaptures.get(userId) === capture) {
         this.#activeCaptures.delete(userId);
+        void this.#syncLiveState();
       }
     });
   }
@@ -396,6 +435,10 @@ export class DiscordVoiceRecording implements RecordingHandle {
       return;
     }
     this.#ended = true;
+    if (this.#liveStateTimer !== undefined) {
+      clearInterval(this.#liveStateTimer);
+      this.#liveStateTimer = undefined;
+    }
     if (this.#metricsTimer !== undefined) {
       clearInterval(this.#metricsTimer);
       this.#metricsTimer = undefined;
@@ -421,6 +464,12 @@ export class DiscordVoiceRecording implements RecordingHandle {
     }
 
     this.#connection.destroy();
+    await this.#liveMeetingStore?.clear(this.meetingId).catch((error: unknown) => {
+      this.#logger.warn(
+        { errorType: getErrorType(error), meetingId: this.meetingId },
+        "Unable to clear live meeting state",
+      );
+    });
     const notification = createRecordingStopNotification(
       this.#manifest,
       request,
@@ -476,5 +525,23 @@ export class DiscordVoiceRecording implements RecordingHandle {
     });
     this.#manifestQueue = operation.catch(() => undefined);
     await operation;
+  }
+
+  async #syncLiveState(): Promise<void> {
+    if (this.#liveMeetingStore === undefined || this.#ended) return;
+    try {
+      await this.#liveMeetingStore.save({
+        guildId: this.guildId,
+        meetingId: this.meetingId,
+        participants: this.#liveParticipants,
+        speakingUserIds: [...this.#activeCaptures.keys()],
+        voiceChannelId: this.voiceChannelId,
+      });
+    } catch (error) {
+      this.#logger.warn(
+        { errorType: getErrorType(error), meetingId: this.meetingId },
+        "Unable to persist live meeting state",
+      );
+    }
   }
 }

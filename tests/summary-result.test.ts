@@ -12,6 +12,7 @@ const transcript: SummaryTranscriptEntry[] = [
     endedAtMs: 12_000,
     id: "entry-1",
     speaker: "Ana",
+    spokenAt: { instant: "2026-08-16T13:00:10.000Z", timeZone: "America/Sao_Paulo" },
     startedAtMs: 10_000,
     text: "Bruno, envie o orçamento até sexta-feira.",
   },
@@ -43,7 +44,10 @@ function createDraft(): SummaryDraft {
     protectedTerms: ["Bruno", "Projeto inexistente"],
     tasks: [
       {
+        deadlineDate: "2026-08-21",
+        deadlinePrecision: "date",
         deadlineText: "até sexta-feira",
+        deadlineTimeZone: "America/Sao_Paulo",
         ownerName: "Bruno",
         sourceEntryIds: ["entry-1"],
         text: "Enviar o orçamento.",
@@ -77,7 +81,10 @@ describe("resultado estruturado do resumo", () => {
     const result = validateGroundedSummary(createDraft(), transcript);
 
     expect(result.tasks[0]).toMatchObject({
+      deadlineDate: "2026-08-21",
+      deadlinePrecision: "date",
       deadlineText: "até sexta-feira",
+      deadlineTimeZone: "America/Sao_Paulo",
       ownerName: "Bruno",
     });
     expect(result.tasks[1]).toEqual({
@@ -102,7 +109,10 @@ describe("resultado estruturado do resumo", () => {
       observations: ["Ficou pendente decidir qual ferramenta será usada."],
       tasks: [
         {
+          deadlineDate: "2026-08-21",
+          deadlinePrecision: "date",
           deadlineText: "até sexta-feira",
+          deadlineTimeZone: "America/Sao_Paulo",
           ownerName: "Bruno",
           text: "Enviar o orçamento.",
         },
@@ -110,5 +120,54 @@ describe("resultado estruturado do resumo", () => {
       ],
     });
     expect(JSON.stringify(publicSummary)).not.toContain("entry-");
+  });
+
+  it("accepts minute precision only with a complete normalized deadline", () => {
+    const firstEntry = transcript[0];
+    if (firstEntry === undefined) throw new Error("Expected the summary fixture entry");
+    const result = validateGroundedSummary(
+      {
+        ...createDraft(),
+        tasks: [
+          {
+            deadlineDate: "2026-08-17",
+            deadlinePrecision: "minute",
+            deadlineText: "amanhã às 20:30",
+            deadlineTime: "20:30",
+            deadlineTimeZone: "America/Sao_Paulo",
+            sourceEntryIds: ["entry-1"],
+            text: "Enviar o orçamento.",
+          },
+        ],
+      },
+      [{ ...firstEntry, text: "Enviar amanhã às 20:30." }],
+    );
+
+    expect(result.tasks[0]).toMatchObject({
+      deadlineDate: "2026-08-17",
+      deadlinePrecision: "minute",
+      deadlineTime: "20:30",
+    });
+  });
+
+  it("descarta a normalização quando o modelo inventa outro fuso horário", () => {
+    const draft = createDraft();
+    const firstTask = draft.tasks[0];
+    if (firstTask === undefined) throw new Error("Expected the summary fixture task");
+
+    const result = validateGroundedSummary(
+      {
+        ...draft,
+        tasks: [{ ...firstTask, deadlineTimeZone: "Invalid/TimeZone" }],
+      },
+      transcript,
+    );
+
+    expect(result.tasks[0]).toEqual({
+      deadlineText: "até sexta-feira",
+      ownerName: "Bruno",
+      sourceEntryIds: ["entry-1"],
+      text: "Enviar o orçamento.",
+    });
   });
 });

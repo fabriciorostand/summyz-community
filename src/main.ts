@@ -14,9 +14,11 @@ import { PostgresAnalyticsStore } from "./database/postgres-analytics-store.js";
 import { createPostgresDatabase, type PostgresDatabase } from "./database/postgres-database.js";
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
 import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
+import { PostgresInstallationHealthStore } from "./database/postgres-installation-health-store.js";
 import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
 import { PostgresMeetingContentStore } from "./database/postgres-meeting-content-store.js";
 import { PostgresMeetingStore } from "./database/postgres-meeting-store.js";
+import { PostgresLiveMeetingStore } from "./database/postgres-live-meeting-store.js";
 import { DiscordMeetingPublisher } from "./discord/discord-meeting-publisher.js";
 import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
@@ -109,6 +111,7 @@ const installationSettings = new PostgresInstallationSettingsStore({
   database,
   secretBox: new SecretBox(bootstrapConfig.secretsKey),
 });
+const installationHealth = new PostgresInstallationHealthStore(database);
 const storedSettings = await installationSettings.getSettings();
 let config: ReturnType<typeof resolveBotConfig>;
 try {
@@ -137,10 +140,15 @@ if (migratedManifestCount > 0) {
 }
 const postgresCostLedger = new PostgresCostLedgerStore(database);
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates,
+  ],
 });
 const guildConfigStore = new PostgresGuildConfigStore(database);
 const aiProfileStore = new PostgresAiProfileStore(database);
+const liveMeetingStore = new PostgresLiveMeetingStore(database);
 const aiRuntime = new ApplicationAiRuntime({
   aiProfileStore,
   client,
@@ -148,6 +156,7 @@ const aiRuntime = new ApplicationAiRuntime({
   costStore: postgresCostLedger,
   hardware: localHardware,
   installationSettings,
+  installationHealth,
   logger,
 });
 const costReport = createCostReportService({
@@ -243,6 +252,7 @@ const summaryService = new MeetingSummaryService({
     });
   },
   summaryStore,
+  timeZone: config.summaryTimeZone,
   transcriptionStore,
 });
 const refinementService = new MeetingRefinementService({
@@ -368,8 +378,9 @@ const recordingFactory = new DiscordRecordingFactory(
   manifestStore,
   logger,
   enqueueCompleted,
-  (guildId) => aiRuntime.resolveAndPrepareMeetingConfiguration(guildId),
+  (guildId) => aiRuntime.resolveAndPrepareMeetingProfile(guildId),
   (guildId) => guildConfigStore.getGuildSettings(guildId),
+  liveMeetingStore,
 );
 const coordinator = new RecordingCoordinator(recordingFactory);
 
@@ -430,13 +441,20 @@ client.once(Events.ClientReady, async (readyClient) => {
     );
   }
   worker.start();
+  await writeRuntimeHeartbeats();
+  runtimeHeartbeatTimer = setInterval(() => {
+    void writeRuntimeHeartbeats();
+  }, 15_000);
+  runtimeHeartbeatTimer.unref();
 });
 
 let shuttingDown = false;
+let runtimeHeartbeatTimer: NodeJS.Timeout | undefined;
 async function shutdown(signal: NodeJS.Signals): Promise<void> {
   if (shuttingDown) return;
   shuttingDown = true;
   logger.info({ signal }, "Summyz shutdown requested");
+  if (runtimeHeartbeatTimer !== undefined) clearInterval(runtimeHeartbeatTimer);
   await coordinator.shutdown();
   await artifactMaintenance.shutdown();
   await worker.shutdown();
@@ -445,6 +463,33 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
     logger.error({ errorType: getErrorType(error) }, "Unable to close the PostgreSQL connection");
   });
   logger.info("Summyz stopped");
+}
+
+async function writeRuntimeHeartbeats(): Promise<void> {
+  try {
+    await Promise.all([
+      installationHealth.writeHeartbeat({
+        componentId: "bot-main",
+        componentType: "bot",
+        details: { connected: client.isReady() },
+        status: client.isReady() ? "ready" : "unavailable",
+      }),
+      installationHealth.writeHeartbeat({
+        componentId: "ffmpeg-main",
+        componentType: "ffmpeg",
+        details: { libopus: true },
+        status: "ready",
+      }),
+      installationHealth.writeHeartbeat({
+        componentId: "worker-main",
+        componentType: "worker",
+        details: { running: true },
+        status: "ready",
+      }),
+    ]);
+  } catch (error) {
+    logger.warn({ errorType: getErrorType(error) }, "Unable to update runtime health heartbeat");
+  }
 }
 
 process.once("SIGINT", () => {

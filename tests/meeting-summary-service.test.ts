@@ -337,6 +337,7 @@ describe("MeetingSummaryService", () => {
       publisher: context.publisher,
       refinementStore: context.refinementStore,
       summaryStore: context.summaryStore,
+      timeZone: "America/Sao_Paulo",
       transcriptionStore: context.transcriptionStore,
     });
 
@@ -346,6 +347,10 @@ describe("MeetingSummaryService", () => {
       expect.objectContaining({
         id: "segment-1:000000",
         speaker: "Ana",
+        spokenAt: {
+          instant: "2026-08-17T10:00:10.000Z",
+          timeZone: "America/Sao_Paulo",
+        },
         text: "Está decidido: fluxo A revisado.",
       }),
     ]);

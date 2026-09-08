@@ -6,17 +6,36 @@ const setupStatusSchema = z.object({
 });
 const userSchema = z.object({
   dashboardLanguage: z.enum(["en", "pt-BR"]),
+  dashboardTheme: z.enum(["system", "light", "dark"]).default("system"),
   email: z.email(),
   emailVerified: z.boolean(),
   installationRole: z.enum(["administrator", "member"]),
   userId: z.uuid(),
 });
 const guildSchema = z.object({
+  activeProfile: z
+    .object({
+      name: z.string(),
+      profileId: z.string(),
+      profileType: z.enum(["external", "local"]),
+    })
+    .nullable()
+    .optional(),
+  callCount: z.number().int().nullable().optional(),
   iconUrl: z.url().nullable(),
   id: z.string(),
   installUrl: z.url(),
   installed: z.boolean(),
   name: z.string(),
+  summaryForum: z
+    .object({
+      forumId: z.string(),
+      name: z.string(),
+      tagId: z.string().optional(),
+      tagName: z.string().optional(),
+    })
+    .nullable()
+    .optional(),
 });
 const discordConnectionSchema = z.discriminatedUnion("connected", [
   z.object({ connected: z.literal(false) }),
@@ -171,7 +190,22 @@ const resourcesSchema = z.object({
       tags: z.array(z.object({ id: z.string(), name: z.string() })),
     }),
   ),
-  roles: z.array(z.object({ id: z.string(), name: z.string() })),
+  memberCounts: z
+    .discriminatedUnion("status", [
+      z.object({ status: z.literal("available") }),
+      z.object({
+        code: z.literal("discord_members_intent_unavailable"),
+        status: z.literal("unavailable"),
+      }),
+    ])
+    .optional(),
+  roles: z.array(
+    z.object({
+      id: z.string(),
+      memberCount: z.number().int().nullable().optional(),
+      name: z.string(),
+    }),
+  ),
 });
 const installationSettingsSchema = z.object({
   discordClientId: z.string().nullable(),
@@ -196,7 +230,47 @@ const installationSettingsSchema = z.object({
     })
     .nullable(),
 });
+const installationHealthSchema = z.object({
+  checkedAt: z.iso.datetime(),
+  components: z.array(
+    z.object({
+      componentId: z.string(),
+      componentType: z.enum([
+        "bot",
+        "database",
+        "ffmpeg",
+        "worker",
+        "queue",
+        "ollama",
+        "faster_whisper",
+        "openrouter",
+        "smtp",
+      ]),
+      details: z.record(z.string(), z.json()),
+      heartbeatAt: z.iso.datetime().nullable(),
+      stale: z.boolean(),
+      status: z.enum(["ready", "degraded", "unavailable", "not_configured"]),
+    }),
+  ),
+  database: z.object({
+    latencyMs: z.number().int(),
+    migrationVersion: z.number().int(),
+    status: z.literal("ready"),
+  }),
+  externalConfiguration: z.object({
+    openRouterConfigured: z.boolean(),
+    smtpConfigured: z.boolean(),
+  }),
+  localAiRequired: z.boolean(),
+  queue: z.object({
+    active: z.number().int(),
+    failed: z.number().int(),
+    oldestPendingAt: z.iso.datetime().nullable(),
+    scheduled: z.number().int(),
+  }),
+});
 const analyticsParticipantSchema = z.object({
+  avatarUrl: z.url().nullable().default(null),
   displayName: z.string(),
   percentage: z.number().int().nullable(),
   talkTimeMs: z.number().int().nullable(),
@@ -213,13 +287,71 @@ const meetingHistoryItemSchema = z.object({
   startedAt: z.iso.datetime(),
   voiceChannelName: z.string().nullable(),
 });
+const costAttemptCountsSchema = z.object({
+  confirmed: z.number().int(),
+  notApplicable: z.number().int(),
+  pending: z.number().int(),
+  unattributed: z.number().int(),
+});
+const costAnalyticsSchema = z.object({
+  attemptCounts: costAttemptCountsSchema,
+  breakdown: z.array(
+    z.object({
+      attemptCounts: costAttemptCountsSchema,
+      confirmed: z.array(z.object({ amount: z.string(), currency: z.string().length(3) })),
+      execution: z.enum(["api", "local"]),
+      phase: z.enum(["transcription", "refinement", "summary", "translation"]),
+      provider: z.string(),
+    }),
+  ),
+  confirmed: z.array(z.object({ amount: z.string(), currency: z.string().length(3) })),
+});
 const dashboardAnalyticsSchema = z.object({
   averageDurationMs: z.number().int(),
-  confirmedCost: z.array(z.object({ amount: z.number(), currency: z.string().length(3) })),
-  hasUnresolvedCosts: z.boolean(),
+  liveMeeting: z
+    .object({
+      guildId: z.string(),
+      meetingId: z.string(),
+      participants: z.array(
+        z.object({ avatarUrl: z.url().nullable(), displayName: z.string(), userId: z.string() }),
+      ),
+      speakingUserIds: z.array(z.string()),
+      updatedAt: z.iso.datetime(),
+      voiceChannelId: z.string(),
+    })
+    .nullable()
+    .optional(),
+  calls: z
+    .object({
+      current: z.number().int(),
+      deltaPercentage: z.number().int().nullable(),
+      previous: z.number().int().nullable(),
+    })
+    .default({ current: 0, deltaPercentage: null, previous: null }),
+  cost: costAnalyticsSchema.default({
+    attemptCounts: { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 },
+    breakdown: [],
+    confirmed: [],
+  }),
+  openTaskCount: z.number().int().default(0),
+  period: z.enum(["30d", "90d", "all"]).default("30d"),
+  statusSeries: z
+    .array(
+      z.object({
+        bucketStart: z.iso.date(),
+        completed: z.number().int(),
+        failed: z.number().int(),
+      }),
+    )
+    .default([]),
   timeZone: z.string(),
   topSpeakers: z.array(
-    z.object({ displayName: z.string(), talkTimeMs: z.number().int(), userId: z.string() }),
+    z.object({
+      avatarUrl: z.url().nullable().default(null),
+      displayName: z.string(),
+      talkTimeMs: z.number().int(),
+      userId: z.string(),
+    }),
   ),
   totalCalls: z.number().int(),
   totalDurationMs: z.number().int(),
@@ -232,7 +364,11 @@ const meetingHistoryPageSchema = z.object({
   total: z.number().int(),
 });
 const meetingHistorySummaryTaskSchema = z.object({
+  deadlineDate: z.iso.date().optional(),
+  deadlinePrecision: z.enum(["date", "minute"]).optional(),
   deadlineText: z.string().optional(),
+  deadlineTime: z.string().optional(),
+  deadlineTimeZone: z.string().optional(),
   ownerName: z.string().optional(),
   text: z.string(),
 });
@@ -266,10 +402,35 @@ const meetingHistorySummarySchema = z.discriminatedUnion("status", [
   }),
 ]);
 const meetingHistoryDetailSchema = meetingHistoryItemSchema.extend({
+  aiProfile: z.object({ name: z.string(), profileId: z.string() }).nullable().default(null),
+  audioRetained: z.boolean().default(false),
+  cost: costAnalyticsSchema.default({
+    attemptCounts: { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 },
+    breakdown: [],
+    confirmed: [],
+  }),
+  discordUrl: z.url().nullable().default(null),
   rawTranscript: z.string().nullable(),
   summary: meetingHistorySummarySchema.nullable(),
   timeZone: z.string(),
   transcript: z.string().nullable(),
+});
+const dashboardTaskSchema = z.object({
+  completedAt: z.iso.datetime().nullable(),
+  completedByUserId: z.string().nullable(),
+  deadlineDate: z.iso.date().nullable(),
+  deadlinePrecision: z.enum(["date", "minute"]).nullable(),
+  deadlineText: z.string().nullable(),
+  deadlineTime: z.string().nullable(),
+  deadlineTimeZone: z.string().nullable(),
+  meetingId: z.string(),
+  ownerAvatarUrl: z.url().nullable(),
+  ownerDisplayName: z.string().nullable(),
+  overdue: z.boolean(),
+  ownerName: z.string().nullable(),
+  ownerUserId: z.string().nullable(),
+  taskId: z.uuid(),
+  text: z.string(),
 });
 
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
@@ -282,16 +443,19 @@ export type ProfileInput =
   | Omit<Extract<Profile, { profileType: "local" }>, "profileId" | "userId">;
 export interface ProfileListItem {
   active: boolean;
+  activeServerCount?: number | undefined;
   profile: Profile;
 }
 export type PromptDefaults = z.infer<typeof promptDefaultsSchema>;
 export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;
 export type InstallationSettings = z.infer<typeof installationSettingsSchema>;
+export type InstallationHealth = z.infer<typeof installationHealthSchema>;
 export type DashboardAnalytics = z.infer<typeof dashboardAnalyticsSchema>;
 export type MeetingHistoryPage = z.infer<typeof meetingHistoryPageSchema>;
 export type MeetingHistoryDetail = z.infer<typeof meetingHistoryDetailSchema>;
 export type MeetingHistorySummary = z.infer<typeof meetingHistorySummarySchema>;
+export type DashboardTask = z.infer<typeof dashboardTaskSchema>;
 
 export class ApiError extends Error {
   public readonly code: string;
@@ -373,8 +537,14 @@ export const api = {
   getGuildResources: (guildId: string) =>
     request(`/api/guilds/${guildId}/resources`, resourcesSchema),
   getInstallationSettings: () => request("/api/installation/settings", installationSettingsSchema),
-  getDashboard: (guildId: string) =>
-    request(`/api/guilds/${guildId}/dashboard`, dashboardAnalyticsSchema),
+  getInstallationHealth: () => request("/api/installation/health", installationHealthSchema),
+  getDashboard: (guildId: string, period: "30d" | "90d" | "all" = "30d") =>
+    request(
+      `/api/guilds/${guildId}/dashboard${
+        period === "30d" ? "" : `?${new URLSearchParams({ period })}`
+      }`,
+      dashboardAnalyticsSchema,
+    ),
   getMeeting: (guildId: string, meetingId: string) =>
     request(`/api/guilds/${guildId}/meetings/${meetingId}`, meetingHistoryDetailSchema),
   getDiscordConnection: () => request("/api/discord/connection", discordConnectionSchema),
@@ -385,8 +555,11 @@ export const api = {
     filters: {
       dateFrom?: string;
       dateTo?: string;
+      channelName?: string;
+      contentRetained?: boolean;
       meetingId?: string;
       page: number;
+      participantUserId?: string;
       state?: string;
     },
   ) => {
@@ -394,11 +567,25 @@ export const api = {
     if (filters.meetingId !== undefined) parameters.set("meetingId", filters.meetingId);
     if (filters.dateFrom !== undefined) parameters.set("dateFrom", filters.dateFrom);
     if (filters.dateTo !== undefined) parameters.set("dateTo", filters.dateTo);
+    if (filters.channelName !== undefined) parameters.set("channelName", filters.channelName);
+    if (filters.contentRetained !== undefined)
+      parameters.set("contentRetained", String(filters.contentRetained));
+    if (filters.participantUserId !== undefined)
+      parameters.set("participantUserId", filters.participantUserId);
     if (filters.state !== undefined) parameters.set("state", filters.state);
     return request(`/api/guilds/${guildId}/meetings?${parameters}`, meetingHistoryPageSchema);
   },
   listProfiles: () =>
-    request("/api/profiles", z.array(z.object({ active: z.boolean(), profile: profileSchema }))),
+    request(
+      "/api/profiles",
+      z.array(
+        z.object({
+          active: z.boolean(),
+          activeServerCount: z.number().int().optional(),
+          profile: profileSchema,
+        }),
+      ),
+    ),
   login: (email: string, password: string) =>
     request("/api/auth/login", emptySchema, { body: json({ email, password }), method: "POST" }),
   logout: () => request("/api/auth/logout", emptySchema, { method: "POST" }),
@@ -408,10 +595,34 @@ export const api = {
       body: json({ dashboardLanguage, email, password }),
       method: "POST",
     }),
+  listTasks: (guildId: string, filters: { completed?: boolean; meetingId?: string } = {}) => {
+    const parameters = new URLSearchParams();
+    if (filters.completed !== undefined) parameters.set("completed", String(filters.completed));
+    if (filters.meetingId !== undefined) parameters.set("meetingId", filters.meetingId);
+    return request(`/api/guilds/${guildId}/tasks?${parameters}`, z.array(dashboardTaskSchema));
+  },
+  setTaskCompleted: (guildId: string, taskId: string, completed: boolean) =>
+    request(`/api/guilds/${guildId}/tasks/${taskId}/completion`, emptySchema, {
+      body: json({ completed }),
+      method: "PATCH",
+    }),
   resetPassword: (token: string, password: string) =>
     request("/api/auth/reset-password", emptySchema, {
       body: json({ password, token }),
       method: "POST",
+    }),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request("/api/auth/change-password", emptySchema, {
+      body: json({ currentPassword, newPassword }),
+      method: "POST",
+    }),
+  updatePreferences: (
+    dashboardLanguage: "en" | "pt-BR",
+    dashboardTheme: "system" | "light" | "dark",
+  ) =>
+    request("/api/account/preferences", emptySchema, {
+      body: json({ dashboardLanguage, dashboardTheme }),
+      method: "PUT",
     }),
   setActiveProfile: (guildId: string, profileId: string) =>
     request(`/api/guilds/${guildId}/profiles/${profileId}/active`, emptySchema, { method: "PUT" }),

@@ -4,6 +4,7 @@ import { PostgresMeetingStore } from "../src/database/postgres-meeting-store.js"
 import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
 
 const activeManifest = createManifest({
+  aiProfile: { name: "Perfil principal", profileId: "profile-1" },
   guildId: "guild-1",
   meetingId: "meeting-1",
   notificationChannelId: "text-1",
@@ -55,6 +56,8 @@ describe("PostgresMeetingStore", () => {
         expect.any(String),
         "Planejamento",
         1,
+        "profile-1",
+        "Perfil principal",
       ],
     );
   });
@@ -94,8 +97,28 @@ describe("PostgresMeetingStore", () => {
       expect.any(String),
       "Planejamento",
       1,
+      "profile-1",
+      "Perfil principal",
     ]);
     expect(query.mock.calls[1]?.[0]).toContain("recording_status <>");
+  });
+
+  it("persists the last known Discord avatar with each participant", async () => {
+    const { database, query } = createDatabase();
+    const store = new PostgresMeetingStore(database);
+    await store.save({
+      ...activeManifest,
+      participants: [
+        {
+          avatarUrl: "https://cdn.discordapp.com/avatars/user-1/hash.png",
+          displayName: "Ana",
+          userId: "user-1",
+        },
+      ],
+    });
+
+    expect(query.mock.calls[1]?.[0]).toContain("avatar_url");
+    expect(query.mock.calls[1]?.[1]?.[2]).toContain("avatar_url");
   });
 
   it("carrega uma reunião e informa quando ela não existe", async () => {

@@ -9,14 +9,9 @@ export function formatDuration(milliseconds: number): string {
   return `${String(hours)}h ${String(minutes).padStart(2, "0")}m`;
 }
 
-export function formatCosts(costs: DashboardAnalytics["confirmedCost"]): string {
+export function formatCosts(costs: DashboardAnalytics["cost"]["confirmed"]): string {
   if (costs.length === 0) return "—";
-  return costs
-    .map(
-      (cost) =>
-        `${cost.currency} ${cost.amount.toLocaleString("pt-BR", { maximumFractionDigits: 6 })}`,
-    )
-    .join(" · ");
+  return costs.map((cost) => `${cost.currency} ${cost.amount.replace(".", ",")}`).join(" · ");
 }
 
 export function formatDate(value: string, timeZone: string): string {

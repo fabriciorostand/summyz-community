@@ -87,6 +87,7 @@ async function createHarness(options: InteractionOptions = {}) {
     getActiveProfile: vi.fn(async () => profile),
     getActiveProfileForDiscordOwner: vi.fn(async () => profile),
     listActiveProfileIds: vi.fn(async () => new Set([profile.profileId])),
+    listActiveProfileCounts: vi.fn(async () => new Map([[profile.profileId, 1]])),
     listProfiles: vi.fn(async () => [profile]),
     setActiveProfile: vi.fn(async () => undefined),
     updateProfile: vi.fn(async () => undefined),

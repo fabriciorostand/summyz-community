@@ -11,6 +11,7 @@ import { createLogger } from "../src/logger.js";
 
 const authenticatedUser = {
   dashboardLanguage: "pt-BR" as const,
+  dashboardTheme: "system" as const,
   email: "owner@example.com",
   emailVerified: true,
   installationRole: "administrator" as const,
@@ -31,6 +32,33 @@ describe("API dashboard", () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ connected: true, discordUsername: "fabricio" });
     expect(dependencies.discord.getConnectionStatus).toHaveBeenCalledWith(authenticatedUser.userId);
+    await app.close();
+  });
+
+  it("enriches server cards with profile, forum and call count", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      expect.objectContaining({
+        activeProfile: expect.objectContaining({ name: expect.any(String) }),
+        callCount: 42,
+        id: "guild-installed",
+        summaryForum: null,
+      }),
+      expect.objectContaining({
+        activeProfile: null,
+        callCount: null,
+        id: "guild-not-installed",
+      }),
+    ]);
     await app.close();
   });
 
@@ -142,12 +170,27 @@ describe("API dashboard", () => {
 
   it("expõe Dashboard e Histórico apenas ao proprietário e atualiza nomes do Discord", async () => {
     const dependencies = createDependencies();
+    dependencies.guildDirectory.getMemberDisplayNames = vi.fn(
+      async () =>
+        new Map([
+          ["user-1", "Ana atual"],
+          ["user-2", "Bruno atual"],
+        ]),
+    );
+    dependencies.liveMeetings.getForGuild = vi.fn(async () => ({
+      guildId: "guild-installed",
+      meetingId: "meeting-live",
+      participants: [{ avatarUrl: null, displayName: "Bruno antigo", userId: "user-2" }],
+      speakingUserIds: ["user-2"],
+      updatedAt: "2026-09-07T12:00:00.000Z",
+      voiceChannelId: "voice-1",
+    }));
     const app = await createApiServer(dependencies);
 
     const dashboard = await app.inject({
       cookies: { summyz_access: "access-token" },
       method: "GET",
-      url: "/api/guilds/guild-installed/dashboard",
+      url: "/api/guilds/guild-installed/dashboard?period=90d",
     });
     const history = await app.inject({
       cookies: { summyz_access: "access-token" },
@@ -162,8 +205,16 @@ describe("API dashboard", () => {
 
     expect(dashboard.statusCode).toBe(200);
     expect(dashboard.json()).toMatchObject({
+      liveMeeting: {
+        participants: [{ displayName: "Bruno atual", userId: "user-2" }],
+        speakingUserIds: ["user-2"],
+      },
       timeZone: "America/Sao_Paulo",
       topSpeakers: [{ displayName: "Ana atual", userId: "user-1" }],
+    });
+    expect(dependencies.analytics?.getDashboard).toHaveBeenCalledWith("guild-installed", {
+      period: "90d",
+      timeZone: "America/Sao_Paulo",
     });
     expect(history.statusCode).toBe(200);
     expect(dependencies.analytics?.listMeetings).toHaveBeenCalledWith(
@@ -172,7 +223,10 @@ describe("API dashboard", () => {
     );
     expect(dependencies.analytics?.updateDisplayNames).toHaveBeenCalledWith(
       "guild-installed",
-      new Map([["user-1", "Ana atual"]]),
+      new Map([
+        ["user-1", "Ana atual"],
+        ["user-2", "Bruno atual"],
+      ]),
     );
     expect(denied.statusCode).toBe(403);
     await app.close();
@@ -195,6 +249,157 @@ describe("API dashboard", () => {
       pageSize: 20,
       timeZone: "America/Sao_Paulo",
     });
+    await app.close();
+  });
+
+  it("forwards channel, retention and participant filters", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/meetings?page=2&channelName=planejamento&contentRetained=true&participantUserId=user-1",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(dependencies.analytics?.listMeetings).toHaveBeenCalledWith(
+      "guild-installed",
+      expect.objectContaining({
+        channelName: "planejamento",
+        contentRetained: true,
+        page: 2,
+        participantUserId: "user-1",
+      }),
+    );
+    await app.close();
+  });
+
+  it("updates synchronized preferences and changes password before clearing cookies", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const preferences = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "PUT",
+      payload: { dashboardLanguage: "en", dashboardTheme: "dark" },
+      url: "/api/account/preferences",
+    });
+    const password = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "POST",
+      payload: { currentPassword: "current secure password", newPassword: "new secure password" },
+      url: "/api/auth/change-password",
+    });
+
+    expect(preferences.statusCode).toBe(204);
+    expect(dependencies.auth.updatePreferences).toHaveBeenCalledWith(authenticatedUser.userId, {
+      dashboardLanguage: "en",
+      dashboardTheme: "dark",
+    });
+    expect(password.statusCode).toBe(204);
+    expect(dependencies.auth.changePassword).toHaveBeenCalledWith(
+      authenticatedUser.userId,
+      "current secure password",
+      "new secure password",
+    );
+    expect(password.headers["set-cookie"]).toBeDefined();
+    await app.close();
+  });
+
+  it("exposes installation health only to the installation administrator", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/installation/health",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      database: { migrationVersion: 12, status: "ready" },
+      externalConfiguration: {
+        openRouterConfigured: false,
+        smtpConfigured: false,
+      },
+    });
+    expect(dependencies.health.getStatus).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it("lets only the authenticated Discord guild owner toggle immutable tasks", async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.tasks.list).mockResolvedValueOnce([
+      {
+        completedAt: null,
+        completedByUserId: null,
+        deadlineDate: null,
+        deadlinePrecision: null,
+        deadlineText: null,
+        deadlineTime: null,
+        deadlineTimeZone: null,
+        meetingId: "meeting-1",
+        overdue: false,
+        ownerAvatarUrl: null,
+        ownerDisplayName: "Ana antiga",
+        ownerName: "Ana",
+        ownerUserId: "user-1",
+        taskId: "2b8dfb58-2511-4b20-a535-103ec73d87d9",
+        text: "Enviar relatório",
+      },
+    ]);
+    dependencies.guildDirectory.getMemberProfiles = vi.fn(
+      async () =>
+        new Map([
+          [
+            "user-1",
+            {
+              avatarUrl: "https://cdn.discordapp.com/avatars/user-1/avatar.png",
+              displayName: "Ana atual",
+            },
+          ],
+        ]),
+    );
+    const app = await createApiServer(dependencies);
+    const taskId = "2b8dfb58-2511-4b20-a535-103ec73d87d9";
+
+    const listed = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/tasks?completed=false",
+    });
+    const updated = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "PATCH",
+      payload: { completed: true, text: "must be ignored" },
+      url: `/api/guilds/guild-installed/tasks/${taskId}/completion`,
+    });
+    const denied = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "PATCH",
+      payload: { completed: true },
+      url: `/api/guilds/guild-not-installed/tasks/${taskId}/completion`,
+    });
+
+    expect(listed.statusCode).toBe(200);
+    expect(listed.json()).toMatchObject([
+      {
+        ownerAvatarUrl: "https://cdn.discordapp.com/avatars/user-1/avatar.png",
+        ownerDisplayName: "Ana atual",
+        ownerName: "Ana",
+      },
+    ]);
+    expect(dependencies.tasks.list).toHaveBeenCalledWith("guild-installed", { completed: false });
+    expect(updated.statusCode).toBe(204);
+    expect(dependencies.tasks.setCompleted).toHaveBeenCalledWith(
+      "guild-installed",
+      taskId,
+      authenticatedUser.userId,
+      true,
+    );
+    expect(denied.statusCode).toBe(403);
     await app.close();
   });
 
@@ -414,17 +619,28 @@ function createDependencies(): ApiServerDependencies {
   const profile = createInitialAiProfile(authenticatedUser.userId, "external", "pt-BR");
   return {
     analytics: {
+      getGuildCallCount: vi.fn(async () => 42),
       getDashboard: vi.fn(async () => ({
         averageDurationMs: 60_000,
-        confirmedCost: [{ amount: 0.1, currency: "USD" }],
-        hasUnresolvedCosts: false,
-        topSpeakers: [{ displayName: "Ana antiga", talkTimeMs: 60_000, userId: "user-1" }],
+        calls: { current: 1, deltaPercentage: 0, previous: 1 },
+        cost: {
+          attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 0 },
+          breakdown: [],
+          confirmed: [{ amount: "0.100000", currency: "USD" }],
+        },
+        openTaskCount: 0,
+        period: "30d" as const,
+        statusSeries: [],
+        topSpeakers: [
+          { avatarUrl: null, displayName: "Ana antiga", talkTimeMs: 60_000, userId: "user-1" },
+        ],
         totalCalls: 1,
         totalDurationMs: 60_000,
       })),
       getMeeting: vi.fn(async () => undefined),
       listMeetings: vi.fn(async () => ({ items: [], page: 1, pageSize: 20, total: 0 })),
       updateDisplayNames: vi.fn(async () => undefined),
+      updateParticipantProfiles: vi.fn(async () => undefined),
     },
     aiProfiles: {
       clearActiveProfile: vi.fn(async () => undefined),
@@ -434,12 +650,14 @@ function createDependencies(): ApiServerDependencies {
       getActiveProfile: vi.fn(async () => profile),
       getActiveProfileForDiscordOwner: vi.fn(async () => profile),
       listActiveProfileIds: vi.fn(async () => new Set([profile.profileId])),
+      listActiveProfileCounts: vi.fn(async () => new Map([[profile.profileId, 1]])),
       listProfiles: vi.fn(async () => [profile]),
       setActiveProfile: vi.fn(async () => undefined),
       updateProfile: vi.fn(async () => undefined),
     },
     auth: {
       authenticate: vi.fn(async () => authenticatedUser),
+      changePassword: vi.fn(async () => undefined),
       createInitialAdministrator: vi.fn(async () => ({
         ...authenticatedUser,
         passwordHash: "not-returned",
@@ -450,6 +668,7 @@ function createDependencies(): ApiServerDependencies {
       register: vi.fn(async () => undefined),
       requestPasswordReset: vi.fn(async () => undefined),
       resetPassword: vi.fn(async () => undefined),
+      updatePreferences: vi.fn(async () => undefined),
       verifyEmail: vi.fn(async () => undefined),
     },
     discord: {
@@ -494,8 +713,22 @@ function createDependencies(): ApiServerDependencies {
     guildDirectory: {
       getMemberDisplayNames: vi.fn(async () => new Map([["user-1", "Ana atual"]])),
       getInstalledGuildIds: vi.fn(async () => new Set(["guild-installed"])),
-      getResources: vi.fn(async () => ({ forums: [], roles: [] })),
+      getResources: vi.fn(async () => ({
+        forums: [],
+        memberCounts: { status: "available" as const },
+        roles: [],
+      })),
     },
+    health: {
+      getStatus: vi.fn(async () => ({
+        checkedAt: "2026-09-07T12:00:00.000Z",
+        components: [],
+        database: { latencyMs: 1, migrationVersion: 12, status: "ready" as const },
+        localAiRequired: false,
+        queue: { active: 0, failed: 0, oldestPendingAt: null, scheduled: 0 },
+      })),
+    },
+    liveMeetings: { getForGuild: vi.fn(async () => null) },
     logger: createLogger("silent"),
     secureCookies: false,
     settings: {
@@ -519,6 +752,10 @@ function createDependencies(): ApiServerDependencies {
     },
     setupToken: "setup-token-value",
     timeZone: "America/Sao_Paulo",
+    tasks: {
+      list: vi.fn(async () => []),
+      setCompleted: vi.fn(async () => undefined),
+    },
   };
 }
 

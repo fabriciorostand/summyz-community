@@ -1,6 +1,10 @@
 import { z } from "zod";
 
-import { createDefaultAiPrompts } from "./ai-prompts.js";
+import {
+  canonicalizeDefaultPrompt,
+  createDefaultAiPrompts,
+  localizeDefaultPrompt,
+} from "./ai-prompts.js";
 import type { LocalHardwareProfile } from "./local-ai/hardware-profile.js";
 
 const identifierSchema = z.string().min(1).max(256);
@@ -243,6 +247,62 @@ export function createInitialAiProfiles(
   ];
 }
 
+export function localizeAiProfileDefaults(
+  profile: AiProfile,
+  dashboardLanguage: "en" | "pt-BR",
+): AiProfile {
+  return aiProfileSchema.parse({
+    ...profile,
+    refinement: {
+      ...profile.refinement,
+      prompt: localizeDefaultPrompt(
+        profile.refinement.prompt,
+        "refinement",
+        dashboardLanguage,
+        profile.language,
+      ),
+    },
+    summary: {
+      ...profile.summary,
+      consolidationPrompt: localizeDefaultPrompt(
+        profile.summary.consolidationPrompt,
+        "summaryConsolidation",
+        dashboardLanguage,
+        profile.language,
+      ),
+      extractionPrompt: localizeDefaultPrompt(
+        profile.summary.extractionPrompt,
+        "summaryExtraction",
+        dashboardLanguage,
+        profile.language,
+      ),
+    },
+  });
+}
+
+export function canonicalizeAiProfileDefaults(profile: AiProfile): AiProfile {
+  return aiProfileSchema.parse({
+    ...profile,
+    refinement: {
+      ...profile.refinement,
+      prompt: canonicalizeDefaultPrompt(profile.refinement.prompt, "refinement", profile.language),
+    },
+    summary: {
+      ...profile.summary,
+      consolidationPrompt: canonicalizeDefaultPrompt(
+        profile.summary.consolidationPrompt,
+        "summaryConsolidation",
+        profile.language,
+      ),
+      extractionPrompt: canonicalizeDefaultPrompt(
+        profile.summary.extractionPrompt,
+        "summaryExtraction",
+        profile.language,
+      ),
+    },
+  });
+}
+
 export function isAiProfileComplete(profile: AiProfile): boolean {
   const baseComplete = [profile.transcription, profile.refinement, profile.summary].every(
     (phase) => phase.model !== null,
@@ -272,12 +332,20 @@ export function resolveAiProfile(profile: AiProfile) {
       generation: refinement.generation,
       maxChunkCharacters: refinement.maxChunkCharacters,
       model: refinement.model,
-      prompt: refinement.prompt,
+      prompt: canonicalizeDefaultPrompt(refinement.prompt, "refinement", profile.language),
       provider: refinement.provider,
     },
     summary: {
-      consolidationPrompt: summary.consolidationPrompt,
-      extractionPrompt: summary.extractionPrompt,
+      consolidationPrompt: canonicalizeDefaultPrompt(
+        summary.consolidationPrompt,
+        "summaryConsolidation",
+        profile.language,
+      ),
+      extractionPrompt: canonicalizeDefaultPrompt(
+        summary.extractionPrompt,
+        "summaryExtraction",
+        profile.language,
+      ),
       generation: summary.generation,
       maxChunkCharacters: summary.maxChunkCharacters,
       model: summary.model,

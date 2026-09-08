@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  dashboardThemeSchema,
   emailAddressSchema,
   normalizeEmailAddress,
   passwordSchema,
@@ -22,6 +23,7 @@ describe("authentication domain", () => {
   it("models installation administrators separately from Discord ownership", () => {
     const user: AuthenticatedUser = {
       dashboardLanguage: "pt-BR",
+      dashboardTheme: "system",
       email: "person@example.com",
       emailVerified: true,
       installationRole: "member",
@@ -30,5 +32,12 @@ describe("authentication domain", () => {
 
     expect(user.installationRole).toBe("member");
     expect(user).not.toHaveProperty("discordGuildIds");
+  });
+
+  it("accepts only synchronized dashboard themes", () => {
+    expect(dashboardThemeSchema.safeParse("system").success).toBe(true);
+    expect(dashboardThemeSchema.safeParse("light").success).toBe(true);
+    expect(dashboardThemeSchema.safeParse("dark").success).toBe(true);
+    expect(dashboardThemeSchema.safeParse("sepia").success).toBe(false);
   });
 });

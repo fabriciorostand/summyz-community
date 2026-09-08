@@ -241,8 +241,16 @@ describe("supplementary dashboard pages", () => {
       },
     ]);
     vi.spyOn(api, "getMeeting").mockResolvedValue({
+      aiProfile: null,
+      audioRetained: false,
       completedAt: "2026-09-01T12:01:00.000Z",
       contentRetained: false,
+      cost: {
+        attemptCounts: { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 },
+        breakdown: [],
+        confirmed: [],
+      },
+      discordUrl: null,
       durationMs: 60_000,
       failureCode: "summary_failed",
       meetingId: "meeting-1",

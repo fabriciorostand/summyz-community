@@ -43,8 +43,20 @@ async function handleVoiceStateUpdate(
       channel.id,
       newState.member.id,
       newState.member.displayName,
+      newState.member.displayAvatarURL({ extension: "png", size: 128 }),
     );
   }
+  await coordinator.updateLiveParticipants(
+    guildId,
+    channel.id,
+    channel.members
+      .filter((member) => !member.user.bot)
+      .map((member) => ({
+        avatarUrl: member.displayAvatarURL({ extension: "png", size: 128 }),
+        displayName: member.displayName,
+        userId: member.id,
+      })),
+  );
   const humanCount = channel.members.filter((member) => !member.user.bot).size;
   await coordinator.handleHumanCountChanged(guildId, channel.id, humanCount);
 }

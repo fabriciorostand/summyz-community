@@ -6,13 +6,18 @@ import type {
   StoredDashboardUser,
   StoredSession,
 } from "../auth/auth-service.js";
-import { dashboardLanguageSchema, installationRoleSchema } from "../auth/auth-domain.js";
+import {
+  dashboardLanguageSchema,
+  dashboardThemeSchema,
+  installationRoleSchema,
+} from "../auth/auth-domain.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(128);
 const dateSchema = z.iso.datetime();
 const userRowSchema = z.object({
   dashboard_language: dashboardLanguageSchema,
+  dashboard_theme: dashboardThemeSchema,
   email: z.string().email(),
   email_verified_at: z.union([z.string(), z.date()]).nullable(),
   installation_role: installationRoleSchema,
@@ -44,7 +49,7 @@ export class PostgresAuthRepository implements AuthRepository {
       `INSERT INTO dashboard_users (
          user_id, email, password_hash, dashboard_language, installation_role, email_verified_at
        ) VALUES ($1, $2, $3, $4, $5, CASE WHEN $6 THEN now() ELSE NULL END)
-       RETURNING user_id, email, password_hash, dashboard_language,
+       RETURNING user_id, email, password_hash, dashboard_language, dashboard_theme,
                  installation_role, email_verified_at`,
       [
         identifierSchema.parse(input.userId),
@@ -60,7 +65,7 @@ export class PostgresAuthRepository implements AuthRepository {
 
   public async findUserByEmail(email: string): Promise<StoredDashboardUser | undefined> {
     const result = await this.#database.query(
-      `SELECT user_id, email, password_hash, dashboard_language,
+      `SELECT user_id, email, password_hash, dashboard_language, dashboard_theme,
               installation_role, email_verified_at
        FROM dashboard_users WHERE email = $1`,
       [z.string().email().parse(email)],
@@ -70,7 +75,7 @@ export class PostgresAuthRepository implements AuthRepository {
 
   public async findUserById(userId: string): Promise<StoredDashboardUser | undefined> {
     const result = await this.#database.query(
-      `SELECT user_id, email, password_hash, dashboard_language,
+      `SELECT user_id, email, password_hash, dashboard_language, dashboard_theme,
               installation_role, email_verified_at
        FROM dashboard_users WHERE user_id = $1`,
       [identifierSchema.parse(userId)],
@@ -127,7 +132,7 @@ export class PostgresAuthRepository implements AuthRepository {
          FROM consumed
          WHERE users.user_id = consumed.user_id
          RETURNING users.user_id, users.email, users.password_hash,
-                   users.dashboard_language, users.installation_role,
+                   users.dashboard_language, users.dashboard_theme, users.installation_role,
                    users.email_verified_at
        )
        SELECT * FROM updated_user`,
@@ -140,10 +145,38 @@ export class PostgresAuthRepository implements AuthRepository {
     return result.rows[0] === undefined ? undefined : parseUser(result.rows[0]);
   }
 
-  public async updatePassword(userId: string, passwordHash: string): Promise<void> {
+  public async replacePasswordAndRevokeSessions(
+    userId: string,
+    passwordHash: string,
+  ): Promise<void> {
     await this.#database.query(
-      `UPDATE dashboard_users SET password_hash = $2, updated_at = now() WHERE user_id = $1`,
+      `WITH updated_user AS (
+         UPDATE dashboard_users
+         SET password_hash = $2, updated_at = now()
+         WHERE user_id = $1
+         RETURNING user_id
+       )
+       UPDATE dashboard_sessions session
+       SET revoked_at = COALESCE(session.revoked_at, now())
+       FROM updated_user
+       WHERE session.user_id = updated_user.user_id`,
       [identifierSchema.parse(userId), z.string().min(1).parse(passwordHash)],
+    );
+  }
+
+  public async updatePreferences(
+    userId: string,
+    preferences: { dashboardLanguage: "en" | "pt-BR"; dashboardTheme: "system" | "light" | "dark" },
+  ): Promise<void> {
+    await this.#database.query(
+      `UPDATE dashboard_users
+       SET dashboard_language = $2, dashboard_theme = $3, updated_at = now()
+       WHERE user_id = $1`,
+      [
+        identifierSchema.parse(userId),
+        dashboardLanguageSchema.parse(preferences.dashboardLanguage),
+        dashboardThemeSchema.parse(preferences.dashboardTheme),
+      ],
     );
   }
 
@@ -226,6 +259,7 @@ function parseUser(input: unknown): StoredDashboardUser {
   const row = userRowSchema.parse(input);
   return {
     dashboardLanguage: row.dashboard_language,
+    dashboardTheme: row.dashboard_theme,
     email: row.email,
     emailVerified: row.email_verified_at !== null,
     installationRole: row.installation_role,

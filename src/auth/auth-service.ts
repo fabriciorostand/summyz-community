@@ -4,6 +4,7 @@ import type { z } from "zod";
 
 import {
   dashboardLanguageSchema,
+  dashboardThemeSchema,
   type AuthenticatedUser,
   type installationRoleSchema,
   normalizeEmailAddress,
@@ -58,6 +59,7 @@ export interface AuthRepository {
     tokenId: string;
     userId: string;
   }): Promise<void>;
+  replacePasswordAndRevokeSessions(userId: string, passwordHash: string): Promise<void>;
   revokeAllSessions(userId: string): Promise<void>;
   revokeSession(sessionId: string): Promise<void>;
   rotateSession(input: {
@@ -66,7 +68,10 @@ export interface AuthRepository {
     newRefreshTokenHash: string;
     now: string;
   }): Promise<StoredSession | undefined>;
-  updatePassword(userId: string, passwordHash: string): Promise<void>;
+  updatePreferences(
+    userId: string,
+    preferences: { dashboardLanguage: "en" | "pt-BR"; dashboardTheme: "system" | "light" | "dark" },
+  ): Promise<void>;
 }
 
 export interface AuthenticationEmailSender {
@@ -222,11 +227,38 @@ export class AuthService {
       tokenHash: hashToken(token),
     });
     if (stored === undefined) throw new AuthenticationError("invalid_or_expired_token");
-    await this.#repository.updatePassword(
+    await this.#repository.replacePasswordAndRevokeSessions(
       stored.userId,
       await this.#hasher.hash(passwordSchema.parse(password)),
     );
-    await this.#repository.revokeAllSessions(stored.userId);
+  }
+
+  public async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+  ): Promise<void> {
+    const stored = await this.#repository.findUserById(userId);
+    if (
+      stored === undefined ||
+      !(await this.#hasher.verify(stored.passwordHash, passwordSchema.parse(currentPassword)))
+    ) {
+      throw new AuthenticationError("invalid_credentials");
+    }
+    await this.#repository.replacePasswordAndRevokeSessions(
+      stored.userId,
+      await this.#hasher.hash(passwordSchema.parse(newPassword)),
+    );
+  }
+
+  public async updatePreferences(
+    userId: string,
+    preferences: { dashboardLanguage: "en" | "pt-BR"; dashboardTheme: "system" | "light" | "dark" },
+  ): Promise<void> {
+    await this.#repository.updatePreferences(userId, {
+      dashboardLanguage: dashboardLanguageSchema.parse(preferences.dashboardLanguage),
+      dashboardTheme: dashboardThemeSchema.parse(preferences.dashboardTheme),
+    });
   }
 
   async #createSession(userId: string): Promise<AuthTokens> {
@@ -274,6 +306,7 @@ function hashToken(token: string): string {
 function toAuthenticatedUser(user: StoredDashboardUser): AuthenticatedUser {
   return {
     dashboardLanguage: user.dashboardLanguage,
+    dashboardTheme: user.dashboardTheme,
     email: user.email,
     emailVerified: user.emailVerified,
     installationRole: user.installationRole,

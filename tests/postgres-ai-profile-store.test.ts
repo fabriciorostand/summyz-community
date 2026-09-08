@@ -15,6 +15,10 @@ describe("PostgresAiProfileStore", () => {
     expect(query.mock.calls.every((call) => /INSERT INTO ai_profiles/i.test(call[0]))).toBe(true);
     expect(query.mock.calls.flatMap((call) => call[1] ?? [])).toContain("Perfil 1");
     expect(query.mock.calls.flatMap((call) => call[1] ?? [])).toContain("auto");
+    const storedRefinement = JSON.parse(String(query.mock.calls[0]?.[1]?.[5]));
+    const storedSummary = JSON.parse(String(query.mock.calls[0]?.[1]?.[6]));
+    expect(storedRefinement.prompt).toContain("conservative transcript reviewer");
+    expect(storedSummary.extractionPrompt).toContain("You extract information");
     expect(query.mock.calls.map((call) => call[0]).join("\n")).not.toMatch(/active_ai_profile_id/i);
   });
 
@@ -30,6 +34,19 @@ describe("PostgresAiProfileStore", () => {
 
     expect(query.mock.calls[0]?.[0]).toMatch(/owner_user_id = \$1/i);
     expect(query.mock.calls[0]?.[1]).toEqual(["user-1"]);
+  });
+
+  it("counts how many servers use each profile", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ profile_id: "profile-1", server_count: 2 }],
+    });
+    const store = new PostgresAiProfileStore({ query });
+
+    await expect(store.listActiveProfileCounts("user-1")).resolves.toEqual(
+      new Map([["profile-1", 2]]),
+    );
+    expect(query.mock.calls[0]?.[0]).toContain("count(*)");
   });
 
   it("ativa globalmente um perfil pessoal no servidor autorizado", async () => {

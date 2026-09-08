@@ -28,6 +28,7 @@ describe("MeetingFinalizer", () => {
         operations.push("persist");
         return true;
       }),
+      persistPublication: vi.fn(async () => undefined),
     };
     const transcriptionStore = {
       readRawTranscript: vi.fn(async () => "transcrição bruta"),
@@ -65,17 +66,23 @@ describe("MeetingFinalizer", () => {
       summary: { meetingId: "meeting-1", status: "completed" },
       transcript: "transcrição refinada",
     });
+    expect(contentStore.persistPublication).toHaveBeenCalledWith("meeting-1", {
+      meetingId: "meeting-1",
+      threadId: "thread-1",
+    });
     expect(operations).toEqual(["persist", "delete"]);
   });
 
   it("não lê nem persiste conteúdo quando a persistência está desabilitada", async () => {
-    const contentStore = { persist: vi.fn() };
+    const contentStore = { persist: vi.fn(), persistPublication: vi.fn(async () => undefined) };
     const transcriptionStore = {
       readRawTranscript: vi.fn(),
       readTranscript: vi.fn(),
     };
     const summaryStore = { load: vi.fn() };
-    const publicationStore = { load: vi.fn() };
+    const publicationStore = {
+      load: vi.fn(async () => ({ meetingId: "meeting-1", threadId: "thread-1" })),
+    };
     const retention = { deleteWorkspace: vi.fn(async () => undefined) };
     const privateManifest = { ...manifest, persistMeetingContent: false };
     const manifestStore = { tryLoad: vi.fn(async () => privateManifest) };
@@ -94,7 +101,11 @@ describe("MeetingFinalizer", () => {
     expect(transcriptionStore.readRawTranscript).not.toHaveBeenCalled();
     expect(transcriptionStore.readTranscript).not.toHaveBeenCalled();
     expect(summaryStore.load).not.toHaveBeenCalled();
-    expect(publicationStore.load).not.toHaveBeenCalled();
+    expect(publicationStore.load).toHaveBeenCalledWith("meeting-1");
+    expect(contentStore.persistPublication).toHaveBeenCalledWith(
+      "meeting-1",
+      expect.objectContaining({ threadId: "thread-1" }),
+    );
     expect(contentStore.persist).not.toHaveBeenCalled();
     expect(retention.deleteWorkspace).toHaveBeenCalledWith(privateManifest);
   });
@@ -102,7 +113,7 @@ describe("MeetingFinalizer", () => {
   it("considera concluída uma limpeza cujo workspace já não existe", async () => {
     const retention = { deleteWorkspace: vi.fn() };
     const finalizer = new MeetingFinalizer({
-      contentStore: { persist: vi.fn() },
+      contentStore: { persist: vi.fn(), persistPublication: vi.fn() },
       manifestStore: { tryLoad: vi.fn(async () => undefined) },
       publicationStore: { load: vi.fn() },
       retention,
@@ -126,7 +137,7 @@ describe("MeetingFinalizer", () => {
     const participationStore = { persistParticipation: vi.fn(async () => undefined) };
     const createFinalizer = (state: typeof currentState) =>
       new MeetingFinalizer({
-        contentStore: { persist: vi.fn() },
+        contentStore: { persist: vi.fn(), persistPublication: vi.fn() },
         manifestStore: { tryLoad: vi.fn() },
         participationStore,
         publicationStore: { load: vi.fn() },
@@ -152,7 +163,7 @@ describe("MeetingFinalizer", () => {
 
   it("exige o carregador do estado quando a persistência de participação está configurada", async () => {
     const finalizer = new MeetingFinalizer({
-      contentStore: { persist: vi.fn() },
+      contentStore: { persist: vi.fn(), persistPublication: vi.fn() },
       manifestStore: { tryLoad: vi.fn() },
       participationStore: { persistParticipation: vi.fn() },
       publicationStore: { load: vi.fn() },

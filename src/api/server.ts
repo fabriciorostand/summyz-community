@@ -7,7 +7,7 @@ import staticFiles from "@fastify/static";
 import Fastify from "fastify";
 import { ZodError, z } from "zod";
 
-import { aiProfileSchema } from "../ai-profile.js";
+import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
 import { createDefaultAiPrompts } from "../ai-prompts.js";
 import { AuthenticationError } from "../auth/auth-service.js";
 import { SessionTokenError } from "../auth/jwt-session.js";
@@ -29,7 +29,7 @@ import {
   createGuildAccessResolver,
   getErrorStatusCode,
   logApiFailure,
-  refreshDisplayNames,
+  refreshParticipantProfiles,
   requireAdministrator,
   requireAnalytics,
   runApiDependency,
@@ -168,7 +168,31 @@ export async function createApiServer(
     await dependencies.auth.resetPassword(body.token, body.password);
     return reply.status(204).send();
   });
+  app.post("/api/auth/change-password", async (request, reply) => {
+    const user = await authenticateRequest(request, dependencies);
+    const body = z
+      .object({
+        currentPassword: z.string().min(1).max(1_024),
+        newPassword: z.string().min(12).max(1_024),
+      })
+      .parse(request.body);
+    await dependencies.auth.changePassword(user.userId, body.currentPassword, body.newPassword);
+    clearSessionCookies(reply, dependencies.secureCookies);
+    return reply.status(204).send();
+  });
   app.get("/api/auth/me", async (request) => authenticateRequest(request, dependencies));
+
+  app.put("/api/account/preferences", async (request, reply) => {
+    const user = await authenticateRequest(request, dependencies);
+    const preferences = z
+      .object({
+        dashboardLanguage: z.enum(["en", "pt-BR"]),
+        dashboardTheme: z.enum(["system", "light", "dark"]),
+      })
+      .parse(request.body);
+    await dependencies.auth.updatePreferences(user.userId, preferences);
+    return reply.status(204).send();
+  });
 
   app.get("/api/ai/prompts/defaults", async (request) => {
     const user = await authenticateRequest(request, dependencies);
@@ -202,26 +226,92 @@ export async function createApiServer(
 
   app.get("/api/guilds", async (request) => {
     const user = await authenticateRequest(request, dependencies);
-    return dependencies.discord.listOwnedGuilds(
+    const guilds = await dependencies.discord.listOwnedGuilds(
       user.userId,
       await dependencies.guildDirectory.getInstalledGuildIds(),
+    );
+    return Promise.all(
+      guilds.map(async (guild) => {
+        if (!guild.installed || dependencies.analytics === undefined) {
+          return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
+        }
+        const [activeProfile, callCount, summaryForumConfiguration, forums] = await Promise.all([
+          dependencies.aiProfiles.getActiveProfile(guild.id),
+          dependencies.analytics.getGuildCallCount(guild.id),
+          dependencies.guildConfig.getSummaryForum(guild.id),
+          dependencies.guildDirectory.getForums === undefined
+            ? dependencies.guildDirectory
+                .getResources(guild.id)
+                .then((resources) => resources.forums)
+            : dependencies.guildDirectory.getForums(guild.id),
+        ]);
+        const forum = forums.find((item) => item.id === summaryForumConfiguration?.forumId);
+        const tag = forum?.tags.find((item) => item.id === summaryForumConfiguration?.tagId);
+        const ownedActiveProfile =
+          activeProfile?.userId === user.userId ? activeProfile : undefined;
+        return {
+          ...guild,
+          activeProfile:
+            ownedActiveProfile === undefined
+              ? null
+              : {
+                  name: ownedActiveProfile.name,
+                  profileId: ownedActiveProfile.profileId,
+                  profileType: ownedActiveProfile.profileType,
+                },
+          callCount,
+          summaryForum:
+            forum === undefined
+              ? null
+              : {
+                  forumId: forum.id,
+                  name: forum.name,
+                  ...(tag === undefined ? {} : { tagId: tag.id, tagName: tag.name }),
+                },
+        };
+      }),
     );
   });
   app.get("/api/guilds/:guildId/dashboard", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const analytics = requireAnalytics(dependencies);
-    const dashboard = await analytics.getDashboard(guildId);
-    const names = await refreshDisplayNames(
+    const { period } = z
+      .object({ period: z.enum(["30d", "90d", "all"]).default("30d") })
+      .parse(request.query);
+    const [dashboard, liveMeeting] = await Promise.all([
+      analytics.getDashboard(guildId, {
+        period,
+        timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+      }),
+      dependencies.liveMeetings.getForGuild(guildId),
+    ]);
+    const profiles = await refreshParticipantProfiles(
       guildId,
-      dashboard.topSpeakers.map((speaker) => speaker.userId),
+      [
+        ...dashboard.topSpeakers.map((speaker) => speaker.userId),
+        ...(liveMeeting?.participants.map((participant) => participant.userId) ?? []),
+      ],
       dependencies,
     );
     return {
       ...dashboard,
+      liveMeeting:
+        liveMeeting === null
+          ? null
+          : {
+              ...liveMeeting,
+              participants: liveMeeting.participants.map((participant) => ({
+                ...participant,
+                avatarUrl: profiles.get(participant.userId)?.avatarUrl ?? participant.avatarUrl,
+                displayName:
+                  profiles.get(participant.userId)?.displayName ?? participant.displayName,
+              })),
+            },
       timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
       topSpeakers: dashboard.topSpeakers.map((speaker) => ({
         ...speaker,
-        displayName: names.get(speaker.userId) ?? speaker.displayName,
+        avatarUrl: profiles.get(speaker.userId)?.avatarUrl ?? speaker.avatarUrl,
+        displayName: profiles.get(speaker.userId)?.displayName ?? speaker.displayName,
       })),
     };
   });
@@ -231,8 +321,11 @@ export async function createApiServer(
       .object({
         dateFrom: z.iso.date().optional(),
         dateTo: z.iso.date().optional(),
+        channelName: z.string().trim().min(1).max(100).optional(),
+        contentRetained: z.stringbool().optional(),
         meetingId: z.string().trim().min(1).max(128).optional(),
         page: z.coerce.number().int().positive().default(1),
+        participantUserId: z.string().trim().min(1).max(128).optional(),
         state: z.enum(["completed", "failed", "in_progress"]).optional(),
       })
       .parse(request.query);
@@ -243,9 +336,16 @@ export async function createApiServer(
         ? {
             ...(query.dateFrom === undefined ? {} : { dateFrom: query.dateFrom }),
             ...(query.dateTo === undefined ? {} : { dateTo: query.dateTo }),
+            ...(query.channelName === undefined ? {} : { channelName: query.channelName }),
+            ...(query.contentRetained === undefined
+              ? {}
+              : { contentRetained: query.contentRetained }),
             pageSize: 20,
             page: query.page,
             ...(query.state === undefined ? {} : { state: query.state }),
+            ...(query.participantUserId === undefined
+              ? {}
+              : { participantUserId: query.participantUserId }),
             timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
           }
         : {
@@ -255,18 +355,32 @@ export async function createApiServer(
             timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
           },
     );
-    const userIds = history.items.flatMap(
+    const liveMeeting = await dependencies.liveMeetings.getForGuild(guildId);
+    const itemsWithLiveParticipants = history.items.map((meeting) =>
+      liveMeeting?.meetingId === meeting.meetingId
+        ? {
+            ...meeting,
+            participants: liveMeeting.participants.map((participant) => ({
+              ...participant,
+              percentage: null,
+              talkTimeMs: null,
+            })),
+          }
+        : meeting,
+    );
+    const userIds = itemsWithLiveParticipants.flatMap(
       (meeting) => meeting.participants?.map((item) => item.userId) ?? [],
     );
-    const names = await refreshDisplayNames(guildId, userIds, dependencies);
+    const profiles = await refreshParticipantProfiles(guildId, userIds, dependencies);
     return {
       ...history,
-      items: history.items.map((meeting) => ({
+      items: itemsWithLiveParticipants.map((meeting) => ({
         ...meeting,
         participants:
           meeting.participants?.map((participant) => ({
             ...participant,
-            displayName: names.get(participant.userId) ?? participant.displayName,
+            avatarUrl: profiles.get(participant.userId)?.avatarUrl ?? participant.avatarUrl,
+            displayName: profiles.get(participant.userId)?.displayName ?? participant.displayName,
           })) ?? null,
       })),
       timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
@@ -278,20 +392,63 @@ export async function createApiServer(
     const analytics = requireAnalytics(dependencies);
     const meeting = await analytics.getMeeting(guildId, meetingId);
     if (meeting === undefined) return reply.status(404).send({ error: "meeting_not_found" });
-    const names = await refreshDisplayNames(
+    const liveMeeting = await dependencies.liveMeetings.getForGuild(guildId);
+    const participants =
+      liveMeeting?.meetingId === meeting.meetingId
+        ? liveMeeting.participants.map((participant) => ({
+            ...participant,
+            percentage: null,
+            talkTimeMs: null,
+          }))
+        : meeting.participants;
+    const profiles = await refreshParticipantProfiles(
       guildId,
-      meeting.participants?.map((participant) => participant.userId) ?? [],
+      participants?.map((participant) => participant.userId) ?? [],
       dependencies,
     );
     return {
       ...meeting,
       participants:
-        meeting.participants?.map((participant) => ({
+        participants?.map((participant) => ({
           ...participant,
-          displayName: names.get(participant.userId) ?? participant.displayName,
+          avatarUrl: profiles.get(participant.userId)?.avatarUrl ?? participant.avatarUrl,
+          displayName: profiles.get(participant.userId)?.displayName ?? participant.displayName,
         })) ?? null,
       timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
     };
+  });
+  app.get("/api/guilds/:guildId/tasks", async (request) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const query = z
+      .object({
+        completed: z.stringbool().optional(),
+        meetingId: z.string().min(1).max(128).optional(),
+      })
+      .parse(request.query);
+    const tasks = await dependencies.tasks.list(guildId, {
+      ...(query.completed === undefined ? {} : { completed: query.completed }),
+      ...(query.meetingId === undefined ? {} : { meetingId: query.meetingId }),
+    });
+    const profiles = await refreshParticipantProfiles(
+      guildId,
+      tasks.flatMap((task) => (task.ownerUserId === null ? [] : [task.ownerUserId])),
+      dependencies,
+    );
+    return tasks.map((task) => {
+      const profile = task.ownerUserId === null ? undefined : profiles.get(task.ownerUserId);
+      return {
+        ...task,
+        ownerAvatarUrl: profile?.avatarUrl ?? task.ownerAvatarUrl,
+        ownerDisplayName: profile?.displayName ?? task.ownerDisplayName,
+      };
+    });
+  });
+  app.patch("/api/guilds/:guildId/tasks/:taskId/completion", async (request, reply) => {
+    const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { taskId } = z.object({ taskId: z.uuid() }).parse(request.params);
+    const { completed } = z.object({ completed: z.boolean() }).parse(request.body);
+    await dependencies.tasks.setCompleted(guildId, taskId, user.userId, completed);
+    return reply.status(204).send();
   });
   app.get("/api/guilds/:guildId/configuration", async (request) => {
     const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
@@ -318,7 +475,9 @@ export async function createApiServer(
     }
     return {
       activeProfileId,
-      profiles,
+      profiles: profiles.map((profile) =>
+        localizeAiProfileDefaults(profile, user.dashboardLanguage),
+      ),
       recordingRoleIds,
       settings,
       summaryForum,
@@ -369,20 +528,21 @@ export async function createApiServer(
   });
   app.get("/api/profiles", async (request) => {
     const user = await authenticateRequest(request, dependencies);
-    const [profiles, activeProfileIds] = await runApiDependency(
+    const [profiles, activeProfileCounts] = await runApiDependency(
       "database",
       "list_ai_profiles",
       async () => {
         await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
         return Promise.all([
           dependencies.aiProfiles.listProfiles(user.userId),
-          dependencies.aiProfiles.listActiveProfileIds(user.userId),
+          dependencies.aiProfiles.listActiveProfileCounts(user.userId),
         ]);
       },
     );
     return profiles.map((profile) => ({
-      active: activeProfileIds.has(profile.profileId),
-      profile,
+      active: (activeProfileCounts.get(profile.profileId) ?? 0) > 0,
+      activeServerCount: activeProfileCounts.get(profile.profileId) ?? 0,
+      profile: localizeAiProfileDefaults(profile, user.dashboardLanguage),
     }));
   });
   app.post("/api/profiles", async (request, reply) => {
@@ -422,6 +582,20 @@ export async function createApiServer(
   app.get("/api/installation/settings", async (request) => {
     await requireAdministrator(request, dependencies);
     return dependencies.settings.getSettings();
+  });
+  app.get("/api/installation/health", async (request) => {
+    await requireAdministrator(request, dependencies);
+    const [health, settings] = await Promise.all([
+      dependencies.health.getStatus(),
+      dependencies.settings.getSettings(),
+    ]);
+    return {
+      ...health,
+      externalConfiguration: {
+        openRouterConfigured: settings.secrets.openRouterApiKey,
+        smtpConfigured: settings.smtp !== null && settings.secrets.smtpPassword,
+      },
+    };
   });
   app.put("/api/installation/settings", async (request, reply) => {
     await requireAdministrator(request, dependencies);

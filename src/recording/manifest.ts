@@ -152,8 +152,15 @@ const recordingManifestBaseShape = {
 export const recordingManifestSchema = z.object({
   ...recordingManifestBaseShape,
   aiConfiguration: meetingAiConfigurationSchema.optional(),
+  aiProfile: z
+    .object({
+      name: z.string().trim().min(1).max(100),
+      profileId: storageIdentifierSchema,
+    })
+    .optional(),
   participants: z.array(
     z.object({
+      avatarUrl: z.url().max(2_048).nullable().optional(),
       displayName: z.string().min(1).max(100),
       userId: storageIdentifierSchema,
     }),
@@ -193,6 +200,7 @@ export type CreateManifestInput = Pick<
     >
   > & {
     aiConfiguration?: MeetingAiConfiguration;
+    aiProfile?: RecordingManifest["aiProfile"];
   };
 
 export function createManifest(input: CreateManifestInput): RecordingManifest {

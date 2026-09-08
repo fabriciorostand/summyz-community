@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { PostgresMeetingContentStore } from "../src/database/postgres-meeting-content-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
 import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
+import { createSummaryState, markSummaryCompleted } from "../src/summary/summary-state.js";
 
 function createDatabase() {
   const query = vi.fn(async (_text: string, _values?: readonly unknown[]) => ({
@@ -11,6 +12,30 @@ function createDatabase() {
   }));
   return { database: { query } satisfies PostgresExecutor, query };
 }
+
+const completedSummary = markSummaryCompleted(
+  createSummaryState("meeting-1", "2026-08-24T10:10:00.000Z"),
+  {
+    decisions: [],
+    discussedTopics: ["Entrega"],
+    executiveSummary: "Resumo",
+    observations: [],
+    tasks: [
+      {
+        deadlineDate: "2026-08-25",
+        deadlinePrecision: "minute",
+        deadlineText: "amanhã às 20:30",
+        deadlineTime: "20:30",
+        deadlineTimeZone: "America/Sao_Paulo",
+        ownerName: "Ana",
+        text: "Enviar o relatório.",
+      },
+    ],
+  },
+  1,
+  "2026-08-24T10:11:00.000Z",
+  "pt",
+);
 
 const content = {
   manifest: markManifestCompleted(
@@ -38,7 +63,7 @@ const content = {
     updatedAt: "2026-08-24T10:11:00.000Z",
   },
   rawTranscript: "texto bruto",
-  summary: { status: "completed", summary: { executiveSummary: "Resumo" } },
+  summary: completedSummary,
   transcript: "texto revisado",
 };
 
@@ -56,6 +81,15 @@ describe("PostgresMeetingContentStore", () => {
       JSON.stringify(content.summary),
       expect.any(String),
       JSON.stringify(content.manifest),
+      expect.any(String),
+    ]);
+    expect(query.mock.calls[0]?.[0]).toContain("INSERT INTO meeting_tasks");
+    expect(JSON.parse(String(query.mock.calls[0]?.[1]?.[6]))).toEqual([
+      expect.objectContaining({
+        deadline_date: "2026-08-25",
+        deadline_precision: "minute",
+        task_text: "Enviar o relatório.",
+      }),
     ]);
     const publicationJson = query.mock.calls[0]?.[1]?.[4];
     expect(typeof publicationJson === "string" ? JSON.parse(publicationJson) : undefined).toEqual(
@@ -71,5 +105,18 @@ describe("PostgresMeetingContentStore", () => {
       /não pode ser serializado/i,
     );
     expect(query).not.toHaveBeenCalled();
+  });
+
+  it("persists the Discord publication target independently from retained content", async () => {
+    const { database, query } = createDatabase();
+    const store = new PostgresMeetingContentStore(database);
+
+    await store.persistPublication("meeting-1", content.publication);
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("publication_thread_id"), [
+      "meeting-1",
+      "thread-1",
+      "root-1",
+    ]);
   });
 });

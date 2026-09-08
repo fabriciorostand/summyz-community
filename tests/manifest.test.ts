@@ -78,6 +78,7 @@ describe("manifesto da gravação", () => {
           provider: "ollama",
         },
       },
+      aiProfile: { name: "Local rápido", profileId: "profile-1" },
       guildId: "guild-1",
       meetingId: "meeting-1",
       notificationChannelId: "text-1",
@@ -93,10 +94,33 @@ describe("manifesto da gravação", () => {
       transcription: { model: "small", provider: "faster-whisper" },
       translation: { model: "qwen3:8b", provider: "ollama" },
     });
+    expect(manifest.aiProfile).toEqual({ name: "Local rápido", profileId: "profile-1" });
     const detected = setPredominantLanguage(manifest, "pt");
     expect(detected).toMatchObject({ predominantLanguage: "pt", startedByUserId: "user-1" });
     expect(detected).not.toHaveProperty("languageEvidence");
     expect(requireCurrentMeetingAiConfiguration(manifest).profileType).toBe("local");
+  });
+
+  it("preserva o avatar Discord capturado com o participante", () => {
+    const manifest = addParticipant(
+      createManifest({
+        guildId: "guild-1",
+        meetingId: "meeting-1",
+        notificationChannelId: "text-1",
+        startedAt: "2026-08-16T20:00:00.000Z",
+        voiceChannelId: "voice-1",
+      }),
+      {
+        avatarUrl: "https://cdn.discordapp.com/guilds/guild-1/users/user-1/avatars/hash.png",
+        displayName: "Ana",
+        userId: "user-1",
+      },
+    );
+
+    expect(manifest.participants[0]).toMatchObject({
+      avatarUrl: expect.stringContaining("cdn.discordapp.com"),
+      displayName: "Ana",
+    });
   });
 
   it("rejeita definitivamente manifestos da versão anterior", () => {

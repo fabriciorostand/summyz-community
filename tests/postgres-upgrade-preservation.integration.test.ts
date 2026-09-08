@@ -157,7 +157,10 @@ WHERE meeting_id = ANY($1::text[])
 SELECT
   (SELECT count(*)::integer FROM meeting_audio_segments WHERE meeting_id = ANY($1::text[])) AS audio_count,
   (SELECT count(*)::integer FROM provider_cost_attempts WHERE meeting_id = $2) AS cost_count,
-  (SELECT count(*)::integer FROM schema_migrations WHERE checksum IS NULL) AS missing_checksum_count
+  (SELECT count(*)::integer FROM schema_migrations WHERE checksum IS NULL) AS missing_checksum_count,
+  to_regclass('meeting_tasks') IS NOT NULL AS has_meeting_tasks,
+  to_regclass('live_meeting_states') IS NOT NULL AS has_live_meeting_states,
+  to_regclass('runtime_component_heartbeats') IS NOT NULL AS has_runtime_heartbeats
 `,
           [[...meetingIds.values()], transcribingMeetingId],
         );
@@ -165,6 +168,9 @@ SELECT
           {
             audio_count: pendingStatuses.length,
             cost_count: 1,
+            has_live_meeting_states: true,
+            has_meeting_tasks: true,
+            has_runtime_heartbeats: true,
             missing_checksum_count: 0,
           },
         ]);
