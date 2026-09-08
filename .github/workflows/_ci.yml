@@ -593,7 +593,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      pull-requests: write
     steps:
       - name: Check out the tested revision
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
@@ -671,42 +670,6 @@ jobs:
         run: |
           ./node_modules/.bin/tsx scripts/ci/quality-gate-cli.ts reports baseline ci-summary.md
           cat ci-summary.md >> "${GITHUB_STEP_SUMMARY}"
-
-      - name: Update the persistent internal pull-request comment
-        if: >-
-          github.event_name == 'pull_request' &&
-          github.event.pull_request.head.repo.full_name == github.repository
-        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
-        with:
-          script: |
-            const { readFile } = require("node:fs/promises");
-            const marker = "<!-- summyz-community-quality-gate -->";
-            const fullBody = await readFile("ci-summary.md", "utf8");
-            const detailsUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
-            const body = fullBody.length <= 60000
-              ? fullBody
-              : `${fullBody.slice(0, 59500)}\n\n_Report truncated. [View the complete analysis](${detailsUrl})._\n`;
-            const comments = await github.paginate(github.rest.issues.listComments, {
-              ...context.repo,
-              issue_number: context.issue.number,
-              per_page: 100,
-            });
-            const previous = comments.find(
-              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
-            );
-            if (previous) {
-              await github.rest.issues.updateComment({
-                ...context.repo,
-                comment_id: previous.id,
-                body,
-              });
-            } else {
-              await github.rest.issues.createComment({
-                ...context.repo,
-                issue_number: context.issue.number,
-                body,
-              });
-            }
 
       - name: Upload aggregate report
         if: always()

@@ -7,14 +7,19 @@ const root = new URL("../", import.meta.url);
 describe("continuous integration contract", () => {
   it("routes PR cancellation and serialized main pushes through one implementation", async () => {
     const entry = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const prJob = entry.slice(entry.indexOf("\n  pr:"), entry.indexOf("\n  main:"));
+    const mainJob = entry.slice(entry.indexOf("\n  main:"));
 
     expect(entry).toContain("pull_request:");
     expect(entry).toContain("push:");
     expect(entry).toContain("uses: ./.github/workflows/_ci.yml");
     expect(entry).toContain(["group: ci-pr-$", "{{ github.event.pull_request.number }}"].join(""));
     expect(entry).toContain("cancel-in-progress: true");
-    expect(entry).toContain("group: ci-main");
-    expect(entry).toContain("queue: max");
+    expect(prJob).not.toContain("pull-requests: write");
+    expect(mainJob).toContain("concurrency:");
+    expect(mainJob).toContain("group: ci-main");
+    expect(mainJob).toContain("queue: max");
+    expect(mainJob).not.toContain("cancel-in-progress: true");
   });
 
   it("exposes every blocking producer and an aggregate gate without custom timeouts", async () => {
@@ -70,7 +75,10 @@ describe("continuous integration contract", () => {
   });
 
   it("publishes the Scraper-style English Quality Gate from complete reports", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const [entry, implementation] = await Promise.all([
+      readFile(new URL(".github/workflows/ci.yml", root), "utf8"),
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+    ]);
 
     expect(implementation).toContain("scripts/ci/quality-gate-cli.ts");
     expect(implementation).toContain("scripts/ci/source-quality-cli.ts");
@@ -78,7 +86,12 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("lizard -l typescript -l tsx -l python");
     expect(implementation).toContain("quality-gate-baseline.json");
     expect(implementation).toContain("ci-summary.md");
-    expect(implementation).toContain('const fullBody = await readFile("ci-summary.md", "utf8")');
+    expect(implementation).not.toContain("pull-requests: write");
+    expect(entry).toContain("quality-gate-comment:");
+    expect(entry).toContain("pull-requests: write");
+    expect(entry).toContain(
+      'const fullBody = await readFile("quality-gate-comment/ci-summary.md", "utf8")',
+    );
     expect(implementation).not.toContain("## Summyz Community CI");
   });
 

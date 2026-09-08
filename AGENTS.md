@@ -101,6 +101,18 @@ Messages sent to Discord must not reveal stack traces, internal paths, or secret
 
 ## Git
 
+### Branches
+
+- Use the `<type>/<description>` format, with an English type and a short `kebab-case`
+  description.
+- The type must indicate the purpose of the change. Use `feature`, `bugfix`, `hotfix`, `release`,
+  `chore`, `docs`, `test`, or `refactor`, as appropriate.
+- Do not add prefixes that identify tools, agents, or people to branch names, such as `codex/`.
+- Examples:
+  - `feature/dashboard-backend-foundation`
+  - `bugfix/meeting-cost-calculation`
+  - `docs/local-installation-guide`
+
 ### Commits and authorship
 
 - **Conventional Commits in the `<type>(<scope>): <description>` format:** type/prefix in

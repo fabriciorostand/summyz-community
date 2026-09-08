@@ -20,7 +20,6 @@ jobs:
     permissions:
       actions: read
       contents: read
-      pull-requests: write
 
   main:
     name: Main
@@ -32,3 +31,55 @@ jobs:
     permissions:
       actions: read
       contents: read
+
+  quality-gate-comment:
+    name: Quality Gate / PR Comment
+    needs: pr
+    if: >-
+      !cancelled() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Download the aggregate report
+        uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
+        with:
+          name: ci-quality-gate
+          path: quality-gate-comment
+
+      - name: Update the persistent internal pull-request comment
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { readFile } = require("node:fs/promises");
+            const marker = "<!-- summyz-community-quality-gate -->";
+            const fullBody = await readFile("quality-gate-comment/ci-summary.md", "utf8");
+            const detailsUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            const body = fullBody.length <= 60000
+              ? fullBody
+              : `${fullBody.slice(0, 59500)}\n\n_Report truncated. [View the complete analysis](${detailsUrl})._\n`;
+            const comments = await github.paginate(github.rest.issues.listComments, {
+              ...context.repo,
+              issue_number: context.issue.number,
+              per_page: 100,
+            });
+            const previous = comments.find(
+              (comment) => comment.user?.type === "Bot" && comment.body?.includes(marker),
+            );
+            if (previous) {
+              await github.rest.issues.updateComment({
+                ...context.repo,
+                comment_id: previous.id,
+                body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                ...context.repo,
+                issue_number: context.issue.number,
+                body,
+              });
+            }
