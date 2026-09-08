@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { GuildDirectory, GuildMemberDirectoryItem } from "../api/server-contracts.js";
+import { memberDirectoryPageOptionsSchema } from "../directory-pagination.js";
 
 const guildsSchema = z.array(z.object({ id: z.string().min(1) }));
 const rolesSchema = z.array(z.object({ id: z.string().min(1), name: z.string().min(1) }));
@@ -32,6 +33,7 @@ const memberSchema = z.object({
   }),
 });
 const guildMemberListSchema = z.array(memberSchema);
+type DiscordGuildMember = z.infer<typeof memberSchema>;
 
 interface DirectoryOptions {
   fetch: typeof globalThis.fetch;
@@ -127,14 +129,7 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     options: { page: number; pageSize: number; query?: string; roleId?: string },
   ) {
     const validatedGuildId = z.string().min(1).max(128).parse(guildId);
-    const validated = z
-      .object({
-        page: z.number().int().positive(),
-        pageSize: z.number().int().min(1).max(100),
-        query: z.string().trim().max(100).optional(),
-        roleId: z.string().min(1).max(128).optional(),
-      })
-      .parse(options);
+    const validated = memberDirectoryPageOptionsSchema.parse(options);
     const result = await this.#listVisibleHumanMembers(validatedGuildId);
     if (result.status === "unavailable") {
       return {
@@ -174,9 +169,9 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
       const batch = validatedUserIds.slice(index, index + 10);
       await Promise.all(
         batch.map(async (userId) => {
-          const payload = await this.#tryRequest(`/guilds/${validatedGuildId}/members/${userId}`);
-          if (payload === undefined) return;
-          const item = toDirectoryItem(validatedGuildId, memberSchema.parse(payload))[0];
+          const member = await this.#getMember(validatedGuildId, userId);
+          if (member === undefined) return;
+          const item = toDirectoryItem(validatedGuildId, member)[0];
           if (item !== undefined) members.set(userId, item);
         }),
       );
@@ -192,13 +187,8 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     const names = new Map<string, string>();
     await Promise.all(
       [...new Set(userIds)].map(async (userId) => {
-        const validatedUserId = z.string().min(1).max(128).parse(userId);
-        const payload = await this.#tryRequest(
-          `/guilds/${validatedGuildId}/members/${validatedUserId}`,
-        );
-        if (payload === undefined) return;
-        const member = memberSchema.parse(payload);
-        names.set(validatedUserId, member.nick ?? member.user.global_name ?? member.user.username);
+        const member = await this.#getMember(validatedGuildId, userId);
+        if (member !== undefined) names.set(userId, getMemberDisplayName(member));
       }),
     );
     return names;
@@ -212,21 +202,11 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     const profiles = new Map<string, { avatarUrl: string | null; displayName: string }>();
     await Promise.all(
       [...new Set(userIds)].map(async (userId) => {
-        const validatedUserId = z.string().min(1).max(128).parse(userId);
-        const payload = await this.#tryRequest(
-          `/guilds/${validatedGuildId}/members/${validatedUserId}`,
-        );
-        if (payload === undefined) return;
-        const member = memberSchema.parse(payload);
-        const avatarUrl =
-          member.avatar !== undefined && member.avatar !== null
-            ? `https://cdn.discordapp.com/guilds/${validatedGuildId}/users/${validatedUserId}/avatars/${member.avatar}.png?size=128`
-            : member.user.avatar !== undefined && member.user.avatar !== null
-              ? `https://cdn.discordapp.com/avatars/${validatedUserId}/${member.user.avatar}.png?size=128`
-              : createDefaultAvatarUrl(validatedUserId, member.user.discriminator);
-        profiles.set(validatedUserId, {
-          avatarUrl,
-          displayName: member.nick ?? member.user.global_name ?? member.user.username,
+        const member = await this.#getMember(validatedGuildId, userId);
+        if (member === undefined) return;
+        profiles.set(userId, {
+          avatarUrl: createMemberAvatarUrl(validatedGuildId, member),
+          displayName: getMemberDisplayName(member),
         });
       }),
     );
@@ -234,25 +214,31 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
   }
 
   async #request(path: string): Promise<unknown> {
-    const token = await this.#getBotToken();
-    if (token === undefined) throw new Error("Discord bot is not configured");
-    const response = await this.#fetch(`https://discord.com/api/v10${path}`, {
-      headers: { authorization: `Bot ${token}` },
-    });
+    const response = await this.#requestResponse(path);
     if (!response.ok) throw new Error("Discord bot API request failed");
     const payload: unknown = await response.json();
     return payload;
   }
 
   async #tryRequest(path: string): Promise<unknown | undefined> {
-    const token = await this.#getBotToken();
-    if (token === undefined) throw new Error("Discord bot is not configured");
-    const response = await this.#fetch(`https://discord.com/api/v10${path}`, {
-      headers: { authorization: `Bot ${token}` },
-    });
+    const response = await this.#requestResponse(path);
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error("Discord bot API request failed");
     return response.json();
+  }
+
+  async #requestResponse(path: string): Promise<Response> {
+    const token = await this.#getBotToken();
+    if (token === undefined) throw new Error("Discord bot is not configured");
+    return this.#fetch(`https://discord.com/api/v10${path}`, {
+      headers: { authorization: `Bot ${token}` },
+    });
+  }
+
+  async #getMember(guildId: string, userId: string): Promise<DiscordGuildMember | undefined> {
+    const validatedUserId = z.string().min(1).max(128).parse(userId);
+    const payload = await this.#tryRequest(`/guilds/${guildId}/members/${validatedUserId}`);
+    return payload === undefined ? undefined : memberSchema.parse(payload);
   }
 }
 
@@ -265,24 +251,29 @@ function createDefaultAvatarUrl(userId: string, discriminator: string | undefine
   return `https://cdn.discordapp.com/embed/avatars/${avatarIndex}.png`;
 }
 
-function toDirectoryItem(
-  guildId: string,
-  member: z.infer<typeof memberSchema>,
-): GuildMemberDirectoryItem[] {
+function toDirectoryItem(guildId: string, member: DiscordGuildMember): GuildMemberDirectoryItem[] {
   if (member.user.bot === true || member.joined_at === undefined) return [];
-  const avatarUrl =
-    member.avatar !== undefined && member.avatar !== null
-      ? `https://cdn.discordapp.com/guilds/${guildId}/users/${member.user.id}/avatars/${member.avatar}.png?size=128`
-      : member.user.avatar !== undefined && member.user.avatar !== null
-        ? `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png?size=128`
-        : createDefaultAvatarUrl(member.user.id, member.user.discriminator);
   return [
     {
-      avatarUrl,
-      displayName: member.nick ?? member.user.global_name ?? member.user.username,
+      avatarUrl: createMemberAvatarUrl(guildId, member),
+      displayName: getMemberDisplayName(member),
       joinedAt: new Date(member.joined_at).toISOString(),
       roleIds: member.roles,
       userId: member.user.id,
     },
   ];
+}
+
+function createMemberAvatarUrl(guildId: string, member: DiscordGuildMember): string | null {
+  if (typeof member.avatar === "string") {
+    return `https://cdn.discordapp.com/guilds/${guildId}/users/${member.user.id}/avatars/${member.avatar}.png?size=128`;
+  }
+  if (typeof member.user.avatar === "string") {
+    return `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png?size=128`;
+  }
+  return createDefaultAvatarUrl(member.user.id, member.user.discriminator);
+}
+
+function getMemberDisplayName(member: DiscordGuildMember): string {
+  return member.nick ?? member.user.global_name ?? member.user.username;
 }

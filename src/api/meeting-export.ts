@@ -1,5 +1,6 @@
 import type { MeetingHistorySummary } from "../analytics/meeting-history-summary.js";
 import type { MeetingHistoryDetail } from "../database/postgres-analytics-store.js";
+import { formatClockDuration } from "../duration-format.js";
 
 export class MeetingExportUnavailableError extends Error {
   public constructor() {
@@ -21,7 +22,7 @@ export function createMeetingTextExport(meeting: MeetingHistoryDetail, timeZone:
   const lines = [
     `Voice channel: ${meeting.voiceChannelName ?? "-"}`,
     `Started at: ${formatStartedAt(meeting.startedAt, summary.language, timeZone)}`,
-    `Duration: ${formatDuration(meeting.durationMs)}`,
+    `Duration: ${meeting.durationMs === null ? "-" : formatClockDuration(meeting.durationMs)}`,
     `${labels.meetingId}: ${meeting.meetingId}`,
     "",
     labels.summary,
@@ -54,15 +55,6 @@ function formatStartedAt(value: string, language: string, timeZone: string): str
     timeStyle: "short",
     timeZone,
   }).format(new Date(value));
-}
-
-function formatDuration(durationMs: number | null): string {
-  if (durationMs === null) return "-";
-  const totalSeconds = Math.floor(durationMs / 1_000);
-  const hours = Math.floor(totalSeconds / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
 }
 
 function formatList(items: readonly string[]): string[] {

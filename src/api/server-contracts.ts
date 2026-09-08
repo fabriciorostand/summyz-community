@@ -19,8 +19,8 @@ import type {
 } from "../database/postgres-installation-settings-store.js";
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
 import type { LiveMeetingState } from "../database/postgres-live-meeting-store.js";
-import type { DashboardTask } from "../database/postgres-task-store.js";
 import type { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";
+import type { DashboardTask } from "../database/postgres-task-store.js";
 import type {
   DiscordConnectionStatus,
   OwnedDiscordGuild,

@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { directoryPageOptionsSchema } from "../directory-pagination.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(128);
@@ -28,13 +29,7 @@ export class PostgresParticipantDirectoryStore {
     guildId: string,
     options: { page: number; pageSize: number; query?: string },
   ): Promise<MeetingParticipantDirectoryPage> {
-    const validated = z
-      .object({
-        page: z.number().int().positive(),
-        pageSize: z.number().int().min(1).max(100),
-        query: z.string().trim().max(100).optional(),
-      })
-      .parse(options);
+    const validated = directoryPageOptionsSchema.parse(options);
     const result = await this.#database.query(
       `WITH candidates AS (
          SELECT participant.user_id, participant.display_name, participant.avatar_url,

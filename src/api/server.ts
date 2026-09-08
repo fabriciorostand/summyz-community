@@ -11,6 +11,7 @@ import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
 import { AuthenticationError } from "../auth/auth-service.js";
 import { SessionTokenError } from "../auth/jwt-session.js";
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
+import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
 import { registerAnalyticsRoutes } from "./server-analytics-routes.js";
 import { registerAuthRoutes } from "./server-auth-routes.js";
@@ -231,13 +232,7 @@ export async function createApiServer(
   });
   app.get("/api/guilds/:guildId/members", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = z
-      .object({
-        page: z.coerce.number().int().positive().default(1),
-        query: z.string().trim().max(100).optional(),
-        roleId: z.string().min(1).max(128).optional(),
-      })
-      .parse(request.query);
+    const query = memberDirectoryPageQuerySchema.parse(request.query);
     return runApiDependency("discord", "list_guild_members", () =>
       dependencies.guildDirectory.listMembers(guildId, {
         page: query.page,

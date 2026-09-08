@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import { directoryPageQuerySchema } from "../directory-pagination.js";
 import { createMeetingTextExport, MeetingExportUnavailableError } from "./meeting-export.js";
 
 import type { ApiServerDependencies } from "./server-contracts.js";
@@ -187,12 +188,7 @@ export function registerAnalyticsRoutes(
   });
   app.get("/api/guilds/:guildId/participants", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = z
-      .object({
-        page: z.coerce.number().int().positive().default(1),
-        query: z.string().trim().max(100).optional(),
-      })
-      .parse(request.query);
+    const query = directoryPageQuerySchema.parse(request.query);
     return runApiDependency("database", "list_meeting_participants", () =>
       dependencies.participants.list(guildId, {
         page: query.page,
