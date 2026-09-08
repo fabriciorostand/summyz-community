@@ -16,6 +16,7 @@ import { PostgresGuildConfigStore } from "../database/postgres-guild-config-stor
 import { PostgresInstallationHealthStore } from "../database/postgres-installation-health-store.js";
 import { PostgresInstallationSettingsStore } from "../database/postgres-installation-settings-store.js";
 import { PostgresLiveMeetingStore } from "../database/postgres-live-meeting-store.js";
+import { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";
 import { PostgresTaskStore } from "../database/postgres-task-store.js";
 import { DiscordOAuthService } from "../discord/discord-oauth-service.js";
 import { DiscordRestGuildDirectory } from "../discord/discord-rest-guild-directory.js";
@@ -67,6 +68,7 @@ const app = await createApiServer(
     health: new PostgresInstallationHealthStore(database),
     logger,
     liveMeetings: new PostgresLiveMeetingStore(database),
+    participants: new PostgresParticipantDirectoryStore(database),
     secureCookies: config.secureCookies,
     settings,
     setupToken: config.setupToken,

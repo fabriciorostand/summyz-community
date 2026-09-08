@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import type { GuildDirectory } from "../api/server.js";
+import type { GuildDirectory, GuildMemberDirectoryItem } from "../api/server-contracts.js";
+import { memberDirectoryPageOptionsSchema } from "../directory-pagination.js";
 
 const guildsSchema = z.array(z.object({ id: z.string().min(1) }));
 const rolesSchema = z.array(z.object({ id: z.string().min(1), name: z.string().min(1) }));
@@ -16,9 +17,12 @@ const channelsSchema = z.array(
 );
 const memberSchema = z.object({
   avatar: z.string().min(1).nullable().optional(),
+  joined_at: z.iso.datetime({ offset: true }).optional(),
   nick: z.string().min(1).nullable().optional(),
+  roles: z.array(z.string()).default([]),
   user: z.object({
     avatar: z.string().min(1).nullable().optional(),
+    bot: z.boolean().optional(),
     discriminator: z
       .string()
       .regex(/^\d{4}$/u)
@@ -28,12 +32,8 @@ const memberSchema = z.object({
     username: z.string().min(1),
   }),
 });
-const guildMemberListSchema = z.array(
-  z.object({
-    roles: z.array(z.string()),
-    user: z.object({ bot: z.boolean().optional(), id: z.string().min(1) }),
-  }),
-);
+const guildMemberListSchema = z.array(memberSchema);
+type DiscordGuildMember = z.infer<typeof memberSchema>;
 
 interface DirectoryOptions {
   fetch: typeof globalThis.fetch;
@@ -64,7 +64,7 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     const counts = new Map<string, number>();
     if (memberResult.status === "available") {
       for (const member of memberResult.members) {
-        for (const roleId of member.roles) counts.set(roleId, (counts.get(roleId) ?? 0) + 1);
+        for (const roleId of member.roleIds) counts.set(roleId, (counts.get(roleId) ?? 0) + 1);
       }
     }
     return {
@@ -101,8 +101,10 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
 
   async #listVisibleHumanMembers(
     guildId: string,
-  ): Promise<{ members: { roles: string[] }[]; status: "available" } | { status: "unavailable" }> {
-    const members: { roles: string[] }[] = [];
+  ): Promise<
+    { members: GuildMemberDirectoryItem[]; status: "available" } | { status: "unavailable" }
+  > {
+    const members: GuildMemberDirectoryItem[] = [];
     let after: string | undefined;
     do {
       const parameters = new URLSearchParams({ limit: "1000" });
@@ -116,14 +118,65 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
       if (response.status === 403) return { status: "unavailable" };
       if (!response.ok) throw new Error("Discord bot API request failed");
       const page = guildMemberListSchema.parse(await response.json());
-      members.push(
-        ...page
-          .filter((member) => member.user.bot !== true)
-          .map((member) => ({ roles: member.roles })),
-      );
+      members.push(...page.flatMap((member) => toDirectoryItem(guildId, member)));
       after = page.length === 1_000 ? page.at(-1)?.user.id : undefined;
     } while (after !== undefined);
     return { members, status: "available" };
+  }
+
+  public async listMembers(
+    guildId: string,
+    options: { page: number; pageSize: number; query?: string; roleId?: string },
+  ) {
+    const validatedGuildId = z.string().min(1).max(128).parse(guildId);
+    const validated = memberDirectoryPageOptionsSchema.parse(options);
+    const result = await this.#listVisibleHumanMembers(validatedGuildId);
+    if (result.status === "unavailable") {
+      return {
+        code: "discord_members_intent_unavailable" as const,
+        status: "unavailable" as const,
+      };
+    }
+    const normalizedQuery = validated.query?.toLocaleLowerCase();
+    const filtered = result.members
+      .filter(
+        (member) =>
+          (normalizedQuery === undefined ||
+            member.displayName.toLocaleLowerCase().includes(normalizedQuery)) &&
+          (validated.roleId === undefined || member.roleIds.includes(validated.roleId)),
+      )
+      .sort((left, right) =>
+        left.displayName.localeCompare(right.displayName, undefined, { sensitivity: "base" }),
+      );
+    const offset = (validated.page - 1) * validated.pageSize;
+    return {
+      items: filtered.slice(offset, offset + validated.pageSize),
+      page: validated.page,
+      pageSize: validated.pageSize,
+      status: "available" as const,
+      total: filtered.length,
+    };
+  }
+
+  public async getMembersByIds(
+    guildId: string,
+    userIds: readonly string[],
+  ): Promise<ReadonlyMap<string, GuildMemberDirectoryItem>> {
+    const validatedGuildId = z.string().min(1).max(128).parse(guildId);
+    const validatedUserIds = z.array(z.string().min(1).max(128)).max(1_000).parse(userIds);
+    const members = new Map<string, GuildMemberDirectoryItem>();
+    for (let index = 0; index < validatedUserIds.length; index += 10) {
+      const batch = validatedUserIds.slice(index, index + 10);
+      await Promise.all(
+        batch.map(async (userId) => {
+          const member = await this.#getMember(validatedGuildId, userId);
+          if (member === undefined) return;
+          const item = toDirectoryItem(validatedGuildId, member)[0];
+          if (item !== undefined) members.set(userId, item);
+        }),
+      );
+    }
+    return members;
   }
 
   public async getMemberDisplayNames(
@@ -134,13 +187,8 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     const names = new Map<string, string>();
     await Promise.all(
       [...new Set(userIds)].map(async (userId) => {
-        const validatedUserId = z.string().min(1).max(128).parse(userId);
-        const payload = await this.#tryRequest(
-          `/guilds/${validatedGuildId}/members/${validatedUserId}`,
-        );
-        if (payload === undefined) return;
-        const member = memberSchema.parse(payload);
-        names.set(validatedUserId, member.nick ?? member.user.global_name ?? member.user.username);
+        const member = await this.#getMember(validatedGuildId, userId);
+        if (member !== undefined) names.set(userId, getMemberDisplayName(member));
       }),
     );
     return names;
@@ -154,21 +202,11 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     const profiles = new Map<string, { avatarUrl: string | null; displayName: string }>();
     await Promise.all(
       [...new Set(userIds)].map(async (userId) => {
-        const validatedUserId = z.string().min(1).max(128).parse(userId);
-        const payload = await this.#tryRequest(
-          `/guilds/${validatedGuildId}/members/${validatedUserId}`,
-        );
-        if (payload === undefined) return;
-        const member = memberSchema.parse(payload);
-        const avatarUrl =
-          member.avatar !== undefined && member.avatar !== null
-            ? `https://cdn.discordapp.com/guilds/${validatedGuildId}/users/${validatedUserId}/avatars/${member.avatar}.png?size=128`
-            : member.user.avatar !== undefined && member.user.avatar !== null
-              ? `https://cdn.discordapp.com/avatars/${validatedUserId}/${member.user.avatar}.png?size=128`
-              : createDefaultAvatarUrl(validatedUserId, member.user.discriminator);
-        profiles.set(validatedUserId, {
-          avatarUrl,
-          displayName: member.nick ?? member.user.global_name ?? member.user.username,
+        const member = await this.#getMember(validatedGuildId, userId);
+        if (member === undefined) return;
+        profiles.set(userId, {
+          avatarUrl: createMemberAvatarUrl(validatedGuildId, member),
+          displayName: getMemberDisplayName(member),
         });
       }),
     );
@@ -176,25 +214,31 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
   }
 
   async #request(path: string): Promise<unknown> {
-    const token = await this.#getBotToken();
-    if (token === undefined) throw new Error("Discord bot is not configured");
-    const response = await this.#fetch(`https://discord.com/api/v10${path}`, {
-      headers: { authorization: `Bot ${token}` },
-    });
+    const response = await this.#requestResponse(path);
     if (!response.ok) throw new Error("Discord bot API request failed");
     const payload: unknown = await response.json();
     return payload;
   }
 
   async #tryRequest(path: string): Promise<unknown | undefined> {
-    const token = await this.#getBotToken();
-    if (token === undefined) throw new Error("Discord bot is not configured");
-    const response = await this.#fetch(`https://discord.com/api/v10${path}`, {
-      headers: { authorization: `Bot ${token}` },
-    });
+    const response = await this.#requestResponse(path);
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error("Discord bot API request failed");
     return response.json();
+  }
+
+  async #requestResponse(path: string): Promise<Response> {
+    const token = await this.#getBotToken();
+    if (token === undefined) throw new Error("Discord bot is not configured");
+    return this.#fetch(`https://discord.com/api/v10${path}`, {
+      headers: { authorization: `Bot ${token}` },
+    });
+  }
+
+  async #getMember(guildId: string, userId: string): Promise<DiscordGuildMember | undefined> {
+    const validatedUserId = z.string().min(1).max(128).parse(userId);
+    const payload = await this.#tryRequest(`/guilds/${guildId}/members/${validatedUserId}`);
+    return payload === undefined ? undefined : memberSchema.parse(payload);
   }
 }
 
@@ -205,4 +249,31 @@ function createDefaultAvatarUrl(userId: string, discriminator: string | undefine
   if (!/^\d+$/u.test(userId)) return null;
   const avatarIndex = Number((BigInt(userId) >> 22n) % 6n);
   return `https://cdn.discordapp.com/embed/avatars/${avatarIndex}.png`;
+}
+
+function toDirectoryItem(guildId: string, member: DiscordGuildMember): GuildMemberDirectoryItem[] {
+  if (member.user.bot === true || member.joined_at === undefined) return [];
+  return [
+    {
+      avatarUrl: createMemberAvatarUrl(guildId, member),
+      displayName: getMemberDisplayName(member),
+      joinedAt: new Date(member.joined_at).toISOString(),
+      roleIds: member.roles,
+      userId: member.user.id,
+    },
+  ];
+}
+
+function createMemberAvatarUrl(guildId: string, member: DiscordGuildMember): string | null {
+  if (typeof member.avatar === "string") {
+    return `https://cdn.discordapp.com/guilds/${guildId}/users/${member.user.id}/avatars/${member.avatar}.png?size=128`;
+  }
+  if (typeof member.user.avatar === "string") {
+    return `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png?size=128`;
+  }
+  return createDefaultAvatarUrl(member.user.id, member.user.discriminator);
+}
+
+function getMemberDisplayName(member: DiscordGuildMember): string {
+  return member.nick ?? member.user.global_name ?? member.user.username;
 }

@@ -26,6 +26,7 @@ describe("PostgresTaskStore", () => {
           owner_user_id: "user-1",
           task_id: taskId,
           task_text: "Enviar o relatório.",
+          voice_channel_name: "Launch Week Sync",
         },
       ],
     }));
@@ -48,9 +49,11 @@ describe("PostgresTaskStore", () => {
         ownerUserId: "user-1",
         taskId,
         text: "Enviar o relatório.",
+        voiceChannelName: "Launch Week Sync",
       },
     ]);
     expect(query.mock.calls[0]?.[0]).toContain("AT TIME ZONE");
+    expect(query.mock.calls[0]?.[0]).toContain("JOIN meetings");
     expect(query.mock.calls[0]?.[0]).toContain("meeting_participants");
     expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", false, null]);
   });

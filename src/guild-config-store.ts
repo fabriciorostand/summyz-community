@@ -4,7 +4,6 @@ const guildConfigurationSchema = z.object({
   botLanguage: z.enum(["en", "pt-BR"]).default("en"),
   persistMeetingAudio: z.boolean().default(false),
   persistMeetingContent: z.boolean().default(true),
-  recordingRoleIds: z.array(z.string()).default([]),
   summaryForum: z
     .object({
       forumId: z.string().min(1),
@@ -27,13 +26,23 @@ export const DEFAULT_GUILD_SETTINGS: GuildSettings = {
   persistMeetingContent: true,
 };
 
+export interface RecordingUserGrant {
+  memberJoinedAt: string;
+  userId: string;
+}
+
+export interface RecordingPermissions {
+  roleIds: string[];
+  userGrants: RecordingUserGrant[];
+}
+
 export interface GuildConfigurationStore {
-  addRecordingRole(guildId: string, roleId: string): Promise<void>;
   clearSummaryForum(guildId: string): Promise<void>;
+  getRecordingPermissions(guildId: string): Promise<RecordingPermissions>;
   getSummaryForum(guildId: string): Promise<SummaryForumConfiguration | undefined>;
   getGuildSettings(guildId: string): Promise<GuildSettings>;
-  listRecordingRoles(guildId: string): Promise<string[]>;
-  removeRecordingRole(guildId: string, roleId: string): Promise<void>;
+  removeRecordingUser(guildId: string, userId: string): Promise<void>;
+  setRecordingPermissions(guildId: string, permissions: RecordingPermissions): Promise<void>;
   setSummaryForum(guildId: string, summaryForum: SummaryForumConfiguration): Promise<void>;
   setGuildSettings(guildId: string, settings: GuildSettings): Promise<void>;
 }

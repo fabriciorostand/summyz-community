@@ -142,6 +142,7 @@ export const guildConfigurationSchema = z.object({
   activeProfileId: z.string().nullable(),
   profiles: z.array(profileSchema),
   recordingRoleIds: z.array(z.string()),
+  recordingUserIds: z.array(z.string()),
   settings: z.object({
     botLanguage: z.enum(["en", "pt-BR"]),
     persistMeetingAudio: z.boolean(),
@@ -173,6 +174,38 @@ export const resourcesSchema = z.object({
       name: z.string(),
     }),
   ),
+});
+const guildMemberSchema = z.object({
+  avatarUrl: z.url().nullable(),
+  displayName: z.string(),
+  joinedAt: z.iso.datetime(),
+  roleIds: z.array(z.string()),
+  userId: z.string(),
+});
+export const guildMemberPageSchema = z.discriminatedUnion("status", [
+  z.object({
+    code: z.literal("discord_members_intent_unavailable"),
+    status: z.literal("unavailable"),
+  }),
+  z.object({
+    items: z.array(guildMemberSchema),
+    page: z.number().int(),
+    pageSize: z.number().int(),
+    status: z.literal("available"),
+    total: z.number().int(),
+  }),
+]);
+export const historicalParticipantPageSchema = z.object({
+  items: z.array(
+    z.object({
+      avatarUrl: z.url().nullable(),
+      displayName: z.string(),
+      userId: z.string(),
+    }),
+  ),
+  page: z.number().int(),
+  pageSize: z.number().int(),
+  total: z.number().int(),
 });
 export const installationSettingsSchema = z.object({
   discordClientId: z.string().nullable(),
@@ -244,6 +277,7 @@ const analyticsParticipantSchema = z.object({
   userId: z.string(),
 });
 const meetingHistoryItemSchema = z.object({
+  aiProfile: z.object({ name: z.string(), profileId: z.string() }).nullable(),
   completedAt: z.iso.datetime().nullable(),
   contentRetained: z.boolean(),
   durationMs: z.number().int().nullable(),
@@ -278,13 +312,16 @@ export const dashboardAnalyticsSchema = z.object({
   liveMeeting: z
     .object({
       guildId: z.string(),
+      aiProfile: z.object({ name: z.string(), profileId: z.string() }).nullable(),
       meetingId: z.string(),
       participants: z.array(
         z.object({ avatarUrl: z.url().nullable(), displayName: z.string(), userId: z.string() }),
       ),
       speakingUserIds: z.array(z.string()),
+      startedAt: z.iso.datetime(),
       updatedAt: z.iso.datetime(),
       voiceChannelId: z.string(),
+      voiceChannelName: z.string().nullable(),
     })
     .nullable()
     .optional(),
@@ -369,7 +406,6 @@ const meetingHistorySummarySchema = z.discriminatedUnion("status", [
   }),
 ]);
 export const meetingHistoryDetailSchema = meetingHistoryItemSchema.extend({
-  aiProfile: z.object({ name: z.string(), profileId: z.string() }).nullable().default(null),
   audioRetained: z.boolean().default(false),
   cost: costAnalyticsSchema.default({
     attemptCounts: { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 },
@@ -398,6 +434,7 @@ export const dashboardTaskSchema = z.object({
   ownerUserId: z.string().nullable(),
   taskId: z.uuid(),
   text: z.string(),
+  voiceChannelName: z.string().nullable(),
 });
 
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
@@ -416,6 +453,8 @@ export interface ProfileListItem {
 export type PromptDefaults = z.infer<typeof promptDefaultsSchema>;
 export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;
+export type GuildMemberPage = z.infer<typeof guildMemberPageSchema>;
+export type HistoricalParticipantPage = z.infer<typeof historicalParticipantPageSchema>;
 export type InstallationSettings = z.infer<typeof installationSettingsSchema>;
 export type InstallationHealth = z.infer<typeof installationHealthSchema>;
 export type DashboardAnalytics = z.infer<typeof dashboardAnalyticsSchema>;

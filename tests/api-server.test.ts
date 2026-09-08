@@ -5,6 +5,7 @@ import { createInitialAiProfile } from "../src/ai-profile.js";
 import { type ApiServerDependencies, createApiServer } from "../src/api/server.js";
 import { SessionTokenError } from "../src/auth/jwt-session.js";
 import { PostgresAiProfileStore } from "../src/database/postgres-ai-profile-store.js";
+import type { MeetingHistoryDetail } from "../src/database/postgres-analytics-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
 import { createLogger } from "../src/logger.js";
 
@@ -177,12 +178,15 @@ describe("API dashboard", () => {
         ]),
     );
     dependencies.liveMeetings.getForGuild = vi.fn(async () => ({
+      aiProfile: { name: "Default OpenRouter", profileId: "profile-1" },
       guildId: "guild-installed",
       meetingId: "meeting-live",
       participants: [{ avatarUrl: null, displayName: "Bruno antigo", userId: "user-2" }],
       speakingUserIds: ["user-2"],
+      startedAt: "2026-09-07T11:45:00.000Z",
       updatedAt: "2026-09-07T12:00:00.000Z",
       voiceChannelId: "voice-1",
+      voiceChannelName: "launch-week",
     }));
     const app = await createApiServer(dependencies);
 
@@ -205,8 +209,11 @@ describe("API dashboard", () => {
     expect(dashboard.statusCode).toBe(200);
     expect(dashboard.json()).toMatchObject({
       liveMeeting: {
+        aiProfile: { name: "Default OpenRouter", profileId: "profile-1" },
         participants: [{ displayName: "Bruno atual", userId: "user-2" }],
         speakingUserIds: ["user-2"],
+        startedAt: "2026-09-07T11:45:00.000Z",
+        voiceChannelName: "launch-week",
       },
       timeZone: "America/Sao_Paulo",
       topSpeakers: [{ displayName: "Ana atual", userId: "user-1" }],
@@ -347,6 +354,7 @@ describe("API dashboard", () => {
         ownerUserId: "user-1",
         taskId: "2b8dfb58-2511-4b20-a535-103ec73d87d9",
         text: "Enviar relatório",
+        voiceChannelName: "Launch Week Sync",
       },
     ]);
     dependencies.guildDirectory.getMemberProfiles = vi.fn(
@@ -388,6 +396,7 @@ describe("API dashboard", () => {
         ownerAvatarUrl: "https://cdn.discordapp.com/avatars/user-1/avatar.png",
         ownerDisplayName: "Ana atual",
         ownerName: "Ana",
+        voiceChannelName: "Launch Week Sync",
       },
     ]);
     expect(dependencies.tasks.list).toHaveBeenCalledWith("guild-installed", { completed: false });
@@ -423,6 +432,191 @@ describe("API dashboard", () => {
     expect(resources.statusCode).toBe(200);
     expect(dependencies.discord.listOwnedGuilds).toHaveBeenCalledOnce();
     expect(dependencies.guildDirectory.getInstalledGuildIds).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it("uses one recording-permissions contract for roles and current members", async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.guildConfig.getRecordingPermissions).mockResolvedValue({
+      roleIds: ["role-1"],
+      userGrants: [{ memberJoinedAt: "2026-09-08T12:00:00.000Z", userId: "user-1" }],
+    });
+    dependencies.guildDirectory.getMembersByIds = vi.fn(
+      async () =>
+        new Map([
+          [
+            "user-1",
+            {
+              avatarUrl: null,
+              displayName: "Ana",
+              joinedAt: "2026-09-08T12:00:00.000Z",
+              roleIds: ["role-1"],
+              userId: "user-1",
+            },
+          ],
+          [
+            "user-2",
+            {
+              avatarUrl: null,
+              displayName: "Bruno",
+              joinedAt: "2026-09-07T12:00:00.000Z",
+              roleIds: ["role-2"],
+              userId: "user-2",
+            },
+          ],
+        ]),
+    );
+    const app = await createApiServer(dependencies);
+
+    const configuration = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/configuration",
+    });
+    const updated = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "PUT",
+      payload: { roleIds: ["role-2", "role-2"], userIds: ["user-2", "user-2"] },
+      url: "/api/guilds/guild-installed/recording-permissions",
+    });
+    const legacy = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "PUT",
+      payload: { roleIds: [] },
+      url: "/api/guilds/guild-installed/roles",
+    });
+
+    expect(configuration.json()).toMatchObject({
+      recordingRoleIds: ["role-1"],
+      recordingUserIds: ["user-1"],
+    });
+    expect(updated.statusCode).toBe(204);
+    expect(dependencies.guildConfig.setRecordingPermissions).toHaveBeenCalledWith(
+      "guild-installed",
+      {
+        roleIds: ["role-2"],
+        userGrants: [{ memberJoinedAt: "2026-09-07T12:00:00.000Z", userId: "user-2" }],
+      },
+    );
+    expect(legacy.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("rejects individual permissions for users that are no longer guild members", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "PUT",
+      payload: { roleIds: [], userIds: ["departed-user"] },
+      url: "/api/guilds/guild-installed/recording-permissions",
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toEqual({ error: "recording_member_not_found" });
+    expect(dependencies.guildConfig.setRecordingPermissions).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("does not expose or preserve a grant after the member rejoins", async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.guildConfig.getRecordingPermissions).mockResolvedValue({
+      roleIds: [],
+      userGrants: [{ memberJoinedAt: "2026-09-01T12:00:00.000Z", userId: "user-1" }],
+    });
+    dependencies.guildDirectory.getMembersByIds = vi.fn(
+      async () =>
+        new Map([
+          [
+            "user-1",
+            {
+              avatarUrl: null,
+              displayName: "Ana",
+              joinedAt: "2026-09-08T12:00:00.000Z",
+              roleIds: [],
+              userId: "user-1",
+            },
+          ],
+        ]),
+    );
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/configuration",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().recordingUserIds).toEqual([]);
+    expect(dependencies.guildConfig.removeRecordingUser).toHaveBeenCalledWith(
+      "guild-installed",
+      "user-1",
+    );
+    await app.close();
+  });
+
+  it("lists current guild members separately from historical call participants", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const members = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/members?page=2&query=ana&roleId=role-1",
+    });
+    const participants = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/participants?page=3&query=bruno",
+    });
+
+    expect(members.statusCode).toBe(200);
+    expect(dependencies.guildDirectory.listMembers).toHaveBeenCalledWith("guild-installed", {
+      page: 2,
+      pageSize: 50,
+      query: "ana",
+      roleId: "role-1",
+    });
+    expect(participants.statusCode).toBe(200);
+    expect(dependencies.participants.list).toHaveBeenCalledWith("guild-installed", {
+      page: 3,
+      pageSize: 50,
+      query: "bruno",
+    });
+    await app.close();
+  });
+
+  it("exports TXT only when both summary and final transcript are available", async () => {
+    const dependencies = createDependencies();
+    const analytics = dependencies.analytics;
+    if (analytics === undefined) throw new Error("Analytics test dependency is missing");
+    vi.mocked(analytics.getMeeting).mockResolvedValueOnce(completedMeeting());
+    vi.mocked(analytics.getMeeting).mockResolvedValueOnce({
+      ...completedMeeting(),
+      transcript: null,
+    });
+    const app = await createApiServer(dependencies);
+
+    const exported = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/meetings/meeting-1/export",
+    });
+    const unavailable = await app.inject({
+      cookies: { summyz_access: "access-token" },
+      method: "GET",
+      url: "/api/guilds/guild-installed/meetings/meeting-1/export",
+    });
+
+    expect(exported.statusCode).toBe(200);
+    expect(exported.headers["content-type"]).toContain("text/plain");
+    expect(exported.headers["content-disposition"]).toContain("summyz-meeting.txt");
+    expect(exported.body).toContain("Voice channel: planejamento");
+    expect(exported.body).toContain("Transcrição\n[09:00] Ana: Vamos publicar.");
+    expect(unavailable.statusCode).toBe(409);
+    expect(unavailable.json()).toEqual({ error: "meeting_export_unavailable" });
     await app.close();
   });
 
@@ -696,26 +890,34 @@ function createDependencies(): ApiServerDependencies {
       ]),
     },
     guildConfig: {
-      addRecordingRole: vi.fn(async () => undefined),
       clearSummaryForum: vi.fn(async () => undefined),
       getGuildSettings: vi.fn(async () => ({
         botLanguage: "en" as const,
         persistMeetingAudio: false,
         persistMeetingContent: true,
       })),
+      getRecordingPermissions: vi.fn(async () => ({ roleIds: [], userGrants: [] })),
       getSummaryForum: vi.fn(async () => undefined),
-      listRecordingRoles: vi.fn(async () => []),
-      removeRecordingRole: vi.fn(async () => undefined),
+      removeRecordingUser: vi.fn(async () => undefined),
       setGuildSettings: vi.fn(async () => undefined),
+      setRecordingPermissions: vi.fn(async () => undefined),
       setSummaryForum: vi.fn(async () => undefined),
     },
     guildDirectory: {
       getMemberDisplayNames: vi.fn(async () => new Map([["user-1", "Ana atual"]])),
+      getMembersByIds: vi.fn(async () => new Map()),
       getInstalledGuildIds: vi.fn(async () => new Set(["guild-installed"])),
       getResources: vi.fn(async () => ({
         forums: [],
         memberCounts: { status: "available" as const },
         roles: [],
+      })),
+      listMembers: vi.fn(async () => ({
+        items: [],
+        page: 1,
+        pageSize: 50,
+        status: "available" as const,
+        total: 0,
       })),
     },
     health: {
@@ -729,6 +931,7 @@ function createDependencies(): ApiServerDependencies {
     },
     liveMeetings: { getForGuild: vi.fn(async () => null) },
     logger: createLogger("silent"),
+    participants: { list: vi.fn(async () => ({ items: [], page: 1, pageSize: 50, total: 0 })) },
     secureCookies: false,
     settings: {
       completeSetup: vi.fn(async () => undefined),
@@ -755,6 +958,39 @@ function createDependencies(): ApiServerDependencies {
       list: vi.fn(async () => []),
       setCompleted: vi.fn(async () => undefined),
     },
+  };
+}
+
+function completedMeeting(): MeetingHistoryDetail {
+  return {
+    aiProfile: { name: "Padrão OpenRouter", profileId: "profile-1" },
+    audioRetained: false,
+    completedAt: "2026-09-08T13:01:01.000Z",
+    contentRetained: true,
+    cost: {
+      attemptCounts: { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 },
+      breakdown: [],
+      confirmed: [],
+    },
+    discordUrl: "https://discord.com/channels/guild-installed/forum-1/post-1",
+    durationMs: 3_661_000,
+    failureCode: null,
+    meetingId: "meeting-1",
+    participants: [],
+    pipelineStatus: "completed",
+    rawTranscript: "raw",
+    startedAt: "2026-09-08T12:00:00.000Z",
+    summary: {
+      decisions: [],
+      discussedTopics: [],
+      executiveSummary: "Alinhamento da entrega.",
+      language: "pt-BR",
+      observations: [],
+      status: "completed",
+      tasks: [],
+    },
+    transcript: "[09:00] Ana: Vamos publicar.",
+    voiceChannelName: "planejamento",
   };
 }
 

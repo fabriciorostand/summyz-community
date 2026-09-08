@@ -145,7 +145,10 @@ function AccessPanel({
     const roleIds = checked
       ? [...configuration.recordingRoleIds, roleId]
       : configuration.recordingRoleIds.filter((current) => current !== roleId);
-    await api.updateRoles(guildId, roleIds);
+    await api.updateRecordingPermissions(guildId, {
+      roleIds,
+      userIds: configuration.recordingUserIds,
+    });
     onUpdate({ ...configuration, recordingRoleIds: roleIds });
   }
   return (
@@ -153,7 +156,7 @@ function AccessPanel({
       <SectionTitle
         icon={<ShieldCheck />}
         title="Quem pode gravar"
-        description="Administradores e donos continuam autorizados; adicione cargos extras."
+        description="O proprietário sempre pode gravar; adicione cargos extras."
       />
       <section className="panel option-list">
         {resources.roles.map((role) => (

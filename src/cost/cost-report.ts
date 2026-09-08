@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import { formatClockDuration } from "../duration-format.js";
 import {
   addDecimalAmounts,
   type CostAttempt,
@@ -94,7 +95,7 @@ function formatMeeting(
     language === "pt-BR"
       ? `${dateParts.day}/${dateParts.month}/${dateParts.year} ${dateParts.hour}:${dateParts.minute}`
       : `${dateParts.month}/${dateParts.day}/${dateParts.year} ${dateParts.hour}:${dateParts.minute}`;
-  const duration = formatDuration(
+  const duration = formatClockDuration(
     new Date(completedAt).getTime() - new Date(data.meeting.startedAt).getTime(),
   );
   const sections = (["transcription", "refinement", "summary", "translation"] as const).map(
@@ -255,8 +256,8 @@ function formatPeriod(
           `Reuniões: ${String(meetings.length)}`,
           `Reuniões com uso de API: ${String(apiMeetings.length)}`,
           `Reuniões somente locais: ${String(meetings.length - apiMeetings.length)}`,
-          `Duração total: ${formatDuration(totalDurationMs)}`,
-          `Duração média: ${formatDuration(meetings.length === 0 ? 0 : totalDurationMs / meetings.length)}`,
+          `Duração total: ${formatClockDuration(totalDurationMs)}`,
+          `Duração média: ${formatClockDuration(meetings.length === 0 ? 0 : totalDurationMs / meetings.length)}`,
           "",
           `Requisições aos provedores: ${String(apiAttempts.length)}`,
           `Requisições cobradas: ${String(charged.length)}`,
@@ -278,8 +279,8 @@ function formatPeriod(
           `Meetings: ${String(meetings.length)}`,
           `Meetings using an API: ${String(apiMeetings.length)}`,
           `Local-only meetings: ${String(meetings.length - apiMeetings.length)}`,
-          `Total duration: ${formatDuration(totalDurationMs)}`,
-          `Average duration: ${formatDuration(meetings.length === 0 ? 0 : totalDurationMs / meetings.length)}`,
+          `Total duration: ${formatClockDuration(totalDurationMs)}`,
+          `Average duration: ${formatClockDuration(meetings.length === 0 ? 0 : totalDurationMs / meetings.length)}`,
           "",
           `Provider requests: ${String(apiAttempts.length)}`,
           `Charged requests: ${String(charged.length)}`,
@@ -406,14 +407,6 @@ function observedUtc(formatter: Intl.DateTimeFormat, timestamp: number): number 
 function displayDate(value: string): string {
   const date = parseCalendarDate(value);
   return `${String(date.day).padStart(2, "0")}/${String(date.month).padStart(2, "0")}/${String(date.year)}`;
-}
-
-function formatDuration(milliseconds: number): string {
-  const totalSeconds = Math.max(0, Math.trunc(milliseconds / 1_000));
-  const hours = Math.floor(totalSeconds / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-  return [hours, minutes, seconds].map((value) => String(value).padStart(2, "0")).join(":");
 }
 
 const phaseLabels = {

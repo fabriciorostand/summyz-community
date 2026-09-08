@@ -62,7 +62,10 @@ describe("dashboard API client", () => {
       smtp: null,
     });
     await api.updateProfile(validProfile());
-    await api.updateRoles("guild-1", ["role-1"]);
+    await api.updateRecordingPermissions("guild-1", {
+      roleIds: ["role-1"],
+      userIds: ["user-1"],
+    });
     await api.updateSecret("smtp_password", "secret");
     await api.verifyEmail("verification-token");
 
@@ -77,6 +80,81 @@ describe("dashboard API client", () => {
     const setupHeaders = findRequestHeaders(fetchMock, "/api/setup");
     expect(setupHeaders.get("content-type")).toBe("application/json");
     expect(setupHeaders.get("x-summyz-setup-token")).toBe("setup-token");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/guilds/guild-1/recording-permissions",
+      expect.objectContaining({
+        body: JSON.stringify({ roleIds: ["role-1"], userIds: ["user-1"] }),
+        method: "PUT",
+      }),
+    );
+  });
+
+  it("returns meeting exports as text without trying to parse JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("Voice channel: planning")),
+    );
+
+    await expect(api.getMeetingExport("guild-1", "meeting-1")).resolves.toBe(
+      "Voice channel: planning",
+    );
+  });
+
+  it("lists visible guild members with search and role filters", async () => {
+    const page = {
+      items: [
+        {
+          avatarUrl: "https://cdn.discordapp.com/avatars/user-1/avatar.png",
+          displayName: "Alice Silva",
+          joinedAt: "2026-09-08T12:00:00.000Z",
+          roleIds: ["role-1"],
+          userId: "user-1",
+        },
+      ],
+      page: 2,
+      pageSize: 50,
+      status: "available",
+      total: 51,
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(page));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      api.listGuildMembers("guild-1", {
+        page: 2,
+        query: "Alice Silva",
+        roleId: "role-1",
+      }),
+    ).resolves.toEqual(page);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/guilds/guild-1/members?page=2&query=Alice+Silva&roleId=role-1",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+  });
+
+  it("lists historical call participants with an optional search query", async () => {
+    const page = {
+      items: [
+        {
+          avatarUrl: null,
+          displayName: "Former member",
+          userId: "user-2",
+        },
+      ],
+      page: 3,
+      pageSize: 50,
+      total: 101,
+    };
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(page));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.listHistoricalParticipants("guild-1", 3, "Former member")).resolves.toEqual(
+      page,
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/guilds/guild-1/participants?page=3&query=Former+member",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
   });
 
   it("reports stable errors when refresh and response parsing fail", async () => {

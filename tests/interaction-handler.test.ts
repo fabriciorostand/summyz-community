@@ -2,6 +2,7 @@ import {
   ChannelFlags,
   ChannelType,
   type Client,
+  Events,
   MessageFlags,
   PermissionFlagsBits,
 } from "discord.js";
@@ -31,6 +32,7 @@ interface InteractionOptions {
   guildOwner?: boolean;
   manageGuild?: boolean;
   memberRoleIds?: string[];
+  memberJoinedAt?: string;
   openRouterConfigured?: boolean | (() => Promise<boolean>);
   openRouterProfile?: boolean;
   profileComplete?: boolean;
@@ -91,10 +93,10 @@ async function createHarness(options: InteractionOptions = {}) {
     setActiveProfile: vi.fn(async () => undefined),
     updateProfile: vi.fn(async () => undefined),
   };
-  let listener: ((interaction: unknown) => Promise<void>) | undefined;
+  const listeners = new Map<string, (event: unknown) => Promise<void> | void>();
   const client = {
-    on: vi.fn((_event: string, received: (interaction: unknown) => Promise<void>) => {
-      listener = received;
+    on: vi.fn((event: string, received: (value: unknown) => Promise<void> | void) => {
+      listeners.set(event, received);
     }),
   } as unknown as Client;
   const openRouterConfigured = options.openRouterConfigured;
@@ -117,6 +119,8 @@ async function createHarness(options: InteractionOptions = {}) {
   const deferReply = vi.fn(async () => undefined);
   const followUp = vi.fn(async () => undefined);
   const member = {
+    id: "user-1",
+    joinedAt: new Date(options.memberJoinedAt ?? "2026-09-08T12:00:00.000Z"),
     permissions: {
       has: (permission: bigint) =>
         (permission === PermissionFlagsBits.Administrator && options.administrator === true) ||
@@ -168,7 +172,9 @@ async function createHarness(options: InteractionOptions = {}) {
     user: { id: "user-1", toString: () => "<@user-1>" },
   };
 
-  if (listener === undefined) {
+  const listener = listeners.get(Events.InteractionCreate);
+  const memberRemovedListener = listeners.get(Events.GuildMemberRemove);
+  if (listener === undefined || memberRemovedListener === undefined) {
     throw new Error("O handler de interações não foi instalado");
   }
   return {
@@ -180,6 +186,7 @@ async function createHarness(options: InteractionOptions = {}) {
     get,
     interaction,
     listener,
+    memberRemovedListener,
     reply,
     start,
     stop,
@@ -300,6 +307,52 @@ describe("fluxo de comandos do Discord", () => {
     );
   });
 
+  it("autoriza concessão individual somente enquanto a associação ao servidor é a mesma", async () => {
+    const joinedAt = "2026-09-08T12:00:00.000Z";
+    const allowed = await createHarness({
+      memberJoinedAt: joinedAt,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await allowed.store.setRecordingPermissions("guild-1", {
+      roleIds: [],
+      userGrants: [{ memberJoinedAt: joinedAt, userId: "user-1" }],
+    });
+    await allowed.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await allowed.listener(allowed.interaction);
+
+    expect(allowed.start).toHaveBeenCalledOnce();
+
+    const rejoined = await createHarness({ memberJoinedAt: "2026-09-09T12:00:00.000Z" });
+    await rejoined.store.setRecordingPermissions("guild-1", {
+      roleIds: [],
+      userGrants: [{ memberJoinedAt: joinedAt, userId: "user-1" }],
+    });
+
+    await rejoined.listener(rejoined.interaction);
+
+    expect(rejoined.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: "Você não possui um cargo autorizado para gravar." }),
+    );
+  });
+
+  it("revoga a concessão individual quando o membro sai do servidor", async () => {
+    const context = await createHarness();
+    await context.store.setRecordingPermissions("guild-1", {
+      roleIds: [],
+      userGrants: [{ memberJoinedAt: "2026-09-08T12:00:00.000Z", userId: "departed-user" }],
+    });
+
+    await context.memberRemovedListener({ guild: { id: "guild-1" }, id: "departed-user" });
+
+    await vi.waitFor(async () => {
+      await expect(context.store.getRecordingPermissions("guild-1")).resolves.toEqual({
+        roleIds: [],
+        userGrants: [],
+      });
+    });
+  });
+
   it("prioriza fórum não configurado para usuário autorizado fora da voz", async () => {
     const context = await createHarness({ administrator: true });
 
@@ -356,7 +409,10 @@ describe("fluxo de comandos do Discord", () => {
       subcommand: "set",
       tag: "Reunião",
     });
-    await context.store.addRecordingRole("guild-1", "role-1");
+    await context.store.setRecordingPermissions("guild-1", {
+      roleIds: ["role-1"],
+      userGrants: [],
+    });
 
     await context.listener(context.interaction);
 
@@ -701,14 +757,19 @@ describe("fluxo de comandos do Discord", () => {
       subcommand: "add",
     });
     await add.listener(add.interaction);
-    await expect(add.store.listRecordingRoles("guild-1")).resolves.toEqual(["role-option"]);
+    await expect(add.store.getRecordingPermissions("guild-1")).resolves.toMatchObject({
+      roleIds: ["role-option"],
+    });
 
     const list = await createHarness({
       administrator: true,
       commandName: "recording-role",
       subcommand: "list",
     });
-    await list.store.addRecordingRole("guild-1", "role-option");
+    await list.store.setRecordingPermissions("guild-1", {
+      roleIds: ["role-option"],
+      userGrants: [],
+    });
     await list.listener(list.interaction);
     expect(list.reply).toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining("<@&role-option>") }),
@@ -719,9 +780,14 @@ describe("fluxo de comandos do Discord", () => {
       commandName: "recording-role",
       subcommand: "remove",
     });
-    await remove.store.addRecordingRole("guild-1", "role-option");
+    await remove.store.setRecordingPermissions("guild-1", {
+      roleIds: ["role-option"],
+      userGrants: [],
+    });
     await remove.listener(remove.interaction);
-    await expect(remove.store.listRecordingRoles("guild-1")).resolves.toEqual([]);
+    await expect(remove.store.getRecordingPermissions("guild-1")).resolves.toMatchObject({
+      roleIds: [],
+    });
   });
 
   it("nega gestão de cargos e informa quando a lista está vazia", async () => {
