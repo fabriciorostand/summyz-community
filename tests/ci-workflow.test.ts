@@ -110,7 +110,11 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("scripts/ci/quality-gate-cli.ts");
     expect(implementation).toContain("scripts/ci/source-quality-cli.ts");
     expect(implementation).toContain("./node_modules/.bin/jscpd");
-    expect(implementation).toContain("lizard -l typescript -l tsx -l python");
+    // lizard cannot parse JSX, so .tsx complexity is enforced by Biome and complexipy covers Python.
+    expect(implementation).toContain("lizard -l typescript -l python");
+    expect(implementation).not.toContain("-l tsx");
+    expect(implementation).toContain("--output-format sarif");
+    expect(implementation).toContain("reports/quality/complexipy.sarif");
     expect(implementation).toContain("quality-gate-baseline.json");
     expect(implementation).toContain("ci-summary.md");
     expect(implementation).not.toContain("pull-requests: write");

@@ -19,6 +19,15 @@ interface OwnerGroup {
   tasks: DashboardTask[];
 }
 
+/** Rewrites one task's completion in place, leaving the rest of the list untouched. */
+function withCompletion(
+  tasks: DashboardTask[] | undefined,
+  taskId: string,
+  completedAt: string | null,
+): DashboardTask[] | undefined {
+  return tasks?.map((task) => (task.taskId === taskId ? { ...task, completedAt } : task));
+}
+
 export function TasksPage() {
   const { controls, guilds, reloadDashboard } = useDashboard();
   const guildId = guilds.selectedGuildId;
@@ -50,23 +59,15 @@ export function TasksPage() {
   const toggleTask = useCallback(
     async (task: DashboardTask) => {
       const completed = task.completedAt === null;
-      setTasks((current) =>
-        current?.map((item) =>
-          item.taskId === task.taskId
-            ? { ...item, completedAt: completed ? new Date().toISOString() : null }
-            : item,
-        ),
-      );
+      const settle = (completedAt: string | null) =>
+        setTasks((current) => withCompletion(current, task.taskId, completedAt));
+      settle(completed ? new Date().toISOString() : null);
       try {
         await api.setTaskCompleted(guildId, task.taskId, completed);
         reloadDashboard();
       } catch {
         // Put the row back the way the server still sees it.
-        setTasks((current) =>
-          current?.map((item) =>
-            item.taskId === task.taskId ? { ...item, completedAt: task.completedAt } : item,
-          ),
-        );
+        settle(task.completedAt);
       }
     },
     [guildId, reloadDashboard],
@@ -90,63 +91,120 @@ export function TasksPage() {
         title="Tarefas"
       />
       <Screen>
-        {groups !== undefined && groups.length > 0 && (
-          <div className="flex flex-wrap items-center gap-2">
-            <OwnerChip
-              active={ownerFilter === ""}
-              count={openCount}
-              label="Todos"
-              onClick={() => setOwnerFilter("")}
-            />
-            {groups.map((group) => (
-              <OwnerChip
-                active={ownerFilter === group.key}
-                avatarUrl={group.avatarUrl}
-                count={group.openCount}
-                key={group.key}
-                label={group.name}
-                onClick={() => setOwnerFilter(group.key)}
-              />
-            ))}
-            <label className="ml-auto flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-secondary">
-              <input
-                checked={showCompleted}
-                className="size-3.5 accent-action"
-                onChange={(event) => setShowCompleted(event.currentTarget.checked)}
-                type="checkbox"
-              />
-              Mostrar concluídas
-            </label>
-          </div>
-        )}
-        {loadError || guilds.error ? (
-          <ErrorState
-            code="request_failed"
-            onRetry={() => setReloadToken((token) => token + 1)}
-            title="Tarefas indisponíveis"
-          >
-            Não foi possível carregar as tarefas deste servidor.
-          </ErrorState>
-        ) : guilds.guilds?.length === 0 ? (
-          <EmptyState title="Nenhum servidor instalado">
-            Instale o Summyz em um servidor para acompanhar as tarefas dos resumos.
-          </EmptyState>
-        ) : tasks === undefined ? (
-          <LoadingPanel label="Carregando tarefas…" />
-        ) : visibleGroups === undefined || visibleGroups.length === 0 ? (
-          <EmptyState icon={<SquareCheckBig className="size-5" />} title="Nenhuma tarefa aberta">
-            As tarefas aparecem aqui assim que uma call concluída gerar um resumo com responsáveis.
-          </EmptyState>
-        ) : (
-          visibleGroups.map((group) => (
-            <OwnerSection group={group} key={group.key} onToggle={toggleTask} />
-          ))
-        )}
+        <OwnerFilters
+          groups={groups}
+          onOwnerChange={setOwnerFilter}
+          onShowCompletedChange={setShowCompleted}
+          openCount={openCount}
+          ownerFilter={ownerFilter}
+          showCompleted={showCompleted}
+        />
+        <TasksBody
+          failed={loadError || guilds.error}
+          hasGuild={guilds.guilds?.length !== 0}
+          onRetry={() => setReloadToken((token) => token + 1)}
+          onToggle={toggleTask}
+          tasks={tasks}
+          visibleGroups={visibleGroups}
+        />
         <p className="m-0 text-[11.5px] text-ink-dim">
           As tarefas vêm dos resumos gerados pelo pipeline. Marcar como concluída não altera o
           resumo publicado no Discord.
         </p>
       </Screen>
+    </>
+  );
+}
+
+function OwnerFilters({
+  groups,
+  onOwnerChange,
+  onShowCompletedChange,
+  openCount,
+  ownerFilter,
+  showCompleted,
+}: {
+  groups: OwnerGroup[] | undefined;
+  onOwnerChange: (key: string) => void;
+  onShowCompletedChange: (value: boolean) => void;
+  openCount: number;
+  ownerFilter: string;
+  showCompleted: boolean;
+}) {
+  if (groups === undefined || groups.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <OwnerChip
+        active={ownerFilter === ""}
+        count={openCount}
+        label="Todos"
+        onClick={() => onOwnerChange("")}
+      />
+      {groups.map((group) => (
+        <OwnerChip
+          active={ownerFilter === group.key}
+          avatarUrl={group.avatarUrl}
+          count={group.openCount}
+          key={group.key}
+          label={group.name}
+          onClick={() => onOwnerChange(group.key)}
+        />
+      ))}
+      <label className="ml-auto flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-secondary">
+        <input
+          checked={showCompleted}
+          className="size-3.5 accent-action"
+          onChange={(event) => onShowCompletedChange(event.currentTarget.checked)}
+          type="checkbox"
+        />
+        Mostrar concluídas
+      </label>
+    </div>
+  );
+}
+
+function TasksBody({
+  failed,
+  hasGuild,
+  onRetry,
+  onToggle,
+  tasks,
+  visibleGroups,
+}: {
+  failed: boolean;
+  hasGuild: boolean;
+  onRetry: () => void;
+  onToggle: (task: DashboardTask) => Promise<void>;
+  tasks: DashboardTask[] | undefined;
+  visibleGroups: OwnerGroup[] | undefined;
+}) {
+  if (failed) {
+    return (
+      <ErrorState code="request_failed" onRetry={onRetry} title="Tarefas indisponíveis">
+        Não foi possível carregar as tarefas deste servidor.
+      </ErrorState>
+    );
+  }
+  if (!hasGuild) {
+    return (
+      <EmptyState title="Nenhum servidor instalado">
+        Instale o Summyz em um servidor para acompanhar as tarefas dos resumos.
+      </EmptyState>
+    );
+  }
+  if (tasks === undefined) return <LoadingPanel label="Carregando tarefas…" />;
+  if (visibleGroups === undefined || visibleGroups.length === 0) {
+    return (
+      <EmptyState icon={<SquareCheckBig className="size-5" />} title="Nenhuma tarefa aberta">
+        As tarefas aparecem aqui assim que uma call concluída gerar um resumo com responsáveis.
+      </EmptyState>
+    );
+  }
+  return (
+    <>
+      {visibleGroups.map((group) => (
+        <OwnerSection group={group} key={group.key} onToggle={onToggle} />
+      ))}
     </>
   );
 }
@@ -245,26 +303,33 @@ function TaskRow({
   );
 }
 
-/** Groups by the Discord user when known, falling back to the name the summary extracted. */
+/** Identifies the owner by Discord user when known, falling back to the extracted name. */
+function startGroup(task: DashboardTask): OwnerGroup {
+  const name = task.ownerDisplayName ?? task.ownerName ?? "Sem responsável";
+  return {
+    avatarUrl: task.ownerAvatarUrl,
+    key: task.ownerUserId ?? name,
+    name,
+    openCount: 0,
+    overdueCount: 0,
+    tasks: [],
+  };
+}
+
+function addTask(group: OwnerGroup, task: DashboardTask): void {
+  group.tasks.push(task);
+  if (task.completedAt !== null) return;
+  group.openCount += 1;
+  if (task.overdue) group.overdueCount += 1;
+}
+
 function groupByOwner(tasks: readonly DashboardTask[]): OwnerGroup[] {
   const groups = new Map<string, OwnerGroup>();
   for (const task of tasks) {
-    const name = task.ownerDisplayName ?? task.ownerName ?? "Sem responsável";
-    const key = task.ownerUserId ?? name;
-    const group = groups.get(key) ?? {
-      avatarUrl: task.ownerAvatarUrl,
-      key,
-      name,
-      openCount: 0,
-      overdueCount: 0,
-      tasks: [],
-    };
-    group.tasks.push(task);
-    if (task.completedAt === null) {
-      group.openCount += 1;
-      if (task.overdue) group.overdueCount += 1;
-    }
-    groups.set(key, group);
+    const started = startGroup(task);
+    const group = groups.get(started.key) ?? started;
+    addTask(group, task);
+    groups.set(group.key, group);
   }
   return [...groups.values()].sort((left, right) => right.openCount - left.openCount);
 }

@@ -52,18 +52,7 @@ export function CallDetailPage() {
       <TopBar
         actions={
           <>
-            {meeting !== undefined && <ExportButton guildId={guildId} meeting={meeting} />}
-            {meeting?.discordUrl != null && (
-              <a
-                className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
-                href={meeting.discordUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                <ExternalLink className="size-3.5" />
-                Abrir no Discord
-              </a>
-            )}
+            <HeaderActions guildId={guildId} meeting={meeting} />
             {controls}
           </>
         }
@@ -86,38 +75,82 @@ export function CallDetailPage() {
         }
       />
       <Screen>
-        {loadError || guilds.error ? (
-          <ErrorState
-            code="request_failed"
-            onRetry={() => setReloadToken((token) => token + 1)}
-            secondaryAction={
-              <Link
-                className="rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
-                to="/history"
-              >
-                Voltar ao histórico
-              </Link>
-            }
-            title="Call indisponível"
-          >
-            Não foi possível carregar os detalhes desta reunião.
-          </ErrorState>
-        ) : meeting === undefined ? (
-          <LoadingPanel label="Carregando a call…" />
-        ) : (
-          <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
-            <div className="flex min-w-0 flex-col gap-6">
-              <SummaryCard summary={meeting.summary} />
-              <TranscriptCard transcript={meeting.transcript} />
-            </div>
-            <div className="flex flex-col gap-6">
-              <ParticipantsCard meeting={meeting} />
-              <FactsCard meeting={meeting} />
-            </div>
-          </div>
-        )}
+        <DetailBody
+          failed={loadError || guilds.error}
+          meeting={meeting}
+          onRetry={() => setReloadToken((token) => token + 1)}
+        />
       </Screen>
     </>
+  );
+}
+
+function HeaderActions({
+  guildId,
+  meeting,
+}: {
+  guildId: string;
+  meeting: MeetingHistoryDetail | undefined;
+}) {
+  if (meeting === undefined) return null;
+  return (
+    <>
+      <ExportButton guildId={guildId} meeting={meeting} />
+      {meeting.discordUrl !== null && (
+        <a
+          className="inline-flex items-center gap-2 rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
+          href={meeting.discordUrl}
+          rel="noreferrer"
+          target="_blank"
+        >
+          <ExternalLink className="size-3.5" />
+          Abrir no Discord
+        </a>
+      )}
+    </>
+  );
+}
+
+function DetailBody({
+  failed,
+  meeting,
+  onRetry,
+}: {
+  failed: boolean;
+  meeting: MeetingHistoryDetail | undefined;
+  onRetry: () => void;
+}) {
+  if (failed) {
+    return (
+      <ErrorState
+        code="request_failed"
+        onRetry={onRetry}
+        secondaryAction={
+          <Link
+            className="rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
+            to="/history"
+          >
+            Voltar ao histórico
+          </Link>
+        }
+        title="Call indisponível"
+      >
+        Não foi possível carregar os detalhes desta reunião.
+      </ErrorState>
+    );
+  }
+  if (meeting === undefined) return <LoadingPanel label="Carregando a call…" />;
+  return (
+    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+      <div className="flex min-w-0 flex-col gap-6">
+        <SummaryCard summary={meeting.summary} />
+        <TranscriptCard transcript={meeting.transcript} />
+      </div>
+      <div className="flex flex-col gap-6">
+        <ParticipantsCard meeting={meeting} />
+        <FactsCard meeting={meeting} />
+      </div>
+    </div>
   );
 }
 

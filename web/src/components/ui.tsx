@@ -38,15 +38,17 @@ export function Label({ children }: { children: ReactNode }) {
 const controlClass =
   "w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-[13.5px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action disabled:cursor-not-allowed disabled:opacity-50";
 
+interface FieldIds {
+  controlId: string;
+  describedBy: string | undefined;
+  hintId: string;
+}
+
 /**
  * The hint sits outside the label and is wired through aria-describedby, so a screen reader
  * announces the field name on its own instead of reading the help text as part of it.
  */
-function useFieldIds(hint: string | undefined): {
-  controlId: string;
-  describedBy: string | undefined;
-  hintId: string;
-} {
+function useFieldIds(hint: string | undefined): FieldIds {
   const id = useId();
   return {
     controlId: `${id}-control`,

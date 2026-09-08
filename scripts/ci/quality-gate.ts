@@ -1,6 +1,7 @@
 export const QUALITY_GATE_MARKER = "<!-- summyz-community-quality-gate -->";
 
 export interface GateConfig {
+  readonly cognitiveComplexityMaximum: number;
   readonly complexityMaximum: number;
   readonly coverageMinimum: number;
   readonly duplicationMaximum: number;
@@ -96,11 +97,28 @@ export interface MarkdownContext {
 }
 
 export const DEFAULT_GATE_CONFIG: GateConfig = {
+  cognitiveComplexityMaximum: 15,
   complexityMaximum: 10,
   coverageMinimum: 85,
   duplicationMaximum: 3,
   moduleSlocMaximum: 500,
 };
+
+const COGNITIVE_RULES = new Set(["lint/complexity/noExcessiveCognitiveComplexity", "CC001"]);
+
+/**
+ * Cognitive complexity is reported by Biome as lint diagnostics rather than as a metric, so the
+ * gate reads the value back out of the message it renders.
+ */
+export const cognitiveComplexities = (diagnostics: readonly Diagnostic[]): readonly number[] =>
+  diagnostics
+    .filter((diagnostic) => COGNITIVE_RULES.has(diagnostic.rule))
+    .flatMap((diagnostic) => {
+      const match = /complexity of (\d+)/u.exec(diagnostic.message);
+      return match?.[1] === undefined ? [] : [Number(match[1])];
+    });
+
+const highest = (values: readonly number[]): number => Math.max(0, ...values);
 
 const normalizeSeverity = (severity: string): string => severity.trim().toUpperCase();
 
@@ -161,12 +179,18 @@ export const evaluateQualityGate = (
   }
   if (metrics.newComplexityViolations > 0) {
     failures.push(
-      `New code introduces ${metrics.newComplexityViolations} function(s) above complexity ${config.complexityMaximum}.`,
+      `New code introduces ${metrics.newComplexityViolations} function(s) above cyclomatic complexity ${config.complexityMaximum}.`,
     );
   }
   if (metrics.repositoryMaxComplexity > config.complexityMaximum) {
     failures.push(
-      `Repository maximum complexity ${metrics.repositoryMaxComplexity} exceeds the configured limit of ${config.complexityMaximum}.`,
+      `Repository maximum cyclomatic complexity ${metrics.repositoryMaxComplexity} exceeds the configured limit of ${config.complexityMaximum}.`,
+    );
+  }
+  const newCognitive = cognitiveComplexities(metrics.newIssues);
+  if (newCognitive.length > 0) {
+    failures.push(
+      `New code introduces ${newCognitive.length} function(s) above cognitive complexity ${config.cognitiveComplexityMaximum}.`,
     );
   }
 
@@ -275,6 +299,8 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
   const newIssueFingerprints = new Set(metrics.newIssues.map(diagnosticFingerprint));
   const newSecurityFingerprints = new Set(metrics.newSecurity.map(securityFindingFingerprint));
   const reportSecurityFindings = uniqueSecurityFindings(metrics.securityFindings);
+  const newCognitive = cognitiveComplexities(metrics.newIssues);
+  const repositoryCognitive = cognitiveComplexities(metrics.repositoryIssues);
 
   const rows: readonly (readonly string[])[] = [
     [
@@ -334,7 +360,7 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
       detailsLink(`≤ ${config.duplicationMaximum}%`, context.detailsUrl),
     ],
     [
-      "Maximum complexity",
+      "Cyclomatic complexity",
       linkedMetric(
         icon(metrics.newComplexityViolations === 0, context),
         String(metrics.newMaxComplexity),
@@ -343,6 +369,17 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
       detailsLink(String(metrics.repositoryMaxComplexity), context.detailsUrl),
       detailsLink(`${metrics.newComplexityViolations} new violations`, context.detailsUrl),
       detailsLink(`≤ ${config.complexityMaximum}`, context.detailsUrl),
+    ],
+    [
+      "Cognitive complexity",
+      linkedMetric(
+        icon(newCognitive.length === 0, context),
+        String(highest(newCognitive)),
+        context.detailsUrl,
+      ),
+      detailsLink(String(highest(repositoryCognitive)), context.detailsUrl),
+      detailsLink(`${newCognitive.length} new violations`, context.detailsUrl),
+      detailsLink(`≤ ${config.cognitiveComplexityMaximum}`, context.detailsUrl),
     ],
     [
       `Modules over ${config.moduleSlocMaximum} SLOC`,

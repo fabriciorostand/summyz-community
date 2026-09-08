@@ -28,6 +28,13 @@ const emptySmtp = {
   user: "",
 } as const;
 
+type Smtp = NonNullable<InstallationSettings["smtp"]>;
+
+interface PanelProps {
+  onChange: (settings: InstallationSettings) => void;
+  settings: InstallationSettings;
+}
+
 export function InstallationPage() {
   const { controls } = useDashboard();
   const [settings, setSettings] = useState<InstallationSettings>();
@@ -52,7 +59,6 @@ export function InstallationPage() {
     }
   }
 
-  const smtp = settings?.smtp ?? emptySmtp;
   return (
     <>
       <TopBar
@@ -77,156 +83,163 @@ export function InstallationPage() {
             id="installation-form"
             onSubmit={(event) => void save(event)}
           >
-            <Card>
-              <SectionHeading icon={<Cable className="size-4" />} title="Aplicação Discord" />
-              <div className="flex flex-col gap-3">
-                <Field
-                  label="Client ID"
-                  onChange={(event) =>
-                    setSettings({ ...settings, discordClientId: event.currentTarget.value || null })
-                  }
-                  value={settings.discordClientId ?? ""}
-                />
-                <SecretField
-                  configured={settings.secrets.discordBotToken}
-                  label="Token do bot"
-                  name="discord_bot_token"
-                />
-                <SecretField
-                  configured={settings.secrets.discordClientSecret}
-                  label="Client secret"
-                  name="discord_client_secret"
-                />
-                <Field
-                  label="URL pública"
-                  onChange={(event) =>
-                    setSettings({ ...settings, publicBaseUrl: event.currentTarget.value || null })
-                  }
-                  type="url"
-                  value={settings.publicBaseUrl ?? ""}
-                />
-              </div>
-            </Card>
-
-            <Card>
-              <SectionHeading icon={<KeyRound className="size-4" />} title="Provedores" />
-              <div className="flex flex-col gap-3">
-                <SecretField
-                  configured={settings.secrets.openRouterApiKey}
-                  label="Chave OpenRouter"
-                  name="openrouter_api_key"
-                />
-                <Notice icon={<Lock className="mt-0.5 size-3.5 shrink-0" />}>
-                  Segredos são criptografados antes de chegarem ao banco e nunca voltam em texto
-                  claro.
-                </Notice>
-              </div>
-            </Card>
-
-            <Card>
-              <SectionHeading icon={<UserPlus className="size-4" />} title="Acesso" />
-              <Toggle
-                checked={settings.registrationEnabled}
-                description="Qualquer pessoa pode criar conta. Servidores continuam limitados aos proprietários."
-                label="Cadastro público"
-                onChange={(registrationEnabled) =>
-                  setSettings({ ...settings, registrationEnabled })
-                }
-              />
-            </Card>
-
-            <Card>
-              <SectionHeading
-                description="Necessário para verificar cadastros e redefinir senhas. Compatível com Brevo e outros provedores."
-                icon={<Mail className="size-4" />}
-                title="E-mail SMTP"
-              />
-              <div className="flex flex-col gap-3">
-                <Toggle
-                  checked={settings.smtp !== null}
-                  label="Envio de e-mail ativo"
-                  onChange={(enabled) =>
-                    setSettings({ ...settings, smtp: enabled ? { ...emptySmtp } : null })
-                  }
-                />
-                {settings.smtp !== null && (
-                  <>
-                    <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
-                      <Field
-                        label="Servidor SMTP"
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            smtp: { ...smtp, host: event.currentTarget.value },
-                          })
-                        }
-                        value={smtp.host}
-                      />
-                      <Field
-                        label="Porta"
-                        min={1}
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            smtp: { ...smtp, port: event.currentTarget.valueAsNumber },
-                          })
-                        }
-                        type="number"
-                        value={smtp.port}
-                      />
-                    </div>
-                    <Field
-                      label="Login SMTP"
-                      onChange={(event) =>
-                        setSettings({
-                          ...settings,
-                          smtp: { ...smtp, user: event.currentTarget.value },
-                        })
-                      }
-                      value={smtp.user}
-                    />
-                    <div className="grid gap-3 sm:grid-cols-2">
-                      <Field
-                        label="E-mail remetente"
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            smtp: { ...smtp, fromEmail: event.currentTarget.value },
-                          })
-                        }
-                        type="email"
-                        value={smtp.fromEmail}
-                      />
-                      <Field
-                        label="Nome do remetente"
-                        onChange={(event) =>
-                          setSettings({
-                            ...settings,
-                            smtp: { ...smtp, fromName: event.currentTarget.value },
-                          })
-                        }
-                        value={smtp.fromName}
-                      />
-                    </div>
-                    <SecretField
-                      configured={settings.secrets.smtpPassword}
-                      label="Senha SMTP"
-                      name="smtp_password"
-                    />
-                    <Toggle
-                      checked={smtp.secure}
-                      description="Use com a porta 465. Na 587, mantenha desativado para STARTTLS."
-                      label="TLS implícito"
-                      onChange={(secure) => setSettings({ ...settings, smtp: { ...smtp, secure } })}
-                    />
-                  </>
-                )}
-              </div>
-            </Card>
+            <DiscordPanel onChange={setSettings} settings={settings} />
+            <ProvidersPanel settings={settings} />
+            <AccessPanel onChange={setSettings} settings={settings} />
+            <SmtpPanel onChange={setSettings} settings={settings} />
           </form>
         )}
         <HealthCard />
       </Screen>
+    </>
+  );
+}
+
+function DiscordPanel({ onChange, settings }: PanelProps) {
+  return (
+    <Card>
+      <SectionHeading icon={<Cable className="size-4" />} title="Aplicação Discord" />
+      <div className="flex flex-col gap-3">
+        <Field
+          label="Client ID"
+          onChange={(event) =>
+            onChange({ ...settings, discordClientId: event.currentTarget.value || null })
+          }
+          value={settings.discordClientId ?? ""}
+        />
+        <SecretField
+          configured={settings.secrets.discordBotToken}
+          label="Token do bot"
+          name="discord_bot_token"
+        />
+        <SecretField
+          configured={settings.secrets.discordClientSecret}
+          label="Client secret"
+          name="discord_client_secret"
+        />
+        <Field
+          label="URL pública"
+          onChange={(event) =>
+            onChange({ ...settings, publicBaseUrl: event.currentTarget.value || null })
+          }
+          type="url"
+          value={settings.publicBaseUrl ?? ""}
+        />
+      </div>
+    </Card>
+  );
+}
+
+function ProvidersPanel({ settings }: { settings: InstallationSettings }) {
+  return (
+    <Card>
+      <SectionHeading icon={<KeyRound className="size-4" />} title="Provedores" />
+      <div className="flex flex-col gap-3">
+        <SecretField
+          configured={settings.secrets.openRouterApiKey}
+          label="Chave OpenRouter"
+          name="openrouter_api_key"
+        />
+        <Notice icon={<Lock className="mt-0.5 size-3.5 shrink-0" />}>
+          Segredos são criptografados antes de chegarem ao banco e nunca voltam em texto claro.
+        </Notice>
+      </div>
+    </Card>
+  );
+}
+
+function AccessPanel({ onChange, settings }: PanelProps) {
+  return (
+    <Card>
+      <SectionHeading icon={<UserPlus className="size-4" />} title="Acesso" />
+      <Toggle
+        checked={settings.registrationEnabled}
+        description="Qualquer pessoa pode criar conta. Servidores continuam limitados aos proprietários."
+        label="Cadastro público"
+        onChange={(registrationEnabled) => onChange({ ...settings, registrationEnabled })}
+      />
+    </Card>
+  );
+}
+
+function SmtpPanel({ onChange, settings }: PanelProps) {
+  const smtp = settings.smtp ?? emptySmtp;
+  const update = (next: Partial<Smtp>) => onChange({ ...settings, smtp: { ...smtp, ...next } });
+  return (
+    <Card>
+      <SectionHeading
+        description="Necessário para verificar cadastros e redefinir senhas. Compatível com Brevo e outros provedores."
+        icon={<Mail className="size-4" />}
+        title="E-mail SMTP"
+      />
+      <div className="flex flex-col gap-3">
+        <Toggle
+          checked={settings.smtp !== null}
+          label="Envio de e-mail ativo"
+          onChange={(enabled) => onChange({ ...settings, smtp: enabled ? { ...emptySmtp } : null })}
+        />
+        {settings.smtp !== null && (
+          <SmtpFields
+            secretConfigured={settings.secrets.smtpPassword}
+            smtp={smtp}
+            update={update}
+          />
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function SmtpFields({
+  secretConfigured,
+  smtp,
+  update,
+}: {
+  secretConfigured: boolean;
+  smtp: Smtp;
+  update: (next: Partial<Smtp>) => void;
+}) {
+  return (
+    <>
+      <div className="grid gap-3 sm:grid-cols-[1fr_120px]">
+        <Field
+          label="Servidor SMTP"
+          onChange={(event) => update({ host: event.currentTarget.value })}
+          value={smtp.host}
+        />
+        <Field
+          label="Porta"
+          min={1}
+          onChange={(event) => update({ port: event.currentTarget.valueAsNumber })}
+          type="number"
+          value={smtp.port}
+        />
+      </div>
+      <Field
+        label="Login SMTP"
+        onChange={(event) => update({ user: event.currentTarget.value })}
+        value={smtp.user}
+      />
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field
+          label="E-mail remetente"
+          onChange={(event) => update({ fromEmail: event.currentTarget.value })}
+          type="email"
+          value={smtp.fromEmail}
+        />
+        <Field
+          label="Nome do remetente"
+          onChange={(event) => update({ fromName: event.currentTarget.value })}
+          value={smtp.fromName}
+        />
+      </div>
+      <SecretField configured={secretConfigured} label="Senha SMTP" name="smtp_password" />
+      <Toggle
+        checked={smtp.secure}
+        description="Use com a porta 465. Na 587, mantenha desativado para STARTTLS."
+        label="TLS implícito"
+        onChange={(secure) => update({ secure })}
+      />
     </>
   );
 }
