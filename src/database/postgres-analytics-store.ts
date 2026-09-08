@@ -73,6 +73,7 @@ export interface DashboardAnalyticsOptions {
 }
 
 export interface MeetingHistoryItem {
+  aiProfile: { name: string; profileId: string } | null;
   completedAt: string | null;
   contentRetained: boolean;
   durationMs: number | null;
@@ -105,7 +106,6 @@ export interface MeetingHistoryFilters {
 }
 
 export interface MeetingHistoryDetail extends MeetingHistoryItem {
-  aiProfile: { name: string; profileId: string } | null;
   audioRetained: boolean;
   cost: CostAnalytics;
   discordUrl: string | null;
@@ -344,6 +344,13 @@ LIMIT $7 OFFSET $8
       })
       .parse(row);
     return {
+      aiProfile:
+        parsed.ai_profile_id === undefined ||
+        parsed.ai_profile_id === null ||
+        parsed.ai_profile_name === undefined ||
+        parsed.ai_profile_name === null
+          ? null
+          : { name: parsed.ai_profile_name, profileId: parsed.ai_profile_id },
       completedAt: parsed.completed_at?.toISOString() ?? null,
       contentRetained: parsed.content_retained,
       durationMs: parsed.duration_ms === null ? null : Math.round(parsed.duration_ms),

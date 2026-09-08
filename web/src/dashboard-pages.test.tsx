@@ -137,6 +137,7 @@ describe("supplementary dashboard pages", () => {
     const listMeetings = vi.spyOn(api, "listMeetings").mockResolvedValue({
       items: [
         {
+          aiProfile: null,
           completedAt: null,
           contentRetained: false,
           durationMs: null,
@@ -277,6 +278,7 @@ describe("supplementary dashboard pages", () => {
       activeProfileId: null,
       profiles: [configurationProfile()],
       recordingRoleIds: ["moderator"],
+      recordingUserIds: ["user-1"],
       settings: {
         botLanguage: "pt-BR",
         persistMeetingAudio: false,
@@ -292,7 +294,9 @@ describe("supplementary dashboard pages", () => {
       ],
     });
     const updateSettings = vi.spyOn(api, "updateGuildSettings").mockResolvedValue(undefined);
-    const updateRoles = vi.spyOn(api, "updateRoles").mockResolvedValue(undefined);
+    const updateRecordingPermissions = vi
+      .spyOn(api, "updateRecordingPermissions")
+      .mockResolvedValue(undefined);
     const updateForum = vi.spyOn(api, "updateForum").mockResolvedValue(undefined);
     const setActiveProfile = vi.spyOn(api, "setActiveProfile").mockResolvedValue(undefined);
 
@@ -313,9 +317,19 @@ describe("supplementary dashboard pages", () => {
     await waitFor(() => expect(updateSettings).toHaveBeenCalledTimes(3));
 
     fireEvent.click(screen.getByRole("checkbox", { name: "Moderador" }));
-    await waitFor(() => expect(updateRoles).toHaveBeenCalledWith("guild-1", []));
+    await waitFor(() =>
+      expect(updateRecordingPermissions).toHaveBeenCalledWith("guild-1", {
+        roleIds: [],
+        userIds: ["user-1"],
+      }),
+    );
     fireEvent.click(screen.getByRole("checkbox", { name: "Facilitador" }));
-    await waitFor(() => expect(updateRoles).toHaveBeenLastCalledWith("guild-1", ["facilitator"]));
+    await waitFor(() =>
+      expect(updateRecordingPermissions).toHaveBeenLastCalledWith("guild-1", {
+        roleIds: ["facilitator"],
+        userIds: ["user-1"],
+      }),
+    );
 
     fireEvent.change(screen.getByLabelText("Tag padrão"), { target: { value: "" } });
     await waitFor(() => expect(updateForum).toHaveBeenCalledWith("guild-1", { forumId: "forum" }));

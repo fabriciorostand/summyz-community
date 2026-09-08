@@ -40,6 +40,16 @@ export function installInteractionHandler(
   isOpenRouterConfigured: () => boolean | Promise<boolean> = () => false,
   resolveBotLanguage: (guildId: string) => Promise<AppConfig["botLanguage"]> = async () => language,
 ): void {
+  client.on(Events.GuildMemberRemove, (member) => {
+    void guildConfigStore
+      .removeRecordingUser(member.guild.id, member.id)
+      .catch((error: unknown) => {
+        logger.error(
+          { errorType: getErrorType(error), guildId: member.guild.id, userId: member.id },
+          "Unable to revoke recording permission for departed guild member",
+        );
+      });
+  });
   client.on(Events.InteractionCreate, async (interaction) => {
     if (!interaction.isChatInputCommand()) {
       return;
@@ -264,20 +274,27 @@ async function handleRecordingRole(
 
   const subcommand = interaction.options.getSubcommand(true);
   if (subcommand === "list") {
-    const roleIds = await store.listRecordingRoles(context.guildId);
+    const roleIds = (await store.getRecordingPermissions(context.guildId)).roleIds;
     const content = roleIds.length === 0 ? text.noAuthorizedRoles : text.authorizedRoles(roleIds);
     await interaction.reply(createEphemeralReply(content));
     return;
   }
 
   const role = interaction.options.getRole("role", true);
+  const permissions = await store.getRecordingPermissions(context.guildId);
   if (subcommand === "add") {
-    await store.addRecordingRole(context.guildId, role.id);
+    await store.setRecordingPermissions(context.guildId, {
+      ...permissions,
+      roleIds: [...new Set([...permissions.roleIds, role.id])],
+    });
     await interaction.reply(createEphemeralReply(text.roleAuthorized(String(role))));
     return;
   }
 
-  await store.removeRecordingRole(context.guildId, role.id);
+  await store.setRecordingPermissions(context.guildId, {
+    ...permissions,
+    roleIds: permissions.roleIds.filter((roleId) => roleId !== role.id),
+  });
   await interaction.reply(createEphemeralReply(text.roleRemoved(String(role))));
 }
 
@@ -428,10 +445,14 @@ async function isRecordingAuthorized(
   guildId: string,
   store: GuildConfigurationStore,
 ): Promise<boolean> {
+  const permissions = await store.getRecordingPermissions(guildId);
   return canRecord({
     isGuildOwner,
+    memberJoinedAt: member.joinedAt?.toISOString() ?? null,
     memberRoleIds: [...member.roles.cache.keys()],
-    recordingRoleIds: await store.listRecordingRoles(guildId),
+    memberUserId: member.id,
+    recordingRoleIds: permissions.roleIds,
+    recordingUserGrants: permissions.userGrants,
   });
 }
 

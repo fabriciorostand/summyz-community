@@ -11,6 +11,7 @@ import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
 import { AuthenticationError } from "../auth/auth-service.js";
 import { SessionTokenError } from "../auth/jwt-session.js";
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
+import type { RecordingUserGrant } from "../guild-config-store.js";
 import { registerAnalyticsRoutes } from "./server-analytics-routes.js";
 import { registerAuthRoutes } from "./server-auth-routes.js";
 import {
@@ -163,12 +164,12 @@ export async function createApiServer(
   registerAnalyticsRoutes(app, dependencies, resolveGuildAccess);
   app.get("/api/guilds/:guildId/configuration", async (request) => {
     const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const [settings, recordingRoleIds, summaryForum, profiles, activeProfile] =
+    const [settings, recordingPermissions, summaryForum, profiles, activeProfile] =
       await runApiDependency("database", "load_guild_configuration", async () => {
         await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
         return Promise.all([
           dependencies.guildConfig.getGuildSettings(guildId),
-          dependencies.guildConfig.listRecordingRoles(guildId),
+          dependencies.guildConfig.getRecordingPermissions(guildId),
           dependencies.guildConfig.getSummaryForum(guildId),
           dependencies.aiProfiles.listProfiles(user.userId),
           dependencies.aiProfiles.getActiveProfile(guildId),
@@ -184,12 +185,32 @@ export async function createApiServer(
         dependencies.aiProfiles.clearActiveProfile(guildId),
       );
     }
+    const currentGrantedMembers = await runApiDependency(
+      "discord",
+      "validate_recording_user_grants",
+      () =>
+        dependencies.guildDirectory.getMembersByIds(
+          guildId,
+          recordingPermissions.userGrants.map((grant) => grant.userId),
+        ),
+    );
+    const validUserGrants: RecordingUserGrant[] = [];
+    for (const grant of recordingPermissions.userGrants) {
+      if (currentGrantedMembers.get(grant.userId)?.joinedAt === grant.memberJoinedAt) {
+        validUserGrants.push(grant);
+      } else {
+        await runApiDependency("database", "remove_stale_recording_user_grant", () =>
+          dependencies.guildConfig.removeRecordingUser(guildId, grant.userId),
+        );
+      }
+    }
     return {
       activeProfileId,
       profiles: profiles.map((profile) =>
         localizeAiProfileDefaults(profile, user.dashboardLanguage),
       ),
-      recordingRoleIds,
+      recordingRoleIds: recordingPermissions.roleIds,
+      recordingUserIds: validUserGrants.map((grant) => grant.userId),
       settings,
       summaryForum,
     };
@@ -208,20 +229,51 @@ export async function createApiServer(
       dependencies.guildDirectory.getResources(guildId),
     );
   });
-  app.put("/api/guilds/:guildId/roles", async (request, reply) => {
+  app.get("/api/guilds/:guildId/members", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const desired = new Set(
-      z.object({ roleIds: z.array(z.string().min(1).max(128)) }).parse(request.body).roleIds,
+    const query = z
+      .object({
+        page: z.coerce.number().int().positive().default(1),
+        query: z.string().trim().max(100).optional(),
+        roleId: z.string().min(1).max(128).optional(),
+      })
+      .parse(request.query);
+    return runApiDependency("discord", "list_guild_members", () =>
+      dependencies.guildDirectory.listMembers(guildId, {
+        page: query.page,
+        pageSize: 50,
+        ...(query.query === undefined ? {} : { query: query.query }),
+        ...(query.roleId === undefined ? {} : { roleId: query.roleId }),
+      }),
     );
-    const current = new Set(await dependencies.guildConfig.listRecordingRoles(guildId));
-    await Promise.all([
-      ...[...desired]
-        .filter((roleId) => !current.has(roleId))
-        .map((roleId) => dependencies.guildConfig.addRecordingRole(guildId, roleId)),
-      ...[...current]
-        .filter((roleId) => !desired.has(roleId))
-        .map((roleId) => dependencies.guildConfig.removeRecordingRole(guildId, roleId)),
-    ]);
+  });
+  app.put("/api/guilds/:guildId/recording-permissions", async (request, reply) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const body = z
+      .object({
+        roleIds: z.array(z.string().min(1).max(128)).max(1_000),
+        userIds: z.array(z.string().min(1).max(128)).max(1_000),
+      })
+      .parse(request.body);
+    const roleIds = [...new Set(body.roleIds)];
+    const userIds = [...new Set(body.userIds)];
+    const members = await runApiDependency("discord", "validate_recording_members", () =>
+      dependencies.guildDirectory.getMembersByIds(guildId, userIds),
+    );
+    const userGrants: RecordingUserGrant[] = [];
+    for (const userId of userIds) {
+      const member = members.get(userId);
+      if (member === undefined) {
+        return reply.status(400).send({ error: "recording_member_not_found" });
+      }
+      userGrants.push({ memberJoinedAt: member.joinedAt, userId });
+    }
+    await runApiDependency("database", "set_recording_permissions", () =>
+      dependencies.guildConfig.setRecordingPermissions(guildId, {
+        roleIds,
+        userGrants,
+      }),
+    );
     return reply.status(204).send();
   });
   app.put("/api/guilds/:guildId/forum", async (request, reply) => {

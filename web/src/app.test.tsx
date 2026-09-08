@@ -119,6 +119,7 @@ describe("App", () => {
           return Response.json({
             items: [
               {
+                aiProfile: { name: "Default OpenRouter", profileId: "profile-1" },
                 completedAt: "2026-08-24T10:00:45.000Z",
                 contentRetained: true,
                 durationMs: 45_000,
@@ -244,6 +245,7 @@ describe("App", () => {
         }
         if (path === "/api/guilds/guild-1/meetings/meeting-1") {
           return Response.json({
+            aiProfile: { name: "Default OpenRouter", profileId: "profile-1" },
             completedAt: "2026-08-24T10:00:45.000Z",
             contentRetained: true,
             durationMs: 45_000,
@@ -435,6 +437,7 @@ describe("App", () => {
             activeProfileId: null,
             profiles: [],
             recordingRoleIds: [],
+            recordingUserIds: [],
             settings: {
               botLanguage: "pt-BR",
               persistMeetingAudio: false,

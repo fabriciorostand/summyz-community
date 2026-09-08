@@ -33,12 +33,16 @@ describe("PostgresLiveMeetingStore", () => {
         rowCount: 1,
         rows: [
           {
+            ai_profile_id: "profile-1",
+            ai_profile_name: "Default OpenRouter",
             guild_id: "guild-1",
             meeting_id: "meeting-1",
             participants: [{ avatarUrl: null, displayName: "Ana", userId: "user-1" }],
             speaking_user_ids: ["user-1"],
+            started_at: "2026-09-07T11:45:00.000Z",
             updated_at: "2026-09-07T12:00:00.000Z",
             voice_channel_id: "voice-1",
+            voice_channel_name: "launch-week",
           },
         ],
       })
@@ -46,12 +50,16 @@ describe("PostgresLiveMeetingStore", () => {
     const store = new PostgresLiveMeetingStore({ query });
 
     await expect(store.getForGuild("guild-1")).resolves.toMatchObject({
+      aiProfile: { name: "Default OpenRouter", profileId: "profile-1" },
       meetingId: "meeting-1",
       speakingUserIds: ["user-1"],
+      startedAt: "2026-09-07T11:45:00.000Z",
+      voiceChannelName: "launch-week",
     });
     await store.clear("meeting-1");
 
     expect(query.mock.calls[0]?.[0]).toContain("expires_at > now()");
+    expect(query.mock.calls[0]?.[0]).toContain("JOIN meetings");
     expect(query.mock.calls[1]?.[0]).toContain("DELETE FROM live_meeting_states");
   });
 });

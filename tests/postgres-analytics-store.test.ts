@@ -253,6 +253,44 @@ describe("PostgresAnalyticsStore", () => {
     expect(JSON.stringify(meeting?.summary)).not.toContain("sourceEntryIds");
   });
 
+  it("includes the snapshotted AI profile in meeting history items", async () => {
+    const query = vi
+      .fn<PostgresExecutor["query"]>()
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            ai_profile_id: "profile-1",
+            ai_profile_name: "Default OpenRouter",
+            completed_at: "2026-09-08T15:00:00.000Z",
+            content_retained: true,
+            duration_ms: 3_600_000,
+            failure_code: null,
+            meeting_id: "meeting-1",
+            pipeline_status: "completed",
+            started_at: "2026-09-08T14:00:00.000Z",
+            talk_time_available: false,
+            total: 1,
+            voice_channel_name: "Launch Week Sync",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] });
+    const store = new PostgresAnalyticsStore({ query } satisfies PostgresExecutor);
+
+    const history = await store.listMeetings("guild-1", {
+      page: 1,
+      pageSize: 20,
+      timeZone: "America/Sao_Paulo",
+    });
+
+    expect(history.items[0]).toMatchObject({
+      aiProfile: { name: "Default OpenRouter", profileId: "profile-1" },
+      meetingId: "meeting-1",
+      voiceChannelName: "Launch Week Sync",
+    });
+  });
+
   it("busca o ID exato no servidor e ignora os demais filtros", async () => {
     const query = vi.fn(async (_text: string, _values?: readonly unknown[]) => ({
       rowCount: 0,

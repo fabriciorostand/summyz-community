@@ -6,7 +6,9 @@ import {
   discordConnectionSchema,
   type GuildConfiguration,
   guildConfigurationSchema,
+  guildMemberPageSchema,
   guildSchema,
+  historicalParticipantPageSchema,
   type InstallationSettings,
   installationHealthSchema,
   installationSettingsSchema,
@@ -27,7 +29,9 @@ export type {
   DiscordConnection,
   Guild,
   GuildConfiguration,
+  GuildMemberPage,
   GuildResources,
+  HistoricalParticipantPage,
   InstallationHealth,
   InstallationSettings,
   MeetingHistoryDetail,
@@ -69,6 +73,20 @@ async function refreshSession(): Promise<boolean> {
 }
 
 async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
+  const response = await authenticatedFetch(path, init);
+  await throwIfFailed(response);
+  if (response.status === 204) return schema.parse(undefined);
+  const body: unknown = await response.json();
+  return schema.parse(body);
+}
+
+async function requestText(path: string, init?: RequestInit): Promise<string> {
+  const response = await authenticatedFetch(path, init);
+  await throwIfFailed(response);
+  return response.text();
+}
+
+async function authenticatedFetch(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined) headers.set("content-type", "application/json");
   let response = await fetch(path, {
@@ -85,14 +103,15 @@ async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit
       });
     }
   }
+  return response;
+}
+
+async function throwIfFailed(response: Response): Promise<void> {
   if (!response.ok) {
     const body: unknown = await response.json().catch(() => ({}));
     const parsed = z.object({ error: z.string() }).safeParse(body);
     throw new ApiError(response.status, parsed.success ? parsed.data.error : "request_failed");
   }
-  if (response.status === 204) return schema.parse(undefined);
-  const body: unknown = await response.json();
-  return schema.parse(body);
 }
 
 const emptySchema = z.undefined();
@@ -132,9 +151,20 @@ export const api = {
     ),
   getMeeting: (guildId: string, meetingId: string) =>
     request(`/api/guilds/${guildId}/meetings/${meetingId}`, meetingHistoryDetailSchema),
+  getMeetingExport: (guildId: string, meetingId: string) =>
+    requestText(`/api/guilds/${guildId}/meetings/${meetingId}/export`),
   getDiscordConnection: () => request("/api/discord/connection", discordConnectionSchema),
   getSetupStatus: () => request("/api/setup/status", setupStatusSchema),
   listGuilds: () => request("/api/guilds", z.array(guildSchema)),
+  listGuildMembers: (
+    guildId: string,
+    filters: { page: number; query?: string; roleId?: string },
+  ) => {
+    const parameters = new URLSearchParams({ page: String(filters.page) });
+    if (filters.query !== undefined) parameters.set("query", filters.query);
+    if (filters.roleId !== undefined) parameters.set("roleId", filters.roleId);
+    return request(`/api/guilds/${guildId}/members?${parameters}`, guildMemberPageSchema);
+  },
   listMeetings: (
     guildId: string,
     filters: {
@@ -171,6 +201,14 @@ export const api = {
         }),
       ),
     ),
+  listHistoricalParticipants: (guildId: string, page: number, query?: string) => {
+    const parameters = new URLSearchParams({ page: String(page) });
+    if (query !== undefined) parameters.set("query", query);
+    return request(
+      `/api/guilds/${guildId}/participants?${parameters}`,
+      historicalParticipantPageSchema,
+    );
+  },
   login: (email: string, password: string) =>
     request("/api/auth/login", emptySchema, { body: json({ email, password }), method: "POST" }),
   logout: () => request("/api/auth/logout", emptySchema, { method: "POST" }),
@@ -237,9 +275,12 @@ export const api = {
       method: "PUT",
     });
   },
-  updateRoles: (guildId: string, roleIds: string[]) =>
-    request(`/api/guilds/${guildId}/roles`, emptySchema, {
-      body: json({ roleIds }),
+  updateRecordingPermissions: (
+    guildId: string,
+    permissions: { roleIds: string[]; userIds: string[] },
+  ) =>
+    request(`/api/guilds/${guildId}/recording-permissions`, emptySchema, {
+      body: json(permissions),
       method: "PUT",
     }),
   updateSecret: (name: string, value: string) =>

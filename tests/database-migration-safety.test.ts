@@ -10,7 +10,7 @@ import { databaseMigrations } from "../src/database/migrations.js";
 describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
-    expect(databaseMigrations.at(-1)).toMatchObject({ version: 12 });
+    expect(databaseMigrations.at(-1)).toMatchObject({ version: 13 });
     expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
       "transcription_recovery_version",
     );
@@ -23,6 +23,9 @@ describe("segurança das migrações do banco", () => {
     expect(dashboardFoundation).toContain("live_meeting_states");
     expect(dashboardFoundation).toContain("runtime_component_heartbeats");
     expect(dashboardFoundation).not.toContain("ON DELETE CASCADE");
+    const recordingPermissions = databaseMigrations.find(({ version }) => version === 13)?.sql;
+    expect(recordingPermissions).toContain("recording_user_grants");
+    expect(recordingPermissions).not.toContain("ON DELETE CASCADE");
   });
 
   it.each([

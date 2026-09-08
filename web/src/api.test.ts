@@ -62,7 +62,10 @@ describe("dashboard API client", () => {
       smtp: null,
     });
     await api.updateProfile(validProfile());
-    await api.updateRoles("guild-1", ["role-1"]);
+    await api.updateRecordingPermissions("guild-1", {
+      roleIds: ["role-1"],
+      userIds: ["user-1"],
+    });
     await api.updateSecret("smtp_password", "secret");
     await api.verifyEmail("verification-token");
 
@@ -77,6 +80,24 @@ describe("dashboard API client", () => {
     const setupHeaders = findRequestHeaders(fetchMock, "/api/setup");
     expect(setupHeaders.get("content-type")).toBe("application/json");
     expect(setupHeaders.get("x-summyz-setup-token")).toBe("setup-token");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/guilds/guild-1/recording-permissions",
+      expect.objectContaining({
+        body: JSON.stringify({ roleIds: ["role-1"], userIds: ["user-1"] }),
+        method: "PUT",
+      }),
+    );
+  });
+
+  it("returns meeting exports as text without trying to parse JSON", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(new Response("Voice channel: planning")),
+    );
+
+    await expect(api.getMeetingExport("guild-1", "meeting-1")).resolves.toBe(
+      "Voice channel: planning",
+    );
   });
 
   it("reports stable errors when refresh and response parsing fail", async () => {

@@ -1,12 +1,15 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import { createMeetingTextExport, MeetingExportUnavailableError } from "./meeting-export.js";
+
 import type { ApiServerDependencies } from "./server-contracts.js";
 import {
   authorizeGuild,
   type GuildAccessResolver,
   refreshParticipantProfiles,
   requireAnalytics,
+  runApiDependency,
 } from "./server-support.js";
 
 type ParticipantProfile = { avatarUrl?: string | null; displayName: string };
@@ -160,6 +163,43 @@ export function registerAnalyticsRoutes(
         participants?.map((participant) => applyParticipantProfile(participant, profiles)) ?? null,
       timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
     };
+  });
+  app.get("/api/guilds/:guildId/meetings/:meetingId/export", async (request, reply) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { meetingId } = z.object({ meetingId: z.string().min(1).max(128) }).parse(request.params);
+    const meeting = await requireAnalytics(dependencies).getMeeting(guildId, meetingId);
+    if (meeting === undefined) return reply.status(404).send({ error: "meeting_not_found" });
+    try {
+      const content = createMeetingTextExport(
+        meeting,
+        dependencies.timeZone ?? "America/Sao_Paulo",
+      );
+      return reply
+        .header("content-type", "text/plain; charset=utf-8")
+        .header("content-disposition", 'attachment; filename="summyz-meeting.txt"')
+        .send(content);
+    } catch (error) {
+      if (error instanceof MeetingExportUnavailableError) {
+        return reply.status(409).send({ error: error.message });
+      }
+      throw error;
+    }
+  });
+  app.get("/api/guilds/:guildId/participants", async (request) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const query = z
+      .object({
+        page: z.coerce.number().int().positive().default(1),
+        query: z.string().trim().max(100).optional(),
+      })
+      .parse(request.query);
+    return runApiDependency("database", "list_meeting_participants", () =>
+      dependencies.participants.list(guildId, {
+        page: query.page,
+        pageSize: 50,
+        ...(query.query === undefined ? {} : { query: query.query }),
+      }),
+    );
   });
   app.get("/api/guilds/:guildId/tasks", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);

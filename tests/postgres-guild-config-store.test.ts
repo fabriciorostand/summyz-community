@@ -38,30 +38,54 @@ describe("PostgresGuildConfigStore", () => {
     expect(query.mock.calls[0]?.[0]).toMatch(/persist_meeting_content/i);
     expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", "pt-BR", false, true]);
   });
-  it("lê funções de gravação e fórum validando os dados do banco", async () => {
-    const rolesDatabase = createDatabase([{ recording_role_ids: ["role-1", "role-2"] }]);
+  it("lê permissões de gravação e fórum validando os dados do banco", async () => {
+    const permissionsDatabase = createDatabase([
+      {
+        recording_role_ids: ["role-1", "role-2"],
+        recording_user_grants: [{ memberJoinedAt: "2026-09-08T12:00:00.000Z", userId: "user-1" }],
+      },
+    ]);
     const forumDatabase = createDatabase([
       { summary_forum: { forumId: "forum-1", tagId: "tag-1" } },
     ]);
 
     await expect(
-      new PostgresGuildConfigStore(rolesDatabase).listRecordingRoles("guild-1"),
-    ).resolves.toEqual(["role-1", "role-2"]);
+      new PostgresGuildConfigStore(permissionsDatabase).getRecordingPermissions("guild-1"),
+    ).resolves.toEqual({
+      roleIds: ["role-1", "role-2"],
+      userGrants: [{ memberJoinedAt: "2026-09-08T12:00:00.000Z", userId: "user-1" }],
+    });
     await expect(
       new PostgresGuildConfigStore(forumDatabase).getSummaryForum("guild-1"),
     ).resolves.toEqual({ forumId: "forum-1", tagId: "tag-1" });
   });
 
-  it("altera funções e fórum com operações atômicas no PostgreSQL", async () => {
+  it("altera permissões e fórum com operações atômicas no PostgreSQL", async () => {
     const database = createDatabase();
     const store = new PostgresGuildConfigStore(database);
 
-    await store.addRecordingRole("guild-1", "role-1");
-    await store.removeRecordingRole("guild-1", "role-1");
+    await store.setRecordingPermissions("guild-1", {
+      roleIds: ["role-1"],
+      userGrants: [{ memberJoinedAt: "2026-09-08T12:00:00.000Z", userId: "user-1" }],
+    });
+    await store.removeRecordingUser("guild-1", "user-1");
     await store.setSummaryForum("guild-1", { forumId: "forum-1" });
     await store.clearSummaryForum("guild-1");
 
     expect(database.query).toHaveBeenCalledTimes(4);
+    expect(database.query).toHaveBeenNthCalledWith(
+      1,
+      expect.stringContaining("recording_user_grants"),
+      [
+        "guild-1",
+        JSON.stringify(["role-1"]),
+        JSON.stringify([{ memberJoinedAt: "2026-09-08T12:00:00.000Z", userId: "user-1" }]),
+      ],
+    );
+    expect(database.query).toHaveBeenNthCalledWith(2, expect.stringContaining("value->>'userId'"), [
+      "guild-1",
+      "user-1",
+    ]);
     expect(database.query).toHaveBeenNthCalledWith(3, expect.stringContaining("summary_forum"), [
       "guild-1",
       JSON.stringify({ forumId: "forum-1" }),
@@ -69,9 +93,9 @@ describe("PostgresGuildConfigStore", () => {
   });
 
   it("rejeita configuração inválida vinda do banco", async () => {
-    const database = createDatabase([{ recording_role_ids: [1] }]);
+    const database = createDatabase([{ recording_role_ids: [1], recording_user_grants: [] }]);
     await expect(
-      new PostgresGuildConfigStore(database).listRecordingRoles("guild-1"),
+      new PostgresGuildConfigStore(database).getRecordingPermissions("guild-1"),
     ).rejects.toThrow();
   });
 
@@ -79,7 +103,10 @@ describe("PostgresGuildConfigStore", () => {
     const absent = new PostgresGuildConfigStore(createDatabase());
     const nullForum = new PostgresGuildConfigStore(createDatabase([{ summary_forum: null }]));
 
-    await expect(absent.listRecordingRoles("guild-1")).resolves.toEqual([]);
+    await expect(absent.getRecordingPermissions("guild-1")).resolves.toEqual({
+      roleIds: [],
+      userGrants: [],
+    });
     await expect(absent.getSummaryForum("guild-1")).resolves.toBeUndefined();
     await expect(nullForum.getSummaryForum("guild-1")).resolves.toBeUndefined();
   });

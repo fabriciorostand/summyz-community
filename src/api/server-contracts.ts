@@ -20,6 +20,7 @@ import type {
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
 import type { LiveMeetingState } from "../database/postgres-live-meeting-store.js";
 import type { DashboardTask } from "../database/postgres-task-store.js";
+import type { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";
 import type {
   DiscordConnectionStatus,
   OwnedDiscordGuild,
@@ -108,6 +109,10 @@ export interface ApiDiscordService {
 }
 
 export interface GuildDirectory {
+  getMembersByIds(
+    guildId: string,
+    userIds: readonly string[],
+  ): Promise<ReadonlyMap<string, GuildMemberDirectoryItem>>;
   getForums?(
     guildId: string,
   ): Promise<{ id: string; name: string; tags: { id: string; name: string }[] }[]>;
@@ -127,6 +132,27 @@ export interface GuildDirectory {
     guildId: string,
     userIds: readonly string[],
   ): Promise<ReadonlyMap<string, { avatarUrl: string | null; displayName: string }>>;
+  listMembers(
+    guildId: string,
+    options: { page: number; pageSize: number; query?: string; roleId?: string },
+  ): Promise<
+    | { code: "discord_members_intent_unavailable"; status: "unavailable" }
+    | {
+        items: GuildMemberDirectoryItem[];
+        page: number;
+        pageSize: number;
+        status: "available";
+        total: number;
+      }
+  >;
+}
+
+export interface GuildMemberDirectoryItem {
+  avatarUrl: string | null;
+  displayName: string;
+  joinedAt: string;
+  roleIds: string[];
+  userId: string;
 }
 
 export interface ApiAnalyticsStore {
@@ -151,6 +177,7 @@ export interface ApiServerDependencies {
   health: { getStatus(): Promise<InstallationHealthStatus> };
   logger: Logger;
   liveMeetings: { getForGuild(guildId: string): Promise<LiveMeetingState | null> };
+  participants: Pick<PostgresParticipantDirectoryStore, "list">;
   secureCookies: boolean;
   settings: ApiSettingsStore;
   setupToken: string;

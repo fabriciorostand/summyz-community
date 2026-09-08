@@ -4,12 +4,16 @@ import {
   DEFAULT_GUILD_SETTINGS,
   type GuildConfigurationStore,
   type GuildSettings,
+  type RecordingPermissions,
   type SummaryForumConfiguration,
 } from "../guild-config-store.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(128);
 const recordingRolesSchema = z.array(z.string().min(1).max(128));
+const recordingUserGrantsSchema = z.array(
+  z.object({ memberJoinedAt: z.iso.datetime(), userId: z.string().min(1).max(128) }),
+);
 const summaryForumSchema = z.object({
   forumId: z.string().min(1).max(128),
   tagId: z.string().min(1).max(128).optional(),
@@ -27,13 +31,19 @@ export class PostgresGuildConfigStore implements GuildConfigurationStore {
     this.#database = database;
   }
 
-  public async listRecordingRoles(guildId: string): Promise<string[]> {
+  public async getRecordingPermissions(guildId: string): Promise<RecordingPermissions> {
     const result = await this.#database.query(
-      "SELECT recording_role_ids FROM guild_configurations WHERE guild_id = $1",
+      `SELECT recording_role_ids, recording_user_grants
+       FROM guild_configurations WHERE guild_id = $1`,
       [identifierSchema.parse(guildId)],
     );
     const row = result.rows[0];
-    return row === undefined ? [] : recordingRolesSchema.parse(row.recording_role_ids);
+    return row === undefined
+      ? { roleIds: [], userGrants: [] }
+      : {
+          roleIds: recordingRolesSchema.parse(row.recording_role_ids),
+          userGrants: recordingUserGrantsSchema.parse(row.recording_user_grants),
+        };
   }
 
   public async getSummaryForum(guildId: string): Promise<SummaryForumConfiguration | undefined> {
@@ -80,35 +90,37 @@ export class PostgresGuildConfigStore implements GuildConfigurationStore {
     );
   }
 
-  public async addRecordingRole(guildId: string, roleId: string): Promise<void> {
+  public async setRecordingPermissions(
+    guildId: string,
+    permissions: RecordingPermissions,
+  ): Promise<void> {
+    const roleIds = recordingRolesSchema.parse([...new Set(permissions.roleIds)]);
+    const userGrants = recordingUserGrantsSchema.parse(permissions.userGrants);
     await this.#database.query(
       `
-INSERT INTO guild_configurations (guild_id, recording_role_ids)
-VALUES ($1, jsonb_build_array($2::text))
+INSERT INTO guild_configurations (guild_id, recording_role_ids, recording_user_grants)
+VALUES ($1, $2::jsonb, $3::jsonb)
 ON CONFLICT (guild_id) DO UPDATE SET
-  recording_role_ids = CASE
-    WHEN guild_configurations.recording_role_ids @> jsonb_build_array($2::text)
-      THEN guild_configurations.recording_role_ids
-    ELSE guild_configurations.recording_role_ids || jsonb_build_array($2::text)
-  END,
+  recording_role_ids = EXCLUDED.recording_role_ids,
+  recording_user_grants = EXCLUDED.recording_user_grants,
   updated_at = now()
 `,
-      [identifierSchema.parse(guildId), identifierSchema.parse(roleId)],
+      [identifierSchema.parse(guildId), JSON.stringify(roleIds), JSON.stringify(userGrants)],
     );
   }
 
-  public async removeRecordingRole(guildId: string, roleId: string): Promise<void> {
+  public async removeRecordingUser(guildId: string, userId: string): Promise<void> {
     await this.#database.query(
       `
 UPDATE guild_configurations
-SET recording_role_ids = (
+SET recording_user_grants = (
   SELECT COALESCE(jsonb_agg(value), '[]'::jsonb)
-  FROM jsonb_array_elements(recording_role_ids) AS value
-  WHERE value <> to_jsonb($2::text)
+  FROM jsonb_array_elements(recording_user_grants) AS value
+  WHERE value->>'userId' <> $2
 ), updated_at = now()
 WHERE guild_id = $1
 `,
-      [identifierSchema.parse(guildId), identifierSchema.parse(roleId)],
+      [identifierSchema.parse(guildId), identifierSchema.parse(userId)],
     );
   }
 

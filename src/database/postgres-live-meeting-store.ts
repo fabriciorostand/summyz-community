@@ -11,14 +11,30 @@ export const liveMeetingParticipantSchema = z.object({
 export type LiveMeetingParticipant = z.infer<typeof liveMeetingParticipantSchema>;
 
 const liveMeetingStateSchema = z.object({
+  aiProfile: z.object({ name: z.string(), profileId: identifierSchema }).nullable(),
   guildId: identifierSchema,
   meetingId: identifierSchema,
   participants: z.array(liveMeetingParticipantSchema),
   speakingUserIds: z.array(identifierSchema),
+  startedAt: z.iso.datetime(),
   updatedAt: z.iso.datetime(),
   voiceChannelId: identifierSchema,
+  voiceChannelName: z.string().nullable(),
 });
 export type LiveMeetingState = z.infer<typeof liveMeetingStateSchema>;
+
+const liveMeetingRowSchema = z.object({
+  ai_profile_id: z.string().nullable(),
+  ai_profile_name: z.string().nullable(),
+  guild_id: identifierSchema,
+  meeting_id: identifierSchema,
+  participants: z.array(liveMeetingParticipantSchema),
+  speaking_user_ids: z.array(identifierSchema),
+  started_at: z.coerce.date(),
+  updated_at: z.coerce.date(),
+  voice_channel_id: identifierSchema,
+  voice_channel_name: z.string().nullable(),
+});
 
 export interface LiveMeetingStateInput {
   guildId: string;
@@ -71,21 +87,32 @@ export class PostgresLiveMeetingStore implements LiveMeetingStateWriter {
 
   public async getForGuild(guildId: string): Promise<LiveMeetingState | null> {
     const result = await this.#database.query(
-      `SELECT meeting_id, guild_id, voice_channel_id, participants, speaking_user_ids, updated_at
-       FROM live_meeting_states
-       WHERE guild_id = $1 AND expires_at > now()
-       ORDER BY updated_at DESC LIMIT 1`,
+      `SELECT state.meeting_id, state.guild_id, state.voice_channel_id, state.participants,
+              state.speaking_user_ids, state.updated_at, meeting.started_at,
+              meeting.voice_channel_name, meeting.ai_profile_id, meeting.ai_profile_name
+       FROM live_meeting_states state
+       JOIN meetings meeting
+         ON meeting.meeting_id = state.meeting_id AND meeting.guild_id = state.guild_id
+       WHERE state.guild_id = $1 AND state.expires_at > now()
+       ORDER BY state.updated_at DESC LIMIT 1`,
       [identifierSchema.parse(guildId)],
     );
     const row = result.rows[0];
     if (row === undefined) return null;
+    const parsed = liveMeetingRowSchema.parse(row);
     return liveMeetingStateSchema.parse({
-      guildId: row.guild_id,
-      meetingId: row.meeting_id,
-      participants: row.participants,
-      speakingUserIds: row.speaking_user_ids,
-      updatedAt: new Date(z.union([z.string(), z.date()]).parse(row.updated_at)).toISOString(),
-      voiceChannelId: row.voice_channel_id,
+      aiProfile:
+        parsed.ai_profile_id === null || parsed.ai_profile_name === null
+          ? null
+          : { name: parsed.ai_profile_name, profileId: parsed.ai_profile_id },
+      guildId: parsed.guild_id,
+      meetingId: parsed.meeting_id,
+      participants: parsed.participants,
+      speakingUserIds: parsed.speaking_user_ids,
+      startedAt: parsed.started_at.toISOString(),
+      updatedAt: parsed.updated_at.toISOString(),
+      voiceChannelId: parsed.voice_channel_id,
+      voiceChannelName: parsed.voice_channel_name,
     });
   }
 

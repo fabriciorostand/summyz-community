@@ -1,7 +1,10 @@
 export interface RecordingAuthorizationInput {
   isGuildOwner: boolean;
+  memberJoinedAt: string | null;
   memberRoleIds: readonly string[];
+  memberUserId: string;
   recordingRoleIds: readonly string[];
+  recordingUserGrants: readonly { memberJoinedAt: string; userId: string }[];
 }
 
 export interface ManageRecordingRolesAuthorizationInput {
@@ -18,7 +21,11 @@ export function canRecord(input: RecordingAuthorizationInput): boolean {
   }
 
   const allowedRoleIds = new Set(input.recordingRoleIds);
-  return input.memberRoleIds.some((roleId) => allowedRoleIds.has(roleId));
+  if (input.memberRoleIds.some((roleId) => allowedRoleIds.has(roleId))) return true;
+  if (input.memberJoinedAt === null) return false;
+  return input.recordingUserGrants.some(
+    (grant) => grant.userId === input.memberUserId && grant.memberJoinedAt === input.memberJoinedAt,
+  );
 }
 
 export function canManageRecordingRoles(input: ManageRecordingRolesAuthorizationInput): boolean {

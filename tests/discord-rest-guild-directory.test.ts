@@ -35,8 +35,16 @@ describe("DiscordRestGuildDirectory", () => {
       .mockResolvedValueOnce(
         new Response(
           JSON.stringify([
-            { roles: ["role-1"], user: { bot: false, id: "user-1", username: "Ana" } },
-            { roles: ["role-1"], user: { bot: true, id: "bot-1", username: "Bot" } },
+            {
+              joined_at: "2026-09-08T12:00:00.000Z",
+              roles: ["role-1"],
+              user: { bot: false, id: "user-1", username: "Ana" },
+            },
+            {
+              joined_at: "2026-09-08T12:00:00.000Z",
+              roles: ["role-1"],
+              user: { bot: true, id: "bot-1", username: "Bot" },
+            },
           ]),
           { status: 200 },
         ),
@@ -150,5 +158,55 @@ describe("DiscordRestGuildDirectory", () => {
     expect(profiles.get("300000000000000000")?.avatarUrl).toContain(
       "/guilds/guild-1/users/300000000000000000/avatars/guild.png",
     );
+  });
+
+  it("lista membros humanos visíveis e resolve concessões somente para membros atuais", async () => {
+    const fetchMock = vi.fn<typeof fetch>(async (input) => {
+      const url = String(input);
+      if (url.includes("/members?")) {
+        return Response.json([
+          {
+            joined_at: "2026-09-08T12:00:00.000Z",
+            nick: "Bruna",
+            roles: ["role-2"],
+            user: { bot: false, id: "user-2", username: "bruna" },
+          },
+          {
+            joined_at: "2026-09-07T12:00:00.000000+00:00",
+            roles: ["role-1"],
+            user: { bot: false, id: "user-1", username: "Ana" },
+          },
+        ]);
+      }
+      if (url.endsWith("/members/user-1")) {
+        return Response.json({
+          joined_at: "2026-09-07T12:00:00.000000+00:00",
+          roles: ["role-1"],
+          user: { bot: false, id: "user-1", username: "Ana" },
+        });
+      }
+      return new Response(null, { status: 404 });
+    });
+    const directory = new DiscordRestGuildDirectory({
+      fetch: fetchMock,
+      getBotToken: async () => "bot-token",
+    });
+
+    await expect(
+      directory.listMembers("guild-1", { page: 1, pageSize: 50, query: "ana" }),
+    ).resolves.toMatchObject({
+      items: [
+        {
+          displayName: "Ana",
+          joinedAt: "2026-09-07T12:00:00.000Z",
+          roleIds: ["role-1"],
+          userId: "user-1",
+        },
+      ],
+      status: "available",
+      total: 1,
+    });
+    const members = await directory.getMembersByIds("guild-1", ["user-1", "departed-user"]);
+    expect([...members.keys()]).toEqual(["user-1"]);
   });
 });

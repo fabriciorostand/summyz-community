@@ -20,6 +20,7 @@ const taskRowSchema = z.object({
   owner_user_id: z.string().nullable(),
   task_id: taskIdSchema,
   task_text: z.string().min(1),
+  voice_channel_name: z.string().nullable(),
 });
 
 export interface DashboardTask {
@@ -38,6 +39,7 @@ export interface DashboardTask {
   ownerUserId: string | null;
   taskId: string;
   text: string;
+  voiceChannelName: string | null;
 }
 
 export class PostgresTaskStore {
@@ -53,18 +55,23 @@ export class PostgresTaskStore {
   ): Promise<DashboardTask[]> {
     const result = await this.#database.query(
       `SELECT task.task_id, task.meeting_id, task.task_text, task.owner_name, task.owner_user_id,
-              deadline_text, deadline_date, deadline_time, deadline_time_zone,
-              deadline_precision, completed_at, completed_by_user_id,
+              task.deadline_text, task.deadline_date, task.deadline_time,
+              task.deadline_time_zone, task.deadline_precision, task.completed_at,
+              task.completed_by_user_id,
+              meeting.voice_channel_name,
               owner_profile.display_name AS owner_display_name,
               owner_profile.avatar_url AS owner_avatar_url,
               CASE
-                WHEN completed_at IS NOT NULL OR deadline_date IS NULL THEN false
-                WHEN deadline_precision = 'minute' THEN
-                  ((deadline_date + deadline_time) AT TIME ZONE deadline_time_zone) < now()
+                WHEN task.completed_at IS NOT NULL OR task.deadline_date IS NULL THEN false
+                WHEN task.deadline_precision = 'minute' THEN
+                  ((task.deadline_date + task.deadline_time) AT TIME ZONE task.deadline_time_zone) < now()
                 ELSE
-                  ((deadline_date + interval '1 day')::timestamp AT TIME ZONE deadline_time_zone) <= now()
+                  ((task.deadline_date + interval '1 day')::timestamp
+                    AT TIME ZONE task.deadline_time_zone) <= now()
               END AS overdue
        FROM meeting_tasks task
+       JOIN meetings meeting
+         ON meeting.meeting_id = task.meeting_id AND meeting.guild_id = task.guild_id
        LEFT JOIN LATERAL (
          SELECT participant.display_name, participant.avatar_url
          FROM meeting_participants participant
@@ -75,10 +82,10 @@ export class PostgresTaskStore {
          LIMIT 1
        ) owner_profile ON true
        WHERE task.guild_id = $1
-         AND ($2::boolean IS NULL OR (completed_at IS NOT NULL) = $2)
+         AND ($2::boolean IS NULL OR (task.completed_at IS NOT NULL) = $2)
          AND ($3::text IS NULL OR task.meeting_id = $3)
-       ORDER BY completed_at NULLS FIRST, deadline_date NULLS LAST, deadline_time NULLS LAST,
-                created_at DESC, task_index`,
+       ORDER BY task.completed_at NULLS FIRST, task.deadline_date NULLS LAST,
+                task.deadline_time NULLS LAST, task.created_at DESC, task.task_index`,
       [
         identifierSchema.parse(guildId),
         filters.completed ?? null,
@@ -129,6 +136,7 @@ function mapTaskRow(input: unknown): DashboardTask {
     ownerUserId: row.owner_user_id,
     taskId: row.task_id,
     text: row.task_text,
+    voiceChannelName: row.voice_channel_name,
   };
 }
 
