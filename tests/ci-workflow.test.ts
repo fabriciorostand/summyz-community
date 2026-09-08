@@ -117,6 +117,48 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("output: reports/security/trivy-policy.sarif");
   });
 
+  it("limits the blocking SARIF policy to configured severities", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const policyStep = implementation.slice(
+      implementation.indexOf("- name: Enforce repository secret and misconfiguration policy"),
+      implementation.indexOf("- name: Enforce fixable HIGH/CRITICAL dependency vulnerabilities"),
+    );
+
+    expect(policyStep).toContain("severity: HIGH,CRITICAL");
+    expect(policyStep).toContain("limit-severities-for-sarif: true");
+  });
+
+  it("makes the shared reports root writable before test containers run", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const testsJob = implementation.slice(
+      implementation.indexOf("\n  tests:"),
+      implementation.indexOf("\n  runtime:"),
+    );
+    const initializationIndex = testsJob.indexOf("- name: Initialize test reports");
+    const initializationStep = testsJob.slice(
+      initializationIndex,
+      testsJob.indexOf("- name:", initializationIndex + 1),
+    );
+
+    expect(initializationIndex).toBeGreaterThan(-1);
+    expect(initializationIndex).toBeLessThan(
+      testsJob.indexOf("- name: Run server tests with real PostgreSQL and coverage"),
+    );
+    expect(initializationStep).toContain("mkdir -p reports");
+    expect(initializationStep).toContain("chmod 0777 reports");
+  });
+
+  it("validates CUDA packaging without loading the large image into the runner", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const cudaBuild = implementation.slice(
+      implementation.indexOf("- name: Build NVIDIA packaging target"),
+      implementation.indexOf("- name: Build smoke-test image"),
+    );
+
+    expect(cudaBuild).toContain("load: false");
+    expect(cudaBuild).not.toContain("load: true");
+  });
+
   it("does not require a developer .env file for CI Compose operations", async () => {
     const overlay = await readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8");
 

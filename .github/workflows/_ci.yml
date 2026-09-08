@@ -223,6 +223,7 @@ jobs:
           scanners: secret,misconfig
           severity: HIGH,CRITICAL
           format: sarif
+          limit-severities-for-sarif: true
           output: reports/security/trivy-policy.sarif
           exit-code: "1"
           version: v0.74.0
@@ -297,6 +298,11 @@ jobs:
           tags: summyz-community-tests:ci
           cache-from: type=gha,scope=summyz-node-tests
           cache-to: type=gha,mode=max,scope=summyz-node-tests,ignore-error=true
+
+      - name: Initialize test reports
+        run: |
+          mkdir -p reports
+          chmod 0777 reports
 
       - name: Run server tests with real PostgreSQL and coverage
         run: >-
@@ -457,7 +463,7 @@ jobs:
           context: .
           file: services/faster-whisper/Dockerfile
           target: cuda
-          load: true
+          load: false
           tags: summyz-community-faster-whisper-cuda:ci
           cache-from: type=gha,scope=summyz-python-cuda
           cache-to: type=gha,mode=max,scope=summyz-python-cuda,ignore-error=true
