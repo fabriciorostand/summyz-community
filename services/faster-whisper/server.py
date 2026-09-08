@@ -362,7 +362,16 @@ def require_audio_suffix(filename: str | None) -> str:
 
 def parse_vad_options(value: str) -> dict[str, object]:
     try:
-        return VadOptionsRequest.model_validate_json(value).model_dump()
+        options = VadOptionsRequest.model_validate_json(value)
+        return {
+            "enabled": options.enabled,
+            "maxSpeechDurationSeconds": options.maxSpeechDurationSeconds,
+            "minSilenceDurationMs": options.minSilenceDurationMs,
+            "minSpeechDurationMs": options.minSpeechDurationMs,
+            "negativeSpeechThreshold": options.negativeSpeechThreshold,
+            "speechPadMs": options.speechPadMs,
+            "threshold": options.threshold,
+        }
     except ValidationError as error:
         raise HTTPException(status_code=422, detail="Invalid VAD configuration") from error
 

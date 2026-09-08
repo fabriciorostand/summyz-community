@@ -69,7 +69,12 @@ describe("runtime packaging", () => {
     expect(ffmpegBuild).toContain("--disable-nonfree");
     expect(ffmpegBuild).toContain("--enable-libopus");
     expect(dockerfile).toContain("FFMPEG_SHA256=");
-    expect(dockerfile).toContain("COPY docker/ffmpeg/build-lgpl.sh");
+    expect(dockerfile).toContain(
+      "COPY --chmod=0755 docker/ffmpeg/build-lgpl.sh /usr/local/bin/build-ffmpeg-lgpl",
+    );
+    expect(fasterWhisperDockerfile).toContain(
+      "COPY --chmod=0755 docker/ffmpeg/build-lgpl.sh /usr/local/bin/build-ffmpeg-lgpl",
+    );
     expect(botRuntime).toContain("COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg");
     expect(botRuntime).not.toContain("apt-get install --yes --no-install-recommends ffmpeg");
     expect(fasterWhisperDockerfile).toContain("--no-binary=av");

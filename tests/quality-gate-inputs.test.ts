@@ -10,6 +10,11 @@ import {
 } from "../scripts/ci/quality-gate-inputs.js";
 
 describe("Quality Gate report inputs", () => {
+  it("does not report perfect coverage when coverage evidence is missing", () => {
+    expect(aggregateDiffCoverage([])).toEqual({ covered: 0, percentage: 0, total: 0 });
+    expect(aggregateRepositoryCoverage([])).toEqual({ covered: 0, percentage: 0, total: 0 });
+  });
+
   it("aggregates new-code coverage across all components by executable line", () => {
     const result = aggregateDiffCoverage([
       { total_num_lines: 8, total_num_violations: 2 },

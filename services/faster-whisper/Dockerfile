@@ -11,7 +11,7 @@ RUN sed -i \
     apt-get install --yes --no-install-recommends \
       build-essential ca-certificates curl libopus-dev nasm pkg-config xz-utils && \
     rm -rf /var/lib/apt/lists/*
-COPY docker/ffmpeg/build-lgpl.sh /usr/local/bin/build-ffmpeg-lgpl
+COPY --chmod=0755 docker/ffmpeg/build-lgpl.sh /usr/local/bin/build-ffmpeg-lgpl
 RUN /usr/local/bin/build-ffmpeg-lgpl
 
 FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS python-wheels

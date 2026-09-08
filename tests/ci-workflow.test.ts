@@ -34,7 +34,7 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("--cov-fail-under=85");
     expect(implementation).toContain("SMOKE_WHISPER_REVISION:");
     expect(implementation).toContain("SMOKE_OLLAMA_DIGEST:");
-    expect(implementation.match(/version: v0\.65\.0/gu)).toHaveLength(5);
+    expect(implementation.match(/version: v0\.74\.0/gu)).toHaveLength(5);
   });
 
   it("pins every external action to a full commit SHA", async () => {
@@ -115,6 +115,15 @@ describe("continuous integration contract", () => {
     expect(implementation.match(/format: json/gu)?.length).toBeGreaterThanOrEqual(4);
     expect(implementation).toContain('exit-code: "0"');
     expect(implementation).toContain("output: reports/security/trivy-policy.sarif");
+  });
+
+  it("does not require a developer .env file for CI Compose operations", async () => {
+    const overlay = await readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8");
+
+    for (const service of ["bot", "dashboard"]) {
+      const section = overlay.split(`\n  ${service}:`)[1]?.split(/\n {2}\S/u)[0];
+      expect(section).toContain("env_file: !reset []");
+    }
   });
 
   it("enforces changed coverage once over the weighted server, dashboard, and Python total", async () => {

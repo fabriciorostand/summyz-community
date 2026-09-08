@@ -212,7 +212,7 @@ jobs:
           format: json
           output: reports/security/trivy-filesystem.json
           exit-code: "0"
-          version: v0.65.0
+          version: v0.74.0
 
       - name: Enforce repository secret and misconfiguration policy
         if: always()
@@ -225,7 +225,7 @@ jobs:
           format: sarif
           output: reports/security/trivy-policy.sarif
           exit-code: "1"
-          version: v0.65.0
+          version: v0.74.0
 
       - name: Enforce fixable HIGH/CRITICAL dependency vulnerabilities
         if: always()
@@ -536,7 +536,7 @@ jobs:
           format: json
           output: reports/runtime/trivy-bot.json
           exit-code: "0"
-          version: v0.65.0
+          version: v0.74.0
 
       - name: Scan dashboard image
         if: always()
@@ -547,7 +547,7 @@ jobs:
           format: json
           output: reports/runtime/trivy-dashboard.json
           exit-code: "0"
-          version: v0.65.0
+          version: v0.74.0
 
       - name: Scan CPU transcription image
         if: always()
@@ -558,7 +558,7 @@ jobs:
           format: json
           output: reports/runtime/trivy-faster-whisper.json
           exit-code: "0"
-          version: v0.65.0
+          version: v0.74.0
 
       - name: Enforce fixable HIGH/CRITICAL image vulnerabilities
         if: always()

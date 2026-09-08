@@ -11,7 +11,7 @@ RUN sed -i \
     apt-get install --yes --no-install-recommends \
       build-essential ca-certificates curl libopus-dev nasm pkg-config xz-utils && \
     rm -rf /var/lib/apt/lists/*
-COPY docker/ffmpeg/build-lgpl.sh /usr/local/bin/build-ffmpeg-lgpl
+COPY --chmod=0755 docker/ffmpeg/build-lgpl.sh /usr/local/bin/build-ffmpeg-lgpl
 RUN /usr/local/bin/build-ffmpeg-lgpl
 
 FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS build
