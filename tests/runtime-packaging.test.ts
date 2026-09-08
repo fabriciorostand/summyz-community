@@ -144,7 +144,7 @@ describe("runtime packaging", () => {
     expect(files[3]).toContain("ollama/ollama:0.33.3-rocm@");
   });
 
-  it("fixa os repositórios dos pacotes do sistema em snapshots datados", async () => {
+  it("fixa os repositórios Debian e as versões dos pacotes Ubuntu", async () => {
     const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
     const fasterWhisperDockerfile = await readFile(
       new URL("services/faster-whisper/Dockerfile", repositoryRoot),
@@ -158,10 +158,9 @@ describe("runtime packaging", () => {
         /snapshot\.debian\.org\/archive\/debian-security\/\$\{DEBIAN_SNAPSHOT\}/u,
       );
     }
-    expect(fasterWhisperDockerfile).toContain("UBUNTU_SNAPSHOT=20260906T000000Z");
-    expect(fasterWhisperDockerfile).toMatch(
-      /snapshot\.ubuntu\.com\/ubuntu\/\$\{UBUNTU_SNAPSHOT\}/u,
-    );
+    expect(fasterWhisperDockerfile).toContain("UBUNTU_LIBOPUS_VERSION=1.4-1build1");
+    expect(fasterWhisperDockerfile).toContain("UBUNTU_PYTHON_VERSION=3.12.3-0ubuntu2.1");
+    expect(fasterWhisperDockerfile).not.toContain("snapshot.ubuntu.com");
     expect(fasterWhisperDockerfile).toContain("rm -f /etc/apt/sources.list.d/cuda.list");
   });
 

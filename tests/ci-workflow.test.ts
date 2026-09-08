@@ -164,41 +164,59 @@ describe("continuous integration contract", () => {
     expect(initializationStep).toContain("chmod 0777 reports");
   });
 
-  it("validates CUDA packaging after image scans without loading it into the runner", async () => {
+  it("preflights CUDA packages early and builds the target after reclaiming storage", async () => {
     const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const preflightIndex = implementation.indexOf("- name: Preflight NVIDIA system packages");
     const cudaBuildIndex = implementation.indexOf("- name: Build NVIDIA packaging target");
+    const botBuildIndex = implementation.indexOf("- name: Build bot image");
     const imagePolicyIndex = implementation.indexOf(
       "- name: Enforce fixable HIGH/CRITICAL image vulnerabilities",
     );
     const storageCleanupIndex = implementation.indexOf(
       "- name: Reclaim Docker storage before CUDA packaging",
     );
+    const preflight = implementation.slice(
+      preflightIndex,
+      implementation.indexOf("- name:", preflightIndex + 1),
+    );
     const cudaBuild = implementation.slice(
       cudaBuildIndex,
-      implementation.indexOf("- name: Upload runtime reports"),
+      implementation.indexOf("- name:", cudaBuildIndex + 1),
     );
-    const storageCleanup = implementation.slice(storageCleanupIndex, cudaBuildIndex);
 
+    expect(preflightIndex).toBeGreaterThan(-1);
+    expect(preflightIndex).toBeLessThan(botBuildIndex);
+    expect(preflight).toContain("read_docker_arg");
+    expect(preflight).toContain("archive.ubuntu.com/ubuntu/pool/");
+    expect(preflight).toContain("--retry-all-errors");
+    expect(preflight).toContain("--max-time 15");
     expect(storageCleanupIndex).toBeGreaterThan(imagePolicyIndex);
-    expect(cudaBuildIndex).toBeGreaterThan(imagePolicyIndex);
     expect(cudaBuildIndex).toBeGreaterThan(storageCleanupIndex);
-    expect(storageCleanup).toContain("docker image prune --all --force");
-    expect(storageCleanup).toContain("docker buildx prune --all --force");
     expect(cudaBuild).toContain("load: false");
     expect(cudaBuild).not.toContain("load: true");
   });
 
-  it("retries CUDA snapshot updates and rejects partial package indexes", async () => {
+  it("pins CUDA system packages while bounding official archive failures", async () => {
     const dockerfile = await readFile(new URL("services/faster-whisper/Dockerfile", root), "utf8");
     const cudaSetup = dockerfile.slice(
       dockerfile.indexOf("FROM nvidia/cuda:"),
       dockerfile.indexOf("WORKDIR /service", dockerfile.indexOf("FROM nvidia/cuda:")),
     );
 
-    expect(cudaSetup).toContain("for snapshot_update_attempt in 1 2 3");
-    expect(cudaSetup).toContain("Acquire::Retries=3");
+    expect(cudaSetup).toContain("UBUNTU_LIBOPUS_VERSION=1.4-1build1");
+    expect(cudaSetup).toContain("UBUNTU_PYTHON_VERSION=3.12.3-0ubuntu2.1");
+    expect(cudaSetup).toContain("UBUNTU_PYTHON_PIP_VERSION=24.0+dfsg-1ubuntu1.3");
+    expect(cudaSetup).toContain("UBUNTU_PYTHON_312_VENV_VERSION=3.12.3-1ubuntu0.16");
+    expect(cudaSetup).toContain(`libopus0=\${UBUNTU_LIBOPUS_VERSION}`);
+    expect(cudaSetup).toContain(`python3=\${UBUNTU_PYTHON_VERSION}`);
+    expect(cudaSetup).toContain(`python3-pip=\${UBUNTU_PYTHON_PIP_VERSION}`);
+    expect(cudaSetup).toContain(`python3.12-venv=\${UBUNTU_PYTHON_312_VENV_VERSION}`);
+    expect(cudaSetup).toContain(`python3-venv=\${UBUNTU_PYTHON_VERSION}`);
+    expect(cudaSetup).toContain("Acquire::Retries=1");
+    expect(cudaSetup).toContain("Acquire::http::Timeout=15");
+    expect(cudaSetup).toContain("Acquire::https::Timeout=15");
     expect(cudaSetup).toContain("APT::Update::Error-Mode=any");
-    expect(cudaSetup).toContain(`test "\${snapshot_update_status}" -eq 0`);
+    expect(cudaSetup).not.toContain("snapshot.ubuntu.com");
   });
 
   it("reclaims duplicated build storage before runtime validation and smoke tests", async () => {

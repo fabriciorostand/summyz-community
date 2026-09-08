@@ -425,6 +425,29 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Preflight NVIDIA system packages
+        shell: bash
+        run: |
+          read_docker_arg() {
+            sed -n "s/^ARG $1=//p" services/faster-whisper/Dockerfile
+          }
+          libopus_version="$(read_docker_arg UBUNTU_LIBOPUS_VERSION)"
+          python_version="$(read_docker_arg UBUNTU_PYTHON_VERSION)"
+          python_pip_version="$(read_docker_arg UBUNTU_PYTHON_PIP_VERSION)"
+          python_venv_version="$(read_docker_arg UBUNTU_PYTHON_312_VENV_VERSION)"
+          package_urls=(
+            "http://archive.ubuntu.com/ubuntu/pool/main/o/opus/libopus0_${libopus_version}_amd64.deb"
+            "http://archive.ubuntu.com/ubuntu/pool/main/p/python3-defaults/python3_${python_version}_amd64.deb"
+            "http://archive.ubuntu.com/ubuntu/pool/universe/p/python-pip/python3-pip_${python_pip_version}_all.deb"
+            "http://archive.ubuntu.com/ubuntu/pool/universe/p/python3.12/python3.12-venv_${python_venv_version}_amd64.deb"
+            "http://archive.ubuntu.com/ubuntu/pool/universe/p/python3-defaults/python3-venv_${python_version}_amd64.deb"
+          )
+          for package_url in "${package_urls[@]}"; do
+            curl --fail --location --silent --show-error \
+              --retry 1 --retry-all-errors --connect-timeout 5 --max-time 15 \
+              --output /dev/null "${package_url}"
+          done
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
