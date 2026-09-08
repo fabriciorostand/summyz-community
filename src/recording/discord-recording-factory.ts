@@ -5,8 +5,8 @@ import { ChannelType, type Client, type VoiceChannel } from "discord.js";
 import type { Logger } from "pino";
 
 import type { AppConfig } from "../config.js";
-import type { GuildSettings } from "../guild-config-store.js";
 import type { LiveMeetingStateWriter } from "../database/postgres-live-meeting-store.js";
+import type { GuildSettings } from "../guild-config-store.js";
 import { DiscordVoiceRecording } from "./discord-voice-recording.js";
 import {
   addParticipant,

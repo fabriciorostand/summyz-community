@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { PostgresDiscordConnectionStore } from "../src/database/postgres-discord-connection-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
+import { PostgresDiscordConnectionStore } from "../src/database/postgres-discord-connection-store.js";
 import { SecretBox } from "../src/security/secret-box.js";
 
 const secretBox = new SecretBox(Buffer.alloc(32, 9).toString("base64url"));

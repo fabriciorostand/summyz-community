@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, api, profileSchema, type Profile } from "./api";
+import { ApiError, api, type Profile, profileSchema } from "./api";
 
 afterEach(() => vi.unstubAllGlobals());
 

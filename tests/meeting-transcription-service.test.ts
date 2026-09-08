@@ -11,16 +11,16 @@ import {
   addSegment,
   createManifest,
   markManifestCompleted,
-  requireCurrentMeetingAiConfiguration,
   type RecordingManifest,
   type RecordingSegment,
+  requireCurrentMeetingAiConfiguration,
 } from "../src/recording/manifest.js";
 import { ManifestStore } from "../src/recording/manifest-store.js";
 import { MeetingTranscriptionService } from "../src/transcription/meeting-transcription-service.js";
 import { IncompatibleTranscriptionResponseError } from "../src/transcription/openrouter-transcription-provider.js";
-import { TranscriptionStore } from "../src/transcription/transcription-store.js";
 import type { SpeechAnalyzer } from "../src/transcription/speech-analyzer.js";
 import type { TranscriptionProvider } from "../src/transcription/transcription-provider.js";
+import { TranscriptionStore } from "../src/transcription/transcription-store.js";
 
 async function createMeeting(root: string): Promise<{
   manifest: RecordingManifest;

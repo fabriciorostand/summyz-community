@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  type AuthenticatedUser,
   dashboardThemeSchema,
   emailAddressSchema,
   normalizeEmailAddress,
   passwordSchema,
-  type AuthenticatedUser,
 } from "../src/auth/auth-domain.js";
 
 describe("authentication domain", () => {

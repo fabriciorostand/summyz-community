@@ -1,10 +1,10 @@
 import { z } from "zod";
 
 import {
+  type AiProfile,
   aiProfileSchema,
   canonicalizeAiProfileDefaults,
   createInitialAiProfiles,
-  type AiProfile,
 } from "../ai-profile.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 

@@ -3,9 +3,9 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import type { z } from "zod";
 
 import {
+  type AuthenticatedUser,
   dashboardLanguageSchema,
   dashboardThemeSchema,
-  type AuthenticatedUser,
   type installationRoleSchema,
   normalizeEmailAddress,
   passwordSchema,

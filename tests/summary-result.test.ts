@@ -2,9 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   createPublicSummary,
-  validateGroundedSummary,
   type SummaryDraft,
   type SummaryTranscriptEntry,
+  validateGroundedSummary,
 } from "../src/summary/summary-result.js";
 
 const transcript: SummaryTranscriptEntry[] = [

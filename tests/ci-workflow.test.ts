@@ -7,14 +7,19 @@ const root = new URL("../", import.meta.url);
 describe("continuous integration contract", () => {
   it("routes PR cancellation and serialized main pushes through one implementation", async () => {
     const entry = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const prJob = entry.slice(entry.indexOf("\n  pr:"), entry.indexOf("\n  main:"));
+    const mainJob = entry.slice(entry.indexOf("\n  main:"));
 
     expect(entry).toContain("pull_request:");
     expect(entry).toContain("push:");
     expect(entry).toContain("uses: ./.github/workflows/_ci.yml");
     expect(entry).toContain(["group: ci-pr-$", "{{ github.event.pull_request.number }}"].join(""));
     expect(entry).toContain("cancel-in-progress: true");
-    expect(entry).toContain("group: ci-main");
-    expect(entry).toContain("queue: max");
+    expect(prJob).not.toContain("pull-requests: write");
+    expect(mainJob).toContain("concurrency:");
+    expect(mainJob).toContain("group: ci-main");
+    expect(mainJob).toContain("queue: max");
+    expect(mainJob).not.toContain("cancel-in-progress: true");
   });
 
   it("exposes every blocking producer and an aggregate gate without custom timeouts", async () => {
@@ -29,7 +34,7 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("--cov-fail-under=85");
     expect(implementation).toContain("SMOKE_WHISPER_REVISION:");
     expect(implementation).toContain("SMOKE_OLLAMA_DIGEST:");
-    expect(implementation.match(/version: v0\.65\.0/gu)).toHaveLength(5);
+    expect(implementation.match(/version: v0\.74\.0/gu)).toHaveLength(5);
   });
 
   it("pins every external action to a full commit SHA", async () => {
@@ -45,6 +50,17 @@ describe("continuous integration contract", () => {
     }
   });
 
+  it("pins every Trivy scan to a patched action release", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const patchedTrivyAction =
+      "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0";
+
+    expect(implementation.split(patchedTrivyAction)).toHaveLength(6);
+    expect(implementation).not.toContain(
+      "aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8",
+    );
+  });
+
   it("uses the exact Node.js and Python versions in project and images", async () => {
     const [packageJson, dockerfile, pythonDockerfile] = await Promise.all([
       readFile(new URL("package.json", root), "utf8"),
@@ -56,6 +72,22 @@ describe("continuous integration contract", () => {
     expect(packageJson).toContain('"packageManager": "npm@10.9.8"');
     expect(dockerfile).toContain("node:22.23.2-bookworm-slim@sha256:");
     expect(pythonDockerfile).toContain("python:3.12.14-slim-bookworm@sha256:");
+  });
+
+  it("audits the Node.js lockfile without running dependency lifecycle scripts", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const securityJob = implementation.slice(
+      implementation.indexOf("\n  security:"),
+      implementation.indexOf("\n  tests:"),
+    );
+    const auditStep = securityJob.slice(
+      securityJob.indexOf("- name: Audit Node.js runtime dependencies"),
+      securityJob.indexOf("- name: Set up exact Python"),
+    );
+
+    expect(securityJob).toContain(`npm install --global "npm@\${NPM_VERSION}"`);
+    expect(securityJob).not.toContain("npm ci");
+    expect(auditStep).toContain("npm audit --package-lock-only --omit=optional --json");
   });
 
   it("uses the explicit Ubuntu release in every workflow", async () => {
@@ -70,7 +102,10 @@ describe("continuous integration contract", () => {
   });
 
   it("publishes the Scraper-style English Quality Gate from complete reports", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const [entry, implementation] = await Promise.all([
+      readFile(new URL(".github/workflows/ci.yml", root), "utf8"),
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+    ]);
 
     expect(implementation).toContain("scripts/ci/quality-gate-cli.ts");
     expect(implementation).toContain("scripts/ci/source-quality-cli.ts");
@@ -78,7 +113,12 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("lizard -l typescript -l tsx -l python");
     expect(implementation).toContain("quality-gate-baseline.json");
     expect(implementation).toContain("ci-summary.md");
-    expect(implementation).toContain('const fullBody = await readFile("ci-summary.md", "utf8")');
+    expect(implementation).not.toContain("pull-requests: write");
+    expect(entry).toContain("quality-gate-comment:");
+    expect(entry).toContain("pull-requests: write");
+    expect(entry).toContain(
+      'const fullBody = await readFile("quality-gate-comment/ci-summary.md", "utf8")',
+    );
     expect(implementation).not.toContain("## Summyz Community CI");
   });
 
@@ -93,6 +133,136 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("output: reports/security/trivy-policy.sarif");
   });
 
+  it("limits the blocking SARIF policy to configured severities", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const policyStep = implementation.slice(
+      implementation.indexOf("- name: Enforce repository secret and misconfiguration policy"),
+      implementation.indexOf("- name: Enforce fixable HIGH/CRITICAL dependency vulnerabilities"),
+    );
+
+    expect(policyStep).toContain("severity: HIGH,CRITICAL");
+    expect(policyStep).toContain("limit-severities-for-sarif: true");
+  });
+
+  it("makes the shared reports root writable before test containers run", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const testsJob = implementation.slice(
+      implementation.indexOf("\n  tests:"),
+      implementation.indexOf("\n  runtime:"),
+    );
+    const initializationIndex = testsJob.indexOf("- name: Initialize test reports");
+    const initializationStep = testsJob.slice(
+      initializationIndex,
+      testsJob.indexOf("- name:", initializationIndex + 1),
+    );
+
+    expect(initializationIndex).toBeGreaterThan(-1);
+    expect(initializationIndex).toBeLessThan(
+      testsJob.indexOf("- name: Run server tests with real PostgreSQL and coverage"),
+    );
+    expect(initializationStep).toContain("mkdir -p reports");
+    expect(initializationStep).toContain("chmod 0777 reports");
+  });
+
+  it("validates CUDA packaging after image scans without loading it into the runner", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const cudaBuildIndex = implementation.indexOf("- name: Build NVIDIA packaging target");
+    const imagePolicyIndex = implementation.indexOf(
+      "- name: Enforce fixable HIGH/CRITICAL image vulnerabilities",
+    );
+    const storageCleanupIndex = implementation.indexOf(
+      "- name: Reclaim Docker storage before CUDA packaging",
+    );
+    const cudaBuild = implementation.slice(
+      cudaBuildIndex,
+      implementation.indexOf("- name: Upload runtime reports"),
+    );
+    const storageCleanup = implementation.slice(storageCleanupIndex, cudaBuildIndex);
+
+    expect(storageCleanupIndex).toBeGreaterThan(imagePolicyIndex);
+    expect(cudaBuildIndex).toBeGreaterThan(imagePolicyIndex);
+    expect(cudaBuildIndex).toBeGreaterThan(storageCleanupIndex);
+    expect(storageCleanup).toContain("docker image prune --all --force");
+    expect(storageCleanup).toContain("docker buildx prune --all --force");
+    expect(cudaBuild).toContain("load: false");
+    expect(cudaBuild).not.toContain("load: true");
+  });
+
+  it("reclaims duplicated build storage before runtime validation and smoke tests", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
+    const smokeBuildIndex = runtimeJob.indexOf("- name: Build smoke-test image");
+    const storageCleanupIndex = runtimeJob.indexOf(
+      "- name: Reclaim build storage before runtime validation",
+    );
+    const validationIndex = runtimeJob.indexOf(
+      "- name: Validate image users, versions, and Compose overlays",
+    );
+    const storageCleanup = runtimeJob.slice(storageCleanupIndex, validationIndex);
+
+    expect(storageCleanupIndex).toBeGreaterThan(smokeBuildIndex);
+    expect(storageCleanupIndex).toBeLessThan(validationIndex);
+    expect(storageCleanup).toContain("docker buildx prune --all --force");
+    expect(storageCleanup).toContain("docker image prune --force");
+  });
+
+  it("makes the restored Whisper cache writable by the non-root runtime user", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
+    const restoreIndex = runtimeJob.indexOf("- name: Restore immutable local-model cache");
+    const permissionsIndex = runtimeJob.indexOf("- name: Prepare local-model cache permissions");
+    const smokeIndex = runtimeJob.indexOf("- name: Run real CPU local-AI smoke test");
+    const permissionsStep = runtimeJob.slice(permissionsIndex, smokeIndex);
+
+    expect(permissionsIndex).toBeGreaterThan(restoreIndex);
+    expect(permissionsIndex).toBeLessThan(smokeIndex);
+    expect(permissionsStep).toContain(`mkdir -p "\${CI_OLLAMA_CACHE}" "\${CI_WHISPER_CACHE}"`);
+    expect(permissionsStep).toContain("summyz-community-faster-whisper:ci -u");
+    expect(permissionsStep).toContain("summyz-community-faster-whisper:ci -g");
+    expect(permissionsStep).toContain('--user "0:0"');
+    expect(permissionsStep).toContain(`--volume "\${CI_WHISPER_CACHE}:/models"`);
+    expect(permissionsStep).toContain("--entrypoint chown");
+  });
+
+  it("waits for local-AI healthchecks and prints diagnostics after smoke failures", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
+    const smokeIndex = runtimeJob.indexOf("- name: Run real CPU local-AI smoke test");
+    const diagnosticsIndex = runtimeJob.indexOf("- name: Diagnose local-AI smoke-test failure");
+    const stopIndex = runtimeJob.indexOf("- name: Stop local-AI services");
+    const smokeStep = runtimeJob.slice(smokeIndex, diagnosticsIndex);
+    const diagnosticsStep = runtimeJob.slice(diagnosticsIndex, stopIndex);
+
+    expect(smokeStep).toContain("id: local_ai_smoke");
+    expect(smokeStep).toContain("--wait --wait-timeout 180");
+    expect(diagnosticsIndex).toBeGreaterThan(smokeIndex);
+    expect(diagnosticsIndex).toBeLessThan(stopIndex);
+    expect(diagnosticsStep).toContain("if: failure() && steps.local_ai_smoke.outcome == 'failure'");
+    expect(diagnosticsStep).toContain("docker compose");
+    expect(diagnosticsStep).toContain("ps --all");
+    expect(diagnosticsStep).toContain("logs --no-color --timestamps ollama faster-whisper");
+  });
+
+  it("does not require a developer .env file for CI Compose operations", async () => {
+    const [overlay, implementation] = await Promise.all([
+      readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8"),
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+    ]);
+
+    for (const service of ["bot", "dashboard"]) {
+      const section = overlay.split(`\n  ${service}:`)[1]?.split(/\n {2}\S/u)[0];
+      expect(section).toContain("env_file: !reset []");
+    }
+
+    const validationStep = implementation.slice(
+      implementation.indexOf("- name: Validate image users, versions, and Compose overlays"),
+      implementation.indexOf("- name: Restore immutable local-model cache"),
+    );
+    expect(validationStep.match(/-f \.github\/ci\/docker-compose\.ci\.yaml/gu)).toHaveLength(3);
+    expect(validationStep).toContain("CI_OLLAMA_CACHE:");
+    expect(validationStep).toContain("CI_WHISPER_CACHE:");
+  });
+
   it("enforces changed coverage once over the weighted server, dashboard, and Python total", async () => {
     const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
     const changedCoverageStep = implementation.slice(
@@ -103,5 +273,8 @@ describe("continuous integration contract", () => {
     expect(changedCoverageStep).toContain("for component in server web python");
     expect(changedCoverageStep).not.toContain("--fail-under 85");
     expect(changedCoverageStep).toContain("scripts/ci/changed-coverage-cli.ts");
+    expect(changedCoverageStep).toContain("docker run --rm");
+    expect(changedCoverageStep).toContain('--user "$(id -u):$(id -g)"');
+    expect(changedCoverageStep).toContain("summyz-community-tests:ci");
   });
 });

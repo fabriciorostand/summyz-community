@@ -4,7 +4,7 @@ import {
   RefinementProviderFailureError,
   RefinementRequestError,
 } from "./refinement-provider.js";
-import { refinementEntrySchema, type RefinementEntry } from "./refinement-result.js";
+import { type RefinementEntry, refinementEntrySchema } from "./refinement-result.js";
 
 interface MeetingRefinementGeneratorOptions {
   maxChunkCharacters: number;

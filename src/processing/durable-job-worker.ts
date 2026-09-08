@@ -2,12 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import type { Logger } from "pino";
 import { z } from "zod";
-
-import type { ClaimedProcessingJob } from "./durable-job-queue.js";
 import {
   type TranscriptionRecoveryReason,
   transcriptionRecoveryReasonSchema,
 } from "../transcription/transcription-recovery-policy.js";
+import type { ClaimedProcessingJob } from "./durable-job-queue.js";
 
 export interface ProcessingQueue {
   claim(workerId: string): Promise<ClaimedProcessingJob | undefined>;

@@ -1,8 +1,8 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { api, ApiError } from "./api";
+import { ApiError, api } from "./api";
 import {
   ForgotPasswordPage,
   LoginPage,

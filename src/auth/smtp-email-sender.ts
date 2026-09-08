@@ -1,10 +1,9 @@
 import nodemailer from "nodemailer";
-
-import type { AuthenticationEmailSender } from "./auth-service.js";
 import type {
-  InstallationSettings,
   InstallationSecretName,
+  InstallationSettings,
 } from "../database/postgres-installation-settings-store.js";
+import type { AuthenticationEmailSender } from "./auth-service.js";
 
 interface SettingsReader {
   getSecret(name: InstallationSecretName): Promise<string | undefined>;

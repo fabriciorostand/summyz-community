@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { recordingManifestSchema, type RecordingManifest } from "./manifest.js";
+import { type RecordingManifest, recordingManifestSchema } from "./manifest.js";
 
 const legacyManifestSchema = z
   .object({

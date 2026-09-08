@@ -39,6 +39,7 @@ const roundPercentage = (covered: number, total: number): number =>
   total === 0 ? 100 : Math.round((covered / total) * 10_000) / 100;
 
 export const aggregateDiffCoverage = (reports: readonly unknown[]): CoverageAggregate => {
+  if (reports.length === 0) return { covered: 0, percentage: 0, total: 0 };
   let total = 0;
   let violations = 0;
   for (const report of reports) {
@@ -70,6 +71,7 @@ const coverageCounts = (report: unknown): Pick<CoverageAggregate, "covered" | "t
 };
 
 export const aggregateRepositoryCoverage = (reports: readonly unknown[]): CoverageAggregate => {
+  if (reports.length === 0) return { covered: 0, percentage: 0, total: 0 };
   let covered = 0;
   let total = 0;
   for (const report of reports) {

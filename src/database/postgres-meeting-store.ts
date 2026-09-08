@@ -34,8 +34,6 @@ export class PostgresMeetingStore implements ManifestIndex {
 
   public async save(manifest: RecordingManifest): Promise<void> {
     const validated = recordingManifestSchema.parse(manifest);
-    const pipelineStatus: MeetingPipelineStatus =
-      validated.status === "completed" ? "queued" : "recording";
     await this.#database.query(
       `
 WITH saved_meeting AS (
@@ -84,50 +82,9 @@ FROM saved_meeting
 WHERE $5 = 'completed'
 ON CONFLICT (meeting_id, job_type) DO NOTHING
 `,
-      [
-        validated.meetingId,
-        validated.guildId,
-        validated.voiceChannelId,
-        validated.notificationChannelId,
-        validated.status,
-        pipelineStatus,
-        JSON.stringify(validated),
-        validated.persistMeetingContent,
-        validated.persistMeetingAudio,
-        validated.storageMode,
-        validated.startedAt,
-        validated.completedAt ?? null,
-        randomUUID(),
-        new Date().toISOString(),
-        validated.voiceChannelName ?? null,
-        CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
-        validated.aiProfile?.profileId ?? null,
-        validated.aiProfile?.name ?? null,
-      ],
+      meetingQueryValues(validated),
     );
-    if (validated.participants.length > 0) {
-      await this.#database.query(
-        `INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name, avatar_url)
-         SELECT $1, $2, participant.user_id, participant.display_name, participant.avatar_url
-         FROM jsonb_to_recordset($3::jsonb) AS participant(
-           user_id text, display_name text, avatar_url text
-         )
-         ON CONFLICT (meeting_id, user_id) DO UPDATE SET
-           display_name = EXCLUDED.display_name,
-           avatar_url = EXCLUDED.avatar_url`,
-        [
-          validated.meetingId,
-          validated.guildId,
-          JSON.stringify(
-            validated.participants.map((participant) => ({
-              display_name: participant.displayName,
-              avatar_url: participant.avatarUrl ?? null,
-              user_id: participant.userId,
-            })),
-          ),
-        ],
-      );
-    }
+    await persistParticipants(this.#database, validated);
   }
 
   public async listCompleted(): Promise<RecordingManifest[]> {
@@ -213,4 +170,65 @@ ORDER BY started_at
     );
     return result.rows.map((row) => recordingManifestSchema.parse(row.manifest));
   }
+}
+
+type ValidatedManifest = z.infer<typeof recordingManifestSchema>;
+
+function meetingQueryValues(manifest: ValidatedManifest): readonly unknown[] {
+  return [
+    manifest.meetingId,
+    manifest.guildId,
+    manifest.voiceChannelId,
+    manifest.notificationChannelId,
+    manifest.status,
+    pipelineStatusFor(manifest.status),
+    JSON.stringify(manifest),
+    manifest.persistMeetingContent,
+    manifest.persistMeetingAudio,
+    manifest.storageMode,
+    manifest.startedAt,
+    nullWhenUndefined(manifest.completedAt),
+    randomUUID(),
+    new Date().toISOString(),
+    nullWhenUndefined(manifest.voiceChannelName),
+    CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
+    nullWhenUndefined(manifest.aiProfile?.profileId),
+    nullWhenUndefined(manifest.aiProfile?.name),
+  ];
+}
+
+function pipelineStatusFor(status: RecordingManifest["status"]): MeetingPipelineStatus {
+  return status === "completed" ? "queued" : "recording";
+}
+
+async function persistParticipants(
+  database: PostgresExecutor,
+  manifest: ValidatedManifest,
+): Promise<void> {
+  if (manifest.participants.length === 0) return;
+  await database.query(
+    `INSERT INTO meeting_participants (meeting_id, guild_id, user_id, display_name, avatar_url)
+     SELECT $1, $2, participant.user_id, participant.display_name, participant.avatar_url
+     FROM jsonb_to_recordset($3::jsonb) AS participant(
+       user_id text, display_name text, avatar_url text
+     )
+     ON CONFLICT (meeting_id, user_id) DO UPDATE SET
+       display_name = EXCLUDED.display_name,
+       avatar_url = EXCLUDED.avatar_url`,
+    [
+      manifest.meetingId,
+      manifest.guildId,
+      JSON.stringify(
+        manifest.participants.map((participant) => ({
+          avatar_url: nullWhenUndefined(participant.avatarUrl),
+          display_name: participant.displayName,
+          user_id: participant.userId,
+        })),
+      ),
+    ],
+  );
+}
+
+function nullWhenUndefined<T>(value: T | undefined): T | null {
+  return value ?? null;
 }

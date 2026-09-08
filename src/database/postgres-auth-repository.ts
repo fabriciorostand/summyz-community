@@ -1,16 +1,15 @@
 import { z } from "zod";
-
+import {
+  dashboardLanguageSchema,
+  dashboardThemeSchema,
+  installationRoleSchema,
+} from "../auth/auth-domain.js";
 import type {
   AuthRepository,
   AuthTokenPurpose,
   StoredDashboardUser,
   StoredSession,
 } from "../auth/auth-service.js";
-import {
-  dashboardLanguageSchema,
-  dashboardThemeSchema,
-  installationRoleSchema,
-} from "../auth/auth-domain.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(128);

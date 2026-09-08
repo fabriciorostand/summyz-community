@@ -8,33 +8,27 @@ import Fastify from "fastify";
 import { ZodError, z } from "zod";
 
 import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
-import { createDefaultAiPrompts } from "../ai-prompts.js";
 import { AuthenticationError } from "../auth/auth-service.js";
 import { SessionTokenError } from "../auth/jwt-session.js";
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
-
+import { registerAnalyticsRoutes } from "./server-analytics-routes.js";
+import { registerAuthRoutes } from "./server-auth-routes.js";
 import {
   type ApiServerDependencies,
-  credentialsSchema,
   guildSettingsSchema,
   profileBodySchema,
   profileParametersSchema,
-  registrationSchema,
   setupSchema,
 } from "./server-contracts.js";
 import {
   authenticateRequest,
   authorizeGuild,
-  clearSessionCookies,
   createGuildAccessResolver,
   getErrorStatusCode,
   logApiFailure,
-  refreshParticipantProfiles,
   requireAdministrator,
-  requireAnalytics,
   runApiDependency,
   safeEqual,
-  setSessionCookies,
 } from "./server-support.js";
 
 export type { ApiServerDependencies, GuildDirectory } from "./server-contracts.js";
@@ -116,113 +110,7 @@ export async function createApiServer(
     },
   );
 
-  app.post(
-    "/api/auth/register",
-    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
-    async (request, reply) => {
-      const settings = await dependencies.settings.getSettings();
-      if (!settings.setupCompleted || !settings.registrationEnabled) {
-        return reply.status(403).send({ error: "registration_disabled" });
-      }
-      await dependencies.auth.register(registrationSchema.parse(request.body));
-      return reply.status(202).send();
-    },
-  );
-  app.post("/api/auth/verify", async (request, reply) => {
-    const body = z.object({ token: z.string().min(1) }).parse(request.body);
-    await dependencies.auth.verifyEmail(body.token);
-    return reply.status(204).send();
-  });
-  app.post(
-    "/api/auth/login",
-    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
-    async (request, reply) => {
-      const credentials = credentialsSchema.parse(request.body);
-      const tokens = await dependencies.auth.login(credentials.email, credentials.password);
-      setSessionCookies(reply, tokens, dependencies.secureCookies);
-      return reply.status(204).send();
-    },
-  );
-  app.post("/api/auth/refresh", async (request, reply) => {
-    const refreshToken = request.cookies.summyz_refresh;
-    if (refreshToken === undefined) return reply.status(401).send({ error: "session_expired" });
-    const tokens = await dependencies.auth.refresh(refreshToken);
-    setSessionCookies(reply, tokens, dependencies.secureCookies);
-    return reply.status(204).send();
-  });
-  app.post("/api/auth/logout", async (request, reply) => {
-    const accessToken = request.cookies.summyz_access;
-    if (accessToken !== undefined) await dependencies.auth.logout(accessToken);
-    clearSessionCookies(reply, dependencies.secureCookies);
-    return reply.status(204).send();
-  });
-  app.post("/api/auth/forgot-password", async (request, reply) => {
-    const body = z.object({ email: z.email() }).parse(request.body);
-    await dependencies.auth.requestPasswordReset(body.email);
-    return reply.status(202).send();
-  });
-  app.post("/api/auth/reset-password", async (request, reply) => {
-    const body = z
-      .object({ password: z.string().min(1), token: z.string().min(1) })
-      .parse(request.body);
-    await dependencies.auth.resetPassword(body.token, body.password);
-    return reply.status(204).send();
-  });
-  app.post("/api/auth/change-password", async (request, reply) => {
-    const user = await authenticateRequest(request, dependencies);
-    const body = z
-      .object({
-        currentPassword: z.string().min(1).max(1_024),
-        newPassword: z.string().min(12).max(1_024),
-      })
-      .parse(request.body);
-    await dependencies.auth.changePassword(user.userId, body.currentPassword, body.newPassword);
-    clearSessionCookies(reply, dependencies.secureCookies);
-    return reply.status(204).send();
-  });
-  app.get("/api/auth/me", async (request) => authenticateRequest(request, dependencies));
-
-  app.put("/api/account/preferences", async (request, reply) => {
-    const user = await authenticateRequest(request, dependencies);
-    const preferences = z
-      .object({
-        dashboardLanguage: z.enum(["en", "pt-BR"]),
-        dashboardTheme: z.enum(["system", "light", "dark"]),
-      })
-      .parse(request.body);
-    await dependencies.auth.updatePreferences(user.userId, preferences);
-    return reply.status(204).send();
-  });
-
-  app.get("/api/ai/prompts/defaults", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
-    const { summaryLanguage } = z
-      .object({ summaryLanguage: z.string().min(1).max(32) })
-      .parse(request.query);
-    return createDefaultAiPrompts(user.dashboardLanguage, summaryLanguage);
-  });
-
-  app.get("/api/discord/connect", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
-    return { authorizationUrl: await dependencies.discord.createAuthorizationUrl(user.userId) };
-  });
-  app.get("/api/discord/callback", async (request, reply) => {
-    const user = await authenticateRequest(request, dependencies);
-    const query = z
-      .object({ code: z.string().min(1), state: z.string().min(1) })
-      .parse(request.query);
-    await dependencies.discord.completeAuthorization(user.userId, query.code, query.state);
-    return reply.redirect("/account?discord=connected");
-  });
-  app.get("/api/discord/connection", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
-    return dependencies.discord.getConnectionStatus(user.userId);
-  });
-  app.delete("/api/discord/connection", async (request, reply) => {
-    const user = await authenticateRequest(request, dependencies);
-    await dependencies.discord.disconnect(user.userId);
-    return reply.status(204).send();
-  });
+  registerAuthRoutes(app, dependencies);
 
   app.get("/api/guilds", async (request) => {
     const user = await authenticateRequest(request, dependencies);
@@ -272,184 +160,7 @@ export async function createApiServer(
       }),
     );
   });
-  app.get("/api/guilds/:guildId/dashboard", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const analytics = requireAnalytics(dependencies);
-    const { period } = z
-      .object({ period: z.enum(["30d", "90d", "all"]).default("30d") })
-      .parse(request.query);
-    const [dashboard, liveMeeting] = await Promise.all([
-      analytics.getDashboard(guildId, {
-        period,
-        timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-      }),
-      dependencies.liveMeetings.getForGuild(guildId),
-    ]);
-    const profiles = await refreshParticipantProfiles(
-      guildId,
-      [
-        ...dashboard.topSpeakers.map((speaker) => speaker.userId),
-        ...(liveMeeting?.participants.map((participant) => participant.userId) ?? []),
-      ],
-      dependencies,
-    );
-    return {
-      ...dashboard,
-      liveMeeting:
-        liveMeeting === null
-          ? null
-          : {
-              ...liveMeeting,
-              participants: liveMeeting.participants.map((participant) => ({
-                ...participant,
-                avatarUrl: profiles.get(participant.userId)?.avatarUrl ?? participant.avatarUrl,
-                displayName:
-                  profiles.get(participant.userId)?.displayName ?? participant.displayName,
-              })),
-            },
-      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-      topSpeakers: dashboard.topSpeakers.map((speaker) => ({
-        ...speaker,
-        avatarUrl: profiles.get(speaker.userId)?.avatarUrl ?? speaker.avatarUrl,
-        displayName: profiles.get(speaker.userId)?.displayName ?? speaker.displayName,
-      })),
-    };
-  });
-  app.get("/api/guilds/:guildId/meetings", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = z
-      .object({
-        dateFrom: z.iso.date().optional(),
-        dateTo: z.iso.date().optional(),
-        channelName: z.string().trim().min(1).max(100).optional(),
-        contentRetained: z.stringbool().optional(),
-        meetingId: z.string().trim().min(1).max(128).optional(),
-        page: z.coerce.number().int().positive().default(1),
-        participantUserId: z.string().trim().min(1).max(128).optional(),
-        state: z.enum(["completed", "failed", "in_progress"]).optional(),
-      })
-      .parse(request.query);
-    const analytics = requireAnalytics(dependencies);
-    const history = await analytics.listMeetings(
-      guildId,
-      query.meetingId === undefined
-        ? {
-            ...(query.dateFrom === undefined ? {} : { dateFrom: query.dateFrom }),
-            ...(query.dateTo === undefined ? {} : { dateTo: query.dateTo }),
-            ...(query.channelName === undefined ? {} : { channelName: query.channelName }),
-            ...(query.contentRetained === undefined
-              ? {}
-              : { contentRetained: query.contentRetained }),
-            pageSize: 20,
-            page: query.page,
-            ...(query.state === undefined ? {} : { state: query.state }),
-            ...(query.participantUserId === undefined
-              ? {}
-              : { participantUserId: query.participantUserId }),
-            timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-          }
-        : {
-            meetingId: query.meetingId,
-            pageSize: 20,
-            page: query.page,
-            timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-          },
-    );
-    const liveMeeting = await dependencies.liveMeetings.getForGuild(guildId);
-    const itemsWithLiveParticipants = history.items.map((meeting) =>
-      liveMeeting?.meetingId === meeting.meetingId
-        ? {
-            ...meeting,
-            participants: liveMeeting.participants.map((participant) => ({
-              ...participant,
-              percentage: null,
-              talkTimeMs: null,
-            })),
-          }
-        : meeting,
-    );
-    const userIds = itemsWithLiveParticipants.flatMap(
-      (meeting) => meeting.participants?.map((item) => item.userId) ?? [],
-    );
-    const profiles = await refreshParticipantProfiles(guildId, userIds, dependencies);
-    return {
-      ...history,
-      items: itemsWithLiveParticipants.map((meeting) => ({
-        ...meeting,
-        participants:
-          meeting.participants?.map((participant) => ({
-            ...participant,
-            avatarUrl: profiles.get(participant.userId)?.avatarUrl ?? participant.avatarUrl,
-            displayName: profiles.get(participant.userId)?.displayName ?? participant.displayName,
-          })) ?? null,
-      })),
-      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-    };
-  });
-  app.get("/api/guilds/:guildId/meetings/:meetingId", async (request, reply) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const { meetingId } = z.object({ meetingId: z.string().min(1).max(128) }).parse(request.params);
-    const analytics = requireAnalytics(dependencies);
-    const meeting = await analytics.getMeeting(guildId, meetingId);
-    if (meeting === undefined) return reply.status(404).send({ error: "meeting_not_found" });
-    const liveMeeting = await dependencies.liveMeetings.getForGuild(guildId);
-    const participants =
-      liveMeeting?.meetingId === meeting.meetingId
-        ? liveMeeting.participants.map((participant) => ({
-            ...participant,
-            percentage: null,
-            talkTimeMs: null,
-          }))
-        : meeting.participants;
-    const profiles = await refreshParticipantProfiles(
-      guildId,
-      participants?.map((participant) => participant.userId) ?? [],
-      dependencies,
-    );
-    return {
-      ...meeting,
-      participants:
-        participants?.map((participant) => ({
-          ...participant,
-          avatarUrl: profiles.get(participant.userId)?.avatarUrl ?? participant.avatarUrl,
-          displayName: profiles.get(participant.userId)?.displayName ?? participant.displayName,
-        })) ?? null,
-      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-    };
-  });
-  app.get("/api/guilds/:guildId/tasks", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = z
-      .object({
-        completed: z.stringbool().optional(),
-        meetingId: z.string().min(1).max(128).optional(),
-      })
-      .parse(request.query);
-    const tasks = await dependencies.tasks.list(guildId, {
-      ...(query.completed === undefined ? {} : { completed: query.completed }),
-      ...(query.meetingId === undefined ? {} : { meetingId: query.meetingId }),
-    });
-    const profiles = await refreshParticipantProfiles(
-      guildId,
-      tasks.flatMap((task) => (task.ownerUserId === null ? [] : [task.ownerUserId])),
-      dependencies,
-    );
-    return tasks.map((task) => {
-      const profile = task.ownerUserId === null ? undefined : profiles.get(task.ownerUserId);
-      return {
-        ...task,
-        ownerAvatarUrl: profile?.avatarUrl ?? task.ownerAvatarUrl,
-        ownerDisplayName: profile?.displayName ?? task.ownerDisplayName,
-      };
-    });
-  });
-  app.patch("/api/guilds/:guildId/tasks/:taskId/completion", async (request, reply) => {
-    const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const { taskId } = z.object({ taskId: z.uuid() }).parse(request.params);
-    const { completed } = z.object({ completed: z.boolean() }).parse(request.body);
-    await dependencies.tasks.setCompleted(guildId, taskId, user.userId, completed);
-    return reply.status(204).send();
-  });
+  registerAnalyticsRoutes(app, dependencies, resolveGuildAccess);
   app.get("/api/guilds/:guildId/configuration", async (request) => {
     const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const [settings, recordingRoleIds, summaryForum, profiles, activeProfile] =

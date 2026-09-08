@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { PostgresMeetingAudioCatalog } from "../src/database/postgres-meeting-audio-catalog.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
+import { PostgresMeetingAudioCatalog } from "../src/database/postgres-meeting-audio-catalog.js";
 import { addSegment, createManifest, markManifestCompleted } from "../src/recording/manifest.js";
 
 const manifest = markManifestCompleted(

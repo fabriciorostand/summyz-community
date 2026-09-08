@@ -1,7 +1,7 @@
 import {
+  type ManifestStatus,
   markManifestCompleted,
   markManifestInterrupted,
-  type ManifestStatus,
   type RecordingManifest,
 } from "./manifest.js";
 

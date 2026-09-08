@@ -1,4 +1,4 @@
-import { ChannelType, Events, type Client, type VoiceState } from "discord.js";
+import { ChannelType, type Client, Events, type VoiceState } from "discord.js";
 import type { Logger } from "pino";
 
 import type { RecordingCoordinator } from "../recording/recording-coordinator.js";

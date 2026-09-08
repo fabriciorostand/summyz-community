@@ -3,9 +3,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
-
-import { writePcmAsWav } from "../src/transcription/wav.js";
 import { SileroSpeechAnalyzer } from "../src/transcription/speech-analyzer.js";
+import { writePcmAsWav } from "../src/transcription/wav.js";
 
 describe("SileroSpeechAnalyzer com áudio sintético", () => {
   it("não confunde silêncio PCM com voz", async () => {

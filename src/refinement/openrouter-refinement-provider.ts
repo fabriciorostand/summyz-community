@@ -2,14 +2,8 @@ import type { Logger } from "pino";
 import { z } from "zod";
 
 import { composeProtectedPrompt } from "../ai-system-prompt.js";
-import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 import { getOpenRouterGenerationId, readOpenRouterResponse } from "../cost/openrouter-response.js";
-
-import {
-  applyRefinement,
-  type RefinementEntry,
-  refinementBlockSchema,
-} from "./refinement-result.js";
+import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 import {
   IncompatibleRefinementResponseError,
   type RefinementProvider,
@@ -17,13 +11,18 @@ import {
   type RefinementProviderResult,
   RefinementRequestError,
 } from "./refinement-provider.js";
+import {
+  applyRefinement,
+  type RefinementEntry,
+  refinementBlockSchema,
+} from "./refinement-result.js";
 
+export type { RefinementProvider, RefinementProviderResult } from "./refinement-provider.js";
 export {
   IncompatibleRefinementResponseError,
   RefinementProviderFailureError,
   RefinementRequestError,
 } from "./refinement-provider.js";
-export type { RefinementProvider, RefinementProviderResult } from "./refinement-provider.js";
 
 const OPENROUTER_REFINEMENT_URL = "https://openrouter.ai/api/v1/chat/completions";
 

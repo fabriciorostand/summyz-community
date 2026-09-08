@@ -1,9 +1,9 @@
 av==18.1.0
-ctranslate2==4.6.0
+ctranslate2==4.8.2
 fastapi==0.141.1
 faster-whisper==1.2.1
 numpy==2.2.6
 python-multipart==0.0.32
 requests==2.34.2
-setuptools==80.9.0
+setuptools==83.0.0
 uvicorn==0.52.4

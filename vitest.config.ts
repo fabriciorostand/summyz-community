@@ -5,6 +5,8 @@ export default defineConfig({
     exclude: ["**/node_modules/**", "**/.git/**", "tests/smoke/**", "web/**"],
     coverage: {
       exclude: [
+        "src/api/server-analytics-routes.ts",
+        "src/api/server-auth-routes.ts",
         "src/api/server.ts",
         "src/auth/smtp-email-sender.ts",
         "src/database/postgres-auth-repository.ts",

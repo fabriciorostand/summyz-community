@@ -1,6 +1,6 @@
 import { composeProtectedPrompt } from "../ai-system-prompt.js";
-import { requestOllamaStructured } from "../local-ai/ollama-client.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
+import { requestOllamaStructured } from "../local-ai/ollama-client.js";
 import {
   type SummaryProvider,
   SummaryProviderFailureError,

@@ -107,16 +107,20 @@ function extractTasks(summary: unknown): Record<string, unknown>[] {
   const state = summaryStateSchema.safeParse(summary);
   if (!state.success || state.data.status !== "completed") return [];
   return state.data.summary.tasks.map((task, taskIndex) => ({
-    deadline_date: task.deadlineDate ?? null,
-    deadline_precision: task.deadlinePrecision ?? null,
-    deadline_text: task.deadlineText ?? null,
-    deadline_time: task.deadlineTime ?? null,
-    deadline_time_zone: task.deadlineTimeZone ?? null,
-    owner_name: task.ownerName ?? null,
+    deadline_date: nullWhenUndefined(task.deadlineDate),
+    deadline_precision: nullWhenUndefined(task.deadlinePrecision),
+    deadline_text: nullWhenUndefined(task.deadlineText),
+    deadline_time: nullWhenUndefined(task.deadlineTime),
+    deadline_time_zone: nullWhenUndefined(task.deadlineTimeZone),
+    owner_name: nullWhenUndefined(task.ownerName),
     task_id: randomUUID(),
     task_index: taskIndex,
     task_text: task.text,
   }));
+}
+
+function nullWhenUndefined<T>(value: T | undefined): T | null {
+  return value ?? null;
 }
 
 function serializeJson(value: unknown): string {

@@ -1,9 +1,8 @@
 import { PassThrough } from "node:stream";
 
 import { describe, expect, it, vi } from "vitest";
-
-import { createApiServer, type ApiServerDependencies } from "../src/api/server.js";
 import { createInitialAiProfile } from "../src/ai-profile.js";
+import { type ApiServerDependencies, createApiServer } from "../src/api/server.js";
 import { SessionTokenError } from "../src/auth/jwt-session.js";
 import { PostgresAiProfileStore } from "../src/database/postgres-ai-profile-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";

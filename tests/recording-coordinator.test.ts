@@ -1,13 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { createManifest } from "../src/recording/manifest.js";
 import {
   RecordingAlreadyActiveError,
   RecordingCoordinator,
-  shouldStartTranscription,
   type RecordingHandle,
   type RecordingSessionFactory,
+  shouldStartTranscription,
 } from "../src/recording/recording-coordinator.js";
-import { createManifest } from "../src/recording/manifest.js";
 
 function createHandle(guildId: string, voiceChannelId: string): RecordingHandle {
   return {

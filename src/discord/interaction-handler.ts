@@ -11,20 +11,20 @@ import {
 } from "discord.js";
 import type { Logger } from "pino";
 
-import { isAiProfileComplete, type AiProfileCompatibilityStatus } from "../ai-profile.js";
+import { type AiProfileCompatibilityStatus, isAiProfileComplete } from "../ai-profile.js";
 import { canConfigureSummaryForum, canManageRecordingRoles, canRecord } from "../authorization.js";
 import type { AppConfig } from "../config.js";
 import { CostReportError } from "../cost/cost-report.js";
+import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
 import { MultilingualCheckpointRequiredError } from "../local-ai/local-model-manager.js";
 import { OpenRouterModelPreflightError } from "../openrouter/model-preflight.js";
-import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import {
   RecordingAlreadyActiveError,
   type RecordingCoordinator,
 } from "../recording/recording-coordinator.js";
-import { createEphemeralReply } from "./responses.js";
 import { getInteractionText, type InteractionText } from "./interaction-text.js";
+import { createEphemeralReply } from "./responses.js";
 
 export function installInteractionHandler(
   client: Client,

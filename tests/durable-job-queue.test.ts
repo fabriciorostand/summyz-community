@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { DurableJobQueue } from "../src/processing/durable-job-queue.js";
 import type { PostgresExecutor, PostgresQueryResult } from "../src/database/postgres-database.js";
+import { DurableJobQueue } from "../src/processing/durable-job-queue.js";
 
 function createExecutor(results: PostgresQueryResult[]) {
   const query = vi.fn(

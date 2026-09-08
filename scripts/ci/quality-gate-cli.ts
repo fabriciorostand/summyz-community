@@ -1,8 +1,16 @@
-import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { z } from "zod";
-
+import {
+  type Diagnostic,
+  diagnosticFingerprint,
+  evaluateQualityGate,
+  type GateMetrics,
+  renderQualityGateMarkdown,
+  type SecurityFinding,
+  securityFindingFingerprint,
+} from "./quality-gate.js";
 import {
   aggregateDiffCoverage,
   aggregateRepositoryCoverage,
@@ -11,15 +19,6 @@ import {
   parseSarifReport,
   parseTrivyReport,
 } from "./quality-gate-inputs.js";
-import {
-  diagnosticFingerprint,
-  evaluateQualityGate,
-  renderQualityGateMarkdown,
-  securityFindingFingerprint,
-  type Diagnostic,
-  type GateMetrics,
-  type SecurityFinding,
-} from "./quality-gate.js";
 
 const moduleSchema = z.object({
   changed: z.boolean(),

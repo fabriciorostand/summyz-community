@@ -2,8 +2,8 @@ import type { MeetingPipelineStatus } from "../database/postgres-meeting-store.j
 import type { RecordingManifest } from "../recording/manifest.js";
 import type { RefinementState } from "../refinement/refinement-state.js";
 import type { SummaryState } from "../summary/summary-state.js";
-import type { TranscriptionState } from "../transcription/transcription-state.js";
 import type { TranscriptionRecoveryReason } from "../transcription/transcription-recovery-policy.js";
+import type { TranscriptionState } from "../transcription/transcription-state.js";
 import type { ClaimedProcessingJob, ProcessingJobType } from "./durable-job-queue.js";
 import { ProcessingJobError, type ProcessingJobHandler } from "./durable-job-worker.js";
 import type { MeetingAudioCatalog } from "./meeting-audio-catalog.js";

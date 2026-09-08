@@ -5,10 +5,10 @@ import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 
 import {
   IncompatibleTranscriptionResponseError,
-  type TranscriptPiece,
   type TranscriptionProvider,
   type TranscriptionProviderResult,
   TranscriptionRequestError,
+  type TranscriptPiece,
 } from "./transcription-provider.js";
 
 const responseSchema = z.object({

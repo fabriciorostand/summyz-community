@@ -1,4 +1,10 @@
 services:
+  bot:
+    env_file: !reset []
+
+  dashboard:
+    env_file: !reset []
+
   ollama:
     volumes:
       - ${CI_OLLAMA_CACHE}:/root/.ollama
