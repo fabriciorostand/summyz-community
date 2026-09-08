@@ -74,7 +74,10 @@ CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
 
 FROM nvidia/cuda:12.6.3-cudnn-runtime-ubuntu24.04@sha256:8aef630a54bc5c5146ae5ce68e6af5caa3df0fb690bb91544175c91f307e4356 AS cuda
 
-ARG UBUNTU_SNAPSHOT=20260906T000000Z
+ARG UBUNTU_LIBOPUS_VERSION=1.4-1build1
+ARG UBUNTU_PYTHON_VERSION=3.12.3-0ubuntu2.1
+ARG UBUNTU_PYTHON_PIP_VERSION=24.0+dfsg-1ubuntu1.3
+ARG UBUNTU_PYTHON_312_VENV_VERSION=3.12.3-1ubuntu0.16
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -86,26 +89,23 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PATH=/opt/venv/bin:${PATH}
 
 RUN set -eu; \
-    sed -i \
-      "s|http://archive.ubuntu.com/ubuntu/|https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/|g; s|http://security.ubuntu.com/ubuntu/|https://snapshot.ubuntu.com/ubuntu/${UBUNTU_SNAPSHOT}/|g" \
-      /etc/apt/sources.list.d/ubuntu.sources; \
     rm -f /etc/apt/sources.list.d/cuda.list; \
-    snapshot_update_status=1; \
-    for snapshot_update_attempt in 1 2 3; do \
-      rm -rf /var/lib/apt/lists/*; \
-      if apt-get \
-        -o Acquire::Check-Valid-Until=false \
-        -o Acquire::Retries=3 \
-        -o APT::Update::Error-Mode=any \
-        update; then \
-        snapshot_update_status=0; \
-        break; \
-      fi; \
-      echo "Ubuntu snapshot update failed; retrying" >&2; \
-      sleep 5; \
-    done; \
-    test "${snapshot_update_status}" -eq 0; \
-    apt-get install --yes --no-install-recommends libopus0 python3 python3-pip python3-venv; \
+    apt-get \
+      -o Acquire::Retries=1 \
+      -o Acquire::http::Timeout=15 \
+      -o Acquire::https::Timeout=15 \
+      -o APT::Update::Error-Mode=any \
+      update; \
+    apt-get \
+      -o Acquire::Retries=1 \
+      -o Acquire::http::Timeout=15 \
+      -o Acquire::https::Timeout=15 \
+      install --yes --no-install-recommends \
+        "libopus0=${UBUNTU_LIBOPUS_VERSION}" \
+        "python3=${UBUNTU_PYTHON_VERSION}" \
+        "python3-pip=${UBUNTU_PYTHON_PIP_VERSION}" \
+        "python3.12-venv=${UBUNTU_PYTHON_312_VENV_VERSION}" \
+        "python3-venv=${UBUNTU_PYTHON_VERSION}"; \
     rm -rf /var/lib/apt/lists/*; \
     python3 -m venv /opt/venv
 WORKDIR /service
