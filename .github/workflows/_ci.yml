@@ -144,10 +144,8 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
 
-      - name: Install locked Node.js dependencies
-        run: |
-          npm install --global "npm@${NPM_VERSION}"
-          npm ci
+      - name: Set up exact npm
+        run: npm install --global "npm@${NPM_VERSION}"
 
       - name: Initialize security reports
         if: always()
@@ -157,7 +155,7 @@ jobs:
         shell: bash
         run: |
           set +e
-          npm audit --omit=optional --json > reports/security/npm-audit.json
+          npm audit --package-lock-only --omit=optional --json > reports/security/npm-audit.json
           audit_status=$?
           set -e
           test "${audit_status}" -le 1

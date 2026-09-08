@@ -74,6 +74,22 @@ describe("continuous integration contract", () => {
     expect(pythonDockerfile).toContain("python:3.12.14-slim-bookworm@sha256:");
   });
 
+  it("audits the Node.js lockfile without running dependency lifecycle scripts", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const securityJob = implementation.slice(
+      implementation.indexOf("\n  security:"),
+      implementation.indexOf("\n  tests:"),
+    );
+    const auditStep = securityJob.slice(
+      securityJob.indexOf("- name: Audit Node.js runtime dependencies"),
+      securityJob.indexOf("- name: Set up exact Python"),
+    );
+
+    expect(securityJob).toContain(`npm install --global "npm@\${NPM_VERSION}"`);
+    expect(securityJob).not.toContain("npm ci");
+    expect(auditStep).toContain("npm audit --package-lock-only --omit=optional --json");
+  });
+
   it("uses the explicit Ubuntu release in every workflow", async () => {
     const workflows = await Promise.all(
       ["ci.yml", "_ci.yml", "individual-cla.yml"].map((name) =>
