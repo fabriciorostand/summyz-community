@@ -1,5 +1,5 @@
 import type { Dirent } from "node:fs";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 
 import { type RecordingManifest, recordingManifestSchema } from "./manifest.js";

@@ -1,8 +1,8 @@
-import type { RecordingManifest } from "../recording/manifest.js";
 import {
   createMeetingAudioCatalog,
   type MeetingAudioCatalog,
 } from "../processing/meeting-audio-catalog.js";
+import type { RecordingManifest } from "../recording/manifest.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 export class PostgresMeetingAudioCatalog implements MeetingAudioCatalog {

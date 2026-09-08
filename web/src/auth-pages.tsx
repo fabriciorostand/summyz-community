@@ -1,7 +1,7 @@
-import { useState, type FormEvent } from "react";
+import { type FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
-import { api, ApiError, type SetupStatus } from "./api";
+import { ApiError, api, type SetupStatus } from "./api";
 import { Brand, Button, Field } from "./components";
 
 function AuthFrame({

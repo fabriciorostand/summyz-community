@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { refinementEntrySchema, type RefinementEntry } from "./refinement-result.js";
+import { type RefinementEntry, refinementEntrySchema } from "./refinement-result.js";
 
 const baseRefinementStateSchema = z.object({
   meetingId: z.string().min(1),

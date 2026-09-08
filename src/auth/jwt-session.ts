@@ -1,4 +1,4 @@
-import { SignJWT, errors, jwtVerify } from "jose";
+import { errors, jwtVerify, SignJWT } from "jose";
 import { z } from "zod";
 
 const claimsSchema = z.object({

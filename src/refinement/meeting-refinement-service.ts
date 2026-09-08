@@ -10,13 +10,13 @@ import type { TranscriptionState } from "../transcription/transcription-state.js
 import type { TranscriptionStore } from "../transcription/transcription-store.js";
 import type { MeetingRefinementGenerationResult } from "./meeting-refinement-generator.js";
 import { RefinementProviderFailureError } from "./refinement-provider.js";
+import type { RefinementEntry } from "./refinement-result.js";
 import {
   createRefinementState,
   markRefinementCompleted,
   markRefinementFallback,
 } from "./refinement-state.js";
 import type { RefinementStore } from "./refinement-store.js";
-import type { RefinementEntry } from "./refinement-result.js";
 
 export interface RefinementGenerator {
   generate(entries: readonly RefinementEntry[]): Promise<MeetingRefinementGenerationResult>;

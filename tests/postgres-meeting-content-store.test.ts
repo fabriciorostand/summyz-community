@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { PostgresMeetingContentStore } from "../src/database/postgres-meeting-content-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
+import { PostgresMeetingContentStore } from "../src/database/postgres-meeting-content-store.js";
 import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
 import { createSummaryState, markSummaryCompleted } from "../src/summary/summary-state.js";
 

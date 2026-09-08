@@ -1,5 +1,5 @@
-import type { RecordingManifest } from "./manifest.js";
 import type { LiveMeetingParticipant } from "../database/postgres-live-meeting-store.js";
+import type { RecordingManifest } from "./manifest.js";
 
 export type RecordingStopReason = "channel_empty" | "command" | "reconnect_exhausted" | "shutdown";
 

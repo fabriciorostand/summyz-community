@@ -1,6 +1,6 @@
 import type { RecordingSegment } from "../recording/manifest.js";
-import type { TranscriptPiece } from "./transcription-provider.js";
 import type { SpeechRange } from "./speech-analyzer.js";
+import type { TranscriptPiece } from "./transcription-provider.js";
 
 export const TRANSCRIPTION_SAMPLE_RATE = 16_000;
 

@@ -1,11 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { createWriteStream } from "node:fs";
-import { rm, stat } from "node:fs/promises";
-import { pipeline } from "node:stream/promises";
 import { setTimeout as sleep } from "node:timers/promises";
 
 import {
-  type AudioReceiveStream,
   EndBehaviorType,
   entersState,
   type VoiceConnection,
@@ -14,14 +10,13 @@ import {
 } from "@discordjs/voice";
 import type { Guild } from "discord.js";
 import type { Logger } from "pino";
-import { opus } from "prism-media";
 
 import type { AppConfig } from "../config.js";
 import type {
   LiveMeetingParticipant,
   LiveMeetingStateWriter,
 } from "../database/postgres-live-meeting-store.js";
-import { convertPcmToOgg } from "./audio-converter.js";
+import { type CaptureEndReason, captureDiscordAudioSegment } from "./discord-audio-capture.js";
 import { LIVE_STATE_REFRESH_INTERVAL_MS } from "./live-meeting-policy.js";
 import {
   addParticipant,
@@ -30,7 +25,6 @@ import {
   markManifestInterrupted,
   markManifestRecording,
   type RecordingManifest,
-  type RecordingSegment,
 } from "./manifest.js";
 import type { ManifestStore } from "./manifest-store.js";
 import {
@@ -38,7 +32,7 @@ import {
   type RecordingStopRequest,
   shouldStartTranscription,
 } from "./recording-coordinator.js";
-import { calculateProcessCpuPercent, estimatePacketLossPercent } from "./recording-metrics.js";
+import { calculateProcessCpuPercent } from "./recording-metrics.js";
 import {
   createRecordingStopNotification,
   getRecordingText,
@@ -50,8 +44,6 @@ interface ActiveCapture {
   promise: Promise<void>;
   stop(): void;
 }
-
-type CaptureEndReason = "error" | "max_duration" | "silence" | "stopped";
 
 interface DiscordVoiceRecordingInput {
   config: AppConfig;
@@ -220,14 +212,24 @@ export class DiscordVoiceRecording implements RecordingHandle {
       opusStream.destroy();
     }, this.#config.segmentMaxSeconds * 1_000);
 
-    const promise = this.#capture({
+    const promise = captureDiscordAudioSegment({
+      config: this.#config,
       displayName,
+      guildId: this.guildId,
       opusStream,
       paths,
+      logger: this.#logger,
+      manifestStartedAt: this.#manifest.startedAt,
+      meetingId: this.meetingId,
       segmentId,
       startedAtMs,
       userId,
       getForcedReason: () => forcedReason,
+      onReceiveError: () => {
+        void this.#recoverConnection("audio_receive_error");
+      },
+      onSegment: (segment) => this.#updateManifest((manifest) => addSegment(manifest, segment)),
+      prepareDirectory: () => this.#manifestStore.prepareSegmentDirectory(this.meetingId, userId),
     }).then(async (reason) => {
       clearTimeout(maximumTimer);
       if (
@@ -248,127 +250,6 @@ export class DiscordVoiceRecording implements RecordingHandle {
         opusStream.destroy();
       },
     };
-  }
-
-  async #capture(input: {
-    displayName: string;
-    getForcedReason(): CaptureEndReason | undefined;
-    opusStream: AudioReceiveStream;
-    paths: ReturnType<ManifestStore["segmentPaths"]>;
-    segmentId: string;
-    startedAtMs: number;
-    userId: string;
-  }): Promise<CaptureEndReason> {
-    await this.#manifestStore.prepareSegmentDirectory(this.meetingId, input.userId);
-    const decoder = new opus.Decoder({ channels: 2, frameSize: 960, rate: 48_000 });
-    const output = createWriteStream(input.paths.temporaryPath, { flags: "wx" });
-    let receivedOpusPackets = 0;
-    let streamFailed = false;
-    input.opusStream.on("data", () => {
-      receivedOpusPackets += 1;
-    });
-
-    try {
-      await pipeline(input.opusStream, decoder, output);
-    } catch (error) {
-      if (input.getForcedReason() === undefined) {
-        streamFailed = true;
-        this.#logger.error(
-          {
-            errorType: getErrorType(error),
-            guildId: this.guildId,
-            meetingId: this.meetingId,
-            userId: input.userId,
-          },
-          "Audio segment capture failed",
-        );
-      }
-    }
-
-    const fileSize = await stat(input.paths.temporaryPath)
-      .then((file) => file.size)
-      .catch(() => 0);
-    if (fileSize === 0) {
-      await rm(input.paths.temporaryPath, { force: true });
-      if (streamFailed) {
-        void this.#recoverConnection("audio_receive_error");
-        return "error";
-      }
-      return input.getForcedReason() ?? "silence";
-    }
-
-    const endedAtMs = Math.max(
-      input.startedAtMs,
-      Date.now() - Date.parse(this.#manifest.startedAt),
-    );
-    const durationMs = endedAtMs - input.startedAtMs;
-    const captureEndReason = input.getForcedReason() ?? (streamFailed ? "error" : "silence");
-    const estimatedPacketLossPercent = estimatePacketLossPercent({
-      durationMs,
-      receivedPackets: receivedOpusPackets,
-      trailingSilenceMs: captureEndReason === "silence" ? this.#config.segmentSilenceMs : 0,
-    });
-    let segment: RecordingSegment;
-    try {
-      await convertPcmToOgg(input.paths.temporaryPath, input.paths.finalPath);
-      await rm(input.paths.temporaryPath, { force: true });
-      segment = {
-        durationMs,
-        endedAtMs,
-        estimatedPacketLossPercent,
-        file: input.paths.relativeFinalPath,
-        format: "ogg_opus",
-        receivedOpusPackets,
-        segmentId: input.segmentId,
-        startedAtMs: input.startedAtMs,
-        status: "ready",
-        userDisplayName: input.displayName,
-        userId: input.userId,
-      };
-    } catch (error) {
-      this.#logger.error(
-        {
-          errorType: getErrorType(error),
-          guildId: this.guildId,
-          meetingId: this.meetingId,
-          segmentId: input.segmentId,
-        },
-        "Audio segment conversion to Ogg/Opus failed",
-      );
-      segment = {
-        durationMs,
-        endedAtMs,
-        estimatedPacketLossPercent,
-        file: input.paths.relativeTemporaryPath,
-        format: "pcm_s16le",
-        receivedOpusPackets,
-        segmentId: input.segmentId,
-        startedAtMs: input.startedAtMs,
-        status: "conversion_failed",
-        userDisplayName: input.displayName,
-        userId: input.userId,
-      };
-    }
-
-    await this.#updateManifest((manifest) => addSegment(manifest, segment));
-    this.#logger.info(
-      {
-        durationMs: segment.durationMs,
-        estimatedPacketLossPercent,
-        guildId: this.guildId,
-        meetingId: this.meetingId,
-        receivedOpusPackets,
-        segmentId: segment.segmentId,
-        userId: input.userId,
-      },
-      "Audio segment finalized",
-    );
-
-    if (streamFailed) {
-      void this.#recoverConnection("audio_receive_error");
-      return "error";
-    }
-    return input.getForcedReason() ?? "silence";
   }
 
   async #recoverConnection(reason: string): Promise<void> {

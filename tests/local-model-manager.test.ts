@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { LocalModelManager } from "../src/local-ai/local-model-manager.js";
 import type { LocalExecutionPlan } from "../src/local-ai/local-execution-policy.js";
+import { LocalModelManager } from "../src/local-ai/local-model-manager.js";
 import { createLogger } from "../src/logger.js";
 import {
   meetingAiConfigurationSchema,

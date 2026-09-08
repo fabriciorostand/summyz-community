@@ -102,6 +102,24 @@ describe("runtime packaging", () => {
     expect(testStage).toMatch(/USER nobody\s*$/u);
   });
 
+  it("usa o CTranslate2 sem a versão vulnerável do setuptools", async () => {
+    const requirements = await readFile(
+      new URL("services/faster-whisper/requirements.txt", repositoryRoot),
+      "utf8",
+    );
+    const lock = await readFile(
+      new URL("services/faster-whisper/requirements.lock", repositoryRoot),
+      "utf8",
+    );
+
+    for (const contents of [requirements, lock]) {
+      expect(contents).toContain("ctranslate2==4.8.2");
+      expect(contents).toContain("setuptools==83.0.0");
+      expect(contents).not.toContain("ctranslate2==4.6.0");
+      expect(contents).not.toContain("setuptools==80.9.0");
+    }
+  });
+
   it("fixa imagens externas por versão e digest", async () => {
     const files = await Promise.all([
       readFile(new URL("Dockerfile", repositoryRoot), "utf8"),

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { PostgresInstallationSettingsStore } from "../src/database/postgres-installation-settings-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
+import { PostgresInstallationSettingsStore } from "../src/database/postgres-installation-settings-store.js";
 import { SecretBox } from "../src/security/secret-box.js";
 
 describe("PostgresInstallationSettingsStore", () => {

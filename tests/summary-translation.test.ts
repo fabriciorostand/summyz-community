@@ -3,10 +3,10 @@ import { describe, expect, it, vi } from "vitest";
 import type { PublicSummary } from "../src/summary/summary-result.js";
 import {
   ProtectedTermMismatchError,
-  SummaryTranslationService,
-  TranslationRequestError,
   protectSummaryTerms,
   restoreSummaryTerms,
+  SummaryTranslationService,
+  TranslationRequestError,
 } from "../src/translation/summary-translation.js";
 
 const base: PublicSummary = {

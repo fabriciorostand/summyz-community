@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   AuthenticationError,
-  AuthService,
   type AuthRepository,
+  AuthService,
   type StoredDashboardUser,
 } from "../src/auth/auth-service.js";
 import type { PasswordHasher } from "../src/auth/password-hasher.js";

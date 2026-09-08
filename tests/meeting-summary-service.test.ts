@@ -3,28 +3,27 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
-
+import type { MeetingPublisher } from "../src/discord/discord-meeting-publisher.js";
 import { createLogger } from "../src/logger.js";
-import { RefinementStore } from "../src/refinement/refinement-store.js";
+import {
+  addSegment,
+  createManifest,
+  markManifestCompleted,
+  type RecordingManifest,
+  recordingManifestSchema,
+} from "../src/recording/manifest.js";
 import {
   createRefinementState,
   markRefinementCompleted,
   markRefinementFallback,
 } from "../src/refinement/refinement-state.js";
-import {
-  addSegment,
-  createManifest,
-  markManifestCompleted,
-  recordingManifestSchema,
-  type RecordingManifest,
-} from "../src/recording/manifest.js";
-import type { MeetingPublisher } from "../src/discord/discord-meeting-publisher.js";
+import { RefinementStore } from "../src/refinement/refinement-store.js";
 import type { MeetingSummaryGenerationResult } from "../src/summary/meeting-summary-generator.js";
-import type { PublicSummary } from "../src/summary/summary-result.js";
 import {
   MeetingSummaryService,
   type SummaryGenerator,
 } from "../src/summary/meeting-summary-service.js";
+import type { PublicSummary } from "../src/summary/summary-result.js";
 import { createSummaryState, markSummaryFailed } from "../src/summary/summary-state.js";
 import { SummaryStore } from "../src/summary/summary-store.js";
 import {

@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { createManifest, addSegment } from "../src/recording/manifest.js";
+import { addSegment, createManifest } from "../src/recording/manifest.js";
 import {
   assembleTranscript,
-  assembleTranscriptFromEntries,
   assembleTranscriptEntries,
+  assembleTranscriptFromEntries,
 } from "../src/transcription/transcript-assembler.js";
 
 function createMeeting() {

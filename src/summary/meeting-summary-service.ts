@@ -4,16 +4,18 @@ import type { MeetingPublisher } from "../discord/discord-meeting-publisher.js";
 import type { RecordingManifest } from "../recording/manifest.js";
 import type { RefinementStore } from "../refinement/refinement-store.js";
 import type { TranscriptionStore } from "../transcription/transcription-store.js";
+import type { SummaryTranslationService } from "../translation/summary-translation.js";
 import type { MeetingSummaryGenerationResult } from "./meeting-summary-generator.js";
 import { createPublicSummary, type SummaryTranscriptEntry } from "./summary-result.js";
-import { createSummaryState, markSummaryCompleted, markSummaryFailed } from "./summary-state.js";
 import {
+  type CompletedSummaryState,
+  createSummaryState,
+  markSummaryCompleted,
+  markSummaryFailed,
   markTranslationCompleted,
   markTranslationFailed,
-  type CompletedSummaryState,
 } from "./summary-state.js";
 import type { SummaryStore } from "./summary-store.js";
-import type { SummaryTranslationService } from "../translation/summary-translation.js";
 
 export interface SummaryGenerator {
   generate(entries: readonly SummaryTranscriptEntry[]): Promise<MeetingSummaryGenerationResult>;

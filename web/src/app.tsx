@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 
-import { api, ApiError, type SetupStatus, type User } from "./api";
+import { ApiError, api, type SetupStatus, type User } from "./api";
 import {
   ForgotPasswordPage,
   LoginPage,

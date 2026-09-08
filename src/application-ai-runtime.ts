@@ -2,16 +2,16 @@ import type { Client } from "discord.js";
 import type { Logger } from "pino";
 
 import {
-  assessModelCompatibility,
   type AiProfileCompatibilityStatus,
+  assessModelCompatibility,
   resolveAiProfile,
 } from "./ai-profile.js";
 import type { AppConfig } from "./config.js";
 import type { CostLedgerStore, CostPhase } from "./cost/cost-ledger.js";
 import { ProviderCostRecorder } from "./cost/provider-cost-recorder.js";
 import type { AiProfileStore } from "./database/postgres-ai-profile-store.js";
-import type { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
 import type { PostgresInstallationHealthStore } from "./database/postgres-installation-health-store.js";
+import type { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
 import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-size.js";
 import type { LocalHardwareProfile } from "./local-ai/hardware-profile.js";
 import { type LocalAiPhase, resolveLocalExecutionPlan } from "./local-ai/local-execution-policy.js";

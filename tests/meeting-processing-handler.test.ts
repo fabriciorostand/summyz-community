@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
-
-import { MeetingProcessingHandler } from "../src/processing/meeting-processing-handler.js";
+import type { ClaimedProcessingJob } from "../src/processing/durable-job-queue.js";
 import type { ProcessingJobError } from "../src/processing/durable-job-worker.js";
+import { MeetingProcessingHandler } from "../src/processing/meeting-processing-handler.js";
 import { createManifest, markManifestCompleted } from "../src/recording/manifest.js";
 import {
   createRefinementState,
@@ -15,7 +15,6 @@ import {
   retryFailedTranscription,
   type TranscriptionState,
 } from "../src/transcription/transcription-state.js";
-import type { ClaimedProcessingJob } from "../src/processing/durable-job-queue.js";
 
 const manifest = markManifestCompleted(
   createManifest({

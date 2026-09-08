@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  assessModelCompatibility,
   aiProfileSchema,
+  assessModelCompatibility,
   createInitialAiProfile,
   isAiProfileComplete,
   profileLanguageSchema,

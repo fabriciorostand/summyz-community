@@ -1,22 +1,30 @@
 import type { Logger } from "pino";
 
 import {
-  setPredominantLanguage,
   type RecordingManifest,
   type RecordingSegment,
+  setPredominantLanguage,
 } from "../recording/manifest.js";
 import type { ManifestStore } from "../recording/manifest-store.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { AudioPreparationError, MeetingAudioPreparer } from "./meeting-audio-preparer.js";
+import {
+  aggregatePredominantLanguage,
+  type LanguageEvidence,
+  type PredominantLanguageResult,
+} from "./predominant-language.js";
 import type { SpeechAnalyzer } from "./speech-analyzer.js";
+import { assembleTranscript } from "./transcript-assembler.js";
+import type { TranscriptionBatch } from "./transcription-batch.js";
 import {
   composeTranscriptionBatch,
   createAnalyzedTranscriptionGroups,
   createTranscriptionGroups,
   mapTranscriptPiecesToTimeline,
 } from "./transcription-batch.js";
-import type { TranscriptionBatch } from "./transcription-batch.js";
-import { assembleTranscript } from "./transcript-assembler.js";
+import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
+import { IncompatibleTranscriptionResponseError } from "./transcription-provider.js";
+import type { TranscriptionRecoveryReason } from "./transcription-recovery-policy.js";
 import {
   completeTranscriptionGroup,
   createTranscriptionState,
@@ -26,14 +34,6 @@ import {
   type TranscriptionState,
 } from "./transcription-state.js";
 import type { TranscriptionStore } from "./transcription-store.js";
-import { IncompatibleTranscriptionResponseError } from "./transcription-provider.js";
-import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
-import type { TranscriptionRecoveryReason } from "./transcription-recovery-policy.js";
-import {
-  aggregatePredominantLanguage,
-  type LanguageEvidence,
-  type PredominantLanguageResult,
-} from "./predominant-language.js";
 
 interface MeetingTranscriptionServiceOptions {
   concurrency: number;

@@ -1,7 +1,7 @@
 import {
   type SummaryProvider,
-  type SummaryProviderResult,
   SummaryProviderFailureError,
+  type SummaryProviderResult,
 } from "./summary-provider.js";
 import {
   type SummaryDraft,

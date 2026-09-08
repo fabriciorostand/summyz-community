@@ -13,12 +13,12 @@ import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js"
 import { PostgresAnalyticsStore } from "./database/postgres-analytics-store.js";
 import { createPostgresDatabase, type PostgresDatabase } from "./database/postgres-database.js";
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
-import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
 import { PostgresInstallationHealthStore } from "./database/postgres-installation-health-store.js";
+import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
+import { PostgresLiveMeetingStore } from "./database/postgres-live-meeting-store.js";
 import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
 import { PostgresMeetingContentStore } from "./database/postgres-meeting-content-store.js";
 import { PostgresMeetingStore } from "./database/postgres-meeting-store.js";
-import { PostgresLiveMeetingStore } from "./database/postgres-live-meeting-store.js";
 import { DiscordMeetingPublisher } from "./discord/discord-meeting-publisher.js";
 import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
@@ -29,8 +29,8 @@ import { createLogger } from "./logger.js";
 import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
 import { DurableJobQueue } from "./processing/durable-job-queue.js";
 import { DurableJobWorker } from "./processing/durable-job-worker.js";
-import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
 import { MeetingArtifactMaintenance } from "./processing/meeting-artifact-maintenance.js";
+import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
 import { MeetingFinalizer } from "./processing/meeting-finalizer.js";
 import { MeetingProcessingHandler } from "./processing/meeting-processing-handler.js";
 import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
@@ -56,8 +56,8 @@ import {
   FullAudioSpeechAnalyzer,
   SileroSpeechAnalyzer,
 } from "./transcription/speech-analyzer.js";
-import { TranscriptionStore } from "./transcription/transcription-store.js";
 import { CURRENT_TRANSCRIPTION_RECOVERY_VERSION } from "./transcription/transcription-recovery-policy.js";
+import { TranscriptionStore } from "./transcription/transcription-store.js";
 import { OllamaSummaryTranslator } from "./translation/ollama-summary-translator.js";
 import { OpenRouterSummaryTranslator } from "./translation/openrouter-summary-translator.js";
 import { SummaryTranslationService } from "./translation/summary-translation.js";

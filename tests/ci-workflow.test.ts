@@ -50,6 +50,17 @@ describe("continuous integration contract", () => {
     }
   });
 
+  it("pins every Trivy scan to a patched action release", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const patchedTrivyAction =
+      "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0";
+
+    expect(implementation.split(patchedTrivyAction)).toHaveLength(6);
+    expect(implementation).not.toContain(
+      "aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8",
+    );
+  });
+
   it("uses the exact Node.js and Python versions in project and images", async () => {
     const [packageJson, dockerfile, pythonDockerfile] = await Promise.all([
       readFile(new URL("package.json", root), "utf8"),

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
-
-import { createCostReportService } from "../src/cost/cost-report.js";
 import type { CostMeetingRecord, CostMeetingWithAttempts } from "../src/cost/cost-ledger.js";
+import { createCostReportService } from "../src/cost/cost-report.js";
 
 const meeting: CostMeetingRecord = {
   completedAt: "2026-08-24T11:30:00.000Z",

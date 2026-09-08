@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   evaluateQualityGate,
-  renderQualityGateMarkdown,
   type GateMetrics,
+  renderQualityGateMarkdown,
   type SecurityFinding,
 } from "../scripts/ci/quality-gate.js";
 

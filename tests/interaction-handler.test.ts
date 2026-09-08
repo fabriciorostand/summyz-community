@@ -6,15 +6,14 @@ import {
   PermissionFlagsBits,
 } from "discord.js";
 import { describe, expect, it, vi } from "vitest";
-
-import { installInteractionHandler } from "../src/discord/interaction-handler.js";
-import { aiProfileSchema, createInitialAiProfile } from "../src/ai-profile.js";
 import type { AiProfileCompatibilityStatus } from "../src/ai-profile.js";
-import { createLogger } from "../src/logger.js";
+import { aiProfileSchema, createInitialAiProfile } from "../src/ai-profile.js";
 import { CostReportError } from "../src/cost/cost-report.js";
+import { installInteractionHandler } from "../src/discord/interaction-handler.js";
+import { MultilingualCheckpointRequiredError } from "../src/local-ai/local-model-manager.js";
+import { createLogger } from "../src/logger.js";
 import type { RecordingCoordinator } from "../src/recording/recording-coordinator.js";
 import { RecordingAlreadyActiveError } from "../src/recording/recording-coordinator.js";
-import { MultilingualCheckpointRequiredError } from "../src/local-ai/local-model-manager.js";
 import { InMemoryGuildConfigurationStore } from "./in-memory-guild-config-store.js";
 
 interface InteractionOptions {
