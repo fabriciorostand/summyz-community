@@ -190,6 +190,43 @@ describe("continuous integration contract", () => {
     expect(storageCleanup).toContain("docker image prune --force");
   });
 
+  it("makes the restored Whisper cache writable by the non-root runtime user", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
+    const restoreIndex = runtimeJob.indexOf("- name: Restore immutable local-model cache");
+    const permissionsIndex = runtimeJob.indexOf("- name: Prepare local-model cache permissions");
+    const smokeIndex = runtimeJob.indexOf("- name: Run real CPU local-AI smoke test");
+    const permissionsStep = runtimeJob.slice(permissionsIndex, smokeIndex);
+
+    expect(permissionsIndex).toBeGreaterThan(restoreIndex);
+    expect(permissionsIndex).toBeLessThan(smokeIndex);
+    expect(permissionsStep).toContain(`mkdir -p "\${CI_OLLAMA_CACHE}" "\${CI_WHISPER_CACHE}"`);
+    expect(permissionsStep).toContain("summyz-community-faster-whisper:ci -u");
+    expect(permissionsStep).toContain("summyz-community-faster-whisper:ci -g");
+    expect(permissionsStep).toContain('--user "0:0"');
+    expect(permissionsStep).toContain(`--volume "\${CI_WHISPER_CACHE}:/models"`);
+    expect(permissionsStep).toContain("--entrypoint chown");
+  });
+
+  it("waits for local-AI healthchecks and prints diagnostics after smoke failures", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
+    const smokeIndex = runtimeJob.indexOf("- name: Run real CPU local-AI smoke test");
+    const diagnosticsIndex = runtimeJob.indexOf("- name: Diagnose local-AI smoke-test failure");
+    const stopIndex = runtimeJob.indexOf("- name: Stop local-AI services");
+    const smokeStep = runtimeJob.slice(smokeIndex, diagnosticsIndex);
+    const diagnosticsStep = runtimeJob.slice(diagnosticsIndex, stopIndex);
+
+    expect(smokeStep).toContain("id: local_ai_smoke");
+    expect(smokeStep).toContain("--wait --wait-timeout 180");
+    expect(diagnosticsIndex).toBeGreaterThan(smokeIndex);
+    expect(diagnosticsIndex).toBeLessThan(stopIndex);
+    expect(diagnosticsStep).toContain("if: failure() && steps.local_ai_smoke.outcome == 'failure'");
+    expect(diagnosticsStep).toContain("docker compose");
+    expect(diagnosticsStep).toContain("ps --all");
+    expect(diagnosticsStep).toContain("logs --no-color --timestamps ollama faster-whisper");
+  });
+
   it("does not require a developer .env file for CI Compose operations", async () => {
     const [overlay, implementation] = await Promise.all([
       readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8"),

@@ -499,7 +499,24 @@ jobs:
           path: .ci-cache
           key: local-ai-d90ca5fe260221311c53c58e660288d3deb8d356-8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7
 
+      - name: Prepare local-model cache permissions
+        shell: bash
+        env:
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
+        run: |
+          mkdir -p "${CI_OLLAMA_CACHE}" "${CI_WHISPER_CACHE}"
+          whisper_uid="$(docker run --rm --entrypoint id summyz-community-faster-whisper:ci -u)"
+          whisper_gid="$(docker run --rm --entrypoint id summyz-community-faster-whisper:ci -g)"
+          docker run --rm \
+            --user "0:0" \
+            --volume "${CI_WHISPER_CACHE}:/models" \
+            --entrypoint chown \
+            summyz-community-faster-whisper:ci \
+            --recursive "${whisper_uid}:${whisper_gid}" /models
+
       - name: Run real CPU local-AI smoke test
+        id: local_ai_smoke
         shell: bash
         env:
           CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
@@ -510,14 +527,26 @@ jobs:
           SMOKE_WHISPER_MODEL: tiny
           SMOKE_WHISPER_REVISION: d90ca5fe260221311c53c58e660288d3deb8d356
         run: |
-          mkdir -p "${CI_OLLAMA_CACHE}" "${CI_WHISPER_CACHE}"
           docker tag summyz-community-faster-whisper:ci summyz-community-faster-whisper:latest
           docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
-            --profile smoke up --detach --no-build ollama faster-whisper
+            --profile smoke up --detach --no-build --wait --wait-timeout 180 ollama faster-whisper
           docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
             --profile smoke run --rm --no-deps \
             -e SMOKE_OLLAMA_DIGEST -e SMOKE_OLLAMA_MODEL \
             -e SMOKE_WHISPER_MODEL -e SMOKE_WHISPER_REVISION smoke
+
+      - name: Diagnose local-AI smoke-test failure
+        if: failure() && steps.local_ai_smoke.outcome == 'failure'
+        shell: bash
+        env:
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
+          POSTGRES_PASSWORD: ci-only-password
+        run: |
+          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+            --profile smoke ps --all
+          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+            --profile smoke logs --no-color --timestamps ollama faster-whisper
 
       - name: Stop local-AI services
         if: always()
