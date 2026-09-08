@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { aGuild, dashboardContext, guildSelection, renderScreen } from "../test-utils";
+import { aGuild, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
 import { ServersPage } from "./servers-page";
 
 const engineGuild = aGuild({ id: "g2", installed: false, name: "Engine Guild" });

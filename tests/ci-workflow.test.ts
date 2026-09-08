@@ -126,6 +126,43 @@ describe("continuous integration contract", () => {
     expect(implementation).not.toContain("## Summyz Community CI");
   });
 
+  it("excludes test files from cognitive and cyclomatic complexity checks", async () => {
+    const [biomeSource, implementation, webCiConfig] = await Promise.all([
+      readFile(new URL("biome.json", root), "utf8"),
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL("web/vite.ci.config.ts", root), "utf8"),
+    ]);
+    const biomeConfig: unknown = JSON.parse(biomeSource);
+
+    expect(biomeConfig).toMatchObject({
+      overrides: [
+        {
+          includes: [
+            "tests/**",
+            "**/tests/**",
+            "**/*.test.ts",
+            "**/*.test.tsx",
+            "**/*.spec.ts",
+            "**/*.spec.tsx",
+            "**/test_*.py",
+          ],
+          linter: {
+            rules: {
+              complexity: {
+                noExcessiveCognitiveComplexity: "off",
+              },
+            },
+          },
+        },
+      ],
+    });
+    expect(implementation).toContain("complexipy services/faster-whisper");
+    expect(implementation).toContain('--exclude "test_*.py"');
+    expect(implementation.match(/-x "\*test\*" -x "\*spec\*"/gu)).toHaveLength(2);
+    expect(webCiConfig).toContain('"src/tests/test-utils.tsx"');
+    expect(webCiConfig).not.toContain('"src/test-utils.tsx"');
+  });
+
   it("reports every image vulnerability but only lets the aggregate policy block", async () => {
     const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
 

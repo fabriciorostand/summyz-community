@@ -2,7 +2,7 @@ import { type RenderResult, render } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 
-import type { DashboardContext } from "./layout/dashboard-layout";
+import type { DashboardContext } from "../layout/dashboard-layout";
 import type {
   DashboardAnalytics,
   DashboardTask,
@@ -13,7 +13,7 @@ import type {
   MeetingHistoryPage,
   Profile,
   User,
-} from "./lib/api";
+} from "../lib/api";
 
 export function aUser(overrides: Partial<User> = {}): User {
   return {

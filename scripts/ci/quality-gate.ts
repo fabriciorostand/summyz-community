@@ -292,12 +292,82 @@ const renderSecurityFinding = (
   return `- [${location}](${sourceUrl(context, finding.path, finding.line)}) — ${isNew ? "**new** — " : ""}\`${escapeHtml(finding.id)}\`: ${escapeHtml(finding.message)} ${fix}${details}`;
 };
 
+const appendFailureDetails = (lines: string[], failures: readonly string[]): void => {
+  if (failures.length === 0) return;
+  lines.push("", "<details>", "<summary>Failure reasons</summary>", "");
+  lines.push(...failures.map((failure) => `- ${escapeHtml(failure)}`));
+  lines.push("", "</details>");
+};
+
+const appendIssueDetails = (
+  lines: string[],
+  metrics: EvaluatedMetrics,
+  context: MarkdownContext,
+  reportSecurityFindings: readonly SecurityFinding[],
+): void => {
+  const diagnostics = [
+    ...metrics.repositoryIssues,
+    ...(metrics.securityIssues ?? []),
+    ...reportSecurityFindings,
+  ];
+  if (diagnostics.length === 0) return;
+  const newIssueFingerprints = new Set(metrics.newIssues.map(diagnosticFingerprint));
+  const newSecurityFingerprints = new Set(metrics.newSecurity.map(securityFindingFingerprint));
+  lines.push("", "<details>", "<summary>Issue details</summary>", "");
+  for (const diagnostic of metrics.repositoryIssues) {
+    const fingerprint = diagnosticFingerprint(diagnostic);
+    lines.push(renderDiagnostic(diagnostic, context, newIssueFingerprints.has(fingerprint)));
+  }
+  for (const diagnostic of metrics.securityIssues ?? []) {
+    lines.push(renderDiagnostic(diagnostic, context, false));
+  }
+  for (const finding of reportSecurityFindings) {
+    const isNew = newSecurityFingerprints.has(securityFindingFingerprint(finding));
+    lines.push(renderSecurityFinding(finding, context, isNew));
+  }
+  lines.push("", "</details>");
+};
+
+const appendDuplicateDetails = (
+  lines: string[],
+  groups: readonly DuplicateGroup[],
+  context: MarkdownContext,
+): void => {
+  if (groups.length === 0) return;
+  lines.push("", "<details>", "<summary>Duplicated fragments</summary>", "");
+  for (const group of groups) {
+    const locations = group.locations
+      .map(
+        (location) =>
+          `[${escapeHtml(location.path)}:${location.start}-${location.end}](${sourceUrl(context, location.path, location.start)})`,
+      )
+      .join(" · ");
+    lines.push(`- ${group.lines} lines: ${locations}`);
+  }
+  lines.push("", "</details>");
+};
+
+const appendComplexityDetails = (
+  lines: string[],
+  findings: readonly ComplexityFinding[],
+  maximum: number,
+  context: MarkdownContext,
+): void => {
+  const violations = findings.filter((finding) => finding.complexity > maximum);
+  if (violations.length === 0) return;
+  lines.push("", "<details>", "<summary>Complex functions</summary>", "");
+  for (const finding of violations) {
+    lines.push(
+      `- [${escapeHtml(finding.path)}:${finding.line}](${sourceUrl(context, finding.path, finding.line)}) — \`${escapeHtml(finding.name)}\`: ${finding.complexity}`,
+    );
+  }
+  lines.push("", "</details>");
+};
+
 export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownContext): string => {
   const { config, metrics } = result;
   const oversized = metrics.modules.filter((module) => module.sloc > config.moduleSlocMaximum);
   const changedOversized = oversized.filter((module) => module.changed);
-  const newIssueFingerprints = new Set(metrics.newIssues.map(diagnosticFingerprint));
-  const newSecurityFingerprints = new Set(metrics.newSecurity.map(securityFindingFingerprint));
   const reportSecurityFindings = uniqueSecurityFindings(metrics.securityFindings);
   const newCognitive = cognitiveComplexities(metrics.newIssues);
   const repositoryCognitive = cognitiveComplexities(metrics.repositoryIssues);
@@ -408,64 +478,15 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
     `[View analysis details](${escapeHtml(context.detailsUrl)})`,
   ];
 
-  if (result.failures.length > 0) {
-    lines.push("", "<details>", "<summary>Failure reasons</summary>", "");
-    lines.push(...result.failures.map((failure) => `- ${escapeHtml(failure)}`));
-    lines.push("", "</details>");
-  }
-
-  const diagnostics = [
-    ...metrics.repositoryIssues,
-    ...(metrics.securityIssues ?? []),
-    ...reportSecurityFindings,
-  ];
-  if (diagnostics.length > 0) {
-    lines.push("", "<details>", "<summary>Issue details</summary>", "");
-    for (const diagnostic of metrics.repositoryIssues) {
-      const fingerprint = diagnosticFingerprint(diagnostic);
-      lines.push(renderDiagnostic(diagnostic, context, newIssueFingerprints.has(fingerprint)));
-    }
-    for (const diagnostic of metrics.securityIssues ?? []) {
-      lines.push(renderDiagnostic(diagnostic, context, false));
-    }
-    for (const finding of reportSecurityFindings) {
-      lines.push(
-        renderSecurityFinding(
-          finding,
-          context,
-          newSecurityFingerprints.has(securityFindingFingerprint(finding)),
-        ),
-      );
-    }
-    lines.push("", "</details>");
-  }
-
-  if ((metrics.duplicateGroups?.length ?? 0) > 0) {
-    lines.push("", "<details>", "<summary>Duplicated fragments</summary>", "");
-    for (const group of metrics.duplicateGroups ?? []) {
-      const locations = group.locations
-        .map(
-          (location) =>
-            `[${escapeHtml(location.path)}:${location.start}-${location.end}](${sourceUrl(context, location.path, location.start)})`,
-        )
-        .join(" · ");
-      lines.push(`- ${group.lines} lines: ${locations}`);
-    }
-    lines.push("", "</details>");
-  }
-
-  const complexityViolations = (metrics.complexityFindings ?? []).filter(
-    (finding) => finding.complexity > config.complexityMaximum,
+  appendFailureDetails(lines, result.failures);
+  appendIssueDetails(lines, metrics, context, reportSecurityFindings);
+  appendDuplicateDetails(lines, metrics.duplicateGroups ?? [], context);
+  appendComplexityDetails(
+    lines,
+    metrics.complexityFindings ?? [],
+    config.complexityMaximum,
+    context,
   );
-  if (complexityViolations.length > 0) {
-    lines.push("", "<details>", "<summary>Complex functions</summary>", "");
-    for (const finding of complexityViolations) {
-      lines.push(
-        `- [${escapeHtml(finding.path)}:${finding.line}](${sourceUrl(context, finding.path, finding.line)}) — \`${escapeHtml(finding.name)}\`: ${finding.complexity}`,
-      );
-    }
-    lines.push("", "</details>");
-  }
 
   return `${lines.join("\n")}\n`;
 };

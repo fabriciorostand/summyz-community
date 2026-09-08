@@ -1,7 +1,7 @@
 import { screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 
-import { renderScreen } from "../test-utils";
+import { renderScreen } from "../tests/test-utils";
 import { CommandsPage } from "./commands-page";
 
 describe("CommandsPage", () => {

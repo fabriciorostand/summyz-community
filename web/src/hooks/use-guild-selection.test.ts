@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api";
-import { aGuild } from "../test-utils";
+import { aGuild } from "../tests/test-utils";
 import { useGuildSelection } from "./use-guild-selection";
 
 vi.mock("../lib/api", () => ({ api: { listGuilds: vi.fn() } }));

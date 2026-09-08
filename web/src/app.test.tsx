@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./app";
 import { ApiError, api } from "./lib/api";
-import { aDashboard, aGuild, aUser } from "./test-utils";
+import { aDashboard, aGuild, aUser } from "./tests/test-utils";
 
 vi.mock("./lib/api", async () => {
   const actual = await vi.importActual<typeof import("./lib/api")>("./lib/api");

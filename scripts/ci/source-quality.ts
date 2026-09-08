@@ -84,34 +84,51 @@ const normalizeReportedPath = (path: string, rootPath: string): string => {
   return normalized;
 };
 
+interface DiffPosition {
+  readonly inHunk: boolean;
+  readonly newLine: number;
+  readonly path?: string;
+}
+
+const applyChangedDiffLine = (
+  line: string,
+  position: DiffPosition,
+  changed: Map<string, Set<number>>,
+): DiffPosition => {
+  if (!position.inHunk || position.path === undefined || line.startsWith("\\ No newline")) {
+    return position;
+  }
+  if (line.startsWith("+")) {
+    const lines = changed.get(position.path) ?? new Set<number>();
+    lines.add(position.newLine);
+    changed.set(position.path, lines);
+    return { ...position, newLine: position.newLine + 1 };
+  }
+  return line.startsWith("-") ? position : { ...position, newLine: position.newLine + 1 };
+};
+
 export const parseChangedLines = (diff: string): ReadonlyMap<string, ReadonlySet<number>> => {
   const changed = new Map<string, Set<number>>();
-  let path: string | undefined;
-  let newLine = 0;
-  let inHunk = false;
+  let position: DiffPosition = { inHunk: false, newLine: 0 };
 
   for (const line of diff.split(/\r?\n/u)) {
     if (line.startsWith("+++ ")) {
       const rawPath = line.slice(4).trim();
-      path = rawPath === "/dev/null" ? undefined : normalizeSlashes(rawPath.replace(/^b\//u, ""));
-      inHunk = false;
+      position = {
+        inHunk: false,
+        newLine: position.newLine,
+        ...(rawPath === "/dev/null"
+          ? {}
+          : { path: normalizeSlashes(rawPath.replace(/^b\//u, "")) }),
+      };
       continue;
     }
     const hunk = line.match(/^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/u);
     if (hunk) {
-      newLine = Number(hunk[1]);
-      inHunk = true;
+      position = { ...position, inHunk: true, newLine: Number(hunk[1]) };
       continue;
     }
-    if (!inHunk || path === undefined || line.startsWith("\\ No newline")) continue;
-    if (line.startsWith("+")) {
-      const lines = changed.get(path) ?? new Set<number>();
-      lines.add(newLine);
-      changed.set(path, lines);
-      newLine += 1;
-      continue;
-    }
-    if (!line.startsWith("-")) newLine += 1;
+    position = applyChangedDiffLine(line, position, changed);
   }
   return changed;
 };
@@ -203,28 +220,36 @@ const intersects = (lines: ReadonlySet<number>, start: number, end: number): boo
   return false;
 };
 
-export const analyzeSourceQuality = (input: SourceQualityInput): SourceQualityResult => {
-  let rawJscpd: unknown;
+const parseJscpdReport = (report: string): z.infer<typeof jscpdReportSchema> => {
+  let raw: unknown;
   try {
-    rawJscpd = JSON.parse(input.jscpdReport);
+    raw = JSON.parse(report);
   } catch (error) {
     throw new Error("Invalid jscpd JSON report.", { cause: error });
   }
-  const parsedJscpd = jscpdReportSchema.safeParse(rawJscpd);
-  if (!parsedJscpd.success) {
-    throw new Error(`Invalid jscpd JSON report: ${parsedJscpd.error.message}`);
-  }
+  const parsed = jscpdReportSchema.safeParse(raw);
+  if (!parsed.success) throw new Error(`Invalid jscpd JSON report: ${parsed.error.message}`);
+  return parsed.data;
+};
 
-  const duplicateGroups: DuplicateGroup[] = parsedJscpd.data.duplicates.map((duplicate) => ({
+const duplicateGroupsFromReport = (
+  report: z.infer<typeof jscpdReportSchema>,
+  rootPath: string,
+): readonly DuplicateGroup[] =>
+  report.duplicates.map((duplicate) => ({
     lines: duplicate.lines,
     locations: [duplicate.firstFile, duplicate.secondFile].map(
       (location): DuplicateLocation => ({
         end: location.end,
-        path: normalizeReportedPath(location.name, input.rootPath),
+        path: normalizeReportedPath(location.name, rootPath),
         start: location.start,
       }),
     ),
   }));
+
+const indexDuplicatedLines = (
+  duplicateGroups: readonly DuplicateGroup[],
+): ReadonlyMap<string, ReadonlySet<number>> => {
   const duplicatedLines = new Map<string, Set<number>>();
   for (const group of duplicateGroups) {
     for (const location of group.locations) {
@@ -233,21 +258,34 @@ export const analyzeSourceQuality = (input: SourceQualityInput): SourceQualityRe
       duplicatedLines.set(location.path, lines);
     }
   }
+  return duplicatedLines;
+};
 
+const changedLineCounts = (
+  input: SourceQualityInput,
+  duplicatedLines: ReadonlyMap<string, ReadonlySet<number>>,
+): { readonly duplicate: number; readonly source: number } => {
   const sourceCodeLines = new Map(
     input.sourceFiles.map((file) => [normalizeSlashes(file.path), codeLines(file)]),
   );
-  let changedSourceLines = 0;
-  let changedDuplicateLines = 0;
+  let source = 0;
+  let duplicate = 0;
   for (const [path, lines] of input.changedLines) {
     const code = sourceCodeLines.get(path);
     if (code === undefined) continue;
     for (const line of lines) {
       if (!code.has(line)) continue;
-      changedSourceLines += 1;
-      if (duplicatedLines.get(path)?.has(line)) changedDuplicateLines += 1;
+      source += 1;
+      if (duplicatedLines.get(path)?.has(line)) duplicate += 1;
     }
   }
+  return { duplicate, source };
+};
+
+export const analyzeSourceQuality = (input: SourceQualityInput): SourceQualityResult => {
+  const parsedJscpd = parseJscpdReport(input.jscpdReport);
+  const duplicateGroups = duplicateGroupsFromReport(parsedJscpd, input.rootPath);
+  const changedLines = changedLineCounts(input, indexDuplicatedLines(duplicateGroups));
 
   const complexity = parseComplexity(input.lizardCsv, input.rootPath);
   const changedComplexity = complexity.filter((finding) =>
@@ -272,9 +310,9 @@ export const analyzeSourceQuality = (input: SourceQualityInput): SourceQualityRe
     modules,
     newComplexityViolations: changedComplexity.filter((finding) => finding.complexity > 10).length,
     newDuplication:
-      changedSourceLines === 0 ? 0 : rounded((changedDuplicateLines / changedSourceLines) * 100),
+      changedLines.source === 0 ? 0 : rounded((changedLines.duplicate / changedLines.source) * 100),
     newMaxComplexity: Math.max(0, ...changedComplexity.map((finding) => finding.complexity)),
-    repositoryDuplication: rounded(parsedJscpd.data.statistics.total.percentage),
+    repositoryDuplication: rounded(parsedJscpd.statistics.total.percentage),
     repositoryMaxComplexity: Math.max(0, ...complexity.map((finding) => finding.complexity)),
   };
 };
@@ -311,15 +349,16 @@ const analyzeTypescriptLine = (
   for (let index = 0; index < line.length; index += 1) {
     const current = line[index] ?? "";
     const next = line[index + 1] ?? "";
+    const token = commentToken(current, next);
     if (inBlockComment) {
-      if (current === "*" && next === "/") {
+      if (token === "block-end") {
         inBlockComment = false;
         index += 1;
       }
       continue;
     }
-    if (current === "/" && next === "/") break;
-    if (current === "/" && next === "*") {
+    if (token === "line") break;
+    if (token === "block-start") {
       inBlockComment = true;
       index += 1;
       continue;
@@ -327,4 +366,13 @@ const analyzeTypescriptLine = (
     if (!/\s/u.test(current)) hasCode = true;
   }
   return { hasCode, inBlockComment };
+};
+
+const commentToken = (
+  current: string,
+  next: string,
+): "block-end" | "block-start" | "line" | undefined => {
+  if (current === "/" && next === "/") return "line";
+  if (current === "/" && next === "*") return "block-start";
+  return current === "*" && next === "/" ? "block-end" : undefined;
 };

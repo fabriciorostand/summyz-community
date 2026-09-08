@@ -11,7 +11,7 @@ import {
   dashboardContext,
   guildSelection,
   renderScreen,
-} from "../test-utils";
+} from "../tests/test-utils";
 import { OverviewPage } from "./overview-page";
 
 vi.mock("../lib/api", () => ({

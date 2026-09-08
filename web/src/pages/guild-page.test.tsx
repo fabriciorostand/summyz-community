@@ -9,7 +9,7 @@ import {
   aProfile,
   dashboardContext,
   renderScreen,
-} from "../test-utils";
+} from "../tests/test-utils";
 import { GuildPage } from "./guild-page";
 
 vi.mock("../lib/api", () => ({

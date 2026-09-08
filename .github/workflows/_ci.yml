@@ -78,6 +78,7 @@ jobs:
           # ruff has no cognitive complexity rule (only C901, which is cyclomatic), so the
           # Python side gets the same metric Biome enforces on TypeScript.
           complexipy services/faster-whisper \
+            --exclude "test_*.py" \
             --max-complexity-allowed 15 \
             --output-format sarif \
             --output reports/quality/complexipy.sarif \

@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api";
-import { aDashboard, aGuild, aUser } from "../test-utils";
+import { aDashboard, aGuild, aUser } from "../tests/test-utils";
 import { DashboardLayout, useDashboard } from "./dashboard-layout";
 
 vi.mock("../lib/api", () => ({

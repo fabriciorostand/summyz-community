@@ -34,6 +34,8 @@ interface PublicationText {
   transcript: string;
 }
 
+type PublishingState = Extract<PublicationState, { status: "publishing" }>;
+
 const publicationTexts = {
   en: {
     assignee: "Assignee",
@@ -74,6 +76,28 @@ const publicationTexts = {
     transcript: "Transcrição",
   },
 } as const satisfies Record<AppConfig["botLanguage"], PublicationText>;
+
+const resolvePublicationText = (
+  language: AppConfig["botLanguage"],
+  summary?: PublicSummary,
+): PublicationText => ({
+  ...publicationTexts[language],
+  ...(summary?.labels === undefined
+    ? {}
+    : {
+        assignee: summary.labels.assignee,
+        deadline: summary.labels.deadline,
+        decisions: summary.labels.decisions,
+        discussedTopics: summary.labels.discussedTopics,
+        executiveSummary: summary.labels.executiveSummary,
+        fullTranscript: summary.labels.fullTranscript,
+        meetingId: summary.labels.meetingId,
+        openIssues: summary.labels.observations,
+        summary: summary.labels.summary,
+        tasks: summary.labels.tasks,
+        transcript: summary.labels.transcript,
+      }),
+});
 
 interface DiscordMeetingPublisherOptions {
   client: Client;
@@ -212,76 +236,96 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   }
 
   async #publishPending(
-    state: Extract<PublicationState, { status: "publishing" }>,
+    state: PublishingState,
     manifest: RecordingManifest,
     mode: PublicationState["mode"],
     transcriptPath: string,
     summary?: PublicSummary,
-  ): Promise<Extract<PublicationState, { status: "publishing" }>> {
+  ): Promise<PublishingState> {
     const language = manifest.botLanguage ?? this.#language;
-    const text: PublicationText = {
-      ...publicationTexts[language],
-      ...(summary?.labels === undefined
-        ? {}
-        : {
-            assignee: summary.labels.assignee,
-            deadline: summary.labels.deadline,
-            decisions: summary.labels.decisions,
-            discussedTopics: summary.labels.discussedTopics,
-            executiveSummary: summary.labels.executiveSummary,
-            fullTranscript: summary.labels.fullTranscript,
-            meetingId: summary.labels.meetingId,
-            openIssues: summary.labels.observations,
-            summary: summary.labels.summary,
-            tasks: summary.labels.tasks,
-            transcript: summary.labels.transcript,
-          }),
-    };
+    const text = resolvePublicationText(language, summary);
     const summaryChunks =
       mode === "summary" && summary !== undefined
         ? formatSummary(manifest.meetingId, summary, text)
         : [];
-    let thread: GuildTextBasedChannel;
+    const publication = await this.#resolvePublicationThread(
+      state,
+      manifest,
+      mode,
+      transcriptPath,
+      language,
+      text,
+      summaryChunks,
+    );
+    state = await this.#publishSummaryChunks(
+      publication.state,
+      publication.thread,
+      manifest.meetingId,
+      summaryChunks,
+    );
+    return this.#publishTranscript(
+      state,
+      publication.thread,
+      manifest.meetingId,
+      transcriptPath,
+      text,
+    );
+  }
 
-    if (state.threadId === undefined) {
-      const destination = await this.#resolveDestination(manifest.guildId);
-      const forum = await this.#resolveForum(destination.forumId);
-      const title = createPostTitle(
-        manifest.startedAt,
-        manifest.voiceChannelName ?? text.defaultVoiceChannel,
-        mode,
-        this.#timeZone,
-        language,
-        text,
-      );
-      const firstContent =
-        mode === "summary"
-          ? summaryChunks[0]
-          : `${text.meetingId}: \`${manifest.meetingId}\`\n\n${text.summaryUnavailable}`;
-      if (firstContent === undefined) {
-        throw new Error("O resumo não possui conteúdo para iniciar o post");
-      }
-      thread = await forum.threads.create({
-        ...(destination.tagId === undefined ? {} : { appliedTags: [destination.tagId] }),
-        autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
-        message: {
-          allowedMentions: { parse: [] },
-          content: firstContent,
-          ...(mode === "transcript_only" ? { files: [transcriptPath] } : {}),
-        },
-        name: title,
-        reason: `${text.auditReason} ${manifest.meetingId}`,
-      });
-      state = await this.#saveProgress(state, {
-        rootMessageId: thread.id,
-        summaryMessageIds: mode === "summary" ? [thread.id] : [],
-        threadId: thread.id,
-        ...(mode === "transcript_only" ? { transcriptMessageId: thread.id } : {}),
-      });
-    } else {
-      thread = await this.#resolveThread(state.threadId);
+  async #resolvePublicationThread(
+    state: PublishingState,
+    manifest: RecordingManifest,
+    mode: PublicationState["mode"],
+    transcriptPath: string,
+    language: AppConfig["botLanguage"],
+    text: PublicationText,
+    summaryChunks: readonly string[],
+  ): Promise<{ readonly state: PublishingState; readonly thread: GuildTextBasedChannel }> {
+    if (state.threadId !== undefined) {
+      return { state, thread: await this.#resolveThread(state.threadId) };
     }
+    const destination = await this.#resolveDestination(manifest.guildId);
+    const forum = await this.#resolveForum(destination.forumId);
+    const title = createPostTitle(
+      manifest.startedAt,
+      manifest.voiceChannelName ?? text.defaultVoiceChannel,
+      mode,
+      this.#timeZone,
+      language,
+      text,
+    );
+    const firstContent =
+      mode === "summary"
+        ? summaryChunks[0]
+        : `${text.meetingId}: \`${manifest.meetingId}\`\n\n${text.summaryUnavailable}`;
+    if (firstContent === undefined)
+      throw new Error("O resumo não possui conteúdo para iniciar o post");
+    const thread = await forum.threads.create({
+      ...(destination.tagId === undefined ? {} : { appliedTags: [destination.tagId] }),
+      autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
+      message: {
+        allowedMentions: { parse: [] },
+        content: firstContent,
+        ...(mode === "transcript_only" ? { files: [transcriptPath] } : {}),
+      },
+      name: title,
+      reason: `${text.auditReason} ${manifest.meetingId}`,
+    });
+    const nextState = await this.#saveProgress(state, {
+      rootMessageId: thread.id,
+      summaryMessageIds: mode === "summary" ? [thread.id] : [],
+      threadId: thread.id,
+      ...(mode === "transcript_only" ? { transcriptMessageId: thread.id } : {}),
+    });
+    return { state: nextState, thread };
+  }
 
+  async #publishSummaryChunks(
+    state: PublishingState,
+    thread: GuildTextBasedChannel,
+    meetingId: string,
+    summaryChunks: readonly string[],
+  ): Promise<PublishingState> {
     for (let index = state.summaryMessageIds.length; index < summaryChunks.length; index += 1) {
       const content = summaryChunks[index];
       if (content === undefined) {
@@ -291,24 +335,31 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
         allowedMentions: { parse: [] },
         content,
         enforceNonce: true,
-        nonce: createNonce(manifest.meetingId, `summary:${index}`),
+        nonce: createNonce(meetingId, `summary:${index}`),
       });
       state = await this.#saveProgress(state, {
         summaryMessageIds: [...state.summaryMessageIds, message.id],
       });
     }
-
-    if (state.transcriptMessageId === undefined) {
-      const transcriptMessage = await thread.send({
-        allowedMentions: { parse: [] },
-        content: text.fullTranscript,
-        enforceNonce: true,
-        files: [transcriptPath],
-        nonce: createNonce(manifest.meetingId, "transcript"),
-      });
-      state = await this.#saveProgress(state, { transcriptMessageId: transcriptMessage.id });
-    }
     return state;
+  }
+
+  async #publishTranscript(
+    state: PublishingState,
+    thread: GuildTextBasedChannel,
+    meetingId: string,
+    transcriptPath: string,
+    text: PublicationText,
+  ): Promise<PublishingState> {
+    if (state.transcriptMessageId !== undefined) return state;
+    const transcriptMessage = await thread.send({
+      allowedMentions: { parse: [] },
+      content: text.fullTranscript,
+      enforceNonce: true,
+      files: [transcriptPath],
+      nonce: createNonce(meetingId, "transcript"),
+    });
+    return this.#saveProgress(state, { transcriptMessageId: transcriptMessage.id });
   }
 
   async #resolveDestination(guildId: string): Promise<SummaryForumConfiguration> {

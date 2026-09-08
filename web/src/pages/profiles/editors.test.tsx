@@ -4,7 +4,7 @@ import { type ReactNode, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import type { Profile } from "../../lib/api";
-import { aProfile } from "../../test-utils";
+import { aProfile } from "../../tests/test-utils";
 import { PhaseSettings, TranscriptionSettings, TranslationSettings } from "./generation-editor";
 import { VadEditor } from "./vad-editor";
 

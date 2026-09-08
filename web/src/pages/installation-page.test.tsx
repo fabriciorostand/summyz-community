@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type InstallationHealth, type InstallationSettings } from "../lib/api";
-import { renderScreen } from "../test-utils";
+import { renderScreen } from "../tests/test-utils";
 import { InstallationPage } from "./installation-page";
 
 vi.mock("../lib/api", () => ({

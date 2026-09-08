@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api } from "../lib/api";
-import { aUser, dashboardContext, renderScreen } from "../test-utils";
+import { aUser, dashboardContext, renderScreen } from "../tests/test-utils";
 import { AccountPage } from "./account-page";
 
 vi.mock("../lib/api", async () => {

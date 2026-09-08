@@ -91,6 +91,51 @@ const fixedVersions = (value: string): readonly string[] =>
 const trivyPath = (result: JsonRecord, options: TrivyReportOptions): string =>
   options.sourcePath ?? stringValue(result, "Target", "repository");
 
+const trivyVulnerabilities = (result: JsonRecord, path: string): readonly SecurityFinding[] =>
+  recordArray(result, "Vulnerabilities").map((vulnerability) => {
+    const id = stringValue(vulnerability, "VulnerabilityID", "unknown-vulnerability");
+    const title = stringValue(vulnerability, "Title");
+    const description = stringValue(vulnerability, "Description");
+    const detailsUrl = stringValue(vulnerability, "PrimaryURL");
+    return {
+      ...(detailsUrl ? { detailsUrl } : {}),
+      fixedVersions: fixedVersions(stringValue(vulnerability, "FixedVersion")),
+      id,
+      line: 1,
+      message: title || description || `${id} affects this artifact.`,
+      packageName: stringValue(vulnerability, "PkgName", "unknown-package"),
+      path,
+      severity: stringValue(vulnerability, "Severity", "UNKNOWN").toUpperCase(),
+      tool: "trivy",
+    };
+  });
+
+const trivyMisconfigurations = (result: JsonRecord, path: string): readonly Diagnostic[] =>
+  recordArray(result, "Misconfigurations").map((misconfiguration) => {
+    const metadata = misconfiguration.CauseMetadata;
+    const detailsUrl = stringValue(misconfiguration, "PrimaryURL");
+    return {
+      ...(detailsUrl ? { detailsUrl } : {}),
+      line: isRecord(metadata) ? numberValue(metadata, "StartLine", 1) : 1,
+      message:
+        stringValue(misconfiguration, "Message") ||
+        stringValue(misconfiguration, "Title") ||
+        "Trivy found a security misconfiguration.",
+      path,
+      rule: stringValue(misconfiguration, "ID", "trivy-misconfiguration"),
+      tool: "trivy",
+    };
+  });
+
+const trivySecrets = (result: JsonRecord, path: string): readonly Diagnostic[] =>
+  recordArray(result, "Secrets").map((secret) => ({
+    line: numberValue(secret, "StartLine", 1),
+    message: stringValue(secret, "Title", "Trivy found a potential secret."),
+    path,
+    rule: stringValue(secret, "RuleID", "trivy-secret"),
+    tool: "trivy",
+  }));
+
 export const parseTrivyReport = (
   input: unknown,
   options: TrivyReportOptions = {},
@@ -101,52 +146,8 @@ export const parseTrivyReport = (
 
   for (const result of recordArray(input, "Results")) {
     const path = trivyPath(result, options);
-    for (const vulnerability of recordArray(result, "Vulnerabilities")) {
-      const id = stringValue(vulnerability, "VulnerabilityID", "unknown-vulnerability");
-      const title = stringValue(vulnerability, "Title");
-      const description = stringValue(vulnerability, "Description");
-      vulnerabilities.push({
-        ...(stringValue(vulnerability, "PrimaryURL")
-          ? { detailsUrl: stringValue(vulnerability, "PrimaryURL") }
-          : {}),
-        fixedVersions: fixedVersions(stringValue(vulnerability, "FixedVersion")),
-        id,
-        line: 1,
-        message: title || description || `${id} affects this artifact.`,
-        packageName: stringValue(vulnerability, "PkgName", "unknown-package"),
-        path,
-        severity: stringValue(vulnerability, "Severity", "UNKNOWN").toUpperCase(),
-        tool: "trivy",
-      });
-    }
-
-    for (const misconfiguration of recordArray(result, "Misconfigurations")) {
-      const metadata = misconfiguration.CauseMetadata;
-      const line = isRecord(metadata) ? numberValue(metadata, "StartLine", 1) : 1;
-      securityIssues.push({
-        ...(stringValue(misconfiguration, "PrimaryURL")
-          ? { detailsUrl: stringValue(misconfiguration, "PrimaryURL") }
-          : {}),
-        line,
-        message:
-          stringValue(misconfiguration, "Message") ||
-          stringValue(misconfiguration, "Title") ||
-          "Trivy found a security misconfiguration.",
-        path,
-        rule: stringValue(misconfiguration, "ID", "trivy-misconfiguration"),
-        tool: "trivy",
-      });
-    }
-
-    for (const secret of recordArray(result, "Secrets")) {
-      securityIssues.push({
-        line: numberValue(secret, "StartLine", 1),
-        message: stringValue(secret, "Title", "Trivy found a potential secret."),
-        path,
-        rule: stringValue(secret, "RuleID", "trivy-secret"),
-        tool: "trivy",
-      });
-    }
+    vulnerabilities.push(...trivyVulnerabilities(result, path));
+    securityIssues.push(...trivyMisconfigurations(result, path), ...trivySecrets(result, path));
   }
 
   return { securityIssues, vulnerabilities };
@@ -159,51 +160,64 @@ const npmFixVersions = (value: unknown): readonly string[] => {
   return version ? [version] : ["npm audit fix"];
 };
 
+const npmAdvisoryFinding = (
+  rawAdvisory: unknown,
+  packageName: string,
+  severity: string,
+  fixes: readonly string[],
+): SecurityFinding | undefined => {
+  if (typeof rawAdvisory === "string") {
+    return {
+      fixedVersions: fixes,
+      id: rawAdvisory,
+      line: 1,
+      message: `${packageName} depends on vulnerable package ${rawAdvisory}.`,
+      packageName,
+      path: "package-lock.json",
+      severity,
+      tool: "npm-audit",
+    };
+  }
+  if (!isRecord(rawAdvisory)) return undefined;
+  const source = rawAdvisory.source;
+  const id =
+    typeof source === "number" || typeof source === "string"
+      ? `GHSA-${String(source)}`
+      : `${packageName}-advisory`;
+  const url = stringValue(rawAdvisory, "url");
+  return {
+    ...(url ? { detailsUrl: url } : {}),
+    fixedVersions: fixes,
+    id,
+    line: 1,
+    message: stringValue(rawAdvisory, "title", `${packageName} has a published advisory.`),
+    packageName,
+    path: "package-lock.json",
+    severity: stringValue(rawAdvisory, "severity", severity).toUpperCase(),
+    tool: "npm-audit",
+  };
+};
+
+const npmVulnerabilityFindings = (
+  packageKey: string,
+  rawVulnerability: unknown,
+): readonly SecurityFinding[] => {
+  if (!isRecord(rawVulnerability)) return [];
+  const packageName = stringValue(rawVulnerability, "name", packageKey);
+  const severity = stringValue(rawVulnerability, "severity", "UNKNOWN").toUpperCase();
+  const fixes = npmFixVersions(rawVulnerability.fixAvailable);
+  const advisories = Array.isArray(rawVulnerability.via) ? rawVulnerability.via : [];
+  return advisories.flatMap((advisory) => {
+    const finding = npmAdvisoryFinding(advisory, packageName, severity, fixes);
+    return finding === undefined ? [] : [finding];
+  });
+};
+
 export const parseNpmAuditReport = (input: unknown): readonly SecurityFinding[] => {
   if (!isRecord(input) || !isRecord(input.vulnerabilities)) return [];
-  const findings: SecurityFinding[] = [];
-  for (const [packageKey, rawVulnerability] of Object.entries(input.vulnerabilities)) {
-    if (!isRecord(rawVulnerability)) continue;
-    const packageName = stringValue(rawVulnerability, "name", packageKey);
-    const severity = stringValue(rawVulnerability, "severity", "UNKNOWN").toUpperCase();
-    const fixes = npmFixVersions(rawVulnerability.fixAvailable);
-    const via = rawVulnerability.via;
-    const advisories = Array.isArray(via) ? via : [];
-    for (const rawAdvisory of advisories) {
-      if (typeof rawAdvisory === "string") {
-        findings.push({
-          fixedVersions: fixes,
-          id: rawAdvisory,
-          line: 1,
-          message: `${packageName} depends on vulnerable package ${rawAdvisory}.`,
-          packageName,
-          path: "package-lock.json",
-          severity,
-          tool: "npm-audit",
-        });
-        continue;
-      }
-      if (!isRecord(rawAdvisory)) continue;
-      const source = rawAdvisory.source;
-      const id =
-        typeof source === "number" || typeof source === "string"
-          ? `GHSA-${String(source)}`
-          : `${packageName}-advisory`;
-      const url = stringValue(rawAdvisory, "url");
-      findings.push({
-        ...(url ? { detailsUrl: url } : {}),
-        fixedVersions: fixes,
-        id,
-        line: 1,
-        message: stringValue(rawAdvisory, "title", `${packageName} has a published advisory.`),
-        packageName,
-        path: "package-lock.json",
-        severity: stringValue(rawAdvisory, "severity", severity).toUpperCase(),
-        tool: "npm-audit",
-      });
-    }
-  }
-  return findings;
+  return Object.entries(input.vulnerabilities).flatMap(([packageKey, vulnerability]) =>
+    npmVulnerabilityFindings(packageKey, vulnerability),
+  );
 };
 
 export const parsePipAuditReport = (input: unknown): readonly SecurityFinding[] => {
@@ -262,33 +276,39 @@ const sarifLocation = (result: JsonRecord): { readonly line: number; readonly pa
   };
 };
 
+const sarifRules = (run: JsonRecord): ReadonlyMap<string, string> => {
+  const rules = new Map<string, string>();
+  const toolEntry = run.tool;
+  const driver = isRecord(toolEntry) ? toolEntry.driver : undefined;
+  if (!isRecord(driver)) return rules;
+  for (const rule of recordArray(driver, "rules")) {
+    const id = stringValue(rule, "id");
+    const helpUri = stringValue(rule, "helpUri");
+    if (id && helpUri) rules.set(id, helpUri);
+  }
+  return rules;
+};
+
+const sarifDiagnostics = (
+  run: JsonRecord,
+  tool: string,
+  rules: ReadonlyMap<string, string>,
+): readonly Diagnostic[] =>
+  recordArray(run, "results").map((result) => {
+    const rule = stringValue(result, "ruleId", `${tool}-finding`);
+    const location = sarifLocation(result);
+    const detailsUrl = rules.get(rule);
+    return {
+      ...(detailsUrl ? { detailsUrl } : {}),
+      line: location.line,
+      message: sarifMessage(result),
+      path: location.path,
+      rule,
+      tool,
+    };
+  });
+
 export const parseSarifReport = (input: unknown, tool: string): readonly Diagnostic[] => {
   if (!isRecord(input)) return [];
-  const diagnostics: Diagnostic[] = [];
-  for (const run of recordArray(input, "runs")) {
-    const rules = new Map<string, string>();
-    const toolEntry = run.tool;
-    const driver = isRecord(toolEntry) ? toolEntry.driver : undefined;
-    if (isRecord(driver)) {
-      for (const rule of recordArray(driver, "rules")) {
-        const id = stringValue(rule, "id");
-        const helpUri = stringValue(rule, "helpUri");
-        if (id && helpUri) rules.set(id, helpUri);
-      }
-    }
-    for (const result of recordArray(run, "results")) {
-      const rule = stringValue(result, "ruleId", `${tool}-finding`);
-      const location = sarifLocation(result);
-      const detailsUrl = rules.get(rule);
-      diagnostics.push({
-        ...(detailsUrl ? { detailsUrl } : {}),
-        line: location.line,
-        message: sarifMessage(result),
-        path: location.path,
-        rule,
-        tool,
-      });
-    }
-  }
-  return diagnostics;
+  return recordArray(input, "runs").flatMap((run) => sarifDiagnostics(run, tool, sarifRules(run)));
 };

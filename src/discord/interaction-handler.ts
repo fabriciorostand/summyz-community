@@ -26,6 +26,49 @@ import {
 import { getInteractionText, type InteractionText } from "./interaction-text.js";
 import { createEphemeralReply } from "./responses.js";
 
+interface CommandDependencies {
+  readonly aiProfileStore?: AiProfileStore;
+  readonly coordinator: RecordingCoordinator;
+  readonly costReport?: CostReportReader;
+  readonly guildConfigStore: GuildConfigurationStore;
+  readonly isOpenRouterConfigured: () => boolean | Promise<boolean>;
+  readonly resolveAiProfileCompatibility?: (
+    guildId: string,
+  ) => Promise<readonly AiProfileCompatibilityStatus[]>;
+}
+
+const dispatchCommand = async (
+  interaction: ChatInputCommandInteraction,
+  dependencies: CommandDependencies,
+  text: InteractionText,
+): Promise<void> => {
+  switch (interaction.commandName) {
+    case "recording-role":
+      return handleRecordingRole(interaction, dependencies.guildConfigStore, text);
+    case "recording-summary-forum":
+      return handleRecordingSummaryForum(interaction, dependencies.guildConfigStore, text);
+    case "recording-cost":
+      return handleRecordingCost(
+        interaction,
+        dependencies.coordinator,
+        dependencies.costReport,
+        text,
+      );
+    case "record":
+      return handleRecord(
+        interaction,
+        dependencies.guildConfigStore,
+        dependencies.coordinator,
+        text,
+        dependencies.aiProfileStore,
+        dependencies.resolveAiProfileCompatibility,
+        dependencies.isOpenRouterConfigured,
+      );
+    case "stop":
+      return handleStop(interaction, dependencies.guildConfigStore, dependencies.coordinator, text);
+  }
+};
+
 export function installInteractionHandler(
   client: Client,
   guildConfigStore: GuildConfigurationStore,
@@ -60,25 +103,18 @@ export function installInteractionHandler(
       text = getInteractionText(
         interaction.guildId === null ? language : await resolveBotLanguage(interaction.guildId),
       );
-      if (interaction.commandName === "recording-role") {
-        await handleRecordingRole(interaction, guildConfigStore, text);
-      } else if (interaction.commandName === "recording-summary-forum") {
-        await handleRecordingSummaryForum(interaction, guildConfigStore, text);
-      } else if (interaction.commandName === "recording-cost") {
-        await handleRecordingCost(interaction, coordinator, costReport, text);
-      } else if (interaction.commandName === "record") {
-        await handleRecord(
-          interaction,
-          guildConfigStore,
+      await dispatchCommand(
+        interaction,
+        {
+          ...(aiProfileStore === undefined ? {} : { aiProfileStore }),
           coordinator,
-          text,
-          aiProfileStore,
-          resolveAiProfileCompatibility,
+          ...(costReport === undefined ? {} : { costReport }),
+          guildConfigStore,
           isOpenRouterConfigured,
-        );
-      } else if (interaction.commandName === "stop") {
-        await handleStop(interaction, guildConfigStore, coordinator, text);
-      }
+          ...(resolveAiProfileCompatibility === undefined ? {} : { resolveAiProfileCompatibility }),
+        },
+        text,
+      );
     } catch (error) {
       logger.error(
         { commandName: interaction.commandName, errorType: getErrorType(error) },
@@ -88,6 +124,49 @@ export function installInteractionHandler(
     }
   });
 }
+
+const validateActiveAiProfile = async (
+  interaction: ChatInputCommandInteraction,
+  guildId: string,
+  ownerId: string,
+  store: AiProfileStore,
+  isOpenRouterConfigured: () => boolean | Promise<boolean>,
+  text: InteractionText,
+): Promise<boolean> => {
+  const profile = await store.getActiveProfileForDiscordOwner(guildId, ownerId);
+  if (profile === undefined || !isAiProfileComplete(profile)) {
+    await interaction.reply(createEphemeralReply(text.configureAiProfileFirst));
+    return false;
+  }
+  const usesOpenRouter = [profile.transcription, profile.refinement, profile.summary].some(
+    (phase) => phase.provider === "openrouter",
+  );
+  if (usesOpenRouter && !(await isOpenRouterConfigured())) {
+    await interaction.reply(createEphemeralReply(text.openRouterApiKeyMissing));
+    return false;
+  }
+  return true;
+};
+
+const handleRecordingStartError = async (
+  error: unknown,
+  interaction: ChatInputCommandInteraction,
+  text: InteractionText,
+): Promise<boolean> => {
+  if (error instanceof RecordingAlreadyActiveError) {
+    await interaction.editReply(text.recordingAlreadyActive);
+    return true;
+  }
+  if (error instanceof MultilingualCheckpointRequiredError) {
+    await interaction.editReply(text.multilingualCheckpointRequired);
+    return true;
+  }
+  if (error instanceof OpenRouterModelPreflightError) {
+    await interaction.editReply(text.modelPreflightFailed);
+    return true;
+  }
+  return false;
+};
 
 export interface CostReportReader {
   meeting(guildId: string, meetingId: string): Promise<string>;
@@ -324,23 +403,15 @@ async function handleRecord(
     return;
   }
   if (aiProfileStore !== undefined) {
-    const profile = await aiProfileStore.getActiveProfileForDiscordOwner(
+    const valid = await validateActiveAiProfile(
+      interaction,
       context.guildId,
       context.ownerId,
+      aiProfileStore,
+      isOpenRouterConfigured,
+      text,
     );
-    if (profile === undefined || !isAiProfileComplete(profile)) {
-      await interaction.reply(createEphemeralReply(text.configureAiProfileFirst));
-      return;
-    }
-    if (
-      [profile.transcription, profile.refinement, profile.summary].some(
-        (phase) => phase.provider === "openrouter",
-      ) &&
-      !(await isOpenRouterConfigured())
-    ) {
-      await interaction.reply(createEphemeralReply(text.openRouterApiKeyMissing));
-      return;
-    }
+    if (!valid) return;
   }
   const compatibility = (await resolveAiProfileCompatibility?.(context.guildId)) ?? [];
   if (compatibility.includes("incompatible")) {
@@ -372,18 +443,7 @@ async function handleRecord(
       await interaction.followUp(createEphemeralReply(text.unknownAiProfileCompatibility));
     }
   } catch (error) {
-    if (error instanceof RecordingAlreadyActiveError) {
-      await interaction.editReply(text.recordingAlreadyActive);
-      return;
-    }
-    if (error instanceof MultilingualCheckpointRequiredError) {
-      await interaction.editReply(text.multilingualCheckpointRequired);
-      return;
-    }
-    if (error instanceof OpenRouterModelPreflightError) {
-      await interaction.editReply(text.modelPreflightFailed);
-      return;
-    }
+    if (await handleRecordingStartError(error, interaction, text)) return;
     throw error;
   }
 }
