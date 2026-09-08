@@ -1,17 +1,9 @@
 import type { Logger } from "pino";
 
-import {
-  type RecordingManifest,
-  type RecordingSegment,
-  setPredominantLanguage,
-} from "../recording/manifest.js";
+import { type RecordingManifest, setPredominantLanguage } from "../recording/manifest.js";
 import type { ManifestStore } from "../recording/manifest-store.js";
 import { mapWithConcurrency } from "./concurrency.js";
-import {
-  AudioPreparationError,
-  MeetingAudioPreparer,
-  type PreparedAudio,
-} from "./meeting-audio-preparer.js";
+import { AudioPreparationError, MeetingAudioPreparer } from "./meeting-audio-preparer.js";
 import {
   aggregatePredominantLanguage,
   type LanguageEvidence,
@@ -19,13 +11,12 @@ import {
 } from "./predominant-language.js";
 import type { SpeechAnalyzer } from "./speech-analyzer.js";
 import { assembleTranscript } from "./transcript-assembler.js";
-import type { AnalyzedSegment, TranscriptionBatch } from "./transcription-batch.js";
+import { createTranscriptionGroups } from "./transcription-batch.js";
 import {
-  composeTranscriptionBatch,
-  createAnalyzedTranscriptionGroups,
-  createTranscriptionGroups,
-  mapTranscriptPiecesToTimeline,
-} from "./transcription-batch.js";
+  AudioAnalysisError,
+  type PersistTranscriptionGroup,
+  processTranscriptionGroup,
+} from "./transcription-group-processor.js";
 import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
 import { IncompatibleTranscriptionResponseError } from "./transcription-provider.js";
 import type { TranscriptionRecoveryReason } from "./transcription-recovery-policy.js";
@@ -60,34 +51,6 @@ interface MeetingTranscriptionServiceOptions {
 
 interface TranscriptionProcessingOptions {
   notifyTerminalFailure?: boolean;
-}
-
-type PersistGroup = (
-  group: readonly RecordingSegment[],
-  input:
-    | {
-        batch: TranscriptionBatch;
-        result: Awaited<ReturnType<TranscriptionProvider["transcribe"]>>;
-      }
-    | { batch: undefined; result: { attempts: 0; pieces: [] } },
-) => Promise<void>;
-
-interface TranscriptionGroupContext {
-  readonly interSpeechSilenceMs: number;
-  readonly languageEvidence: Array<LanguageEvidence & { segmentIds: readonly string[] }>;
-  readonly manifest: RecordingManifest;
-  readonly persistGroup: PersistGroup;
-  readonly preparedBySegmentId: ReadonlyMap<string, PreparedAudio>;
-  readonly provider: TranscriptionProvider;
-  readonly speechAnalyzer: SpeechAnalyzer;
-  readonly transcriptionMergeMaxGapMs: number;
-}
-
-class AudioAnalysisError extends Error {
-  public constructor() {
-    super("Não foi possível analisar a presença de voz no áudio");
-    this.name = "AudioAnalysisError";
-  }
 }
 
 class LanguageDetectionError extends Error {
@@ -206,15 +169,7 @@ export class MeetingTranscriptionService {
       );
       const languageEvidence: Array<LanguageEvidence & { segmentIds: readonly string[] }> = [];
       let stateQueue = Promise.resolve();
-      const persistGroup = (
-        group: readonly RecordingSegment[],
-        input:
-          | {
-              batch: TranscriptionBatch;
-              result: Awaited<ReturnType<TranscriptionProvider["transcribe"]>>;
-            }
-          | { batch: undefined; result: { attempts: 0; pieces: [] } },
-      ): Promise<void> => {
+      const persistGroup: PersistTranscriptionGroup = (group, input) => {
         const persistence = stateQueue.then(async () => {
           const first = group[0];
           if (first === undefined) {
@@ -245,15 +200,17 @@ export class MeetingTranscriptionService {
       };
       try {
         await mapWithConcurrency(groups, this.#concurrency, (group) =>
-          this.#processGroup(group, {
+          processTranscriptionGroup(group, {
             interSpeechSilenceMs,
             languageEvidence,
+            logger: this.#logger,
             manifest,
             persistGroup,
             preparedBySegmentId,
             provider,
             speechAnalyzer,
             transcriptionMergeMaxGapMs,
+            transcriptionWindowMaxMs: this.#transcriptionWindowMaxMs,
           }),
         );
       } finally {
@@ -432,118 +389,6 @@ export class MeetingTranscriptionService {
         { errorType: getErrorType(error), meetingId },
         "Unable to close meeting speech analyzer",
       );
-    });
-  }
-
-  async #processGroup(
-    group: readonly RecordingSegment[],
-    context: TranscriptionGroupContext,
-  ): Promise<void> {
-    const analyzed = await this.#analyzeGroup(
-      group,
-      context.preparedBySegmentId,
-      context.speechAnalyzer,
-    );
-    await this.#discardSilentSegments(analyzed, context.manifest.meetingId, context.persistGroup);
-    await this.#transcribeSpeechGroups(analyzed, context);
-  }
-
-  async #analyzeGroup(
-    group: readonly RecordingSegment[],
-    preparedBySegmentId: ReadonlyMap<string, PreparedAudio>,
-    speechAnalyzer: SpeechAnalyzer,
-  ): Promise<AnalyzedSegment[]> {
-    const audioFiles = group.map((segment) => {
-      const audio = preparedBySegmentId.get(segment.segmentId);
-      if (audio === undefined) throw new Error("O áudio do segmento não foi preparado");
-      return audio;
-    });
-    const analyzed: AnalyzedSegment[] = [];
-    for (const audio of audioFiles) {
-      try {
-        const analysis = await speechAnalyzer.analyze(audio.path);
-        analyzed.push({ ...analysis, segment: audio.segment });
-      } catch {
-        throw new AudioAnalysisError();
-      }
-    }
-    return analyzed;
-  }
-
-  async #discardSilentSegments(
-    analyzed: readonly AnalyzedSegment[],
-    meetingId: string,
-    persistGroup: PersistGroup,
-  ): Promise<void> {
-    const silentSegments = analyzed
-      .filter((item) => !item.containsSpeech)
-      .map((item) => item.segment);
-    if (silentSegments.length === 0) return;
-    await persistGroup(silentSegments, {
-      batch: undefined,
-      result: { attempts: 0, pieces: [] },
-    });
-    this.#logger.info(
-      { meetingId, segmentCount: silentSegments.length },
-      "Segments without speech discarded from transcription",
-    );
-  }
-
-  async #transcribeSpeechGroups(
-    analyzed: readonly AnalyzedSegment[],
-    context: TranscriptionGroupContext,
-  ): Promise<void> {
-    const speechGroups = createAnalyzedTranscriptionGroups(analyzed, {
-      maxGapMs: context.transcriptionMergeMaxGapMs,
-      maxWindowMs: this.#transcriptionWindowMaxMs,
-    });
-    for (const speechGroup of speechGroups) {
-      const batch = composeTranscriptionBatch(speechGroup, undefined, context.interSpeechSilenceMs);
-      if (batch === undefined) throw new AudioAnalysisError();
-      const result = await context.provider.transcribe({
-        audio: batch.audio,
-        audioDurationMs: batch.audioDurationMs,
-        format: "wav",
-        language: "auto",
-      });
-      this.#collectLanguageEvidence(context.languageEvidence, batch, result);
-      await context.persistGroup(
-        speechGroup.map((item) => item.segment),
-        {
-          batch,
-          result: {
-            ...result,
-            pieces: mapTranscriptPiecesToTimeline(batch, result.pieces),
-            ...(result.words === undefined
-              ? {}
-              : { words: mapTranscriptPiecesToTimeline(batch, result.words) }),
-          },
-        },
-      );
-      this.#logger.info(
-        {
-          attempts: result.attempts,
-          meetingId: context.manifest.meetingId,
-          segmentCount: speechGroup.length,
-        },
-        "Audio batch transcribed",
-      );
-    }
-  }
-
-  #collectLanguageEvidence(
-    evidence: Array<LanguageEvidence & { segmentIds: readonly string[] }>,
-    batch: TranscriptionBatch,
-    result: Awaited<ReturnType<TranscriptionProvider["transcribe"]>>,
-  ): void {
-    if (result.detectedLanguage === undefined) return;
-    evidence.push({
-      durationMs: batch.audioDurationMs,
-      language: result.detectedLanguage.language,
-      ...(result.detectedLanguage.probability === undefined
-        ? {}
-        : { probability: result.detectedLanguage.probability }),
-      segmentIds: batch.segmentIds,
     });
   }
 }
