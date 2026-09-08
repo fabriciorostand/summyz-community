@@ -471,6 +471,11 @@ jobs:
           cache-from: type=gha,scope=summyz-node-tests
           cache-to: type=gha,mode=max,scope=summyz-node-tests,ignore-error=true
 
+      - name: Reclaim build storage before runtime validation
+        run: |
+          docker buildx prune --all --force
+          docker image prune --force
+
       - name: Validate image users, versions, and Compose overlays
         shell: bash
         env:

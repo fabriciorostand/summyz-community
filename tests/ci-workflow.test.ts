@@ -172,6 +172,24 @@ describe("continuous integration contract", () => {
     expect(cudaBuild).not.toContain("load: true");
   });
 
+  it("reclaims duplicated build storage before runtime validation and smoke tests", async () => {
+    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
+    const smokeBuildIndex = runtimeJob.indexOf("- name: Build smoke-test image");
+    const storageCleanupIndex = runtimeJob.indexOf(
+      "- name: Reclaim build storage before runtime validation",
+    );
+    const validationIndex = runtimeJob.indexOf(
+      "- name: Validate image users, versions, and Compose overlays",
+    );
+    const storageCleanup = runtimeJob.slice(storageCleanupIndex, validationIndex);
+
+    expect(storageCleanupIndex).toBeGreaterThan(smokeBuildIndex);
+    expect(storageCleanupIndex).toBeLessThan(validationIndex);
+    expect(storageCleanup).toContain("docker buildx prune --all --force");
+    expect(storageCleanup).toContain("docker image prune --force");
+  });
+
   it("does not require a developer .env file for CI Compose operations", async () => {
     const [overlay, implementation] = await Promise.all([
       readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8"),
