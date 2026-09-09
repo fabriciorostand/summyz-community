@@ -106,13 +106,13 @@ const pathEndsWith = (path: string, suffix: string): boolean =>
   path.replaceAll("\\", "/").endsWith(suffix);
 
 const parseQualityIssues = async (files: readonly string[]): Promise<readonly Diagnostic[]> => {
-  const reports = await allJson(
-    files,
-    (path) => pathEndsWith(path, "/biome.sarif") || pathEndsWith(path, "/ruff.sarif"),
+  const tools = ["biome", "ruff", "complexipy"] as const;
+  const toolFor = (path: string): string =>
+    tools.find((tool) => pathEndsWith(path, `/${tool}.sarif`)) ?? "biome";
+  const reports = await allJson(files, (path) =>
+    tools.some((tool) => pathEndsWith(path, `/${tool}.sarif`)),
   );
-  return reports.flatMap((report) =>
-    parseSarifReport(report.value, pathEndsWith(report.path, "/biome.sarif") ? "biome" : "ruff"),
-  );
+  return reports.flatMap((report) => parseSarifReport(report.value, toolFor(report.path)));
 };
 
 const trivySourcePath = (path: string): string | undefined => {

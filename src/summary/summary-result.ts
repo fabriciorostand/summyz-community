@@ -119,6 +119,46 @@ export const translatedPublicSummarySchema = publicSummarySchema.extend({
 });
 export type PublicSummaryTask = PublicSummary["tasks"][number];
 
+function groundTask(
+  task: SummaryDraft["tasks"][number],
+  entriesById: ReadonlyMap<string, SummaryTranscriptEntry>,
+): SummaryDraft["tasks"] {
+  const sourceEntryIds = validSourceIds(task.sourceEntryIds, entriesById);
+  if (sourceEntryIds.length === 0) return [];
+  const sourceText = sourceEntryIds
+    .map((entryId) => entriesById.get(entryId)?.text ?? "")
+    .join("\n");
+  const hasGroundedDeadline =
+    task.deadlineText !== undefined && sourceText.includes(task.deadlineText);
+  const hasGroundedDeadlineNormalization =
+    task.deadlineTimeZone !== undefined &&
+    sourceEntryIds.some(
+      (entryId) => entriesById.get(entryId)?.spokenAt?.timeZone === task.deadlineTimeZone,
+    );
+  return [
+    {
+      ...(hasGroundedDeadline
+        ? {
+            deadlineText: task.deadlineText,
+            ...(hasGroundedDeadlineNormalization
+              ? {
+                  deadlineDate: task.deadlineDate,
+                  deadlinePrecision: task.deadlinePrecision,
+                  ...(task.deadlineTime === undefined ? {} : { deadlineTime: task.deadlineTime }),
+                  deadlineTimeZone: task.deadlineTimeZone,
+                }
+              : {}),
+          }
+        : {}),
+      ...(task.ownerName !== undefined && sourceText.includes(task.ownerName)
+        ? { ownerName: task.ownerName }
+        : {}),
+      sourceEntryIds,
+      text: task.text,
+    },
+  ];
+}
+
 export function validateGroundedSummary(
   input: SummaryDraft,
   transcript: readonly SummaryTranscriptEntry[],
@@ -135,44 +175,7 @@ export function validateGroundedSummary(
     const sourceEntryIds = validSourceIds(decision.sourceEntryIds, entriesById);
     return sourceEntryIds.length === 0 ? [] : [{ ...decision, sourceEntryIds }];
   });
-  const tasks = draft.tasks.flatMap((task) => {
-    const sourceEntryIds = validSourceIds(task.sourceEntryIds, entriesById);
-    if (sourceEntryIds.length === 0) {
-      return [];
-    }
-    const sourceText = sourceEntryIds
-      .map((entryId) => entriesById.get(entryId)?.text ?? "")
-      .join("\n");
-    const hasGroundedDeadline =
-      task.deadlineText !== undefined && sourceText.includes(task.deadlineText);
-    const hasGroundedDeadlineNormalization =
-      task.deadlineTimeZone !== undefined &&
-      sourceEntryIds.some(
-        (entryId) => entriesById.get(entryId)?.spokenAt?.timeZone === task.deadlineTimeZone,
-      );
-    return [
-      {
-        ...(hasGroundedDeadline
-          ? {
-              deadlineText: task.deadlineText,
-              ...(hasGroundedDeadlineNormalization
-                ? {
-                    deadlineDate: task.deadlineDate,
-                    deadlinePrecision: task.deadlinePrecision,
-                    ...(task.deadlineTime === undefined ? {} : { deadlineTime: task.deadlineTime }),
-                    deadlineTimeZone: task.deadlineTimeZone,
-                  }
-                : {}),
-            }
-          : {}),
-        ...(task.ownerName !== undefined && sourceText.includes(task.ownerName)
-          ? { ownerName: task.ownerName }
-          : {}),
-        sourceEntryIds,
-        text: task.text,
-      },
-    ];
-  });
+  const tasks = draft.tasks.flatMap((task) => groundTask(task, entriesById));
 
   const transcriptText = [...entriesById.values()].map((entry) => entry.text).join("\n");
   const protectedTerms = [...new Set(draft.protectedTerms ?? [])].filter((term) =>

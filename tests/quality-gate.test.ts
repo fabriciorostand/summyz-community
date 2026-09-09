@@ -107,8 +107,79 @@ describe("Quality Gate", () => {
 
     expect(result.passed).toBe(false);
     expect(result.failures).toContain(
-      "Repository maximum complexity 11 exceeds the configured limit of 10.",
+      "Repository maximum cyclomatic complexity 11 exceeds the configured limit of 10.",
     );
+  });
+
+  it("fails when new code exceeds the cognitive complexity limit", () => {
+    const result = evaluateQualityGate({
+      ...metrics([]),
+      newIssues: [
+        {
+          line: 22,
+          message: "Excessive complexity of 18 detected (max: 15).",
+          path: "web/src/pages/tasks-page.tsx",
+          rule: "lint/complexity/noExcessiveCognitiveComplexity",
+          tool: "biome",
+        },
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.failures).toContain(
+      "New code introduces 1 function(s) above cognitive complexity 15.",
+    );
+  });
+
+  it("reads the cognitive complexity reported by complexipy for Python", () => {
+    const result = evaluateQualityGate({
+      ...metrics([]),
+      newIssues: [
+        {
+          line: 10,
+          message:
+            "Function 'run' has a cognitive complexity of 21, which exceeds the maximum allowed complexity of 15.",
+          path: "services/faster-whisper/server.py",
+          rule: "CC001",
+          tool: "complexipy",
+        },
+      ],
+    });
+
+    expect(result.failures).toContain(
+      "New code introduces 1 function(s) above cognitive complexity 15.",
+    );
+  });
+
+  it("reports cyclomatic and cognitive complexity as separate measures", () => {
+    const result = evaluateQualityGate({
+      ...metrics([]),
+      repositoryIssues: [
+        {
+          line: 1,
+          message: "Excessive complexity of 43 detected (max: 15).",
+          path: "src/legacy.ts",
+          rule: "lint/complexity/noExcessiveCognitiveComplexity",
+          tool: "biome",
+        },
+      ],
+    });
+    const markdown = renderQualityGateMarkdown(result, {
+      commitSha: "0123456789abcdef",
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      repository: "example/summyz",
+    });
+
+    expect(markdown).toContain("Cyclomatic complexity");
+    expect(markdown).toContain("Cognitive complexity");
+    expect(markdown).not.toContain("Maximum complexity");
+    expect(markdown).toContain("43");
+  });
+
+  it("passes when every function stays within both complexity limits", () => {
+    const result = evaluateQualityGate(metrics([]));
+
+    expect(result.failures.filter((failure) => failure.includes("complexity"))).toHaveLength(0);
   });
 
   it("passes with a green zero when all vulnerabilities are unfixable", () => {

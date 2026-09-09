@@ -34,6 +34,55 @@ import {
 } from "./server-support.js";
 
 export type { ApiServerDependencies, GuildDirectory } from "./server-contracts.js";
+
+type OwnedGuild = Awaited<ReturnType<ApiServerDependencies["discord"]["listOwnedGuilds"]>>[number];
+
+const loadGuildForums = async (dependencies: ApiServerDependencies, guildId: string) => {
+  if (dependencies.guildDirectory.getForums !== undefined) {
+    return dependencies.guildDirectory.getForums(guildId);
+  }
+  return dependencies.guildDirectory.getResources(guildId).then((resources) => resources.forums);
+};
+
+const enrichOwnedGuild = async (
+  guild: OwnedGuild,
+  userId: string,
+  dependencies: ApiServerDependencies,
+) => {
+  if (!guild.installed || dependencies.analytics === undefined) {
+    return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
+  }
+  const [activeProfile, callCount, summaryForumConfiguration, forums] = await Promise.all([
+    dependencies.aiProfiles.getActiveProfile(guild.id),
+    dependencies.analytics.getGuildCallCount(guild.id),
+    dependencies.guildConfig.getSummaryForum(guild.id),
+    loadGuildForums(dependencies, guild.id),
+  ]);
+  const forum = forums.find((item) => item.id === summaryForumConfiguration?.forumId);
+  const tag = forum?.tags.find((item) => item.id === summaryForumConfiguration?.tagId);
+  const ownedActiveProfile = activeProfile?.userId === userId ? activeProfile : undefined;
+  return {
+    ...guild,
+    activeProfile:
+      ownedActiveProfile === undefined
+        ? null
+        : {
+            name: ownedActiveProfile.name,
+            profileId: ownedActiveProfile.profileId,
+            profileType: ownedActiveProfile.profileType,
+          },
+    callCount,
+    summaryForum:
+      forum === undefined
+        ? null
+        : {
+            forumId: forum.id,
+            name: forum.name,
+            ...(tag === undefined ? {} : { tagId: tag.id, tagName: tag.name }),
+          },
+  };
+};
+
 export async function createApiServer(
   dependencies: ApiServerDependencies,
   options: { staticDirectory?: string } = {},
@@ -120,47 +169,7 @@ export async function createApiServer(
       user.userId,
       await dependencies.guildDirectory.getInstalledGuildIds(),
     );
-    return Promise.all(
-      guilds.map(async (guild) => {
-        if (!guild.installed || dependencies.analytics === undefined) {
-          return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
-        }
-        const [activeProfile, callCount, summaryForumConfiguration, forums] = await Promise.all([
-          dependencies.aiProfiles.getActiveProfile(guild.id),
-          dependencies.analytics.getGuildCallCount(guild.id),
-          dependencies.guildConfig.getSummaryForum(guild.id),
-          dependencies.guildDirectory.getForums === undefined
-            ? dependencies.guildDirectory
-                .getResources(guild.id)
-                .then((resources) => resources.forums)
-            : dependencies.guildDirectory.getForums(guild.id),
-        ]);
-        const forum = forums.find((item) => item.id === summaryForumConfiguration?.forumId);
-        const tag = forum?.tags.find((item) => item.id === summaryForumConfiguration?.tagId);
-        const ownedActiveProfile =
-          activeProfile?.userId === user.userId ? activeProfile : undefined;
-        return {
-          ...guild,
-          activeProfile:
-            ownedActiveProfile === undefined
-              ? null
-              : {
-                  name: ownedActiveProfile.name,
-                  profileId: ownedActiveProfile.profileId,
-                  profileType: ownedActiveProfile.profileType,
-                },
-          callCount,
-          summaryForum:
-            forum === undefined
-              ? null
-              : {
-                  forumId: forum.id,
-                  name: forum.name,
-                  ...(tag === undefined ? {} : { tagId: tag.id, tagName: tag.name }),
-                },
-        };
-      }),
-    );
+    return Promise.all(guilds.map((guild) => enrichOwnedGuild(guild, user.userId, dependencies)));
   });
   registerAnalyticsRoutes(app, dependencies, resolveGuildAccess);
   app.get("/api/guilds/:guildId/configuration", async (request) => {

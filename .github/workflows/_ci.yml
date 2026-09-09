@@ -75,6 +75,14 @@ jobs:
             | tee reports/quality/ruff-format.txt || quality_status=1
           mypy services/faster-whisper 2>&1 \
             | tee reports/quality/mypy.txt || quality_status=1
+          # ruff has no cognitive complexity rule (only C901, which is cyclomatic), so the
+          # Python side gets the same metric Biome enforces on TypeScript.
+          complexipy services/faster-whisper \
+            --exclude "test_*.py" \
+            --max-complexity-allowed 15 \
+            --output-format sarif \
+            --output reports/quality/complexipy.sarif \
+            --quiet || quality_status=1
           echo "${quality_status}" > reports/quality/python.status
 
       - name: Analyze source metrics
@@ -97,10 +105,13 @@ jobs:
             --ignore "**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*.d.ts" \
             --absolute \
             src web/src services/faster-whisper
-          lizard -l typescript -l tsx -l python -C 10 -i -1 \
+          # lizard has no JSX parser: on .tsx it loses the end of a function and folds the
+          # rest of the file into it, so its numbers do not describe the code. Cognitive
+          # complexity for .tsx is enforced by Biome instead (see biome.json overrides).
+          lizard -l typescript -l python -C 10 -i -1 \
             -x "*test*" -x "*spec*" --csv -o reports/quality/lizard.csv \
             src web/src services/faster-whisper
-          lizard -l typescript -l tsx -l python -C 10 -i -1 \
+          lizard -l typescript -l python -C 10 -i -1 \
             -x "*test*" -x "*spec*" --xml -o reports/quality/lizard.xml \
             src web/src services/faster-whisper
           ./node_modules/.bin/tsx scripts/ci/source-quality-cli.ts \

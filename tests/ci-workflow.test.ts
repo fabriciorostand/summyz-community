@@ -110,7 +110,11 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("scripts/ci/quality-gate-cli.ts");
     expect(implementation).toContain("scripts/ci/source-quality-cli.ts");
     expect(implementation).toContain("./node_modules/.bin/jscpd");
-    expect(implementation).toContain("lizard -l typescript -l tsx -l python");
+    // lizard cannot parse JSX, so .tsx complexity is enforced by Biome and complexipy covers Python.
+    expect(implementation).toContain("lizard -l typescript -l python");
+    expect(implementation).not.toContain("-l tsx");
+    expect(implementation).toContain("--output-format sarif");
+    expect(implementation).toContain("reports/quality/complexipy.sarif");
     expect(implementation).toContain("quality-gate-baseline.json");
     expect(implementation).toContain("ci-summary.md");
     expect(implementation).not.toContain("pull-requests: write");
@@ -120,6 +124,43 @@ describe("continuous integration contract", () => {
       'const fullBody = await readFile("quality-gate-comment/ci-summary.md", "utf8")',
     );
     expect(implementation).not.toContain("## Summyz Community CI");
+  });
+
+  it("excludes test files from cognitive and cyclomatic complexity checks", async () => {
+    const [biomeSource, implementation, webCiConfig] = await Promise.all([
+      readFile(new URL("biome.json", root), "utf8"),
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL("web/vite.ci.config.ts", root), "utf8"),
+    ]);
+    const biomeConfig: unknown = JSON.parse(biomeSource);
+
+    expect(biomeConfig).toMatchObject({
+      overrides: [
+        {
+          includes: [
+            "tests/**",
+            "**/tests/**",
+            "**/*.test.ts",
+            "**/*.test.tsx",
+            "**/*.spec.ts",
+            "**/*.spec.tsx",
+            "**/test_*.py",
+          ],
+          linter: {
+            rules: {
+              complexity: {
+                noExcessiveCognitiveComplexity: "off",
+              },
+            },
+          },
+        },
+      ],
+    });
+    expect(implementation).toContain("complexipy services/faster-whisper");
+    expect(implementation).toContain('--exclude "test_*.py"');
+    expect(implementation.match(/-x "\*test\*" -x "\*spec\*"/gu)).toHaveLength(2);
+    expect(webCiConfig).toContain('"src/tests/test-utils.tsx"');
+    expect(webCiConfig).not.toContain('"src/test-utils.tsx"');
   });
 
   it("reports every image vulnerability but only lets the aggregate policy block", async () => {

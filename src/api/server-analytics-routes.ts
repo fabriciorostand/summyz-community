@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import type { MeetingHistoryFilters } from "../database/postgres-analytics-store.js";
 import { directoryPageQuerySchema } from "../directory-pagination.js";
 import { createMeetingTextExport, MeetingExportUnavailableError } from "./meeting-export.js";
 
@@ -14,6 +15,36 @@ import {
 } from "./server-support.js";
 
 type ParticipantProfile = { avatarUrl?: string | null; displayName: string };
+
+const meetingListQuerySchema = z.object({
+  dateFrom: z.iso.date().optional(),
+  dateTo: z.iso.date().optional(),
+  channelName: z.string().trim().min(1).max(100).optional(),
+  contentRetained: z.stringbool().optional(),
+  meetingId: z.string().trim().min(1).max(128).optional(),
+  page: z.coerce.number().int().positive().default(1),
+  participantUserId: z.string().trim().min(1).max(128).optional(),
+  state: z.enum(["completed", "failed", "in_progress"]).optional(),
+});
+
+const meetingHistoryFilters = (
+  query: z.infer<typeof meetingListQuerySchema>,
+  timeZone: string,
+): MeetingHistoryFilters => {
+  const common = { page: query.page, pageSize: 20, timeZone };
+  if (query.meetingId !== undefined) return { ...common, meetingId: query.meetingId };
+  return {
+    ...common,
+    ...(query.dateFrom === undefined ? {} : { dateFrom: query.dateFrom }),
+    ...(query.dateTo === undefined ? {} : { dateTo: query.dateTo }),
+    ...(query.channelName === undefined ? {} : { channelName: query.channelName }),
+    ...(query.contentRetained === undefined ? {} : { contentRetained: query.contentRetained }),
+    ...(query.state === undefined ? {} : { state: query.state }),
+    ...(query.participantUserId === undefined
+      ? {}
+      : { participantUserId: query.participantUserId }),
+  };
+};
 
 function applyParticipantProfile<
   T extends { avatarUrl: string | null; displayName: string; userId: string },
@@ -71,43 +102,11 @@ export function registerAnalyticsRoutes(
   });
   app.get("/api/guilds/:guildId/meetings", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = z
-      .object({
-        dateFrom: z.iso.date().optional(),
-        dateTo: z.iso.date().optional(),
-        channelName: z.string().trim().min(1).max(100).optional(),
-        contentRetained: z.stringbool().optional(),
-        meetingId: z.string().trim().min(1).max(128).optional(),
-        page: z.coerce.number().int().positive().default(1),
-        participantUserId: z.string().trim().min(1).max(128).optional(),
-        state: z.enum(["completed", "failed", "in_progress"]).optional(),
-      })
-      .parse(request.query);
+    const query = meetingListQuerySchema.parse(request.query);
     const analytics = requireAnalytics(dependencies);
     const history = await analytics.listMeetings(
       guildId,
-      query.meetingId === undefined
-        ? {
-            ...(query.dateFrom === undefined ? {} : { dateFrom: query.dateFrom }),
-            ...(query.dateTo === undefined ? {} : { dateTo: query.dateTo }),
-            ...(query.channelName === undefined ? {} : { channelName: query.channelName }),
-            ...(query.contentRetained === undefined
-              ? {}
-              : { contentRetained: query.contentRetained }),
-            pageSize: 20,
-            page: query.page,
-            ...(query.state === undefined ? {} : { state: query.state }),
-            ...(query.participantUserId === undefined
-              ? {}
-              : { participantUserId: query.participantUserId }),
-            timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-          }
-        : {
-            meetingId: query.meetingId,
-            pageSize: 20,
-            page: query.page,
-            timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
-          },
+      meetingHistoryFilters(query, dependencies.timeZone ?? "America/Sao_Paulo"),
     );
     const liveMeeting = await dependencies.liveMeetings.getForGuild(guildId);
     const itemsWithLiveParticipants = history.items.map((meeting) =>

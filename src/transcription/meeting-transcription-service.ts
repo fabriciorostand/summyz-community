@@ -1,10 +1,6 @@
 import type { Logger } from "pino";
 
-import {
-  type RecordingManifest,
-  type RecordingSegment,
-  setPredominantLanguage,
-} from "../recording/manifest.js";
+import { type RecordingManifest, setPredominantLanguage } from "../recording/manifest.js";
 import type { ManifestStore } from "../recording/manifest-store.js";
 import { mapWithConcurrency } from "./concurrency.js";
 import { AudioPreparationError, MeetingAudioPreparer } from "./meeting-audio-preparer.js";
@@ -15,13 +11,12 @@ import {
 } from "./predominant-language.js";
 import type { SpeechAnalyzer } from "./speech-analyzer.js";
 import { assembleTranscript } from "./transcript-assembler.js";
-import type { TranscriptionBatch } from "./transcription-batch.js";
+import { createTranscriptionGroups } from "./transcription-batch.js";
 import {
-  composeTranscriptionBatch,
-  createAnalyzedTranscriptionGroups,
-  createTranscriptionGroups,
-  mapTranscriptPiecesToTimeline,
-} from "./transcription-batch.js";
+  AudioAnalysisError,
+  type PersistTranscriptionGroup,
+  processTranscriptionGroup,
+} from "./transcription-group-processor.js";
 import type { TranscribedSegment, TranscriptionProvider } from "./transcription-provider.js";
 import { IncompatibleTranscriptionResponseError } from "./transcription-provider.js";
 import type { TranscriptionRecoveryReason } from "./transcription-recovery-policy.js";
@@ -56,13 +51,6 @@ interface MeetingTranscriptionServiceOptions {
 
 interface TranscriptionProcessingOptions {
   notifyTerminalFailure?: boolean;
-}
-
-class AudioAnalysisError extends Error {
-  public constructor() {
-    super("Não foi possível analisar a presença de voz no áudio");
-    this.name = "AudioAnalysisError";
-  }
 }
 
 class LanguageDetectionError extends Error {
@@ -140,24 +128,8 @@ export class MeetingTranscriptionService {
       if (state.status === "completed" || state.status === "failed") {
         return;
       }
-      let processingState = state;
-      if (
-        manifest.aiConfiguration !== undefined &&
-        manifest.predominantLanguage === undefined &&
-        processingState.status === "processing" &&
-        processingState.segments.some((segment) => segment.status === "completed")
-      ) {
-        processingState = createTranscriptionState(
-          manifest.meetingId,
-          manifest.segments.map((segment) => segment.segmentId),
-          this.#now().toISOString(),
-        );
-        state = processingState;
-        this.#logger.info(
-          { meetingId: manifest.meetingId },
-          "Transcription restarted to determine language from all audio batches",
-        );
-      }
+      let processingState = this.#restartForLanguageDetection(manifest, state);
+      state = processingState;
       await this.#transcriptionStore.save(processingState);
       this.#logger.info(
         { meetingId: manifest.meetingId, segmentCount: manifest.segments.length },
@@ -197,15 +169,7 @@ export class MeetingTranscriptionService {
       );
       const languageEvidence: Array<LanguageEvidence & { segmentIds: readonly string[] }> = [];
       let stateQueue = Promise.resolve();
-      const persistGroup = (
-        group: readonly RecordingSegment[],
-        input:
-          | {
-              batch: TranscriptionBatch;
-              result: Awaited<ReturnType<TranscriptionProvider["transcribe"]>>;
-            }
-          | { batch: undefined; result: { attempts: 0; pieces: [] } },
-      ): Promise<void> => {
+      const persistGroup: PersistTranscriptionGroup = (group, input) => {
         const persistence = stateQueue.then(async () => {
           const first = group[0];
           if (first === undefined) {
@@ -235,84 +199,20 @@ export class MeetingTranscriptionService {
         return persistence;
       };
       try {
-        await mapWithConcurrency(groups, this.#concurrency, async (group) => {
-          const audioFiles = group.map((segment) => {
-            const audio = preparedBySegmentId.get(segment.segmentId);
-            if (audio === undefined) {
-              throw new Error("O áudio do segmento não foi preparado");
-            }
-            return audio;
-          });
-          const analyzed = [];
-          for (const audio of audioFiles) {
-            try {
-              const analysis = await speechAnalyzer.analyze(audio.path);
-              analyzed.push({ ...analysis, segment: audio.segment });
-            } catch {
-              throw new AudioAnalysisError();
-            }
-          }
-          const silentSegments = analyzed
-            .filter((item) => !item.containsSpeech)
-            .map((item) => item.segment);
-          if (silentSegments.length > 0) {
-            await persistGroup(silentSegments, {
-              batch: undefined,
-              result: { attempts: 0, pieces: [] },
-            });
-            this.#logger.info(
-              { meetingId: manifest.meetingId, segmentCount: silentSegments.length },
-              "Segments without speech discarded from transcription",
-            );
-          }
-          const speechGroups = createAnalyzedTranscriptionGroups(analyzed, {
-            maxGapMs: transcriptionMergeMaxGapMs,
-            maxWindowMs: this.#transcriptionWindowMaxMs,
-          });
-          for (const speechGroup of speechGroups) {
-            const batch = composeTranscriptionBatch(speechGroup, undefined, interSpeechSilenceMs);
-            if (batch === undefined) {
-              throw new AudioAnalysisError();
-            }
-            const result = await provider.transcribe({
-              audio: batch.audio,
-              audioDurationMs: batch.audioDurationMs,
-              format: "wav",
-              language: "auto",
-            });
-            if (result.detectedLanguage !== undefined) {
-              languageEvidence.push({
-                durationMs: batch.audioDurationMs,
-                language: result.detectedLanguage.language,
-                ...(result.detectedLanguage.probability === undefined
-                  ? {}
-                  : { probability: result.detectedLanguage.probability }),
-                segmentIds: batch.segmentIds,
-              });
-            }
-            await persistGroup(
-              speechGroup.map((item) => item.segment),
-              {
-                batch,
-                result: {
-                  ...result,
-                  pieces: mapTranscriptPiecesToTimeline(batch, result.pieces),
-                  ...(result.words === undefined
-                    ? {}
-                    : { words: mapTranscriptPiecesToTimeline(batch, result.words) }),
-                },
-              },
-            );
-            this.#logger.info(
-              {
-                attempts: result.attempts,
-                meetingId: manifest.meetingId,
-                segmentCount: speechGroup.length,
-              },
-              "Audio batch transcribed",
-            );
-          }
-        });
+        await mapWithConcurrency(groups, this.#concurrency, (group) =>
+          processTranscriptionGroup(group, {
+            interSpeechSilenceMs,
+            languageEvidence,
+            logger: this.#logger,
+            manifest,
+            persistGroup,
+            preparedBySegmentId,
+            provider,
+            speechAnalyzer,
+            transcriptionMergeMaxGapMs,
+            transcriptionWindowMaxMs: this.#transcriptionWindowMaxMs,
+          }),
+        );
       } finally {
         await Promise.allSettled(
           prepared.map((audio) =>
@@ -324,25 +224,7 @@ export class MeetingTranscriptionService {
       const transcribedSegments = toTranscribedSegments(processingState);
       const transcript = assembleTranscript(manifest, transcribedSegments);
       await this.#transcriptionStore.writeTranscript(manifest.meetingId, transcript);
-      if (manifest.aiConfiguration !== undefined && manifest.predominantLanguage === undefined) {
-        let language: PredominantLanguageResult;
-        try {
-          language = aggregatePredominantLanguage(languageEvidence);
-        } catch {
-          throw new LanguageDetectionError();
-        }
-        await this.#manifestStore.save(setPredominantLanguage(manifest, language.language));
-        this.#logger.info(
-          {
-            confidence: language.confidence,
-            distribution: language.distribution,
-            evidenceSegmentIds: languageEvidence.flatMap((item) => item.segmentIds),
-            meetingId: manifest.meetingId,
-            predominantLanguage: language.language,
-          },
-          "Meeting predominant language identified",
-        );
-      }
+      await this.#persistPredominantLanguage(manifest, languageEvidence);
       processingState = markTranscriptionCompleted(processingState, this.#now().toISOString());
       state = processingState;
       await this.#transcriptionStore.save(processingState);
@@ -351,76 +233,163 @@ export class MeetingTranscriptionService {
         "Meeting transcription completed",
       );
     } catch (error) {
-      const failureCode = getFailureCode(error);
-      try {
-        if (!(error instanceof LanguageDetectionError)) {
-          await this.#transcriptionStore.removeTranscript(manifest.meetingId);
-        }
-        const failureState =
-          state ??
-          createTranscriptionState(
-            manifest.meetingId,
-            manifest.segments.map((segment) => segment.segmentId),
-            this.#now().toISOString(),
-          );
-        state = markTranscriptionFailed(
+      await this.#handleFailure(manifest, state, error, options);
+    } finally {
+      await this.#closeMeetingSpeechAnalyzer(manifest.meetingId, meetingSpeechAnalyzer);
+    }
+  }
+
+  async #handleFailure(
+    manifest: RecordingManifest,
+    state: TranscriptionState | undefined,
+    error: unknown,
+    options: TranscriptionProcessingOptions,
+  ): Promise<void> {
+    const failureCode = getFailureCode(error);
+    await this.#persistFailure(manifest, state, error, failureCode);
+    this.#logFailure(manifest.meetingId, error, failureCode);
+    if (await this.#publishTranscriptAfterLanguageFailure(manifest, error)) return;
+    if ((options.notifyTerminalFailure ?? true) || failureCode !== "provider_failed") {
+      await this.#notifyTranscriptionFailure(manifest);
+    }
+  }
+
+  async #persistPredominantLanguage(
+    manifest: RecordingManifest,
+    evidence: readonly (LanguageEvidence & { segmentIds: readonly string[] })[],
+  ): Promise<void> {
+    if (manifest.aiConfiguration === undefined || manifest.predominantLanguage !== undefined)
+      return;
+    let language: PredominantLanguageResult;
+    try {
+      language = aggregatePredominantLanguage(evidence);
+    } catch {
+      throw new LanguageDetectionError();
+    }
+    await this.#manifestStore.save(setPredominantLanguage(manifest, language.language));
+    this.#logger.info(
+      {
+        confidence: language.confidence,
+        distribution: language.distribution,
+        evidenceSegmentIds: evidence.flatMap((item) => item.segmentIds),
+        meetingId: manifest.meetingId,
+        predominantLanguage: language.language,
+      },
+      "Meeting predominant language identified",
+    );
+  }
+
+  #restartForLanguageDetection(
+    manifest: RecordingManifest,
+    state: TranscriptionState,
+  ): TranscriptionState {
+    const shouldRestart =
+      manifest.aiConfiguration !== undefined &&
+      manifest.predominantLanguage === undefined &&
+      state.status === "processing" &&
+      state.segments.some((segment) => segment.status === "completed");
+    if (!shouldRestart) return state;
+    this.#logger.info(
+      { meetingId: manifest.meetingId },
+      "Transcription restarted to determine language from all audio batches",
+    );
+    return createTranscriptionState(
+      manifest.meetingId,
+      manifest.segments.map((segment) => segment.segmentId),
+      this.#now().toISOString(),
+    );
+  }
+
+  async #persistFailure(
+    manifest: RecordingManifest,
+    state: TranscriptionState | undefined,
+    error: unknown,
+    failureCode: TranscriptionFailureCode,
+  ): Promise<void> {
+    try {
+      if (!(error instanceof LanguageDetectionError)) {
+        await this.#transcriptionStore.removeTranscript(manifest.meetingId);
+      }
+      const failureState =
+        state ??
+        createTranscriptionState(
+          manifest.meetingId,
+          manifest.segments.map((segment) => segment.segmentId),
+          this.#now().toISOString(),
+        );
+      await this.#transcriptionStore.save(
+        markTranscriptionFailed(
           failureState,
           failureCode,
           this.#now().toISOString(),
           getTranscriptionRecoveryReason(error),
-        );
-        await this.#transcriptionStore.save(state);
-      } catch (storageError) {
-        this.#logger.error(
-          { errorType: getErrorType(storageError), meetingId: manifest.meetingId },
-          "Failed to persist lost transcription state",
-        );
-      }
-      const incompatibilityReason =
-        error instanceof IncompatibleTranscriptionResponseError ? error.reason : undefined;
-      this.#logger.error(
-        {
-          errorType: getErrorType(error),
-          failureCode,
-          ...(incompatibilityReason === undefined ? {} : { incompatibilityReason }),
-          meetingId: manifest.meetingId,
-        },
-        "Meeting transcription failed",
+        ),
       );
-      if (error instanceof LanguageDetectionError && this.#publishTranscriptOnly !== undefined) {
-        try {
-          await this.#publishTranscriptOnly(
-            manifest,
-            this.#transcriptionStore.transcriptPath(manifest.meetingId),
-          );
-        } catch (publicationError) {
-          this.#logger.error(
-            { errorType: getErrorType(publicationError), meetingId: manifest.meetingId },
-            "Unable to publish transcript after language detection failure",
-          );
-        }
-        return;
-      }
-      if ((options.notifyTerminalFailure ?? true) || failureCode !== "provider_failed") {
-        try {
-          await this.#notifyFailure(manifest);
-        } catch (notificationError) {
-          this.#logger.warn(
-            { errorType: getErrorType(notificationError), meetingId: manifest.meetingId },
-            "Unable to notify transcription failure",
-          );
-        }
-      }
-    } finally {
-      if (this.#resolveSpeechAnalyzer !== undefined && meetingSpeechAnalyzer !== undefined) {
-        await meetingSpeechAnalyzer.close().catch((error: unknown) => {
-          this.#logger.warn(
-            { errorType: getErrorType(error), meetingId: manifest.meetingId },
-            "Unable to close meeting speech analyzer",
-          );
-        });
-      }
+    } catch (storageError) {
+      this.#logger.error(
+        { errorType: getErrorType(storageError), meetingId: manifest.meetingId },
+        "Failed to persist lost transcription state",
+      );
     }
+  }
+
+  #logFailure(meetingId: string, error: unknown, failureCode: TranscriptionFailureCode): void {
+    const incompatibilityReason =
+      error instanceof IncompatibleTranscriptionResponseError ? error.reason : undefined;
+    this.#logger.error(
+      {
+        errorType: getErrorType(error),
+        failureCode,
+        ...(incompatibilityReason === undefined ? {} : { incompatibilityReason }),
+        meetingId,
+      },
+      "Meeting transcription failed",
+    );
+  }
+
+  async #publishTranscriptAfterLanguageFailure(
+    manifest: RecordingManifest,
+    error: unknown,
+  ): Promise<boolean> {
+    if (!(error instanceof LanguageDetectionError) || this.#publishTranscriptOnly === undefined) {
+      return false;
+    }
+    try {
+      await this.#publishTranscriptOnly(
+        manifest,
+        this.#transcriptionStore.transcriptPath(manifest.meetingId),
+      );
+    } catch (publicationError) {
+      this.#logger.error(
+        { errorType: getErrorType(publicationError), meetingId: manifest.meetingId },
+        "Unable to publish transcript after language detection failure",
+      );
+    }
+    return true;
+  }
+
+  async #notifyTranscriptionFailure(manifest: RecordingManifest): Promise<void> {
+    try {
+      await this.#notifyFailure(manifest);
+    } catch (notificationError) {
+      this.#logger.warn(
+        { errorType: getErrorType(notificationError), meetingId: manifest.meetingId },
+        "Unable to notify transcription failure",
+      );
+    }
+  }
+
+  async #closeMeetingSpeechAnalyzer(
+    meetingId: string,
+    speechAnalyzer: SpeechAnalyzer | undefined,
+  ): Promise<void> {
+    if (this.#resolveSpeechAnalyzer === undefined || speechAnalyzer === undefined) return;
+    await speechAnalyzer.close().catch((error: unknown) => {
+      this.#logger.warn(
+        { errorType: getErrorType(error), meetingId },
+        "Unable to close meeting speech analyzer",
+      );
+    });
   }
 }
 
