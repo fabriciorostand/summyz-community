@@ -1,7 +1,7 @@
 import { execFile } from "node:child_process";
-import { copyFile, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -31,6 +31,27 @@ describe("Community launcher", () => {
 
     expect(output).toContain("docker-compose.nvidia.yaml");
     expect(output).toContain("NVIDIA GeForce RTX");
+  });
+
+  it("seleciona NVIDIA quando nvidia-smi retorna uma única GPU", async () => {
+    const fixtureRoot = await createLauncherFixture();
+    try {
+      const executableDirectory = await createNvidiaSmiStub(fixtureRoot);
+      const output = await runLauncher(
+        {
+          LOCAL_AI_DEVICE: "auto",
+          SUMMYZ_DETECTED_GPU_NAME: "",
+          SUMMYZ_DETECTED_GPU_VENDOR: "",
+          ...createIsolatedPathEnvironment(executableDirectory),
+        },
+        fixtureRoot,
+      );
+
+      expect(output).toContain("docker-compose.nvidia.yaml");
+      expect(output).toContain("NVIDIA GeForce RTX 2060");
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
   });
 
   it("trata o perfil AMD conforme o suporte do host", async () => {
@@ -113,6 +134,40 @@ async function createLauncherFixture(): Promise<string> {
     copyFile(join(repositoryRoot, ".env.example"), join(fixtureRoot, ".env.example")),
   ]);
   return fixtureRoot;
+}
+
+async function createNvidiaSmiStub(fixtureRoot: string): Promise<string> {
+  const executableDirectory = join(fixtureRoot, "bin");
+  await mkdir(executableDirectory);
+  if (process.platform === "win32") {
+    await writeFile(
+      join(executableDirectory, "nvidia-smi.cmd"),
+      "@echo off\r\necho 0, NVIDIA GeForce RTX 2060, 6144\r\n",
+    );
+    return executableDirectory;
+  }
+
+  const executablePath = join(executableDirectory, "nvidia-smi");
+  await writeFile(executablePath, "#!/bin/sh\nprintf '0, NVIDIA GeForce RTX 2060, 6144\\n'\n");
+  await chmod(executablePath, 0o755);
+  return executableDirectory;
+}
+
+function createIsolatedPathEnvironment(executableDirectory: string): NodeJS.ProcessEnv {
+  const pathName = Object.keys(process.env).find((name) => name.toLowerCase() === "path") ?? "PATH";
+  if (process.platform !== "win32") {
+    return { [pathName]: [executableDirectory, "/usr/bin", "/bin"].join(delimiter) };
+  }
+
+  const windowsDirectory = process.env.SystemRoot;
+  if (windowsDirectory === undefined) throw new Error("SystemRoot is required on Windows");
+  return {
+    [pathName]: [
+      executableDirectory,
+      join(windowsDirectory, "System32", "WindowsPowerShell", "v1.0"),
+      join(windowsDirectory, "System32"),
+    ].join(delimiter),
+  };
 }
 
 function parseDotEnv(contents: string): Record<string, string> {
