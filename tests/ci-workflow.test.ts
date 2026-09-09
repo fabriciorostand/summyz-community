@@ -315,6 +315,21 @@ describe("continuous integration contract", () => {
     expect(diagnosticsStep).toContain("logs --no-color --timestamps ollama faster-whisper");
   });
 
+  it("validates CPU execution through the Ollama processor report", async () => {
+    const [implementation, smokeTest] = await Promise.all([
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL("tests/smoke/local-ai.smoke.test.ts", root), "utf8"),
+    ]);
+    const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
+    const smokeIndex = runtimeJob.indexOf("- name: Run real CPU local-AI smoke test");
+    const diagnosticsIndex = runtimeJob.indexOf("- name: Diagnose local-AI smoke-test failure");
+    const smokeStep = runtimeJob.slice(smokeIndex, diagnosticsIndex);
+
+    expect(smokeStep).toContain("ollama ps");
+    expect(smokeStep).toContain("100% CPU");
+    expect(smokeTest).not.toContain("size_vram");
+  });
+
   it("does not require a developer .env file for CI Compose operations", async () => {
     const [overlay, implementation] = await Promise.all([
       readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8"),

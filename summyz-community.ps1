@@ -161,11 +161,13 @@ function Find-Acceleration {
     }
   }
 
-  $nvidiaSmi = Get-Command "nvidia-smi.exe" -ErrorAction SilentlyContinue
+  $nvidiaSmi = Get-Command "nvidia-smi" -ErrorAction SilentlyContinue
   if ($null -ne $nvidiaSmi) {
-    $output = & $nvidiaSmi.Source `
-      "--query-gpu=index,name,memory.total" `
-      "--format=csv,noheader,nounits" 2>$null
+    $output = @(
+      & $nvidiaSmi.Source `
+        "--query-gpu=index,name,memory.total" `
+        "--format=csv,noheader,nounits" 2>$null
+    )
     if ($LASTEXITCODE -eq 0 -and $output.Count -gt 0) {
       $fields = ([string]$output[0]).Split(",")
       if ($fields.Count -ge 3) {
