@@ -566,6 +566,12 @@ jobs:
             --profile smoke run --rm --no-deps \
             -e SMOKE_OLLAMA_DIGEST -e SMOKE_OLLAMA_MODEL \
             -e SMOKE_WHISPER_MODEL -e SMOKE_WHISPER_REVISION smoke
+          ollama_processes="$(
+            docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+              --profile smoke exec --no-TTY ollama ollama ps
+          )"
+          printf '%s\n' "${ollama_processes}"
+          grep --fixed-strings --quiet "100% CPU" <<<"${ollama_processes}"
 
       - name: Diagnose local-AI smoke-test failure
         if: failure() && steps.local_ai_smoke.outcome == 'failure'

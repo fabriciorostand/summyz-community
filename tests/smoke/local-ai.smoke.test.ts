@@ -104,11 +104,10 @@ describe("serviços locais de IA", () => {
     const processes = await fetch(`${ollamaUrl}/api/ps`);
     expect(processes.ok).toBe(true);
     const active = z
-      .object({ models: z.array(z.object({ model: z.string(), size_vram: z.number() })) })
+      .object({ models: z.array(z.object({ model: z.string() })) })
       .parse(await processes.json())
       .models.find((model) => model.model === ollamaModel);
     expect(active).toBeDefined();
-    expect((active?.size_vram ?? 0) > 0).toBe(localAiDevice === "gpu");
   });
 });
 
