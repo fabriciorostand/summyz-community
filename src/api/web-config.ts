@@ -8,7 +8,10 @@ const environmentSchema = z.object({
       "DATABASE_URL must use PostgreSQL",
     ),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-  PUBLIC_BASE_URL: z.url().optional(),
+  PUBLIC_BASE_URL: z
+    .url()
+    .refine((value) => new URL(value).origin === value, "PUBLIC_BASE_URL must be an origin")
+    .default("http://127.0.0.1:8787"),
   SUMMYZ_SECRETS_KEY: z
     .string()
     .refine(
@@ -27,7 +30,7 @@ export interface WebConfig {
   host: string;
   logLevel: z.infer<typeof environmentSchema>["LOG_LEVEL"];
   port: number;
-  publicBaseUrl?: string;
+  publicBaseUrl: string;
   secretsKey: string;
   secureCookies: boolean;
   setupToken: string;
@@ -42,9 +45,9 @@ export function loadWebConfig(environment: NodeJS.ProcessEnv): WebConfig {
     host: parsed.WEB_HOST,
     logLevel: parsed.LOG_LEVEL,
     port: parsed.WEB_PORT,
-    ...(parsed.PUBLIC_BASE_URL === undefined ? {} : { publicBaseUrl: parsed.PUBLIC_BASE_URL }),
+    publicBaseUrl: parsed.PUBLIC_BASE_URL,
     secretsKey: parsed.SUMMYZ_SECRETS_KEY,
-    secureCookies: parsed.PUBLIC_BASE_URL?.startsWith("https://") ?? false,
+    secureCookies: parsed.PUBLIC_BASE_URL.startsWith("https://"),
     setupToken: parsed.SUMMYZ_SETUP_TOKEN,
     staticDirectory: parsed.WEB_STATIC_DIR,
     summaryTimeZone: parsed.SUMMARY_TIME_ZONE,

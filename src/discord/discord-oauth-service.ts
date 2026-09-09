@@ -5,6 +5,7 @@ import { z } from "zod";
 import type {
   DiscordConnection,
   DiscordOAuthCredentials,
+  DiscordOAuthIntent,
 } from "../database/postgres-discord-connection-store.js";
 
 const discordGuildSchema = z.object({
@@ -17,7 +18,7 @@ const discordGuildsSchema = z.array(discordGuildSchema);
 const discordUserSchema = z.object({
   avatar: z.string().nullable(),
   global_name: z.string().nullable().optional(),
-  id: z.string().min(1),
+  id: z.string().min(1).max(128),
   username: z.string().min(1),
 });
 const tokenResponseSchema = z.object({
@@ -29,21 +30,31 @@ const tokenResponseSchema = z.object({
 });
 
 interface DiscordConnectionRepository {
-  consumeOAuthState(input: {
-    now: string;
-    stateHash: string;
-    userId: string;
-  }): Promise<{ codeVerifier: string; redirectUri: string } | undefined>;
+  consumeOAuthState(input: { now: string; stateHash: string }): Promise<
+    | {
+        codeVerifier: string;
+        initiatorDiscordUserId: string | null;
+        intent: DiscordOAuthIntent;
+        redirectUri: string;
+      }
+    | undefined
+  >;
   createOAuthState(input: {
     codeVerifier: string;
     expiresAt: string;
+    initiatorDiscordUserId: string | null;
+    intent: DiscordOAuthIntent;
     redirectUri: string;
     stateHash: string;
-    userId: string;
   }): Promise<void>;
-  deleteConnection(userId: string): Promise<void>;
-  getConnection(userId: string): Promise<DiscordConnection | undefined>;
-  saveConnection(connection: DiscordConnection): Promise<void>;
+  getConnection(): Promise<DiscordConnection | undefined>;
+  replaceConnection(
+    connection: DiscordConnection,
+    authorization: {
+      allowAnyOwner: boolean;
+      expectedOwnerDiscordUserId: string | null;
+    },
+  ): Promise<boolean>;
 }
 
 interface DiscordOAuthSettings {
@@ -72,7 +83,12 @@ export interface OwnedDiscordGuild {
 
 export type DiscordConnectionStatus =
   | { connected: false }
-  | { connected: true; discordUsername: string };
+  | {
+      connected: true;
+      discordAvatar: string | null;
+      discordUserId: string;
+      discordUsername: string;
+    };
 
 export class DiscordOAuthError extends Error {
   public constructor(message: string) {
@@ -98,7 +114,13 @@ export class DiscordOAuthService {
     this.#settings = options.settings;
   }
 
-  public async createAuthorizationUrl(userId: string): Promise<string> {
+  public async createAuthorizationUrl(input: {
+    initiatorDiscordUserId?: string;
+    intent: DiscordOAuthIntent;
+  }): Promise<string> {
+    if (input.intent === "replace" && input.initiatorDiscordUserId === undefined) {
+      throw new DiscordOAuthError("Owner replacement requires an authenticated owner");
+    }
     const configuration = await this.#settings.getDiscordOAuthConfiguration();
     const state = this.#randomToken();
     const codeVerifier = this.#randomToken();
@@ -106,9 +128,10 @@ export class DiscordOAuthService {
     await this.#repository.createOAuthState({
       codeVerifier,
       expiresAt: new Date(this.#now().getTime() + 10 * MINUTE_MS).toISOString(),
+      initiatorDiscordUserId: input.initiatorDiscordUserId ?? null,
+      intent: input.intent,
       redirectUri,
       stateHash: hashToken(state),
-      userId,
     });
     const url = new URL("https://discord.com/oauth2/authorize");
     url.search = new URLSearchParams({
@@ -123,17 +146,10 @@ export class DiscordOAuthService {
     return url.toString();
   }
 
-  public async getConnectionStatus(userId: string): Promise<DiscordConnectionStatus> {
-    const connection = await this.#repository.getConnection(userId);
-    if (connection === undefined) return { connected: false };
-    return { connected: true, discordUsername: connection.discordUsername };
-  }
-
-  public async completeAuthorization(userId: string, code: string, state: string): Promise<void> {
+  public async completeAuthorization(code: string, state: string): Promise<DiscordConnection> {
     const oauthState = await this.#repository.consumeOAuthState({
       now: this.#now().toISOString(),
       stateHash: hashToken(state),
-      userId,
     });
     if (oauthState === undefined) throw new DiscordOAuthError("Invalid or expired OAuth state");
     const configuration = await this.#settings.getDiscordOAuthConfiguration();
@@ -147,18 +163,34 @@ export class DiscordOAuthService {
         redirect_uri: oauthState.redirectUri,
       }),
     );
-    const identity = await this.#discordRequest(
+    const payload = await this.#discordRequest(
       "https://discord.com/api/v10/users/@me",
       credentials,
     );
-    const user = discordUserSchema.parse(identity);
-    await this.#repository.saveConnection({
+    const user = discordUserSchema.parse(payload);
+    const connection = {
       credentials,
       discordAvatar: user.avatar,
       discordUserId: user.id,
       discordUsername: user.global_name ?? user.username,
-      userId,
-    });
+    };
+    const authorization = authorizationFor(oauthState, user.id);
+    if (!(await this.#repository.replaceConnection(connection, authorization))) {
+      throw new DiscordOAuthError("Discord account is not the installation owner");
+    }
+    return connection;
+  }
+
+  public async getConnectionStatus(userId: string): Promise<DiscordConnectionStatus> {
+    const connection = await this.#repository.getConnection();
+    if (connection === undefined || connection.discordUserId !== userId)
+      return { connected: false };
+    return {
+      connected: true,
+      discordAvatar: connection.discordAvatar,
+      discordUserId: connection.discordUserId,
+      discordUsername: connection.discordUsername,
+    };
   }
 
   public async listOwnedGuilds(
@@ -185,10 +217,6 @@ export class DiscordOAuthService {
         installed: installedGuildIds.has(guild.id),
         name: guild.name,
       }));
-  }
-
-  public async disconnect(userId: string): Promise<void> {
-    await this.#repository.deleteConnection(userId);
   }
 
   async #discordRequest(url: string, credentials: DiscordOAuthCredentials): Promise<unknown> {
@@ -230,15 +258,38 @@ export class DiscordOAuthService {
         refresh_token: connection.credentials.refreshToken,
       }),
     );
-    await this.#repository.saveConnection({ ...connection, credentials });
+    const refreshed = { ...connection, credentials };
+    const saved = await this.#repository.replaceConnection(refreshed, {
+      allowAnyOwner: false,
+      expectedOwnerDiscordUserId: connection.discordUserId,
+    });
+    if (!saved) throw new DiscordOAuthError("Discord account is not connected");
     return credentials;
   }
 
   async #requireConnection(userId: string): Promise<DiscordConnection> {
-    const connection = await this.#repository.getConnection(userId);
-    if (connection === undefined) throw new DiscordOAuthError("Discord account is not connected");
+    const connection = await this.#repository.getConnection();
+    if (connection === undefined || connection.discordUserId !== userId) {
+      throw new DiscordOAuthError("Discord account is not connected");
+    }
     return connection;
   }
+}
+
+function authorizationFor(
+  state: { initiatorDiscordUserId: string | null; intent: DiscordOAuthIntent },
+  authenticatedDiscordUserId: string,
+): { allowAnyOwner: boolean; expectedOwnerDiscordUserId: string | null } {
+  if (state.intent === "setup") {
+    return { allowAnyOwner: false, expectedOwnerDiscordUserId: null };
+  }
+  if (state.intent === "login") {
+    return { allowAnyOwner: false, expectedOwnerDiscordUserId: authenticatedDiscordUserId };
+  }
+  if (state.intent === "recovery") {
+    return { allowAnyOwner: true, expectedOwnerDiscordUserId: null };
+  }
+  return { allowAnyOwner: false, expectedOwnerDiscordUserId: state.initiatorDiscordUserId };
 }
 
 function createInstallUrl(clientId: string, guildId: string): string {

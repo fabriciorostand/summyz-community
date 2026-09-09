@@ -13,6 +13,7 @@ describe("loadWebConfig", () => {
     expect(loadWebConfig(required)).toMatchObject({
       host: "127.0.0.1",
       port: 8787,
+      publicBaseUrl: "http://127.0.0.1:8787",
       secureCookies: false,
       staticDirectory: "web/dist",
     });
@@ -22,6 +23,9 @@ describe("loadWebConfig", () => {
     expect(() => loadWebConfig({ ...required, SUMMYZ_SETUP_TOKEN: "short" })).toThrow();
     expect(() => loadWebConfig({ ...required, SUMMYZ_SECRETS_KEY: "invalid" })).toThrow();
     expect(() => loadWebConfig({ ...required, SUMMARY_TIME_ZONE: "Invalid/Time_Zone" })).toThrow();
+    expect(() =>
+      loadWebConfig({ ...required, PUBLIC_BASE_URL: "https://summyz.example.com/dashboard" }),
+    ).toThrow(/origin/i);
     expect(
       loadWebConfig({
         ...required,
@@ -30,6 +34,7 @@ describe("loadWebConfig", () => {
       }),
     ).toMatchObject({
       host: "0.0.0.0",
+      publicBaseUrl: "https://summyz.example.com",
       secureCookies: true,
       summaryTimeZone: "America/Sao_Paulo",
     });

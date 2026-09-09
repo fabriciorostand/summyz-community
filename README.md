@@ -45,13 +45,17 @@ by the Docker workflow.
    first use, the launcher creates `.env` with random local secrets without printing their values.
 2. The host launcher detects
    CPU, NVIDIA, or AMD, selects the safe Compose overlays, and starts the complete stack.
-3. Open `http://127.0.0.1:8787` to configure the
-   administrator account, Discord, SMTP, and optional OpenRouter credentials.
+3. The launcher opens a private setup URL. Enter the Discord bot token, OAuth client ID, and OAuth
+   client secret, then connect the single Discord account that will own this installation.
+   OpenRouter and AI profiles are configured later in the dashboard.
 4. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
 
 Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community restart`, and
 `./summyz-community down` to administer the stack; use `.\summyz-community.ps1` instead on Windows.
+Use `recover-owner` to reconnect an owner through a one-time Discord OAuth URL generated on the
+host. Connecting another Discord account replaces the current owner and immediately invalidates the
+previous owner's dashboard sessions; profiles remain associated with their Discord account.
 Direct Compose remains available for advanced use.
 The base `docker compose up -d --build` command uses CPU; NVIDIA and AMD require their respective
 overlay files.
@@ -64,7 +68,13 @@ If local port `5432` is already in use, change `POSTGRES_PORT` and adjust the po
 `DATABASE_URL`. PostgreSQL is exposed only on `127.0.0.1`; the connection between containers
 continues to use `postgres:5432`.
 
-Never commit the `.env` file or publish the bot token.
+For a public VPS installation, set an HTTPS origin in `PUBLIC_BASE_URL` inside `.env`, point the
+domain to the host, and use `./summyz-community-public up` or
+`.\summyz-community-public.ps1 up`. This optional mode adds Caddy for automatic TLS. The local
+launcher does not expose the dashboard publicly. If `.env` does not exist yet, the public launcher
+creates it and asks the operator to set the HTTPS origin before running the command again.
+
+Never commit the `.env` file or publish the bot token or the private setup URL.
 
 Migrations and the PostgreSQL connection are validated before the Discord login; if the database
 is unavailable or the URL is invalid, the process exits with a safe message. The
@@ -497,6 +507,8 @@ issue.
 
 The complete setup guide is in [docs/installation.md](./docs/installation.md). Release
 maintainers must also follow [docs/release-checklist.md](./docs/release-checklist.md).
+The backend contract for the replacement dashboard is documented in
+[docs/dashboard-backend-contract.pt-BR.md](./docs/dashboard-backend-contract.pt-BR.md).
 
 ## License
 

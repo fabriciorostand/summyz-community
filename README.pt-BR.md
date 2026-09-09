@@ -48,8 +48,9 @@ automaticamente no fluxo Docker.
    aleatórios sem imprimir seus valores.
 2. O launcher roda
    no host, detecta CPU, NVIDIA ou AMD, escolhe os overlays seguros e chama o Docker Compose.
-3. Abra `http://127.0.0.1:8787` para criar a conta
-   administradora e configurar Discord, SMTP e, se necessário, OpenRouter.
+3. O launcher abre uma URL privada de configuração. Informe o token do bot, o client ID e o client
+   secret OAuth do Discord e vincule a única conta Discord proprietária da instalação. OpenRouter e
+   perfis de IA são configurados posteriormente no dashboard.
 4. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
 
@@ -58,6 +59,10 @@ Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community 
 `.\summyz-community.ps1`. O Compose direto continua
 disponível para operadores avançados. `docker compose up -d --build` usa CPU; para NVIDIA ou AMD,
 inclua manualmente `docker-compose.nvidia.yaml` ou `docker-compose.amd.yaml`.
+
+Use `recover-owner` para reconectar um proprietário por uma URL OAuth Discord de uso único gerada
+no host. Vincular outra conta Discord substitui a proprietária atual e invalida imediatamente suas
+sessões do dashboard; os perfis permanecem associados à respectiva conta Discord.
 
 Para desenvolver nativamente, execute `npm install` e informe um `FFMPEG_PATH` absoluto ou deixe
 `ffmpeg`/`ffmpeg.exe` disponível no `PATH`. O bot valida o executável e o encoder `libopus` antes de
@@ -68,7 +73,13 @@ Se a porta local `5432` já estiver ocupada, altere `POSTGRES_PORT` e ajuste a p
 `DATABASE_URL`. O PostgreSQL é publicado somente em `127.0.0.1`; entre containers, a conexão
 continua usando `postgres:5432`.
 
-Nunca versione o arquivo `.env` nem publique o token do bot.
+Para uma instalação pública em VPS, configure uma origem HTTPS em `PUBLIC_BASE_URL` dentro do
+`.env`, aponte o domínio para o host e execute `./summyz-community-public up` ou
+`.\summyz-community-public.ps1 up`. Esse modo opcional adiciona o Caddy para TLS automático. O
+launcher local não publica o dashboard na Internet. Se o `.env` ainda não existir, o launcher
+público o cria e pede que o operador configure a origem HTTPS antes de executar o comando novamente.
+
+Nunca versione o arquivo `.env`, publique o token do bot ou compartilhe a URL privada de setup.
 
 As migrações e a conexão PostgreSQL são validadas antes do login no Discord; se o banco estiver
 indisponível ou a URL for inválida, o processo encerra com uma mensagem segura. Os volumes
@@ -536,7 +547,9 @@ Consulte [CONTRIBUTING.pt-BR.md](./CONTRIBUTING.pt-BR.md) e
 [CLA-INDIVIDUAL.pt-BR.md](./CLA-INDIVIDUAL.pt-BR.md). Para relatar bugs ou solicitar
 funcionalidades, abra uma issue.
 
-O guia completo está em [docs/installation.pt-BR.md](./docs/installation.pt-BR.md). Quem
+O guia completo está em [docs/installation.pt-BR.md](./docs/installation.pt-BR.md). A integração do
+novo frontend está especificada em
+[docs/dashboard-backend-contract.pt-BR.md](./docs/dashboard-backend-contract.pt-BR.md). Quem
 mantém releases também deve seguir
 [docs/release-checklist.pt-BR.md](./docs/release-checklist.pt-BR.md).
 

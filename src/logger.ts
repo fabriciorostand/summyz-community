@@ -22,7 +22,6 @@ const REDACTED_PATHS = [
   "refreshToken",
   "secretsKey",
   "setupToken",
-  "smtpPassword",
   "summary",
   "token",
   "transcript",

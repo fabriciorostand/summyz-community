@@ -5,6 +5,7 @@ import { loadEnvFile } from "node:process";
 import { Client, Events, GatewayIntentBits } from "discord.js";
 
 import { ApplicationAiRuntime, requireConfigured } from "./application-ai-runtime.js";
+import { waitForBotConfiguration } from "./bot-bootstrap.js";
 import { loadConfig, resolveBotConfig } from "./config.js";
 import { CostReconciler } from "./cost/cost-reconciler.js";
 import { createCostReportService } from "./cost/cost-report.js";
@@ -112,21 +113,21 @@ const installationSettings = new PostgresInstallationSettingsStore({
   secretBox: new SecretBox(bootstrapConfig.secretsKey),
 });
 const installationHealth = new PostgresInstallationHealthStore(database);
-const storedSettings = await installationSettings.getSettings();
-let config: ReturnType<typeof resolveBotConfig>;
-try {
-  config = resolveBotConfig(bootstrapConfig, {
-    discordClientId: storedSettings.discordClientId,
-    discordToken: await installationSettings.getSecret("discord_bot_token"),
-  });
-} catch (error) {
-  logger.fatal(
-    { errorType: getErrorType(error) },
-    "Discord is not configured; complete the dashboard setup and restart the bot",
-  );
-  await database.close().catch(() => undefined);
-  process.exit(1);
-}
+logger.info("Waiting for dashboard setup before connecting to Discord");
+const storedBotConfiguration = await waitForBotConfiguration({
+  read: async () => {
+    const settings = await installationSettings.getSettings();
+    return {
+      discordClientId: settings.discordClientId,
+      discordToken: await installationSettings.getSecret("discord_bot_token"),
+      setupCompleted: settings.setupCompleted,
+    };
+  },
+});
+const config: ReturnType<typeof resolveBotConfig> = resolveBotConfig(
+  bootstrapConfig,
+  storedBotConfiguration,
+);
 
 const localHardware = await detectLocalHardware();
 const recordingsDirectory = join(config.dataDir, "recordings");

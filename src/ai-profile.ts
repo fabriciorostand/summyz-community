@@ -235,16 +235,6 @@ export function createInitialAiProfile(
   });
 }
 
-export function createInitialAiProfiles(
-  userId: string,
-  dashboardLanguage: "en" | "pt-BR",
-): [AiProfile, AiProfile] {
-  return [
-    createInitialAiProfile(userId, "external", dashboardLanguage),
-    createInitialAiProfile(userId, "local", dashboardLanguage),
-  ];
-}
-
 export function localizeAiProfileDefaults(
   profile: AiProfile,
   dashboardLanguage: "en" | "pt-BR",

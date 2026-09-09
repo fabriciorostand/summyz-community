@@ -66,18 +66,18 @@ describe("PostgresDatabase", () => {
     );
     expect(queries.some((query) => query.includes("CREATE TABLE ai_profiles"))).toBe(true);
     expect(queries.some((query) => query.includes("active_ai_profile_id"))).toBe(true);
-    expect(queries.some((query) => query.includes("CREATE TABLE dashboard_users"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE dashboard_users"))).toBe(false);
     expect(queries.some((query) => query.includes("CREATE TABLE dashboard_sessions"))).toBe(true);
     expect(queries.some((query) => query.includes("CREATE TABLE discord_connections"))).toBe(true);
     expect(queries.some((query) => query.includes("CREATE TABLE installation_secrets"))).toBe(true);
     expect(queries.some((query) => query.includes("CREATE TABLE discord_oauth_states"))).toBe(true);
     expect(queries.some((query) => query.includes("persist_meeting_content boolean"))).toBe(true);
     expect(queries.some((query) => query.includes("bot_language text"))).toBe(true);
-    expect(queries.some((query) => query.includes("owner_user_id uuid"))).toBe(true);
+    expect(queries.some((query) => query.includes("owner_discord_user_id text"))).toBe(true);
     expect(queries.some((query) => query.includes("profile_type text"))).toBe(true);
-    expect(queries.some((query) => query.includes("ALTER COLUMN owner_user_id SET NOT NULL"))).toBe(
-      true,
-    );
+    expect(
+      queries.some((query) => query.includes("ALTER COLUMN owner_discord_user_id SET NOT NULL")),
+    ).toBe(true);
     expect(queries.some((query) => query.includes("DROP COLUMN guild_id"))).toBe(true);
     expect(queries.some((query) => query.includes("DELETE FROM ai_profiles"))).toBe(true);
     expect(

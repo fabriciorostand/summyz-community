@@ -17,8 +17,12 @@ describe("segurança das migrações do banco", () => {
     expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
       "artifacts_delete_after",
     );
+    const authenticationFoundation = databaseMigrations.find(({ version }) => version === 4)?.sql;
+    expect(authenticationFoundation).toContain("dashboard_theme");
+    expect(authenticationFoundation).toContain("owner_discord_user_id");
+    expect(authenticationFoundation).not.toContain("dashboard_users");
+    expect(authenticationFoundation).not.toContain("smtp");
     const dashboardFoundation = databaseMigrations.find(({ version }) => version === 12)?.sql;
-    expect(dashboardFoundation).toContain("dashboard_theme");
     expect(dashboardFoundation).toContain("meeting_tasks");
     expect(dashboardFoundation).toContain("live_meeting_states");
     expect(dashboardFoundation).toContain("runtime_component_heartbeats");

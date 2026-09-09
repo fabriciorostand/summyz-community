@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { createInitialAiProfile } from "../src/ai-profile.js";
 import { type ApiServerDependencies, createApiServer } from "../src/api/server.js";
-import { SessionTokenError } from "../src/auth/jwt-session.js";
+import { DashboardSessionError } from "../src/auth/dashboard-session.js";
 import { PostgresAiProfileStore } from "../src/database/postgres-ai-profile-store.js";
 import type { MeetingHistoryDetail } from "../src/database/postgres-analytics-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
@@ -12,10 +12,9 @@ import { createLogger } from "../src/logger.js";
 const authenticatedUser = {
   dashboardLanguage: "pt-BR" as const,
   dashboardTheme: "system" as const,
-  email: "owner@example.com",
-  emailVerified: true,
-  installationRole: "administrator" as const,
-  userId: "00000000-0000-4000-8000-000000000001",
+  discordAvatar: null,
+  discordUsername: "fabricio",
+  userId: "discord-user",
 };
 
 describe("API dashboard", () => {
@@ -24,13 +23,19 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/discord/connection",
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ connected: true, discordUsername: "fabricio" });
+    expect(response.json()).toEqual({
+      connected: true,
+      discordAvatar: null,
+      discordUserId: "discord-user",
+      discordUsername: "fabricio",
+    });
+    expect(response.headers["set-cookie"]).toContain("Max-Age=2592000");
     expect(dependencies.discord.getConnectionStatus).toHaveBeenCalledWith(authenticatedUser.userId);
     await app.close();
   });
@@ -40,7 +45,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds",
     });
@@ -74,9 +79,9 @@ describe("API dashboard", () => {
       url: "/api/setup",
     });
 
-    expect(status.json()).toEqual({ registrationEnabled: true, setupCompleted: false });
+    expect(status.json()).toEqual({ setupCompleted: false, technicalSetupCompleted: false });
     expect(rejected.statusCode).toBe(403);
-    expect(dependencies.auth.createInitialAdministrator).not.toHaveBeenCalled();
+    expect(dependencies.settings.updateSettings).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -90,7 +95,7 @@ describe("API dashboard", () => {
     await app.close();
   });
 
-  it("conclui o setup e nunca devolve segredos na resposta", async () => {
+  it("stores only technical bootstrap data and never returns secrets", async () => {
     const dependencies = createDependencies();
     const app = await createApiServer(dependencies);
 
@@ -107,29 +112,69 @@ describe("API dashboard", () => {
       "discord_client_secret",
       "discord-secret",
     );
-    expect(dependencies.settings.completeSetup).toHaveBeenCalledOnce();
+    expect(dependencies.settings.updateSettings).toHaveBeenCalledWith({
+      discordClientId: "client-id",
+    });
     await app.close();
   });
 
-  it("usa cookies HttpOnly para access e refresh tokens", async () => {
+  it("creates one HttpOnly opaque cookie after Discord OAuth", async () => {
     const dependencies = createDependencies();
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      method: "POST",
-      payload: { email: "owner@example.com", password: "correct horse battery" },
-      url: "/api/auth/login",
+      method: "GET",
+      url: "/api/discord/callback?code=oauth-code&state=oauth-state",
     });
 
-    expect(response.statusCode).toBe(204);
+    expect(response.statusCode).toBe(302);
     const cookies = response.headers["set-cookie"];
-    expect(cookies).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("summyz_access=access-token;"),
-        expect.stringContaining("summyz_refresh=refresh-token;"),
-      ]),
-    );
+    expect(cookies).toContain("summyz_session=session-token;");
     expect(JSON.stringify(cookies)).toContain("HttpOnly");
+    expect(JSON.stringify(cookies)).not.toContain("summyz_refresh");
+    await app.close();
+  });
+
+  it("exposes only Discord authentication and removes every password route", async () => {
+    const dependencies = createDependencies();
+    vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
+      ...(await dependencies.settings.getSettings()),
+      ownerDiscordUserId: authenticatedUser.userId,
+      setupCompleted: true,
+    });
+    const app = await createApiServer(dependencies);
+
+    const discord = await app.inject({ method: "GET", url: "/api/auth/discord" });
+    const removed = await Promise.all(
+      [
+        "/api/auth/register",
+        "/api/auth/login",
+        "/api/auth/verify",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
+        "/api/auth/change-password",
+        "/api/auth/refresh",
+      ].map((url) => app.inject({ method: "POST", url })),
+    );
+
+    expect(discord.statusCode).toBe(200);
+    expect(dependencies.discord.createAuthorizationUrl).toHaveBeenCalledWith({ intent: "login" });
+    expect(removed.every((response) => response.statusCode === 404)).toBe(true);
+    await app.close();
+  });
+
+  it("starts owner binding only with the private setup claim", async () => {
+    const dependencies = createDependencies();
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      headers: { "x-summyz-setup-token": "setup-token-value" },
+      method: "GET",
+      url: "/api/setup/discord",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(dependencies.discord.createAuthorizationUrl).toHaveBeenCalledWith({ intent: "setup" });
     await app.close();
   });
 
@@ -138,7 +183,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PUT",
       payload: {
         botLanguage: "pt-BR",
@@ -148,7 +193,7 @@ describe("API dashboard", () => {
       url: "/api/guilds/guild-installed/settings",
     });
     const rejected = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PUT",
       payload: {
         botLanguage: "en",
@@ -191,17 +236,17 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const dashboard = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/dashboard?period=90d",
     });
     const history = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/meetings?page=1&state=completed",
     });
     const denied = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-not-installed/dashboard",
     });
@@ -243,7 +288,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/meetings?page=1&meetingId=meeting-1&dateFrom=2026-08-01&dateTo=2026-08-31&state=failed",
     });
@@ -263,7 +308,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/meetings?page=2&channelName=planejamento&contentRetained=true&participantUserId=user-1",
     });
@@ -281,35 +326,24 @@ describe("API dashboard", () => {
     await app.close();
   });
 
-  it("updates synchronized preferences and changes password before clearing cookies", async () => {
+  it("updates global installation preferences and has no password endpoint", async () => {
     const dependencies = createDependencies();
     const app = await createApiServer(dependencies);
 
     const preferences = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PUT",
       payload: { dashboardLanguage: "en", dashboardTheme: "dark" },
       url: "/api/account/preferences",
     });
-    const password = await app.inject({
-      cookies: { summyz_access: "access-token" },
-      method: "POST",
-      payload: { currentPassword: "current secure password", newPassword: "new secure password" },
-      url: "/api/auth/change-password",
-    });
+    const password = await app.inject({ method: "POST", url: "/api/auth/change-password" });
 
     expect(preferences.statusCode).toBe(204);
-    expect(dependencies.auth.updatePreferences).toHaveBeenCalledWith(authenticatedUser.userId, {
+    expect(dependencies.settings.updatePreferences).toHaveBeenCalledWith({
       dashboardLanguage: "en",
       dashboardTheme: "dark",
     });
-    expect(password.statusCode).toBe(204);
-    expect(dependencies.auth.changePassword).toHaveBeenCalledWith(
-      authenticatedUser.userId,
-      "current secure password",
-      "new secure password",
-    );
-    expect(password.headers["set-cookie"]).toBeDefined();
+    expect(password.statusCode).toBe(404);
     await app.close();
   });
 
@@ -318,7 +352,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/installation/health",
     });
@@ -328,7 +362,6 @@ describe("API dashboard", () => {
       database: { migrationVersion: 12, status: "ready" },
       externalConfiguration: {
         openRouterConfigured: false,
-        smtpConfigured: false,
       },
     });
     expect(dependencies.health.getStatus).toHaveBeenCalledOnce();
@@ -373,18 +406,18 @@ describe("API dashboard", () => {
     const taskId = "2b8dfb58-2511-4b20-a535-103ec73d87d9";
 
     const listed = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/tasks?completed=false",
     });
     const updated = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PATCH",
       payload: { completed: true, text: "must be ignored" },
       url: `/api/guilds/guild-installed/tasks/${taskId}/completion`,
     });
     const denied = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PATCH",
       payload: { completed: true },
       url: `/api/guilds/guild-not-installed/tasks/${taskId}/completion`,
@@ -417,12 +450,12 @@ describe("API dashboard", () => {
 
     const [configuration, resources] = await Promise.all([
       app.inject({
-        cookies: { summyz_access: "access-token" },
+        cookies: { summyz_session: "session-token" },
         method: "GET",
         url: "/api/guilds/guild-installed/configuration",
       }),
       app.inject({
-        cookies: { summyz_access: "access-token" },
+        cookies: { summyz_session: "session-token" },
         method: "GET",
         url: "/api/guilds/guild-installed/resources",
       }),
@@ -469,18 +502,18 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const configuration = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/configuration",
     });
     const updated = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PUT",
       payload: { roleIds: ["role-2", "role-2"], userIds: ["user-2", "user-2"] },
       url: "/api/guilds/guild-installed/recording-permissions",
     });
     const legacy = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PUT",
       payload: { roleIds: [] },
       url: "/api/guilds/guild-installed/roles",
@@ -507,7 +540,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "PUT",
       payload: { roleIds: [], userIds: ["departed-user"] },
       url: "/api/guilds/guild-installed/recording-permissions",
@@ -543,7 +576,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/configuration",
     });
@@ -562,12 +595,12 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const members = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/members?page=2&query=ana&roleId=role-1",
     });
     const participants = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/participants?page=3&query=bruno",
     });
@@ -600,12 +633,12 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const exported = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/meetings/meeting-1/export",
     });
     const unavailable = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/meetings/meeting-1/export",
     });
@@ -625,7 +658,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/configuration",
     });
@@ -652,7 +685,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/ai/prompts/defaults?summaryLanguage=pt-BR",
     });
@@ -676,7 +709,7 @@ describe("API dashboard", () => {
     } = createInitialAiProfile(authenticatedUser.userId, "external", "pt-BR");
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "POST",
       payload: { ...payload, name: "Novo perfil" },
       url: "/api/profiles",
@@ -698,7 +731,7 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/profiles",
     });
@@ -713,22 +746,18 @@ describe("API dashboard", () => {
         }),
       }),
     ]);
-    expect(dependencies.aiProfiles.ensureInitialProfiles).toHaveBeenCalledWith(
-      authenticatedUser.userId,
-      "pt-BR",
-    );
     await app.close();
   });
 
   it("remove do servidor o perfil ativo que pertencia ao proprietário anterior", async () => {
     const dependencies = createDependencies();
     vi.mocked(dependencies.aiProfiles.getActiveProfile).mockResolvedValue(
-      createInitialAiProfile("00000000-0000-4000-8000-000000000002", "external", "pt-BR"),
+      createInitialAiProfile("previous-discord-owner", "external", "pt-BR"),
     );
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/configuration",
     });
@@ -739,13 +768,13 @@ describe("API dashboard", () => {
     await app.close();
   });
 
-  it("trata JWT inválido como sessão expirada sem revelar detalhes", async () => {
+  it("treats an invalid opaque session as expired without leaking details", async () => {
     const dependencies = createDependencies();
-    vi.mocked(dependencies.auth.authenticate).mockRejectedValueOnce(new SessionTokenError());
+    vi.mocked(dependencies.auth.authenticate).mockRejectedValueOnce(new DashboardSessionError());
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
-      cookies: { summyz_access: "invalid" },
+      cookies: { summyz_session: "invalid" },
       method: "GET",
       url: "/api/auth/me",
     });
@@ -760,7 +789,7 @@ describe("API dashboard", () => {
     const { prompt: _prompt, ...legacyTranscription } = profile.transcription;
     const legacyRow = {
       name: profile.name,
-      owner_user_id: profile.userId,
+      owner_discord_user_id: profile.userId,
       profile_id: profile.profileId,
       profile_type: profile.profileType,
       refinement: { ...profile.refinement, prompt: "super-secret-prompt" },
@@ -768,7 +797,7 @@ describe("API dashboard", () => {
       transcription: legacyTranscription,
     };
     const query = vi.fn<PostgresExecutor["query"]>(async (text) => {
-      if (/FROM ai_profiles\s+WHERE owner_user_id/i.test(text)) {
+      if (/FROM ai_profiles\s+WHERE owner_discord_user_id/i.test(text)) {
         return { rowCount: 1, rows: [legacyRow] };
       }
       return { rowCount: 0, rows: [] };
@@ -786,12 +815,12 @@ describe("API dashboard", () => {
     const app = await createApiServer(dependencies);
 
     const profilesResponse = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/profiles",
     });
     const configurationResponse = await app.inject({
-      cookies: { summyz_access: "access-token" },
+      cookies: { summyz_session: "session-token" },
       method: "GET",
       url: "/api/guilds/guild-installed/configuration",
     });
@@ -839,7 +868,6 @@ function createDependencies(): ApiServerDependencies {
       clearActiveProfile: vi.fn(async () => undefined),
       createProfile: vi.fn(async () => undefined),
       deleteProfile: vi.fn(async () => undefined),
-      ensureInitialProfiles: vi.fn(async () => undefined),
       getActiveProfile: vi.fn(async () => profile),
       getActiveProfileForDiscordOwner: vi.fn(async () => profile),
       listActiveProfileIds: vi.fn(async () => new Set([profile.profileId])),
@@ -850,26 +878,16 @@ function createDependencies(): ApiServerDependencies {
     },
     auth: {
       authenticate: vi.fn(async () => authenticatedUser),
-      changePassword: vi.fn(async () => undefined),
-      createInitialAdministrator: vi.fn(async () => ({
-        ...authenticatedUser,
-        passwordHash: "not-returned",
-      })),
-      login: vi.fn(async () => ({ accessToken: "access-token", refreshToken: "refresh-token" })),
+      create: vi.fn(async () => "session-token"),
       logout: vi.fn(async () => undefined),
-      refresh: vi.fn(async () => ({ accessToken: "new-access", refreshToken: "new-refresh" })),
-      register: vi.fn(async () => undefined),
-      requestPasswordReset: vi.fn(async () => undefined),
-      resetPassword: vi.fn(async () => undefined),
-      updatePreferences: vi.fn(async () => undefined),
-      verifyEmail: vi.fn(async () => undefined),
     },
     discord: {
-      completeAuthorization: vi.fn(async () => undefined),
+      completeAuthorization: vi.fn(async () => ({ discordUserId: authenticatedUser.userId })),
       createAuthorizationUrl: vi.fn(async () => "https://discord.com/oauth2/authorize"),
-      disconnect: vi.fn(async () => undefined),
       getConnectionStatus: vi.fn(async () => ({
         connected: true as const,
+        discordAvatar: null,
+        discordUserId: authenticatedUser.userId,
         discordUsername: "fabricio",
       })),
       listOwnedGuilds: vi.fn(async () => [
@@ -934,22 +952,21 @@ function createDependencies(): ApiServerDependencies {
     participants: { list: vi.fn(async () => ({ items: [], page: 1, pageSize: 50, total: 0 })) },
     secureCookies: false,
     settings: {
-      completeSetup: vi.fn(async () => undefined),
       getSettings: vi.fn(async () => ({
+        dashboardLanguage: "pt-BR" as const,
+        dashboardTheme: "system" as const,
         discordClientId: null,
-        publicBaseUrl: null,
-        registrationEnabled: true,
+        ownerDiscordUserId: null,
         secrets: {
           discordBotToken: false,
           discordClientSecret: false,
           openRouterApiKey: false,
-          smtpPassword: false,
         },
         setupCompleted: false,
-        smtp: null,
       })),
       removeSecret: vi.fn(async () => undefined),
       setSecret: vi.fn(async () => undefined),
+      updatePreferences: vi.fn(async () => undefined),
       updateSettings: vi.fn(async () => undefined),
     },
     setupToken: "setup-token-value",
@@ -996,28 +1013,11 @@ function completedMeeting(): MeetingHistoryDetail {
 
 function setupPayload() {
   return {
-    administrator: {
-      dashboardLanguage: "pt-BR",
-      email: "owner@example.com",
-      password: "correct horse battery",
-    },
     installation: {
       discordClientId: "client-id",
-      publicBaseUrl: "http://127.0.0.1:8787",
-      registrationEnabled: true,
       secrets: {
         discordBotToken: "discord-token",
         discordClientSecret: "discord-secret",
-        smtpPassword: "smtp-secret",
-      },
-      smtp: {
-        fromEmail: "hello@example.com",
-        fromName: "Summyz Community",
-        host: "smtp-relay.brevo.com",
-        port: 587,
-        replyTo: null,
-        secure: false,
-        user: "smtp-user",
       },
     },
   };

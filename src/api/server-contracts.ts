@@ -3,7 +3,6 @@ import { z } from "zod";
 
 import { externalAiProfileSchema, localAiProfileSchema } from "../ai-profile.js";
 import type { AuthenticatedUser } from "../auth/auth-domain.js";
-import type { AuthTokens, StoredDashboardUser } from "../auth/auth-service.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type {
   DashboardAnalytics,
@@ -27,37 +26,14 @@ import type {
 } from "../discord/discord-oauth-service.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
 
-export const credentialsSchema = z.object({
-  email: z.email(),
-  password: z.string().min(1).max(1_024),
-});
-export const registrationSchema = credentialsSchema.extend({
-  dashboardLanguage: z.enum(["en", "pt-BR"]),
-});
-export const setupSchema = z
-  .object({
-    administrator: registrationSchema,
-    installation: installationSettingsInputSchema.extend({
-      secrets: z.object({
-        discordBotToken: z.string().min(1),
-        discordClientSecret: z.string().min(1),
-        openRouterApiKey: z.string().min(1).optional(),
-        smtpPassword: z.string().min(1).optional(),
-      }),
+export const setupSchema = z.object({
+  installation: installationSettingsInputSchema.extend({
+    secrets: z.object({
+      discordBotToken: z.string().min(1),
+      discordClientSecret: z.string().min(1),
     }),
-  })
-  .superRefine((setup, context) => {
-    if (
-      setup.installation.registrationEnabled &&
-      (setup.installation.smtp === null || setup.installation.secrets.smtpPassword === undefined)
-    ) {
-      context.addIssue({
-        code: "custom",
-        message: "SMTP is required while public registration is enabled",
-        path: ["installation", "smtp"],
-      });
-    }
-  });
+  }),
+});
 export const guildSettingsSchema = z.object({
   botLanguage: z.enum(["en", "pt-BR"]),
   persistMeetingAudio: z.boolean(),
@@ -71,36 +47,28 @@ export const profileBodySchema = z.discriminatedUnion("profileType", [
 ]);
 
 export interface ApiAuthService {
-  authenticate(accessToken: string): Promise<AuthenticatedUser>;
-  changePassword(userId: string, currentPassword: string, newPassword: string): Promise<void>;
-  createInitialAdministrator(
-    input: z.infer<typeof registrationSchema>,
-  ): Promise<StoredDashboardUser>;
-  login(email: string, password: string): Promise<AuthTokens>;
-  logout(accessToken: string): Promise<void>;
-  refresh(refreshToken: string): Promise<AuthTokens>;
-  register(input: z.infer<typeof registrationSchema>): Promise<void>;
-  requestPasswordReset(email: string): Promise<void>;
-  resetPassword(token: string, password: string): Promise<void>;
-  updatePreferences(
-    userId: string,
-    preferences: { dashboardLanguage: "en" | "pt-BR"; dashboardTheme: "system" | "light" | "dark" },
-  ): Promise<void>;
-  verifyEmail(token: string): Promise<void>;
+  authenticate(sessionToken: string): Promise<AuthenticatedUser>;
+  create(discordUserId: string): Promise<string>;
+  logout(sessionToken: string): Promise<void>;
 }
 
 export interface ApiSettingsStore {
-  completeSetup(): Promise<void>;
   getSettings(): Promise<InstallationSettings>;
   removeSecret(name: InstallationSecretName): Promise<void>;
   setSecret(name: InstallationSecretName, value: string): Promise<void>;
+  updatePreferences(input: {
+    dashboardLanguage: "en" | "pt-BR";
+    dashboardTheme: "system" | "light" | "dark";
+  }): Promise<void>;
   updateSettings(input: z.input<typeof installationSettingsInputSchema>): Promise<void>;
 }
 
 export interface ApiDiscordService {
-  completeAuthorization(userId: string, code: string, state: string): Promise<void>;
-  createAuthorizationUrl(userId: string): Promise<string>;
-  disconnect(userId: string): Promise<void>;
+  completeAuthorization(code: string, state: string): Promise<{ discordUserId: string }>;
+  createAuthorizationUrl(input: {
+    initiatorDiscordUserId?: string;
+    intent: "setup" | "login" | "replace" | "recovery";
+  }): Promise<string>;
   getConnectionStatus(userId: string): Promise<DiscordConnectionStatus>;
   listOwnedGuilds(
     userId: string,

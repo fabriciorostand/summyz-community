@@ -2,8 +2,7 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Logger } from "pino";
 import type { AuthenticatedUser } from "../auth/auth-domain.js";
-import type { AuthTokens } from "../auth/auth-service.js";
-import { AuthenticationError } from "../auth/auth-service.js";
+import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { StoredAiProfileValidationError } from "../database/postgres-ai-profile-store.js";
 import type { OwnedDiscordGuild } from "../discord/discord-oauth-service.js";
 
@@ -13,13 +12,21 @@ import {
   guildParametersSchema,
 } from "./server-contracts.js";
 
+const authenticatedRequests = new WeakSet<FastifyRequest>();
+
 export async function authenticateRequest(
   request: FastifyRequest,
   dependencies: ApiServerDependencies,
 ): Promise<AuthenticatedUser> {
-  const accessToken = request.cookies.summyz_access;
-  if (accessToken === undefined) throw new AuthenticationError("session_expired");
-  return dependencies.auth.authenticate(accessToken);
+  const sessionToken = request.cookies.summyz_session;
+  if (sessionToken === undefined) throw new DashboardSessionError();
+  const user = await dependencies.auth.authenticate(sessionToken);
+  authenticatedRequests.add(request);
+  return user;
+}
+
+export function wasRequestAuthenticated(request: FastifyRequest): boolean {
+  return authenticatedRequests.has(request);
 }
 
 export async function authorizeGuild(
@@ -114,29 +121,21 @@ function getErrorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-export async function requireAdministrator(
+export async function requireOwner(
   request: FastifyRequest,
   dependencies: ApiServerDependencies,
 ): Promise<AuthenticatedUser> {
-  const user = await authenticateRequest(request, dependencies);
-  if (user.installationRole !== "administrator") {
-    const error = new Error("administrator_required") as Error & { statusCode: number };
-    error.statusCode = 403;
-    throw error;
-  }
-  return user;
+  return authenticateRequest(request, dependencies);
 }
 
-export function setSessionCookies(reply: FastifyReply, tokens: AuthTokens, secure: boolean): void {
+export function setSessionCookie(reply: FastifyReply, token: string, secure: boolean): void {
   const common = { httpOnly: true, path: "/", sameSite: "lax" as const, secure };
-  reply.setCookie("summyz_access", tokens.accessToken, { ...common, maxAge: 15 * 60 });
-  reply.setCookie("summyz_refresh", tokens.refreshToken, { ...common, maxAge: 30 * 24 * 60 * 60 });
+  reply.setCookie("summyz_session", token, { ...common, maxAge: 30 * 24 * 60 * 60 });
 }
 
-export function clearSessionCookies(reply: FastifyReply, secure: boolean): void {
+export function clearSessionCookie(reply: FastifyReply, secure: boolean): void {
   const options = { httpOnly: true, path: "/", sameSite: "lax" as const, secure };
-  reply.clearCookie("summyz_access", options);
-  reply.clearCookie("summyz_refresh", options);
+  reply.clearCookie("summyz_session", options);
 }
 
 export function safeEqual(left: string, right: string): boolean {

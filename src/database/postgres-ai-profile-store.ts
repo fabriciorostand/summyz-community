@@ -1,17 +1,12 @@
 import { z } from "zod";
 
-import {
-  type AiProfile,
-  aiProfileSchema,
-  canonicalizeAiProfileDefaults,
-  createInitialAiProfiles,
-} from "../ai-profile.js";
+import { type AiProfile, aiProfileSchema, canonicalizeAiProfileDefaults } from "../ai-profile.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(256);
 const rowSchema = z.object({
   name: z.string().min(1),
-  owner_user_id: z.string().min(1),
+  owner_discord_user_id: z.string().min(1),
   profile_id: z.string().min(1),
   profile_type: z.enum(["external", "local"]),
   language: z.unknown(),
@@ -25,7 +20,6 @@ export interface AiProfileStore {
   clearActiveProfile(guildId: string): Promise<void>;
   createProfile(profile: AiProfile): Promise<void>;
   deleteProfile(userId: string, profileId: string): Promise<void>;
-  ensureInitialProfiles(userId: string, language: "en" | "pt-BR"): Promise<void>;
   getActiveProfile(guildId: string): Promise<AiProfile | undefined>;
   getActiveProfileForDiscordOwner(
     guildId: string,
@@ -65,29 +59,19 @@ export class PostgresAiProfileStore implements AiProfileStore {
     const profile = aiProfileSchema.parse(input);
     await this.#database.query(
       `INSERT INTO ai_profiles (
-         profile_id, owner_user_id, profile_type, name, transcription, refinement, summary,
+         profile_id, owner_discord_user_id, profile_type, name, transcription, refinement, summary,
          language, translation
-       ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)`,
+       ) VALUES ($1, $2, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)`,
       serializeProfile(profile),
     );
   }
 
   public async deleteProfile(userId: string, profileId: string): Promise<void> {
     const result = await this.#database.query(
-      `WITH target AS (
-         SELECT profile_id, profile_type
-         FROM ai_profiles
-         WHERE owner_user_id = $1::uuid AND profile_id = $2
-       ), same_type_count AS (
-         SELECT count(*) AS total
-         FROM ai_profiles AS profile
-         JOIN target ON target.profile_type = profile.profile_type
-         WHERE profile.owner_user_id = $1::uuid
-       ), deleted_profile AS (
+      `WITH deleted_profile AS (
          DELETE FROM ai_profiles AS profile
-         WHERE profile.owner_user_id = $1::uuid
+         WHERE profile.owner_discord_user_id = $1
            AND profile.profile_id = $2
-           AND (SELECT total FROM same_type_count) > 1
            AND NOT EXISTS (
              SELECT 1 FROM guild_configurations
              WHERE active_ai_profile_id = profile.profile_id
@@ -99,29 +83,13 @@ export class PostgresAiProfileStore implements AiProfileStore {
     );
     const parsed = z.object({ deleted: z.boolean() }).safeParse(result.rows[0]);
     if (!parsed.success || !parsed.data.deleted) {
-      throw new Error(
-        "AI profile cannot be deleted while active or while it is the last of its type",
-      );
-    }
-  }
-
-  public async ensureInitialProfiles(userId: string, language: "en" | "pt-BR"): Promise<void> {
-    const profiles = createInitialAiProfiles(identifierSchema.parse(userId), language);
-    for (const profile of profiles) {
-      await this.#database.query(
-        `INSERT INTO ai_profiles (
-           profile_id, owner_user_id, profile_type, name, transcription, refinement, summary,
-           language, translation
-         ) VALUES ($1, $2::uuid, $3, $4, $5::jsonb, $6::jsonb, $7::jsonb, $8, $9::jsonb)
-         ON CONFLICT DO NOTHING`,
-        serializeProfile(profile),
-      );
+      throw new Error("AI profile cannot be deleted while active");
     }
   }
 
   public async getActiveProfile(guildId: string): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
-      `SELECT p.profile_id, p.owner_user_id, p.profile_type, p.name,
+      `SELECT p.profile_id, p.owner_discord_user_id, p.profile_type, p.name,
               p.transcription, p.refinement, p.summary, p.language, p.translation
        FROM guild_configurations AS guild
        JOIN ai_profiles AS p ON p.profile_id = guild.active_ai_profile_id
@@ -136,12 +104,13 @@ export class PostgresAiProfileStore implements AiProfileStore {
     discordOwnerId: string,
   ): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
-      `SELECT profile.profile_id, profile.owner_user_id, profile.profile_type, profile.name,
+      `SELECT profile.profile_id, profile.owner_discord_user_id, profile.profile_type, profile.name,
               profile.transcription, profile.refinement, profile.summary,
               profile.language, profile.translation
        FROM guild_configurations AS guild
        JOIN ai_profiles AS profile ON profile.profile_id = guild.active_ai_profile_id
-       JOIN discord_connections AS connection ON connection.user_id = profile.owner_user_id
+       JOIN discord_connections AS connection
+         ON connection.discord_user_id = profile.owner_discord_user_id
        WHERE guild.guild_id = $1 AND connection.discord_user_id = $2`,
       [identifierSchema.parse(guildId), identifierSchema.parse(discordOwnerId)],
     );
@@ -150,10 +119,10 @@ export class PostgresAiProfileStore implements AiProfileStore {
 
   public async listProfiles(userId: string): Promise<AiProfile[]> {
     const result = await this.#database.query(
-      `SELECT profile_id, owner_user_id, profile_type, name, transcription, refinement, summary,
+      `SELECT profile_id, owner_discord_user_id, profile_type, name, transcription, refinement, summary,
               language, translation
        FROM ai_profiles
-       WHERE owner_user_id = $1::uuid
+       WHERE owner_discord_user_id = $1
        ORDER BY profile_type, created_at, profile_id`,
       [identifierSchema.parse(userId)],
     );
@@ -165,7 +134,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
       `SELECT DISTINCT guild.active_ai_profile_id AS profile_id
        FROM guild_configurations AS guild
        JOIN ai_profiles AS profile ON profile.profile_id = guild.active_ai_profile_id
-       WHERE profile.owner_user_id = $1::uuid`,
+       WHERE profile.owner_discord_user_id = $1`,
       [identifierSchema.parse(userId)],
     );
     return new Set(
@@ -181,7 +150,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
       `SELECT guild.active_ai_profile_id AS profile_id, count(*)::int AS server_count
        FROM guild_configurations guild
        JOIN ai_profiles profile ON profile.profile_id = guild.active_ai_profile_id
-       WHERE profile.owner_user_id = $1::uuid
+       WHERE profile.owner_discord_user_id = $1
        GROUP BY guild.active_ai_profile_id`,
       [identifierSchema.parse(userId)],
     );
@@ -205,7 +174,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
        WHERE guild_id = $1
          AND EXISTS (
            SELECT 1 FROM ai_profiles
-           WHERE profile_id = $2 AND owner_user_id = $3::uuid
+           WHERE profile_id = $2 AND owner_discord_user_id = $3
          )`,
       [
         identifierSchema.parse(guildId),
@@ -232,7 +201,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
            translation = $9::jsonb,
            updated_at = now()
        WHERE profile_id = $1
-         AND owner_user_id = $2::uuid
+         AND owner_discord_user_id = $2
          AND profile_type = $3`,
       serializeProfile(profile),
     );
@@ -258,7 +227,7 @@ function parseProfileRow(input: unknown): AiProfile {
       summary: row.summary,
       transcription: row.transcription,
       translation: row.translation,
-      userId: row.owner_user_id,
+      userId: row.owner_discord_user_id,
     });
   } catch (error) {
     if (error instanceof z.ZodError) throw new StoredAiProfileValidationError(error);

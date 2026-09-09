@@ -48,8 +48,11 @@ ROCm está disponível apenas no Linux. Se uma GPU exigida não puder ser usada,
 inicialização para, salvo quando `LOCAL_AI_FALLBACK=cpu` tiver sido configurado de forma
 deliberada.
 
-Abra `http://127.0.0.1:8787` e conclua o primeiro acesso. Configure Discord, SMTP,
-credenciais OpenRouter opcionais, um perfil pessoal de IA e um fórum de publicação.
+O launcher abre uma URL privada de setup cujo fragmento contém a credencial de primeiro acesso
+gerada automaticamente. Informe o token do bot, o client ID e o client secret OAuth do Discord e
+vincule a única conta Discord proprietária da instalação. O bot se conecta quando esse OAuth é
+concluído. O comando `/record` permanece indisponível até que o proprietário configure e ative um
+perfil de IA válido.
 
 ## Administração
 
@@ -58,14 +61,19 @@ credenciais OpenRouter opcionais, um perfil pessoal de IA e um fórum de publica
 ./summyz-community logs
 ./summyz-community restart
 ./summyz-community down
+./summyz-community recover-owner
 ```
 
 Use o launcher `.ps1` no Windows. O Compose direto continua disponível para operadores
 avançados, que deverão escolher o overlay correto e fornecer um `.env` completo.
 
-As portas do PostgreSQL e dashboard escutam em `127.0.0.1` por padrão. Em uma VPS, coloque
-um proxy reverso HTTPS diante do dashboard, configure `PUBLIC_BASE_URL` com a origem HTTPS
-pública e nunca exponha o PostgreSQL à Internet.
+As portas do PostgreSQL e dashboard escutam em `127.0.0.1` por padrão. Em uma VPS, configure a
+origem HTTPS exata em `PUBLIC_BASE_URL` no `.env`, aponte os registros DNS para o host e execute
+`./summyz-community-public up` (ou `.\summyz-community-public.ps1 up` no Windows). Esse overlay
+opcional publica somente as portas 80/443 pelo Caddy e obtém certificados TLS automaticamente.
+Nunca exponha o PostgreSQL à Internet. Firewall e grupos de segurança da nuvem continuam sob
+responsabilidade do operador. Na primeira execução, o launcher público cria o `.env` ausente, pede
+a origem HTTPS e encerra para que o operador edite o arquivo antes de iniciar o stack.
 
 ## Desenvolvimento nativo
 

@@ -514,6 +514,7 @@ jobs:
           CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
           CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
           POSTGRES_PASSWORD: ci-only-password
+          PUBLIC_BASE_URL: https://summyz.example.com
         run: |
           test "$(docker run --rm --entrypoint node summyz-community-bot:ci --version)" = "v${NODE_VERSION}"
           test "$(docker run --rm --entrypoint node summyz-community-dashboard:ci --version)" = "v${NODE_VERSION}"
@@ -524,6 +525,7 @@ jobs:
           docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
           docker compose -f docker-compose.yaml -f docker-compose.nvidia.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
           docker compose -f docker-compose.yaml -f docker-compose.amd.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
+          docker compose -f docker-compose.yaml -f docker-compose.public.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
 
       - name: Restore immutable local-model cache # zizmor: ignore[cache-poisoning] PR cache scope is isolated and models are verified.
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4

@@ -8,8 +8,7 @@ import Fastify from "fastify";
 import { ZodError, z } from "zod";
 
 import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
-import { AuthenticationError } from "../auth/auth-service.js";
-import { SessionTokenError } from "../auth/jwt-session.js";
+import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
 import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
@@ -28,9 +27,11 @@ import {
   createGuildAccessResolver,
   getErrorStatusCode,
   logApiFailure,
-  requireAdministrator,
+  requireOwner,
   runApiDependency,
   safeEqual,
+  setSessionCookie,
+  wasRequestAuthenticated,
 } from "./server-support.js";
 
 export type { ApiServerDependencies, GuildDirectory } from "./server-contracts.js";
@@ -102,6 +103,13 @@ export async function createApiServer(
     },
   });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
+  app.addHook("onSend", async (request, reply, payload) => {
+    const sessionToken = request.cookies.summyz_session;
+    if (sessionToken !== undefined && wasRequestAuthenticated(request)) {
+      setSessionCookie(reply, sessionToken, dependencies.secureCookies);
+    }
+    return payload;
+  });
   if (options.staticDirectory !== undefined) {
     await app.register(staticFiles, { root: options.staticDirectory });
   }
@@ -111,11 +119,7 @@ export async function createApiServer(
       void reply.status(400).send({ error: "invalid_request", issues: error.issues });
       return;
     }
-    if (error instanceof AuthenticationError) {
-      void reply.status(401).send({ error: error.code });
-      return;
-    }
-    if (error instanceof SessionTokenError) {
+    if (error instanceof DashboardSessionError) {
       void reply.status(401).send({ error: "session_expired" });
       return;
     }
@@ -129,8 +133,11 @@ export async function createApiServer(
   app.get("/api/setup/status", async () => {
     const settings = await dependencies.settings.getSettings();
     return {
-      registrationEnabled: settings.registrationEnabled,
       setupCompleted: settings.setupCompleted,
+      technicalSetupCompleted:
+        settings.discordClientId !== null &&
+        settings.secrets.discordBotToken &&
+        settings.secrets.discordClientSecret,
     };
   });
   app.post(
@@ -145,18 +152,10 @@ export async function createApiServer(
         return reply.status(403).send({ error: "invalid_setup_token" });
       }
       const setup = setupSchema.parse(request.body);
-      await dependencies.auth.createInitialAdministrator(setup.administrator);
       const { secrets, ...settings } = setup.installation;
       await dependencies.settings.updateSettings(settings);
       await dependencies.settings.setSecret("discord_bot_token", secrets.discordBotToken);
       await dependencies.settings.setSecret("discord_client_secret", secrets.discordClientSecret);
-      if (secrets.openRouterApiKey !== undefined) {
-        await dependencies.settings.setSecret("openrouter_api_key", secrets.openRouterApiKey);
-      }
-      if (secrets.smtpPassword !== undefined) {
-        await dependencies.settings.setSecret("smtp_password", secrets.smtpPassword);
-      }
-      await dependencies.settings.completeSetup();
       return reply.status(204).send();
     },
   );
@@ -176,7 +175,6 @@ export async function createApiServer(
     const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const [settings, recordingPermissions, summaryForum, profiles, activeProfile] =
       await runApiDependency("database", "load_guild_configuration", async () => {
-        await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
         return Promise.all([
           dependencies.guildConfig.getGuildSettings(guildId),
           dependencies.guildConfig.getRecordingPermissions(guildId),
@@ -299,7 +297,6 @@ export async function createApiServer(
       "database",
       "list_ai_profiles",
       async () => {
-        await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
         return Promise.all([
           dependencies.aiProfiles.listProfiles(user.userId),
           dependencies.aiProfiles.listActiveProfileCounts(user.userId),
@@ -347,11 +344,11 @@ export async function createApiServer(
   });
 
   app.get("/api/installation/settings", async (request) => {
-    await requireAdministrator(request, dependencies);
+    await requireOwner(request, dependencies);
     return dependencies.settings.getSettings();
   });
   app.get("/api/installation/health", async (request) => {
-    await requireAdministrator(request, dependencies);
+    await requireOwner(request, dependencies);
     const [health, settings] = await Promise.all([
       dependencies.health.getStatus(),
       dependencies.settings.getSettings(),
@@ -360,33 +357,20 @@ export async function createApiServer(
       ...health,
       externalConfiguration: {
         openRouterConfigured: settings.secrets.openRouterApiKey,
-        smtpConfigured: settings.smtp !== null && settings.secrets.smtpPassword,
       },
     };
   });
   app.put("/api/installation/settings", async (request, reply) => {
-    await requireAdministrator(request, dependencies);
+    await requireOwner(request, dependencies);
     const nextSettings = installationSettingsInputSchema.parse(request.body);
-    const currentSettings = await dependencies.settings.getSettings();
-    if (
-      nextSettings.registrationEnabled &&
-      (nextSettings.smtp === null || !currentSettings.secrets.smtpPassword)
-    ) {
-      return reply.status(400).send({ error: "smtp_required_for_registration" });
-    }
     await dependencies.settings.updateSettings(nextSettings);
     return reply.status(204).send();
   });
   app.put("/api/installation/secrets/:secretName", async (request, reply) => {
-    await requireAdministrator(request, dependencies);
+    await requireOwner(request, dependencies);
     const parameters = z
       .object({
-        secretName: z.enum([
-          "discord_bot_token",
-          "discord_client_secret",
-          "openrouter_api_key",
-          "smtp_password",
-        ]),
+        secretName: z.enum(["discord_bot_token", "discord_client_secret", "openrouter_api_key"]),
       })
       .parse(request.params);
     const body = z.object({ value: z.string().min(1) }).parse(request.body);
@@ -394,15 +378,10 @@ export async function createApiServer(
     return reply.status(204).send();
   });
   app.delete("/api/installation/secrets/:secretName", async (request, reply) => {
-    await requireAdministrator(request, dependencies);
+    await requireOwner(request, dependencies);
     const parameters = z
       .object({
-        secretName: z.enum([
-          "discord_bot_token",
-          "discord_client_secret",
-          "openrouter_api_key",
-          "smtp_password",
-        ]),
+        secretName: z.enum(["discord_bot_token", "discord_client_secret", "openrouter_api_key"]),
       })
       .parse(request.params);
     await dependencies.settings.removeSecret(parameters.secretName);

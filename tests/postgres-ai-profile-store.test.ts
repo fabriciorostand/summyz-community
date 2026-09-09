@@ -5,23 +5,6 @@ import { PostgresAiProfileStore } from "../src/database/postgres-ai-profile-stor
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
 
 describe("PostgresAiProfileStore", () => {
-  it("cria os dois perfis pessoais iniciais sem ativar nenhum servidor", async () => {
-    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
-    const store = new PostgresAiProfileStore({ query });
-
-    await store.ensureInitialProfiles("user-1", "pt-BR");
-
-    expect(query).toHaveBeenCalledTimes(2);
-    expect(query.mock.calls.every((call) => /INSERT INTO ai_profiles/i.test(call[0]))).toBe(true);
-    expect(query.mock.calls.flatMap((call) => call[1] ?? [])).toContain("Perfil 1");
-    expect(query.mock.calls.flatMap((call) => call[1] ?? [])).toContain("auto");
-    const storedRefinement = JSON.parse(String(query.mock.calls[0]?.[1]?.[5]));
-    const storedSummary = JSON.parse(String(query.mock.calls[0]?.[1]?.[6]));
-    expect(storedRefinement.prompt).toContain("conservative transcript reviewer");
-    expect(storedSummary.extractionPrompt).toContain("You extract information");
-    expect(query.mock.calls.map((call) => call[0]).join("\n")).not.toMatch(/active_ai_profile_id/i);
-  });
-
   it("lista somente os perfis pessoais do usuário", async () => {
     const profile = createInitialAiProfile("user-1", "external", "pt-BR");
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
@@ -32,7 +15,7 @@ describe("PostgresAiProfileStore", () => {
 
     await expect(store.listProfiles("user-1")).resolves.toEqual([profile]);
 
-    expect(query.mock.calls[0]?.[0]).toMatch(/owner_user_id = \$1/i);
+    expect(query.mock.calls[0]?.[0]).toMatch(/owner_discord_user_id = \$1/i);
     expect(query.mock.calls[0]?.[1]).toEqual(["user-1"]);
   });
 
@@ -63,7 +46,7 @@ describe("PostgresAiProfileStore", () => {
       "AI profile is unavailable to this user",
     );
 
-    expect(query.mock.calls[0]?.[0]).toMatch(/owner_user_id/i);
+    expect(query.mock.calls[0]?.[0]).toMatch(/owner_discord_user_id/i);
     expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", "profile-external", "user-1"]);
   });
 
@@ -105,7 +88,7 @@ describe("PostgresAiProfileStore", () => {
     expect(query.mock.calls[0]?.[0]).not.toMatch(/IS NOT NULL/i);
   });
 
-  it("impede excluir o último perfil do tipo ou um perfil ativo", async () => {
+  it("prevents deleting an active profile", async () => {
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
       rowCount: 1,
       rows: [{ deleted: false }],
@@ -117,10 +100,10 @@ describe("PostgresAiProfileStore", () => {
     );
 
     expect(query.mock.calls[0]?.[0]).toMatch(/active_ai_profile_id/i);
-    expect(query.mock.calls[0]?.[0]).toMatch(/profile_type/i);
+    expect(query.mock.calls[0]?.[0]).not.toMatch(/same_type_count/i);
   });
 
-  it("exclui um perfil inativo quando existe outro do mesmo tipo", async () => {
+  it("deletes the final profile when it is inactive", async () => {
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
       rowCount: 1,
       rows: [{ deleted: true }],
@@ -138,7 +121,7 @@ describe("PostgresAiProfileStore", () => {
     await expect(store.updateProfile("user-1", profile)).rejects.toThrow(
       "AI profile is unavailable to this user",
     );
-    expect(query.mock.calls[0]?.[0]).toMatch(/owner_user_id/i);
+    expect(query.mock.calls[0]?.[0]).toMatch(/owner_discord_user_id/i);
   });
 
   it("rejeita atualizar um perfil que declara outro proprietário antes de consultar o banco", async () => {
@@ -156,7 +139,7 @@ describe("PostgresAiProfileStore", () => {
 function toRow(profile: ReturnType<typeof createInitialAiProfile>) {
   return {
     name: profile.name,
-    owner_user_id: profile.userId,
+    owner_discord_user_id: profile.userId,
     profile_id: profile.profileId,
     profile_type: profile.profileType,
     refinement: profile.refinement,

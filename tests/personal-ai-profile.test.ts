@@ -2,14 +2,17 @@ import { describe, expect, it } from "vitest";
 
 import {
   aiProfileSchema,
-  createInitialAiProfiles,
+  createInitialAiProfile,
   externalAiProfileSchema,
   resolveAiProfile,
 } from "../src/ai-profile.js";
 
 describe("perfis pessoais de IA", () => {
-  it("cria um Perfil 1 localizado para API externa e outro para execução local", () => {
-    const profiles = createInitialAiProfiles("user-1", "pt-BR");
+  it("creates explicit localized templates without provisioning profiles", () => {
+    const profiles = [
+      createInitialAiProfile("user-1", "external", "pt-BR"),
+      createInitialAiProfile("user-1", "local", "pt-BR"),
+    ];
 
     expect(profiles).toHaveLength(2);
     expect(
@@ -65,28 +68,22 @@ describe("perfis pessoais de IA", () => {
   });
 
   it("localiza os nomes iniciais em inglês", () => {
-    expect(createInitialAiProfiles("user-1", "en").map((profile) => profile.name)).toEqual([
-      "Profile 1",
-      "Profile 1",
-    ]);
+    expect(createInitialAiProfile("user-1", "external", "en").name).toBe("Profile 1");
   });
 
   it("rejeita combinações híbridas entre o tipo do perfil e seus provedores", () => {
-    const local = createInitialAiProfiles("user-1", "pt-BR")[1];
-    expect(local).toBeDefined();
+    const local = createInitialAiProfile("user-1", "local", "pt-BR");
 
     expect(() =>
       aiProfileSchema.parse({
         ...local,
-        refinement: { ...local?.refinement, provider: "openrouter" },
+        refinement: { ...local.refinement, provider: "openrouter" },
       }),
     ).toThrow();
   });
 
   it("fixa o tipo e a configuração efetiva do VAD no manifesto", () => {
-    const external = createInitialAiProfiles("user-1", "pt-BR")[0];
-    expect(external).toBeDefined();
-    if (external === undefined) return;
+    const external = createInitialAiProfile("user-1", "external", "pt-BR");
 
     const resolved = resolveAiProfile(
       externalAiProfileSchema.parse({

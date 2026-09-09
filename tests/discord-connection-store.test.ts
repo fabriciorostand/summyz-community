@@ -14,7 +14,12 @@ describe("PostgresDiscordConnectionStore", () => {
       .mockResolvedValueOnce({
         rowCount: 1,
         rows: [
-          { encrypted_code_verifier: encryptedVerifier, redirect_uri: "http://local/callback" },
+          {
+            encrypted_code_verifier: encryptedVerifier,
+            initiator_discord_user_id: null,
+            intent: "setup",
+            redirect_uri: "http://local/callback",
+          },
         ],
       });
     const store = new PostgresDiscordConnectionStore({ database: { query }, secretBox });
@@ -22,18 +27,20 @@ describe("PostgresDiscordConnectionStore", () => {
     await store.createOAuthState({
       codeVerifier: "verifier-123",
       expiresAt: "2026-08-28T00:00:00.000Z",
+      initiatorDiscordUserId: null,
+      intent: "setup",
       redirectUri: "http://local/callback",
       stateHash: "hash",
-      userId: "00000000-0000-4000-8000-000000000001",
     });
     await expect(
       store.consumeOAuthState({
         now: "2026-08-27T00:00:00.000Z",
         stateHash: "hash",
-        userId: "00000000-0000-4000-8000-000000000001",
       }),
     ).resolves.toEqual({
       codeVerifier: "verifier-123",
+      initiatorDiscordUserId: null,
+      intent: "setup",
       redirectUri: "http://local/callback",
     });
 
@@ -42,21 +49,26 @@ describe("PostgresDiscordConnectionStore", () => {
   });
 
   it("salva credenciais OAuth criptografadas sem incluir tokens nos parâmetros SQL", async () => {
-    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
+      rowCount: 1,
+      rows: [{ owner_discord_user_id: "discord-1" }],
+    });
     const store = new PostgresDiscordConnectionStore({ database: { query }, secretBox });
 
-    await store.saveConnection({
-      credentials: {
-        accessToken: "access-sensitive",
-        expiresAt: "2026-08-28T00:00:00.000Z",
-        refreshToken: "refresh-sensitive",
-        scope: "identify guilds",
+    await store.replaceConnection(
+      {
+        credentials: {
+          accessToken: "access-sensitive",
+          expiresAt: "2026-08-28T00:00:00.000Z",
+          refreshToken: "refresh-sensitive",
+          scope: "identify guilds",
+        },
+        discordAvatar: null,
+        discordUserId: "discord-1",
+        discordUsername: "fabricio",
       },
-      discordAvatar: null,
-      discordUserId: "discord-1",
-      discordUsername: "fabricio",
-      userId: "00000000-0000-4000-8000-000000000001",
-    });
+      { allowAnyOwner: false, expectedOwnerDiscordUserId: null },
+    );
 
     const values = query.mock.calls[0]?.[1] ?? [];
     expect(JSON.stringify(values)).not.toContain("access-sensitive");
