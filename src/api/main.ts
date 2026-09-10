@@ -11,8 +11,8 @@ import { PostgresAnalyticsStore } from "../database/postgres-analytics-store.js"
 import { PostgresDashboardSessionStore } from "../database/postgres-dashboard-session-store.js";
 import { createPostgresDatabase } from "../database/postgres-database.js";
 import { PostgresGuildConfigStore } from "../database/postgres-guild-config-store.js";
-import { PostgresInstallationHealthStore } from "../database/postgres-installation-health-store.js";
 import { PostgresInstallationAccessStore } from "../database/postgres-installation-access-store.js";
+import { PostgresInstallationHealthStore } from "../database/postgres-installation-health-store.js";
 import { PostgresInstallationSettingsStore } from "../database/postgres-installation-settings-store.js";
 import { PostgresLiveMeetingStore } from "../database/postgres-live-meeting-store.js";
 import { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";

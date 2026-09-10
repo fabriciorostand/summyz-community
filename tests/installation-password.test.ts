@@ -1,11 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-
+import { Argon2InstallationPasswordHasher } from "../src/auth/argon2-installation-password-hasher.js";
 import {
   InstallationPasswordError,
   InstallationPasswordService,
   installationPasswordSchema,
 } from "../src/auth/installation-password.js";
-import { Argon2InstallationPasswordHasher } from "../src/auth/argon2-installation-password-hasher.js";
 
 describe("installation password", () => {
   it("uses the approved Argon2id cost parameters", async () => {

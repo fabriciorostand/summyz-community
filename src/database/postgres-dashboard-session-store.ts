@@ -1,9 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
-
-import { dashboardAccessSchema, type StoredDashboardAccess } from "../auth/dashboard-session.js";
 import { dashboardLanguageSchema, dashboardThemeSchema } from "../auth/auth-domain.js";
+import { dashboardAccessSchema, type StoredDashboardAccess } from "../auth/dashboard-session.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const dateSchema = z.iso.datetime();

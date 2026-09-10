@@ -12,13 +12,13 @@ import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
 import { registerAnalyticsRoutes } from "./server-analytics-routes.js";
 import { registerAuthRoutes } from "./server-auth-routes.js";
-import { registerSetupRoutes } from "./server-setup-routes.js";
 import {
   type ApiServerDependencies,
   guildSettingsSchema,
   profileBodySchema,
   profileParametersSchema,
 } from "./server-contracts.js";
+import { registerSetupRoutes } from "./server-setup-routes.js";
 import {
   authorizeDashboard,
   authorizeGuild,

@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
-
-import type { PostgresExecutor } from "../src/database/postgres-database.js";
 import { PostgresDashboardSessionStore } from "../src/database/postgres-dashboard-session-store.js";
+import type { PostgresExecutor } from "../src/database/postgres-database.js";
 
 describe("PostgresDashboardSessionStore", () => {
   it("creates opaque sessions without storing a raw token", async () => {

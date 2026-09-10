@@ -11,8 +11,8 @@ import {
 } from "../src/auth/installation-access-recovery.js";
 import { InstallationPasswordService } from "../src/auth/installation-password.js";
 import { PostgresDashboardSessionStore } from "../src/database/postgres-dashboard-session-store.js";
-import { PostgresInstallationAccessStore } from "../src/database/postgres-installation-access-store.js";
 import { createPostgresDatabase } from "../src/database/postgres-database.js";
+import { PostgresInstallationAccessStore } from "../src/database/postgres-installation-access-store.js";
 
 const connectionString = process.env.POSTGRES_TEST_URL;
 

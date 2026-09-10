@@ -3,8 +3,8 @@ import { loadEnvFile } from "node:process";
 
 import { Argon2InstallationPasswordHasher } from "../auth/argon2-installation-password-hasher.js";
 import { InstallationAccessRecoveryService } from "../auth/installation-access-recovery.js";
-import { PostgresInstallationAccessStore } from "../database/postgres-installation-access-store.js";
 import { createPostgresDatabase } from "../database/postgres-database.js";
+import { PostgresInstallationAccessStore } from "../database/postgres-installation-access-store.js";
 import { loadWebConfig } from "./web-config.js";
 
 if (existsSync(".env")) loadEnvFile(".env");
