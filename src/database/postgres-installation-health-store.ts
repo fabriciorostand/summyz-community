@@ -11,7 +11,6 @@ const componentTypeSchema = z.enum([
   "ollama",
   "faster_whisper",
   "openrouter",
-  "smtp",
 ]);
 const componentStatusSchema = z.enum(["ready", "degraded", "unavailable", "not_configured"]);
 const identifierSchema = z.string().min(1).max(128);

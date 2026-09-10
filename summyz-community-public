@@ -1,0 +1,32 @@
+#!/bin/sh
+
+set -eu
+
+script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+cd "$script_dir"
+
+if [ ! -f .env ]; then
+  if ! "$script_dir/summyz-community" up --dry-run >/dev/null; then
+    echo "Unable to create .env for public mode" >&2
+    exit 1
+  fi
+fi
+
+public_base_url=$(awk '
+  /^[[:space:]]*#/ { next }
+  /^[[:space:]]*PUBLIC_BASE_URL[[:space:]]*=/ {
+    value = $0
+    sub(/^[^=]*=/, "", value)
+    gsub(/^[[:space:]"\047]+|[[:space:]"\047]+$/, "", value)
+    print value
+    exit
+  }
+' .env)
+case "$public_base_url" in
+  https://*) ;;
+  *) echo "PUBLIC_BASE_URL must use HTTPS in public mode. Edit .env and run this command again." >&2; exit 2 ;;
+esac
+
+SUMMYZ_PUBLIC_MODE=true
+export SUMMYZ_PUBLIC_MODE
+exec "$script_dir/summyz-community" "$@"

@@ -223,10 +223,10 @@ export function registerAnalyticsRoutes(
     });
   });
   app.patch("/api/guilds/:guildId/tasks/:taskId/completion", async (request, reply) => {
-    const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const { taskId } = z.object({ taskId: z.uuid() }).parse(request.params);
     const { completed } = z.object({ completed: z.boolean() }).parse(request.body);
-    await dependencies.tasks.setCompleted(guildId, taskId, user.userId, completed);
+    await dependencies.tasks.setCompleted(guildId, taskId, null, completed);
     return reply.status(204).send();
   });
 }

@@ -5,12 +5,9 @@ import helmet from "@fastify/helmet";
 import rateLimit from "@fastify/rate-limit";
 import staticFiles from "@fastify/static";
 import Fastify from "fastify";
-import { ZodError, z } from "zod";
+import { z } from "zod";
 
 import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
-import { AuthenticationError } from "../auth/auth-service.js";
-import { SessionTokenError } from "../auth/jwt-session.js";
-import { installationSettingsInputSchema } from "../database/postgres-installation-settings-store.js";
 import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
 import { registerAnalyticsRoutes } from "./server-analytics-routes.js";
@@ -20,22 +17,25 @@ import {
   guildSettingsSchema,
   profileBodySchema,
   profileParametersSchema,
-  setupSchema,
 } from "./server-contracts.js";
+import { registerSetupRoutes } from "./server-setup-routes.js";
 import {
-  authenticateRequest,
+  authorizeDashboard,
   authorizeGuild,
   createGuildAccessResolver,
   getErrorStatusCode,
+  getKnownApiError,
   logApiFailure,
-  requireAdministrator,
   runApiDependency,
-  safeEqual,
+  setSessionCookie,
+  wasRequestAuthenticated,
 } from "./server-support.js";
 
 export type { ApiServerDependencies, GuildDirectory } from "./server-contracts.js";
 
-type OwnedGuild = Awaited<ReturnType<ApiServerDependencies["discord"]["listOwnedGuilds"]>>[number];
+type InstalledGuild = Awaited<
+  ReturnType<ApiServerDependencies["guildDirectory"]["listInstalledGuilds"]>
+>[number];
 
 const loadGuildForums = async (dependencies: ApiServerDependencies, guildId: string) => {
   if (dependencies.guildDirectory.getForums !== undefined) {
@@ -44,12 +44,8 @@ const loadGuildForums = async (dependencies: ApiServerDependencies, guildId: str
   return dependencies.guildDirectory.getResources(guildId).then((resources) => resources.forums);
 };
 
-const enrichOwnedGuild = async (
-  guild: OwnedGuild,
-  userId: string,
-  dependencies: ApiServerDependencies,
-) => {
-  if (!guild.installed || dependencies.analytics === undefined) {
+const enrichInstalledGuild = async (guild: InstalledGuild, dependencies: ApiServerDependencies) => {
+  if (dependencies.analytics === undefined) {
     return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
   }
   const [activeProfile, callCount, summaryForumConfiguration, forums] = await Promise.all([
@@ -60,16 +56,15 @@ const enrichOwnedGuild = async (
   ]);
   const forum = forums.find((item) => item.id === summaryForumConfiguration?.forumId);
   const tag = forum?.tags.find((item) => item.id === summaryForumConfiguration?.tagId);
-  const ownedActiveProfile = activeProfile?.userId === userId ? activeProfile : undefined;
   return {
     ...guild,
     activeProfile:
-      ownedActiveProfile === undefined
+      activeProfile === undefined
         ? null
         : {
-            name: ownedActiveProfile.name,
-            profileId: ownedActiveProfile.profileId,
-            profileType: ownedActiveProfile.profileType,
+            name: activeProfile.name,
+            profileId: activeProfile.profileId,
+            profileType: activeProfile.profileType,
           },
     callCount,
     summaryForum:
@@ -87,7 +82,10 @@ export async function createApiServer(
   dependencies: ApiServerDependencies,
   options: { staticDirectory?: string } = {},
 ) {
-  const app = Fastify({ logger: false });
+  const app = Fastify({
+    logger: false,
+    trustProxy: dependencies.accessMode === "public" ? "loopback, linklocal, uniquelocal" : false,
+  });
   const resolveGuildAccess = createGuildAccessResolver(dependencies);
   await app.register(cookie);
   await app.register(helmet, {
@@ -102,21 +100,37 @@ export async function createApiServer(
     },
   });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
+  app.addHook("onRequest", async (request, reply) => {
+    if (
+      dependencies.accessMode === "public" &&
+      !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
+      request.headers.origin !== dependencies.publicBaseUrl
+    ) {
+      return reply.status(403).send({ error: "invalid_origin" });
+    }
+  });
+  app.addHook("onSend", async (request, reply, payload) => {
+    const sessionToken = request.cookies.summyz_session;
+    if (
+      sessionToken !== undefined &&
+      wasRequestAuthenticated(request) &&
+      !reply.hasHeader("set-cookie")
+    ) {
+      setSessionCookie(reply, sessionToken);
+    }
+    return payload;
+  });
   if (options.staticDirectory !== undefined) {
     await app.register(staticFiles, { root: options.staticDirectory });
   }
 
   app.setErrorHandler((error, request, reply) => {
-    if (error instanceof ZodError) {
-      void reply.status(400).send({ error: "invalid_request", issues: error.issues });
-      return;
-    }
-    if (error instanceof AuthenticationError) {
-      void reply.status(401).send({ error: error.code });
-      return;
-    }
-    if (error instanceof SessionTokenError) {
-      void reply.status(401).send({ error: "session_expired" });
+    const knownError = getKnownApiError(error);
+    if (knownError !== undefined) {
+      if (knownError.retryAfterSeconds !== undefined) {
+        reply.header("retry-after", knownError.retryAfterSeconds);
+      }
+      void reply.status(knownError.statusCode).send(knownError.body);
       return;
     }
     const statusCode = getErrorStatusCode(error);
@@ -126,67 +140,53 @@ export async function createApiServer(
   });
 
   app.get("/api/health", async () => ({ status: "ok" }));
-  app.get("/api/setup/status", async () => {
-    const settings = await dependencies.settings.getSettings();
-    return {
-      registrationEnabled: settings.registrationEnabled,
-      setupCompleted: settings.setupCompleted,
-    };
-  });
-  app.post(
-    "/api/setup",
-    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
-    async (request, reply) => {
-      const current = await dependencies.settings.getSettings();
-      if (current.setupCompleted)
-        return reply.status(409).send({ error: "setup_already_completed" });
-      const suppliedToken = z.string().parse(request.headers["x-summyz-setup-token"]);
-      if (!safeEqual(suppliedToken, dependencies.setupToken)) {
-        return reply.status(403).send({ error: "invalid_setup_token" });
-      }
-      const setup = setupSchema.parse(request.body);
-      await dependencies.auth.createInitialAdministrator(setup.administrator);
-      const { secrets, ...settings } = setup.installation;
-      await dependencies.settings.updateSettings(settings);
-      await dependencies.settings.setSecret("discord_bot_token", secrets.discordBotToken);
-      await dependencies.settings.setSecret("discord_client_secret", secrets.discordClientSecret);
-      if (secrets.openRouterApiKey !== undefined) {
-        await dependencies.settings.setSecret("openrouter_api_key", secrets.openRouterApiKey);
-      }
-      if (secrets.smtpPassword !== undefined) {
-        await dependencies.settings.setSecret("smtp_password", secrets.smtpPassword);
-      }
-      await dependencies.settings.completeSetup();
-      return reply.status(204).send();
-    },
-  );
-
+  registerSetupRoutes(app, dependencies);
   registerAuthRoutes(app, dependencies);
 
   app.get("/api/guilds", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
-    const guilds = await dependencies.discord.listOwnedGuilds(
-      user.userId,
-      await dependencies.guildDirectory.getInstalledGuildIds(),
-    );
-    return Promise.all(guilds.map((guild) => enrichOwnedGuild(guild, user.userId, dependencies)));
+    await authorizeDashboard(request, dependencies);
+    const guilds = await resolveGuildAccess();
+    return Promise.all(guilds.map((guild) => enrichInstalledGuild(guild, dependencies)));
+  });
+  app.get("/api/installation/bot", async (request) => {
+    await authorizeDashboard(request, dependencies);
+    const settings = await dependencies.settings.getSettings();
+    if (settings.discordApplicationId === null) return { configured: false };
+    const parameters = new URLSearchParams({
+      client_id: settings.discordApplicationId,
+      permissions: "326417521664",
+      scope: "bot applications.commands",
+    });
+    return {
+      applicationId: settings.discordApplicationId,
+      configured: true,
+      installUrl: `https://discord.com/oauth2/authorize?${parameters}`,
+    };
+  });
+  app.put("/api/installation/bot", async (request, reply) => {
+    await authorizeDashboard(request, dependencies);
+    const { discordBotToken } = z
+      .object({ discordBotToken: z.string().min(1) })
+      .parse(request.body);
+    const application = await dependencies.guildDirectory.inspectBotToken(discordBotToken);
+    await dependencies.settings.configureDiscordBot(application.id, discordBotToken);
+    return reply.status(204).send();
   });
   registerAnalyticsRoutes(app, dependencies, resolveGuildAccess);
   app.get("/api/guilds/:guildId/configuration", async (request) => {
-    const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { access, guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const [settings, recordingPermissions, summaryForum, profiles, activeProfile] =
       await runApiDependency("database", "load_guild_configuration", async () => {
-        await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
         return Promise.all([
           dependencies.guildConfig.getGuildSettings(guildId),
           dependencies.guildConfig.getRecordingPermissions(guildId),
           dependencies.guildConfig.getSummaryForum(guildId),
-          dependencies.aiProfiles.listProfiles(user.userId),
+          dependencies.aiProfiles.listProfiles(),
           dependencies.aiProfiles.getActiveProfile(guildId),
         ]);
       });
     const activeProfileId =
-      activeProfile?.userId === user.userId &&
+      activeProfile !== undefined &&
       profiles.some((profile) => profile.profileId === activeProfile.profileId)
         ? activeProfile.profileId
         : null;
@@ -217,7 +217,7 @@ export async function createApiServer(
     return {
       activeProfileId,
       profiles: profiles.map((profile) =>
-        localizeAiProfileDefaults(profile, user.dashboardLanguage),
+        localizeAiProfileDefaults(profile, access.dashboardLanguage),
       ),
       recordingRoleIds: recordingPermissions.roleIds,
       recordingUserIds: validUserGrants.map((grant) => grant.userId),
@@ -294,64 +294,61 @@ export async function createApiServer(
     return reply.status(204).send();
   });
   app.get("/api/profiles", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
+    const access = await authorizeDashboard(request, dependencies);
     const [profiles, activeProfileCounts] = await runApiDependency(
       "database",
       "list_ai_profiles",
       async () => {
-        await dependencies.aiProfiles.ensureInitialProfiles(user.userId, user.dashboardLanguage);
         return Promise.all([
-          dependencies.aiProfiles.listProfiles(user.userId),
-          dependencies.aiProfiles.listActiveProfileCounts(user.userId),
+          dependencies.aiProfiles.listProfiles(),
+          dependencies.aiProfiles.listActiveProfileCounts(),
         ]);
       },
     );
     return profiles.map((profile) => ({
       active: (activeProfileCounts.get(profile.profileId) ?? 0) > 0,
       activeServerCount: activeProfileCounts.get(profile.profileId) ?? 0,
-      profile: localizeAiProfileDefaults(profile, user.dashboardLanguage),
+      profile: localizeAiProfileDefaults(profile, access.dashboardLanguage),
     }));
   });
   app.post("/api/profiles", async (request, reply) => {
-    const user = await authenticateRequest(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const profile = aiProfileSchema.parse({
       ...profileBodySchema.parse(request.body),
       profileId: randomUUID(),
-      userId: user.userId,
     });
     await dependencies.aiProfiles.createProfile(profile);
     return reply.status(201).send(profile);
   });
   app.put("/api/profiles/:profileId", async (request, reply) => {
-    const user = await authenticateRequest(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const parameters = profileParametersSchema.parse(request.params);
     const profile = aiProfileSchema.parse({
       ...profileBodySchema.parse(request.body),
       profileId: parameters.profileId,
-      userId: user.userId,
     });
-    await dependencies.aiProfiles.updateProfile(user.userId, profile);
+    await dependencies.aiProfiles.updateProfile(profile);
     return reply.status(204).send();
   });
   app.delete("/api/profiles/:profileId", async (request, reply) => {
-    const user = await authenticateRequest(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const parameters = profileParametersSchema.parse(request.params);
-    await dependencies.aiProfiles.deleteProfile(user.userId, parameters.profileId);
+    await dependencies.aiProfiles.deleteProfile(parameters.profileId);
     return reply.status(204).send();
   });
   app.put("/api/guilds/:guildId/profiles/:profileId/active", async (request, reply) => {
-    const { guildId, user } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const { profileId } = profileParametersSchema.parse(request.params);
-    await dependencies.aiProfiles.setActiveProfile(guildId, user.userId, profileId);
+    await dependencies.aiProfiles.setActiveProfile(guildId, profileId);
     return reply.status(204).send();
   });
 
   app.get("/api/installation/settings", async (request) => {
-    await requireAdministrator(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     return dependencies.settings.getSettings();
   });
   app.get("/api/installation/health", async (request) => {
-    await requireAdministrator(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const [health, settings] = await Promise.all([
       dependencies.health.getStatus(),
       dependencies.settings.getSettings(),
@@ -360,33 +357,14 @@ export async function createApiServer(
       ...health,
       externalConfiguration: {
         openRouterConfigured: settings.secrets.openRouterApiKey,
-        smtpConfigured: settings.smtp !== null && settings.secrets.smtpPassword,
       },
     };
   });
-  app.put("/api/installation/settings", async (request, reply) => {
-    await requireAdministrator(request, dependencies);
-    const nextSettings = installationSettingsInputSchema.parse(request.body);
-    const currentSettings = await dependencies.settings.getSettings();
-    if (
-      nextSettings.registrationEnabled &&
-      (nextSettings.smtp === null || !currentSettings.secrets.smtpPassword)
-    ) {
-      return reply.status(400).send({ error: "smtp_required_for_registration" });
-    }
-    await dependencies.settings.updateSettings(nextSettings);
-    return reply.status(204).send();
-  });
   app.put("/api/installation/secrets/:secretName", async (request, reply) => {
-    await requireAdministrator(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const parameters = z
       .object({
-        secretName: z.enum([
-          "discord_bot_token",
-          "discord_client_secret",
-          "openrouter_api_key",
-          "smtp_password",
-        ]),
+        secretName: z.enum(["openrouter_api_key"]),
       })
       .parse(request.params);
     const body = z.object({ value: z.string().min(1) }).parse(request.body);
@@ -394,15 +372,10 @@ export async function createApiServer(
     return reply.status(204).send();
   });
   app.delete("/api/installation/secrets/:secretName", async (request, reply) => {
-    await requireAdministrator(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const parameters = z
       .object({
-        secretName: z.enum([
-          "discord_bot_token",
-          "discord_client_secret",
-          "openrouter_api_key",
-          "smtp_password",
-        ]),
+        secretName: z.enum(["openrouter_api_key"]),
       })
       .parse(request.params);
     await dependencies.settings.removeSecret(parameters.secretName);

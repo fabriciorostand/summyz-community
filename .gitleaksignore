@@ -1,0 +1,5 @@
+# False positives from synthetic Discord snowflakes used by tests in commit 171a32e.
+171a32e2e5d4a0ca497977b14c5b2b89f63bee89:tests/postgres-dashboard-session-store.test.ts:discord-client-id:12
+171a32e2e5d4a0ca497977b14c5b2b89f63bee89:tests/postgres-dashboard-session-store.test.ts:discord-client-id:34
+171a32e2e5d4a0ca497977b14c5b2b89f63bee89:tests/postgres-dashboard-session-store.test.ts:discord-client-id:51
+171a32e2e5d4a0ca497977b14c5b2b89f63bee89:tests/dashboard-session.test.ts:discord-client-id:11

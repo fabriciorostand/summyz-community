@@ -47,8 +47,10 @@ corresponding Compose overlay. It never mounts the Docker socket into the applic
 AMD ROCm acceleration is available only on Linux. If an explicitly requested GPU is not
 usable, startup stops unless `LOCAL_AI_FALLBACK=cpu` was deliberately configured.
 
-Open `http://127.0.0.1:8787` and complete the one-time setup. Configure Discord, SMTP,
-optional OpenRouter credentials, a personal AI profile, and a publication forum.
+The launcher opens a private setup URL whose fragment contains the automatically generated setup
+claim. Enter only the Discord bot token; the backend validates it with Discord and derives the
+Application ID. Public mode also requires one installation-wide password. The bot connects when
+setup finishes. `/record` remains unavailable until a valid AI profile is active for the server.
 
 ## Administration
 
@@ -57,14 +59,24 @@ optional OpenRouter credentials, a personal AI profile, and a publication forum.
 ./summyz-community logs
 ./summyz-community restart
 ./summyz-community down
+./summyz-community recover-access
 ```
 
 Use the `.ps1` launcher on Windows. Direct Compose is retained for advanced operators,
 but they must choose the correct overlay and provide a complete `.env` themselves.
 
-PostgreSQL and dashboard ports bind to `127.0.0.1` by default. For a VPS, place an HTTPS
-reverse proxy in front of the dashboard, set `PUBLIC_BASE_URL` to the public HTTPS origin,
-and do not expose PostgreSQL publicly.
+`recover-access` is available only in public mode. It prints a single-use URL valid for ten minutes
+to choose a new installation password. The old password remains valid until replacement succeeds;
+all previous sessions are then revoked. Recovery is impossible without host access. Local mode has
+no dashboard password.
+
+PostgreSQL and dashboard ports bind to `127.0.0.1` by default. For a VPS, set the exact public HTTPS
+origin in `PUBLIC_BASE_URL` in `.env`, point its DNS records to the host, and run
+`./summyz-community-public up` (or `.\summyz-community-public.ps1 up` on Windows). This optional
+overlay publishes only ports 80/443 through Caddy and obtains TLS certificates automatically.
+Never expose PostgreSQL publicly. Firewall and cloud security-group configuration remain the
+operator's responsibility. On first execution, the public launcher creates a missing `.env`, asks
+for the HTTPS origin, and exits so that the operator can edit it before starting the stack.
 
 ## Native development
 

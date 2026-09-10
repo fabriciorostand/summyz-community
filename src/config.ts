@@ -60,7 +60,7 @@ export interface AppConfig {
   botLanguage: "en" | "pt-BR";
   dataDir: string;
   databaseUrl: string;
-  discordClientId: string;
+  discordApplicationId: string;
   discordGuildId?: string;
   discordToken: string;
   localAiDevice: z.infer<typeof environmentSchema>["LOCAL_AI_DEVICE"];
@@ -92,7 +92,7 @@ export interface AppConfig {
   voiceReconnectMaxMs: number;
 }
 
-export type BootstrapConfig = Omit<AppConfig, "discordClientId" | "discordToken"> & {
+export type BootstrapConfig = Omit<AppConfig, "discordApplicationId" | "discordToken"> & {
   secretsKey: string;
 };
 
@@ -138,17 +138,17 @@ export function loadConfig(environment: NodeJS.ProcessEnv): BootstrapConfig {
 export function resolveBotConfig(
   bootstrap: BootstrapConfig,
   dashboard: {
-    discordClientId: string | null;
+    discordApplicationId: string | null;
     discordToken: string | undefined;
   },
 ): AppConfig {
-  if (dashboard.discordClientId === null || dashboard.discordToken === undefined) {
+  if (dashboard.discordApplicationId === null || dashboard.discordToken === undefined) {
     throw new Error("Discord is not configured in the dashboard");
   }
   const { secretsKey: _secretsKey, ...operational } = bootstrap;
   return {
     ...operational,
-    discordClientId: dashboard.discordClientId,
+    discordApplicationId: dashboard.discordApplicationId,
     discordToken: dashboard.discordToken,
   };
 }

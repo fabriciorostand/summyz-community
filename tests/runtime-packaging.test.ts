@@ -190,6 +190,24 @@ describe("runtime packaging", () => {
     }
   });
 
+  it("empacota o modo público com Caddy fixado e launchers dedicados", async () => {
+    const [dockerfile, publicCompose, shellLauncher, powershellLauncher] = await Promise.all([
+      readFile(new URL("Dockerfile", repositoryRoot), "utf8"),
+      readFile(new URL("docker-compose.public.yaml", repositoryRoot), "utf8"),
+      readFile(new URL("summyz-community-public", repositoryRoot), "utf8"),
+      readFile(new URL("summyz-community-public.ps1", repositoryRoot), "utf8"),
+    ]);
+
+    expect(dockerfile).toContain("docker-compose.public.yaml");
+    expect(dockerfile).toContain("summyz-community-public");
+    expect(publicCompose).toContain(
+      "caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648",
+    );
+    expect(publicCompose).not.toContain("/var/run/docker.sock");
+    expect(shellLauncher).toContain("SUMMYZ_PUBLIC_MODE=true");
+    expect(powershellLauncher).toContain("SUMMYZ_PUBLIC_MODE");
+  });
+
   it("não concede a GPU NVIDIA ao processo do bot", async () => {
     const overlay = await readFile(new URL("docker-compose.nvidia.yaml", repositoryRoot), "utf8");
     const bot = overlay.split("\n  bot:")[1]?.split("\n  smoke:")[0];

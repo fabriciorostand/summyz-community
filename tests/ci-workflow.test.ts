@@ -345,7 +345,7 @@ describe("continuous integration contract", () => {
       implementation.indexOf("- name: Validate image users, versions, and Compose overlays"),
       implementation.indexOf("- name: Restore immutable local-model cache"),
     );
-    expect(validationStep.match(/-f \.github\/ci\/docker-compose\.ci\.yaml/gu)).toHaveLength(3);
+    expect(validationStep.match(/-f \.github\/ci\/docker-compose\.ci\.yaml/gu)).toHaveLength(4);
     expect(validationStep).toContain("CI_OLLAMA_CACHE:");
     expect(validationStep).toContain("CI_WHISPER_CACHE:");
   });

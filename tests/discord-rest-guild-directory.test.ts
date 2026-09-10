@@ -7,7 +7,13 @@ describe("DiscordRestGuildDirectory", () => {
     const fetchMock = vi
       .fn<typeof fetch>()
       .mockResolvedValueOnce(
-        new Response(JSON.stringify([{ id: "guild-1" }, { id: "guild-2" }]), { status: 200 }),
+        new Response(
+          JSON.stringify([
+            { id: "guild-1", name: "Equipe" },
+            { id: "guild-2", name: "Comunidade" },
+          ]),
+          { status: 200 },
+        ),
       )
       .mockResolvedValueOnce(
         new Response(
@@ -54,9 +60,10 @@ describe("DiscordRestGuildDirectory", () => {
       getBotToken: async () => "bot-token",
     });
 
-    await expect(directory.getInstalledGuildIds()).resolves.toEqual(
-      new Set(["guild-1", "guild-2"]),
-    );
+    await expect(directory.listInstalledGuilds()).resolves.toEqual([
+      { iconUrl: null, id: "guild-1", name: "Equipe" },
+      { iconUrl: null, id: "guild-2", name: "Comunidade" },
+    ]);
     await expect(directory.getResources("guild-1")).resolves.toEqual({
       forums: [{ id: "forum-1", name: "Resumos", tags: [{ id: "tag-1", name: "Reunião" }] }],
       memberCounts: { status: "available" },
@@ -65,6 +72,47 @@ describe("DiscordRestGuildDirectory", () => {
     expect(fetchMock.mock.calls.flatMap((call) => JSON.stringify(call[1]))).not.toContain(
       "undefined",
     );
+  });
+
+  it("validates the bot token and derives the Discord application id", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ icon: "app-icon", id: "application-1", name: "Summyz" })),
+      );
+    const directory = new DiscordRestGuildDirectory({
+      fetch: fetchMock,
+      getBotToken: async () => undefined,
+    });
+
+    await expect(directory.inspectBotToken("bot-token")).resolves.toEqual({
+      iconUrl: "https://cdn.discordapp.com/app-icons/application-1/app-icon.png?size=128",
+      id: "application-1",
+      name: "Summyz",
+    });
+    expect(fetchMock.mock.calls[0]?.[1]).toEqual({
+      headers: { authorization: "Bot bot-token" },
+    });
+  });
+
+  it("lists only guilds where the bot is currently installed", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify([{ icon: "guild-icon", id: "guild-1", name: "Equipe" }])),
+      );
+    const directory = new DiscordRestGuildDirectory({
+      fetch: fetchMock,
+      getBotToken: async () => "bot-token",
+    });
+
+    await expect(directory.listInstalledGuilds()).resolves.toEqual([
+      {
+        iconUrl: "https://cdn.discordapp.com/icons/guild-1/guild-icon.png?size=128",
+        id: "guild-1",
+        name: "Equipe",
+      },
+    ]);
   });
 
   it("keeps resources available when the privileged members intent is disabled", async () => {

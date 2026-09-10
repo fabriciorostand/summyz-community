@@ -17,12 +17,22 @@ describe("segurança das migrações do banco", () => {
     expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
       "artifacts_delete_after",
     );
+    const authenticationFoundation = databaseMigrations.find(({ version }) => version === 4)?.sql;
+    expect(authenticationFoundation).toContain("dashboard_theme");
+    expect(authenticationFoundation).toContain("installation_access");
+    expect(authenticationFoundation).toContain("installation_recovery_tokens");
+    expect(authenticationFoundation).toContain("absolute_expires_at");
+    expect(authenticationFoundation).not.toContain("owner_discord_user_id");
+    expect(authenticationFoundation).not.toContain("discord_oauth");
+    expect(authenticationFoundation).not.toContain("discord_client_secret");
+    expect(authenticationFoundation).not.toContain("dashboard_users");
+    expect(authenticationFoundation).not.toContain("smtp");
     const dashboardFoundation = databaseMigrations.find(({ version }) => version === 12)?.sql;
-    expect(dashboardFoundation).toContain("dashboard_theme");
     expect(dashboardFoundation).toContain("meeting_tasks");
     expect(dashboardFoundation).toContain("live_meeting_states");
     expect(dashboardFoundation).toContain("runtime_component_heartbeats");
     expect(dashboardFoundation).not.toContain("ON DELETE CASCADE");
+    expect(dashboardFoundation).toContain("OR completed_at IS NOT NULL");
     const recordingPermissions = databaseMigrations.find(({ version }) => version === 13)?.sql;
     expect(recordingPermissions).toContain("recording_user_grants");
     expect(recordingPermissions).not.toContain("ON DELETE CASCADE");

@@ -8,7 +8,7 @@ $remainingArguments = @($args | Select-Object -Skip 1)
 $dryRun = $remainingArguments -contains "--dry-run"
 $unexpectedArguments = @($remainingArguments | Where-Object { $_ -ne "--dry-run" })
 if ($commandName -eq "" -or $unexpectedArguments.Count -gt 0) {
-  [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs> [--dry-run]")
+  [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-access> [--dry-run]")
   exit 2
 }
 
@@ -218,6 +218,9 @@ function Invoke-Compose {
   } elseif ($script:profile -eq "amd") {
     $composeArguments += @("-f", "docker-compose.amd.yaml")
   }
+  if ([Environment]::GetEnvironmentVariable("SUMMYZ_PUBLIC_MODE", "Process") -eq "true") {
+    $composeArguments += @("-f", "docker-compose.public.yaml")
+  }
   $composeArguments += $ComposeCommand
   Write-Output "Executing: docker compose $($composeArguments -join ' ')"
 
@@ -234,7 +237,30 @@ function Invoke-Compose {
     exit 1
   }
   & docker compose @composeArguments
-  exit $LASTEXITCODE
+  if ($LASTEXITCODE -ne 0) {
+    exit $LASTEXITCODE
+  }
+}
+
+function Open-SetupPage {
+  $setupToken = Get-DotEnvSetting -Name "SUMMYZ_SETUP_TOKEN"
+  if ([string]::IsNullOrWhiteSpace($setupToken)) {
+    return
+  }
+  $publicBaseUrl = Get-DotEnvSetting -Name "PUBLIC_BASE_URL"
+  $webPort = Get-Setting -Name "WEB_PORT" -Default "8787"
+  $baseUrl = if ([string]::IsNullOrWhiteSpace($publicBaseUrl)) {
+    "http://127.0.0.1:$webPort"
+  } else {
+    $publicBaseUrl.TrimEnd("/")
+  }
+  $setupUrl = "$baseUrl/setup#claim=$([Uri]::EscapeDataString($setupToken))"
+  if ([Environment]::GetEnvironmentVariable("SUMMYZ_PUBLIC_MODE", "Process") -eq "true") {
+    Write-Output "Open the private setup link shown below. It stops working after setup is completed."
+    Write-Output $setupUrl
+    return
+  }
+  Start-Process $setupUrl
 }
 
 switch ($commandName) {
@@ -247,6 +273,7 @@ switch ($commandName) {
       Write-Output "Profile: CPU"
     }
     Invoke-Compose "up" "-d" "--build"
+    if (-not $dryRun) { Open-SetupPage }
   }
   "restart" {
     Find-Acceleration
@@ -261,8 +288,9 @@ switch ($commandName) {
   "down" { Invoke-Compose "down" }
   "status" { Invoke-Compose "ps" }
   "logs" { Invoke-Compose "logs" "--follow" }
+  "recover-access" { Invoke-Compose "exec" "dashboard" "node" "dist/api/installation-access-recovery.js" }
   default {
-    [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs> [--dry-run]")
+    [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-access> [--dry-run]")
     exit 2
   }
 }

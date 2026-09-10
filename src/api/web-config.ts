@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const environmentSchema = z.object({
+  DASHBOARD_ACCESS_MODE: z.enum(["local", "public"]).default("local"),
   DATABASE_URL: z
     .url()
     .refine(
@@ -8,7 +9,10 @@ const environmentSchema = z.object({
       "DATABASE_URL must use PostgreSQL",
     ),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-  PUBLIC_BASE_URL: z.url().optional(),
+  PUBLIC_BASE_URL: z
+    .url()
+    .refine((value) => new URL(value).origin === value, "PUBLIC_BASE_URL must be an origin")
+    .default("http://127.0.0.1:8787"),
   SUMMYZ_SECRETS_KEY: z
     .string()
     .refine(
@@ -23,13 +27,13 @@ const environmentSchema = z.object({
 });
 
 export interface WebConfig {
+  accessMode: "local" | "public";
   databaseUrl: string;
   host: string;
   logLevel: z.infer<typeof environmentSchema>["LOG_LEVEL"];
   port: number;
-  publicBaseUrl?: string;
+  publicBaseUrl: string;
   secretsKey: string;
-  secureCookies: boolean;
   setupToken: string;
   staticDirectory: string;
   summaryTimeZone: string;
@@ -37,18 +41,30 @@ export interface WebConfig {
 
 export function loadWebConfig(environment: NodeJS.ProcessEnv): WebConfig {
   const parsed = environmentSchema.parse(environment);
+  if (parsed.DASHBOARD_ACCESS_MODE === "public") {
+    if (!parsed.PUBLIC_BASE_URL.startsWith("https://")) {
+      throw new Error("PUBLIC_BASE_URL must use HTTPS in public access mode");
+    }
+    if (isLoopbackHost(parsed.WEB_HOST)) {
+      throw new Error("WEB_HOST must accept non-loopback connections in public access mode");
+    }
+  }
   return {
+    accessMode: parsed.DASHBOARD_ACCESS_MODE,
     databaseUrl: parsed.DATABASE_URL,
     host: parsed.WEB_HOST,
     logLevel: parsed.LOG_LEVEL,
     port: parsed.WEB_PORT,
-    ...(parsed.PUBLIC_BASE_URL === undefined ? {} : { publicBaseUrl: parsed.PUBLIC_BASE_URL }),
+    publicBaseUrl: parsed.PUBLIC_BASE_URL,
     secretsKey: parsed.SUMMYZ_SECRETS_KEY,
-    secureCookies: parsed.PUBLIC_BASE_URL?.startsWith("https://") ?? false,
     setupToken: parsed.SUMMYZ_SETUP_TOKEN,
     staticDirectory: parsed.WEB_STATIC_DIR,
     summaryTimeZone: parsed.SUMMARY_TIME_ZONE,
   };
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "127.0.0.1" || host === "localhost" || host === "::1";
 }
 
 function isThirtyTwoByteBase64Url(value: string): boolean {

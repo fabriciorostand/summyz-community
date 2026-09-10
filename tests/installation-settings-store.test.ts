@@ -6,7 +6,7 @@ import { SecretBox } from "../src/security/secret-box.js";
 describe("PostgresInstallationSettingsStore", () => {
   const box = new SecretBox(Buffer.alloc(32, 19).toString("base64url"));
 
-  it("stores installation secrets encrypted and never returns them in status", async () => {
+  it("stores only supported installation secrets encrypted", async () => {
     const query = vi
       .fn<PostgresExecutor["query"]>()
       .mockResolvedValueOnce({ rowCount: 1, rows: [] })
@@ -14,18 +14,11 @@ describe("PostgresInstallationSettingsStore", () => {
         rowCount: 1,
         rows: [
           {
-            discord_client_id: "client-1",
-            public_base_url: "http://127.0.0.1:3000",
-            registration_enabled: true,
-            setup_completed_at: "2026-08-27T10:00:00.000Z",
-            smtp_from_email: "hello@example.com",
-            smtp_from_name: "Summyz Community",
-            smtp_host: "smtp-relay.brevo.com",
-            smtp_port: 587,
-            smtp_reply_to: null,
-            smtp_secure: false,
-            smtp_user: "smtp-user",
-            configured_secrets: ["discord_bot_token", "smtp_password"],
+            configured_secrets: ["discord_bot_token"],
+            dashboard_language: "pt-BR",
+            dashboard_theme: "system",
+            discord_application_id: "application-1",
+            setup_completed_at: null,
           },
         ],
       });
@@ -34,60 +27,44 @@ describe("PostgresInstallationSettingsStore", () => {
     await store.setSecret("discord_bot_token", "real-token");
     const status = await store.getSettings();
 
-    const storedValue = query.mock.calls[0]?.[1]?.[1];
-    expect(storedValue).not.toBe("real-token");
-    expect(status.secrets).toEqual({
-      discordBotToken: true,
-      discordClientSecret: false,
-      openRouterApiKey: false,
-      smtpPassword: true,
-    });
+    expect(query.mock.calls[0]?.[1]?.[1]).not.toBe("real-token");
+    expect(status.secrets).toEqual({ discordBotToken: true, openRouterApiKey: false });
     expect(JSON.stringify(status)).not.toContain("real-token");
+    expect(JSON.stringify(status)).not.toContain("clientSecret");
+    expect(JSON.stringify(status)).not.toContain("smtp");
+  });
+
+  it("derives and stores the application id with the validated bot token", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
+    const store = new PostgresInstallationSettingsStore({ database: { query }, secretBox: box });
+
+    await store.configureDiscordBot("application-1", "bot-token");
+
+    expect(query.mock.calls[0]?.[0]).toContain("discord_application_id");
+    expect(query.mock.calls[0]?.[1]?.[0]).toBe("application-1");
+    expect(query.mock.calls[0]?.[1]?.[1]).not.toBe("bot-token");
   });
 
   it("decrypts a requested secret only at the backend boundary", async () => {
-    const encrypted = box.encrypt("smtp-secret");
+    const encrypted = box.encrypt("discord-token");
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
       rowCount: 1,
       rows: [{ encrypted_value: encrypted }],
     });
     const store = new PostgresInstallationSettingsStore({ database: { query }, secretBox: box });
 
-    await expect(store.getSecret("smtp_password")).resolves.toBe("smtp-secret");
+    await expect(store.getSecret("discord_bot_token")).resolves.toBe("discord-token");
   });
 
-  it("fornece a configuração OAuth somente quando todos os campos existem", async () => {
-    const query = vi
-      .fn<PostgresExecutor["query"]>()
-      .mockResolvedValueOnce({
-        rowCount: 1,
-        rows: [
-          {
-            configured_secrets: ["discord_client_secret"],
-            discord_client_id: "client-id",
-            public_base_url: "http://127.0.0.1:8787",
-            registration_enabled: true,
-            setup_completed_at: new Date(),
-            smtp_from_email: null,
-            smtp_from_name: "Summyz Community",
-            smtp_host: null,
-            smtp_port: null,
-            smtp_reply_to: null,
-            smtp_secure: false,
-            smtp_user: null,
-          },
-        ],
-      })
-      .mockResolvedValueOnce({
-        rowCount: 1,
-        rows: [{ encrypted_value: box.encrypt("client-secret") }],
-      });
+  it("stores global dashboard preferences in installation settings", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
     const store = new PostgresInstallationSettingsStore({ database: { query }, secretBox: box });
 
-    await expect(store.getDiscordOAuthConfiguration()).resolves.toEqual({
-      clientId: "client-id",
-      clientSecret: "client-secret",
-      publicBaseUrl: "http://127.0.0.1:8787",
-    });
+    await store.updatePreferences({ dashboardLanguage: "en", dashboardTheme: "dark" });
+
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("installation_settings"), [
+      "en",
+      "dark",
+    ]);
   });
 });

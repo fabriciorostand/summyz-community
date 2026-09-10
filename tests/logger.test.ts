@@ -21,12 +21,18 @@ describe("logger", () => {
         discordToken: "token-secreto",
         entries: [{ text: "conteúdo em blocos" }],
         openRouterApiKey: "openrouter-secreto",
+        password: "installation-password-sensitive",
+        currentPassword: "current-password-sensitive",
+        newPassword: "new-password-sensitive",
+        installationPassword: "setup-password-sensitive",
         refreshToken: "refresh-token-sensitive",
         secretsKey: "master-key-sensitive",
-        smtpPassword: "smtp-password-sensitive",
         SUMMYZ_SECRETS_KEY: "summyz-master-key-sensitive",
         SUMMYZ_SETUP_TOKEN: "summyz-setup-token-sensitive",
-        headers: { "x-summyz-setup-token": "summyz-header-sensitive" },
+        headers: {
+          "x-summyz-recovery-token": "recovery-header-sensitive",
+          "x-summyz-setup-token": "summyz-header-sensitive",
+        },
         summary: "resumo sensível da reunião",
         transcript: "conteúdo da call",
       },
@@ -40,10 +46,14 @@ describe("logger", () => {
     expect(output).not.toContain("client-secret-sensitive");
     expect(output).not.toContain("refresh-token-sensitive");
     expect(output).not.toContain("master-key-sensitive");
-    expect(output).not.toContain("smtp-password-sensitive");
     expect(output).not.toContain("summyz-master-key-sensitive");
     expect(output).not.toContain("summyz-setup-token-sensitive");
     expect(output).not.toContain("summyz-header-sensitive");
+    expect(output).not.toContain("recovery-header-sensitive");
+    expect(output).not.toContain("installation-password-sensitive");
+    expect(output).not.toContain("current-password-sensitive");
+    expect(output).not.toContain("new-password-sensitive");
+    expect(output).not.toContain("setup-password-sensitive");
     expect(output).not.toContain("conteúdo da call");
     expect(output).not.toContain("conteúdo do áudio");
     expect(output).not.toContain("conteúdo em blocos");

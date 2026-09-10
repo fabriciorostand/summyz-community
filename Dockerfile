@@ -46,7 +46,7 @@ COPY .github ./.github
 COPY tests ./tests
 COPY scripts ./scripts
 COPY services ./services
-COPY Dockerfile .env.example docker-compose.yaml docker-compose.nvidia.yaml docker-compose.amd.yaml summyz-community summyz-community.ps1 ./
+COPY Dockerfile .env.example docker-compose.yaml docker-compose.nvidia.yaml docker-compose.amd.yaml docker-compose.public.yaml summyz-community summyz-community.ps1 summyz-community-public summyz-community-public.ps1 ./
 COPY vitest.config.ts vitest.ci.config.ts vitest.smoke.config.ts ./
 CMD ["npm", "run", "test:smoke:local-ai"]
 

@@ -11,9 +11,10 @@ const required = {
 describe("loadWebConfig", () => {
   it("limita o dashboard à máquina local por padrão", () => {
     expect(loadWebConfig(required)).toMatchObject({
+      accessMode: "local",
       host: "127.0.0.1",
       port: 8787,
-      secureCookies: false,
+      publicBaseUrl: "http://127.0.0.1:8787",
       staticDirectory: "web/dist",
     });
   });
@@ -22,16 +23,39 @@ describe("loadWebConfig", () => {
     expect(() => loadWebConfig({ ...required, SUMMYZ_SETUP_TOKEN: "short" })).toThrow();
     expect(() => loadWebConfig({ ...required, SUMMYZ_SECRETS_KEY: "invalid" })).toThrow();
     expect(() => loadWebConfig({ ...required, SUMMARY_TIME_ZONE: "Invalid/Time_Zone" })).toThrow();
+    expect(() =>
+      loadWebConfig({ ...required, PUBLIC_BASE_URL: "https://summyz.example.com/dashboard" }),
+    ).toThrow(/origin/i);
     expect(
       loadWebConfig({
         ...required,
+        DASHBOARD_ACCESS_MODE: "public",
         PUBLIC_BASE_URL: "https://summyz.example.com",
         WEB_HOST: "0.0.0.0",
       }),
     ).toMatchObject({
+      accessMode: "public",
       host: "0.0.0.0",
-      secureCookies: true,
+      publicBaseUrl: "https://summyz.example.com",
       summaryTimeZone: "America/Sao_Paulo",
     });
+  });
+
+  it("requires HTTPS and a non-loopback listener in public mode", () => {
+    expect(() =>
+      loadWebConfig({
+        ...required,
+        DASHBOARD_ACCESS_MODE: "public",
+        PUBLIC_BASE_URL: "http://example.com",
+        WEB_HOST: "0.0.0.0",
+      }),
+    ).toThrow(/HTTPS/i);
+    expect(() =>
+      loadWebConfig({
+        ...required,
+        DASHBOARD_ACCESS_MODE: "public",
+        PUBLIC_BASE_URL: "https://example.com",
+      }),
+    ).toThrow(/WEB_HOST/i);
   });
 });

@@ -100,11 +100,11 @@ describe("loadConfig", () => {
 
     expect(
       resolveBotConfig(bootstrap, {
-        discordClientId: "discord-client",
+        discordApplicationId: "discord-application",
         discordToken: "discord-token",
       }),
     ).toMatchObject({
-      discordClientId: "discord-client",
+      discordApplicationId: "discord-application",
       discordToken: "discord-token",
     });
   });
@@ -114,13 +114,13 @@ describe("loadConfig", () => {
 
     expect(() =>
       resolveBotConfig(bootstrap, {
-        discordClientId: null,
+        discordApplicationId: null,
         discordToken: "discord-token",
       }),
     ).toThrow(/dashboard/);
     expect(() =>
       resolveBotConfig(bootstrap, {
-        discordClientId: "discord-client",
+        discordApplicationId: "discord-application",
         discordToken: undefined,
       }),
     ).toThrow(/dashboard/);

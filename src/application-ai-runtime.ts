@@ -75,7 +75,7 @@ export class ApplicationAiRuntime {
     name: string;
     profileId: string;
   }> {
-    const profile = await this.#getOwnedActiveProfile(guildId);
+    const profile = await this.#aiProfileStore.getActiveProfile(guildId);
     if (profile === undefined) {
       throw new Error("The server does not have an active AI profile");
     }
@@ -128,7 +128,7 @@ export class ApplicationAiRuntime {
   public async assessActiveProfile(
     guildId: string,
   ): Promise<readonly AiProfileCompatibilityStatus[]> {
-    const profile = await this.#getOwnedActiveProfile(guildId);
+    const profile = await this.#aiProfileStore.getActiveProfile(guildId);
     if (profile === undefined) return [];
     const configuration = resolveProfileConfiguration(profile);
     if (configuration === undefined) return [];
@@ -235,12 +235,6 @@ export class ApplicationAiRuntime {
     } catch {
       return undefined;
     }
-  }
-
-  async #getOwnedActiveProfile(guildId: string) {
-    const guild =
-      this.#client.guilds.cache.get(guildId) ?? (await this.#client.guilds.fetch(guildId));
-    return this.#aiProfileStore.getActiveProfileForDiscordOwner(guildId, guild.ownerId);
   }
 
   #createFasterWhisperProvider(

@@ -58,7 +58,7 @@ async function createHarness(options: InteractionOptions = {}) {
     period: vi.fn(async () => "RELATÓRIO DO PERÍODO"),
   };
   const profileType = options.openRouterProfile === true ? "external" : "local";
-  const initialProfile = createInitialAiProfile("user-1", profileType, "pt-BR");
+  const initialProfile = createInitialAiProfile(profileType, "pt-BR");
   const profile =
     options.profileComplete === false
       ? initialProfile
@@ -84,9 +84,7 @@ async function createHarness(options: InteractionOptions = {}) {
     clearActiveProfile: vi.fn(async () => undefined),
     createProfile: vi.fn(async () => undefined),
     deleteProfile: vi.fn(async () => undefined),
-    ensureInitialProfiles: vi.fn(async () => undefined),
     getActiveProfile: vi.fn(async () => profile),
-    getActiveProfileForDiscordOwner: vi.fn(async () => profile),
     listActiveProfileIds: vi.fn(async () => new Set([profile.profileId])),
     listActiveProfileCounts: vi.fn(async () => new Map([[profile.profileId, 1]])),
     listProfiles: vi.fn(async () => [profile]),

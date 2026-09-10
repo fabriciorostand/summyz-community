@@ -62,11 +62,11 @@ describe("PostgresTaskStore", () => {
     const query = vi.fn<PostgresExecutor["query"]>(async () => ({ rowCount: 1, rows: [] }));
     const store = new PostgresTaskStore({ query });
 
-    await store.setCompleted("guild-1", taskId, "discord-owner-1", true);
-    await store.setCompleted("guild-1", taskId, "discord-owner-1", false);
+    await store.setCompleted("guild-1", taskId, null, true);
+    await store.setCompleted("guild-1", taskId, null, false);
 
     expect(query.mock.calls[0]?.[0]).toContain("completed_at");
     expect(query.mock.calls[0]?.[0]).not.toContain("task_text =");
-    expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", taskId, "discord-owner-1", true]);
+    expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", taskId, null, true]);
   });
 });

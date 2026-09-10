@@ -4,10 +4,6 @@ export const databaseMigrations12: readonly DatabaseMigration[] = [
   {
     version: 12,
     sql: `
-ALTER TABLE dashboard_users
-  ADD COLUMN dashboard_theme text NOT NULL DEFAULT 'system'
-    CHECK (dashboard_theme IN ('system', 'light', 'dark'));
-
 ALTER TABLE meetings
   ADD COLUMN ai_profile_id text,
   ADD COLUMN ai_profile_name text,
@@ -48,7 +44,7 @@ CREATE TABLE meeting_tasks (
   ),
   CHECK (
     (completed_at IS NULL AND completed_by_user_id IS NULL)
-    OR (completed_at IS NOT NULL AND completed_by_user_id IS NOT NULL)
+    OR completed_at IS NOT NULL
   )
 );
 
@@ -77,7 +73,7 @@ CREATE INDEX live_meeting_states_guild_idx
 CREATE TABLE runtime_component_heartbeats (
   component_id text PRIMARY KEY,
   component_type text NOT NULL CHECK (component_type IN (
-    'bot', 'database', 'ffmpeg', 'worker', 'queue', 'ollama', 'faster_whisper', 'openrouter', 'smtp'
+    'bot', 'database', 'ffmpeg', 'worker', 'queue', 'ollama', 'faster_whisper', 'openrouter'
   )),
   status text NOT NULL CHECK (status IN ('ready', 'degraded', 'unavailable', 'not_configured')),
   details jsonb NOT NULL DEFAULT '{}'::jsonb,
