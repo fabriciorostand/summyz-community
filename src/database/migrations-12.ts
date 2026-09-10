@@ -44,7 +44,7 @@ CREATE TABLE meeting_tasks (
   ),
   CHECK (
     (completed_at IS NULL AND completed_by_user_id IS NULL)
-    OR (completed_at IS NOT NULL AND completed_by_user_id IS NOT NULL)
+    OR completed_at IS NOT NULL
   )
 );
 

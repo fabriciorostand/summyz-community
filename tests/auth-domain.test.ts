@@ -1,24 +1,22 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  type AuthenticatedUser,
+  type DashboardAccess,
   dashboardLanguageSchema,
   dashboardThemeSchema,
 } from "../src/auth/auth-domain.js";
 
-describe("authentication domain", () => {
-  it("models the single Discord installation owner without email or roles", () => {
-    const user: AuthenticatedUser = {
+describe("dashboard access domain", () => {
+  it("models installation-wide preferences without a user account", () => {
+    const access: DashboardAccess = {
       dashboardLanguage: "pt-BR",
       dashboardTheme: "system",
-      discordAvatar: null,
-      discordUsername: "Fabricio",
-      userId: "123456789012345678",
     };
 
-    expect(user.userId).toBe("123456789012345678");
-    expect(user).not.toHaveProperty("email");
-    expect(user).not.toHaveProperty("installationRole");
+    expect(access).toEqual({ dashboardLanguage: "pt-BR", dashboardTheme: "system" });
+    expect(access).not.toHaveProperty("userId");
+    expect(access).not.toHaveProperty("email");
+    expect(access).not.toHaveProperty("discordUsername");
   });
 
   it("accepts only supported global dashboard preferences", () => {

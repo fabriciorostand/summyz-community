@@ -1,28 +1,39 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Logger } from "pino";
-import type { AuthenticatedUser } from "../auth/auth-domain.js";
+import { ZodError } from "zod";
+import type { DashboardAccess } from "../auth/auth-domain.js";
 import { DashboardSessionError } from "../auth/dashboard-session.js";
+import { InstallationAccessRecoveryError } from "../auth/installation-access-recovery.js";
+import { InstallationLoginThrottleError } from "../auth/installation-login-throttle.js";
+import { InstallationPasswordError } from "../auth/installation-password.js";
 import { StoredAiProfileValidationError } from "../database/postgres-ai-profile-store.js";
-import type { OwnedDiscordGuild } from "../discord/discord-oauth-service.js";
 
 import {
   type ApiAnalyticsStore,
   type ApiServerDependencies,
   guildParametersSchema,
+  type InstalledDiscordGuild,
 } from "./server-contracts.js";
 
 const authenticatedRequests = new WeakSet<FastifyRequest>();
 
-export async function authenticateRequest(
+export async function authorizeDashboard(
   request: FastifyRequest,
   dependencies: ApiServerDependencies,
-): Promise<AuthenticatedUser> {
+): Promise<DashboardAccess> {
+  if (dependencies.accessMode === "local") {
+    const settings = await dependencies.settings.getSettings();
+    return {
+      dashboardLanguage: settings.dashboardLanguage,
+      dashboardTheme: settings.dashboardTheme,
+    };
+  }
   const sessionToken = request.cookies.summyz_session;
   if (sessionToken === undefined) throw new DashboardSessionError();
-  const user = await dependencies.auth.authenticate(sessionToken);
+  const access = await dependencies.auth.authenticate(sessionToken);
   authenticatedRequests.add(request);
-  return user;
+  return access;
 }
 
 export function wasRequestAuthenticated(request: FastifyRequest): boolean {
@@ -33,40 +44,35 @@ export async function authorizeGuild(
   request: FastifyRequest,
   dependencies: ApiServerDependencies,
   resolveGuildAccess: GuildAccessResolver,
-): Promise<{ guildId: string; user: AuthenticatedUser }> {
-  const user = await authenticateRequest(request, dependencies);
+): Promise<{ access: DashboardAccess; guildId: string }> {
+  const access = await authorizeDashboard(request, dependencies);
   const { guildId } = guildParametersSchema.parse(request.params);
-  const guilds = await resolveGuildAccess(user.userId);
-  if (!guilds.some((guild) => guild.id === guildId && guild.installed)) {
+  const guilds = await resolveGuildAccess();
+  if (!guilds.some((guild) => guild.id === guildId)) {
     const error = new Error("guild_access_denied") as Error & { statusCode: number };
     error.statusCode = 403;
     throw error;
   }
-  return { guildId, user };
+  return { access, guildId };
 }
 
-export type GuildAccessResolver = (userId: string) => Promise<readonly OwnedDiscordGuild[]>;
+export type GuildAccessResolver = () => Promise<readonly InstalledDiscordGuild[]>;
 
 export function createGuildAccessResolver(
   dependencies: ApiServerDependencies,
 ): GuildAccessResolver {
-  const cache = new Map<
-    string,
-    { expiresAt: number; request: Promise<readonly OwnedDiscordGuild[]> }
-  >();
-  return async (userId) => {
+  let cache: { expiresAt: number; request: Promise<readonly InstalledDiscordGuild[]> } | undefined;
+  return async () => {
     const now = Date.now();
-    const cached = cache.get(userId);
-    if (cached !== undefined && cached.expiresAt > now) return cached.request;
-    const request = runApiDependency("discord", "resolve_guild_access", async () => {
-      const installedGuildIds = await dependencies.guildDirectory.getInstalledGuildIds();
-      return dependencies.discord.listOwnedGuilds(userId, installedGuildIds);
-    });
-    cache.set(userId, { expiresAt: now + 10_000, request });
+    if (cache !== undefined && cache.expiresAt > now) return cache.request;
+    const request = runApiDependency("discord", "resolve_guild_access", () =>
+      dependencies.guildDirectory.listInstalledGuilds(),
+    );
+    cache = { expiresAt: now + 10_000, request };
     try {
       return await request;
     } catch (error) {
-      if (cache.get(userId)?.request === request) cache.delete(userId);
+      if (cache?.request === request) cache = undefined;
       throw error;
     }
   };
@@ -121,21 +127,23 @@ function getErrorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
 }
 
-export async function requireOwner(
-  request: FastifyRequest,
-  dependencies: ApiServerDependencies,
-): Promise<AuthenticatedUser> {
-  return authenticateRequest(request, dependencies);
+export function setSessionCookie(reply: FastifyReply, token: string): void {
+  reply.setCookie("summyz_session", token, {
+    httpOnly: true,
+    maxAge: 7 * 24 * 60 * 60,
+    path: "/",
+    sameSite: "strict",
+    secure: true,
+  });
 }
 
-export function setSessionCookie(reply: FastifyReply, token: string, secure: boolean): void {
-  const common = { httpOnly: true, path: "/", sameSite: "lax" as const, secure };
-  reply.setCookie("summyz_session", token, { ...common, maxAge: 30 * 24 * 60 * 60 });
-}
-
-export function clearSessionCookie(reply: FastifyReply, secure: boolean): void {
-  const options = { httpOnly: true, path: "/", sameSite: "lax" as const, secure };
-  reply.clearCookie("summyz_session", options);
+export function clearSessionCookie(reply: FastifyReply): void {
+  reply.clearCookie("summyz_session", {
+    httpOnly: true,
+    path: "/",
+    sameSite: "strict",
+    secure: true,
+  });
 }
 
 export function safeEqual(left: string, right: string): boolean {
@@ -154,6 +162,35 @@ export function getErrorStatusCode(error: unknown): number {
     return error.statusCode;
   }
   return 500;
+}
+
+export function getKnownApiError(error: unknown):
+  | {
+      body: { error: string; issues?: unknown[] };
+      retryAfterSeconds?: number;
+      statusCode: number;
+    }
+  | undefined {
+  if (error instanceof ZodError) {
+    return { body: { error: "invalid_request", issues: error.issues }, statusCode: 400 };
+  }
+  if (error instanceof DashboardSessionError) {
+    return { body: { error: "session_expired" }, statusCode: 401 };
+  }
+  if (error instanceof InstallationPasswordError) {
+    return { body: { error: error.message }, statusCode: 401 };
+  }
+  if (error instanceof InstallationAccessRecoveryError) {
+    return { body: { error: error.message }, statusCode: 403 };
+  }
+  if (error instanceof InstallationLoginThrottleError) {
+    return {
+      body: { error: error.message },
+      retryAfterSeconds: error.retryAfterSeconds,
+      statusCode: 429,
+    };
+  }
+  return undefined;
 }
 
 export function requireAnalytics(dependencies: ApiServerDependencies): ApiAnalyticsStore {

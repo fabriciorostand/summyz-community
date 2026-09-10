@@ -4,42 +4,9 @@ export const databaseMigrations6To11: readonly DatabaseMigration[] = [
   {
     version: 6,
     sql: `
-UPDATE guild_configurations AS guild
-SET active_ai_profile_id = NULL, updated_at = now()
-FROM ai_profiles AS profile
-WHERE guild.active_ai_profile_id = profile.profile_id
-  AND (profile.owner_discord_user_id IS NULL OR profile.profile_type IS NULL);
-
-DELETE FROM ai_profiles
-WHERE owner_discord_user_id IS NULL OR profile_type IS NULL;
-
-ALTER TABLE guild_configurations
-  DROP CONSTRAINT guild_configurations_active_ai_profile_fk;
-
-DROP INDEX ai_profiles_personal_name_unique_idx;
-DROP INDEX ai_profiles_owner_type_idx;
-
-ALTER TABLE ai_profiles
-  DROP CONSTRAINT ai_profiles_personal_scope_check,
-  DROP COLUMN guild_id,
-  ALTER COLUMN owner_discord_user_id SET NOT NULL,
-  ALTER COLUMN profile_type SET NOT NULL;
-
 ALTER TABLE meetings
   DROP CONSTRAINT meetings_storage_mode_check,
   ADD CONSTRAINT meetings_storage_mode_check CHECK (storage_mode = 'postgres');
-
-CREATE UNIQUE INDEX ai_profiles_personal_name_unique_idx
-  ON ai_profiles (owner_discord_user_id, profile_type, lower(name));
-
-CREATE INDEX ai_profiles_owner_type_idx
-  ON ai_profiles (owner_discord_user_id, profile_type, created_at);
-
-ALTER TABLE guild_configurations
-  ADD CONSTRAINT guild_configurations_active_ai_profile_fk
-  FOREIGN KEY (active_ai_profile_id)
-  REFERENCES ai_profiles(profile_id)
-  ON DELETE RESTRICT;
 `,
   },
   {

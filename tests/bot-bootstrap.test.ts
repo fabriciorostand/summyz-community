@@ -3,23 +3,23 @@ import { describe, expect, it, vi } from "vitest";
 import { waitForBotConfiguration } from "../src/bot-bootstrap.js";
 
 describe("waitForBotConfiguration", () => {
-  it("waits for owner setup before exposing Discord credentials", async () => {
+  it("waits for installation setup before exposing Discord credentials", async () => {
     const read = vi
       .fn()
       .mockResolvedValueOnce({
-        discordClientId: "client-id",
+        discordApplicationId: "application-id",
         discordToken: "bot-token",
         setupCompleted: false,
       })
       .mockResolvedValueOnce({
-        discordClientId: "client-id",
+        discordApplicationId: "application-id",
         discordToken: "bot-token",
         setupCompleted: true,
       });
     const delay = vi.fn(async () => undefined);
 
     await expect(waitForBotConfiguration({ delay, read })).resolves.toEqual({
-      discordClientId: "client-id",
+      discordApplicationId: "application-id",
       discordToken: "bot-token",
     });
     expect(delay).toHaveBeenCalledOnce();
@@ -29,12 +29,12 @@ describe("waitForBotConfiguration", () => {
     const read = vi
       .fn()
       .mockResolvedValueOnce({
-        discordClientId: null,
+        discordApplicationId: null,
         discordToken: undefined,
         setupCompleted: true,
       })
       .mockResolvedValueOnce({
-        discordClientId: "client-id",
+        discordApplicationId: "application-id",
         discordToken: "bot-token",
         setupCompleted: true,
       });

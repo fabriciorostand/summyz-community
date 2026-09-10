@@ -16,7 +16,7 @@ describe("SecretBox", () => {
 
   it("rejects tampered ciphertext", () => {
     const box = new SecretBox(key);
-    const encrypted = box.encrypt("discord-client-secret");
+    const encrypted = box.encrypt("installation-secret-value");
     const tampered = `${encrypted.slice(0, -1)}${encrypted.endsWith("A") ? "B" : "A"}`;
 
     expect(() => box.decrypt(tampered)).toThrow(SecretDecryptionError);

@@ -128,12 +128,11 @@ export function installInteractionHandler(
 const validateActiveAiProfile = async (
   interaction: ChatInputCommandInteraction,
   guildId: string,
-  ownerId: string,
   store: AiProfileStore,
   isOpenRouterConfigured: () => boolean | Promise<boolean>,
   text: InteractionText,
 ): Promise<boolean> => {
-  const profile = await store.getActiveProfileForDiscordOwner(guildId, ownerId);
+  const profile = await store.getActiveProfile(guildId);
   if (profile === undefined || !isAiProfileComplete(profile)) {
     await interaction.reply(createEphemeralReply(text.configureAiProfileFirst));
     return false;
@@ -406,7 +405,6 @@ async function handleRecord(
     const valid = await validateActiveAiProfile(
       interaction,
       context.guildId,
-      context.ownerId,
       aiProfileStore,
       isOpenRouterConfigured,
       text,
@@ -495,7 +493,6 @@ async function resolveGuildContext(
     guildId: interaction.guildId,
     isGuildOwner: interaction.guild.ownerId === interaction.user.id,
     member,
-    ownerId: interaction.guild.ownerId,
   };
 }
 

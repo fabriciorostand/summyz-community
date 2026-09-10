@@ -143,22 +143,22 @@ ALTER TABLE guild_configurations
 
 CREATE TABLE ai_profiles (
   profile_id text PRIMARY KEY,
-  guild_id text NOT NULL REFERENCES guild_configurations(guild_id) ON DELETE CASCADE,
   name text NOT NULL,
+  profile_type text NOT NULL CHECK (profile_type IN ('external', 'local')),
   transcription jsonb NOT NULL,
   refinement jsonb NOT NULL,
   summary jsonb NOT NULL,
   created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE (profile_id, guild_id)
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX ai_profiles_guild_name_idx ON ai_profiles (guild_id, name);
+CREATE UNIQUE INDEX ai_profiles_type_name_unique_idx
+  ON ai_profiles (profile_type, lower(name));
 
 ALTER TABLE guild_configurations
   ADD CONSTRAINT guild_configurations_active_ai_profile_fk
-  FOREIGN KEY (active_ai_profile_id, guild_id)
-  REFERENCES ai_profiles(profile_id, guild_id)
+  FOREIGN KEY (active_ai_profile_id)
+  REFERENCES ai_profiles(profile_id)
   ON DELETE RESTRICT;
 `,
   },
@@ -171,13 +171,9 @@ ALTER TABLE guild_configurations
   ADD COLUMN persist_meeting_content boolean NOT NULL DEFAULT true,
   ADD COLUMN persist_meeting_audio boolean NOT NULL DEFAULT false;
 
-CREATE UNIQUE INDEX ai_profiles_guild_name_unique_idx
-  ON ai_profiles (guild_id, lower(name));
-
 CREATE TABLE installation_settings (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-  discord_client_id text,
-  owner_discord_user_id text,
+  discord_application_id text,
   dashboard_language text NOT NULL DEFAULT 'pt-BR'
     CHECK (dashboard_language IN ('en', 'pt-BR')),
   dashboard_theme text NOT NULL DEFAULT 'system'
@@ -190,48 +186,40 @@ INSERT INTO installation_settings (singleton) VALUES (true);
 
 CREATE TABLE dashboard_sessions (
   session_id uuid PRIMARY KEY,
-  discord_user_id text NOT NULL,
   token_hash text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
+  absolute_expires_at timestamptz NOT NULL,
   revoked_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX dashboard_sessions_owner_active_idx
-  ON dashboard_sessions (discord_user_id, expires_at)
+CREATE INDEX dashboard_sessions_active_idx
+  ON dashboard_sessions (expires_at, absolute_expires_at)
   WHERE revoked_at IS NULL;
 
-CREATE TABLE discord_connections (
+CREATE TABLE installation_access (
   singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
-  discord_user_id text NOT NULL,
-  discord_username text NOT NULL,
-  discord_avatar text,
-  encrypted_oauth_credentials text NOT NULL,
-  connected_at timestamptz NOT NULL DEFAULT now(),
+  password_hash text NOT NULL,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE TABLE discord_oauth_states (
-  state_hash text PRIMARY KEY,
-  intent text NOT NULL CHECK (intent IN ('setup', 'login', 'replace', 'recovery')),
-  initiator_discord_user_id text,
-  encrypted_code_verifier text NOT NULL,
-  redirect_uri text NOT NULL,
+CREATE TABLE installation_recovery_tokens (
+  recovery_id uuid PRIMARY KEY,
+  token_hash text NOT NULL UNIQUE,
   expires_at timestamptz NOT NULL,
   consumed_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
-CREATE INDEX discord_oauth_states_active_idx
-  ON discord_oauth_states (intent, expires_at)
+CREATE INDEX installation_recovery_tokens_active_idx
+  ON installation_recovery_tokens (expires_at)
   WHERE consumed_at IS NULL;
 
 CREATE TABLE installation_secrets (
   secret_name text PRIMARY KEY CHECK (
     secret_name IN (
       'discord_bot_token',
-      'discord_client_secret',
       'openrouter_api_key'
     )
   ),
@@ -243,35 +231,7 @@ CREATE TABLE installation_secrets (
   {
     version: 5,
     sql: `
-ALTER TABLE guild_configurations
-  DROP CONSTRAINT guild_configurations_active_ai_profile_fk;
-
-DROP INDEX ai_profiles_guild_name_unique_idx;
-DROP INDEX ai_profiles_guild_name_idx;
-
-ALTER TABLE ai_profiles
-  ALTER COLUMN guild_id DROP NOT NULL,
-  ADD COLUMN owner_discord_user_id text,
-  ADD COLUMN profile_type text CHECK (profile_type IN ('external', 'local')),
-  ADD CONSTRAINT ai_profiles_personal_scope_check CHECK (
-    (owner_discord_user_id IS NULL AND profile_type IS NULL)
-    OR
-    (owner_discord_user_id IS NOT NULL AND profile_type IS NOT NULL)
-  );
-
-CREATE UNIQUE INDEX ai_profiles_personal_name_unique_idx
-  ON ai_profiles (owner_discord_user_id, profile_type, lower(name))
-  WHERE owner_discord_user_id IS NOT NULL;
-
-CREATE INDEX ai_profiles_owner_type_idx
-  ON ai_profiles (owner_discord_user_id, profile_type, created_at)
-  WHERE owner_discord_user_id IS NOT NULL;
-
-ALTER TABLE guild_configurations
-  ADD CONSTRAINT guild_configurations_active_ai_profile_fk
-  FOREIGN KEY (active_ai_profile_id)
-  REFERENCES ai_profiles(profile_id)
-  ON DELETE RESTRICT;
+SELECT 1;
 `,
   },
 ] as const;

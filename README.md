@@ -45,17 +45,17 @@ by the Docker workflow.
    first use, the launcher creates `.env` with random local secrets without printing their values.
 2. The host launcher detects
    CPU, NVIDIA, or AMD, selects the safe Compose overlays, and starts the complete stack.
-3. The launcher opens a private setup URL. Enter the Discord bot token, OAuth client ID, and OAuth
-   client secret, then connect the single Discord account that will own this installation.
-   OpenRouter and AI profiles are configured later in the dashboard.
+3. The launcher opens a private setup URL. Enter only the Discord bot token. Summyz validates it
+   with Discord and derives the Application ID automatically. In public mode, also choose the
+   installation-wide dashboard password. OpenRouter and AI profiles are configured later.
 4. For development, set `DISCORD_GUILD_ID` to the test server ID. Without this variable, commands
    are registered globally and may take some time to appear.
 
 Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community restart`, and
 `./summyz-community down` to administer the stack; use `.\summyz-community.ps1` instead on Windows.
-Use `recover-owner` to reconnect an owner through a one-time Discord OAuth URL generated on the
-host. Connecting another Discord account replaces the current owner and immediately invalidates the
-previous owner's dashboard sessions; profiles remain associated with their Discord account.
+Public-mode password recovery requires host access: `recover-access` creates a single-use URL that
+expires after ten minutes. Local mode has no dashboard authentication. There are no Summyz user
+accounts, public registration, email delivery, or Discord user OAuth in Community.
 Direct Compose remains available for advanced use.
 The base `docker compose up -d --build` command uses CPU; NVIDIA and AMD require their respective
 overlay files.
@@ -73,10 +73,13 @@ domain to the host, and use `./summyz-community-public up` or
 `.\summyz-community-public.ps1 up`. This optional mode adds Caddy for automatic TLS. The local
 launcher does not expose the dashboard publicly. If `.env` does not exist yet, the public launcher
 creates it and asks the operator to set the HTTPS origin before running the command again.
+During public setup, choose an installation password between 15 and 128 characters. It is Unicode
+NFC-normalized and stored only as an Argon2id hash. Session cookies are `HttpOnly`, `Secure`, and
+`SameSite=Strict`, with seven idle days and a thirty-day absolute lifetime.
 
 Never commit the `.env` file or publish the bot token or the private setup URL.
 
-Migrations and the PostgreSQL connection are validated before the Discord login; if the database
+Migrations and the PostgreSQL connection are validated before the bot connects to Discord; if the database
 is unavailable or the URL is invalid, the process exits with a safe message. The
 `postgres_data` and `summyz_community_data` volumes preserve the database and required files across
 restarts.
@@ -174,18 +177,18 @@ owner authorizes may use `/record` and `/stop`; authorized roles receive no othe
 
 ## Processing profiles
 
-Profiles are personal and global: they belong to a dashboard account and can be reused across the
-servers owned by that account. The **Profiles** page separates **External API** and **Local**
-configurations. Each account receives one localized `Profile 1` of each type with no models filled
-in. The last profile of either type and any active profile cannot be deleted.
+Profiles are global to the installation and can be reused across every server where its bot is
+installed. The **Profiles** page separates **External API** and **Local** configurations. A fresh
+installation receives one profile of each type with empty model fields. An active profile cannot
+be deleted.
 
 Each server has at most one active profile, regardless of type. New servers start without one;
 until transcription, refinement, and summary have explicit models, `/record` shows an ephemeral
 warning and does not start. Selecting an explicit language also makes the translation model
 mandatory, so the profile immediately becomes incomplete until it is filled. Changing a model
-preserves the profile's other parameters. When
-Discord server ownership changes, the former owner's profile is detached, the server disappears
-from that account, and the new owner must connect and configure their own account.
+preserves the profile's other parameters. If the bot leaves a server, that server disappears from
+the dashboard while its persisted data is retained. Reinstalling the same bot in that server makes
+the data available again.
 
 There is no model `auto` or `openrouter/auto`. Model selection is unrestricted and Summyz never
 replaces a selected model. Local evaluation uses `recommended`, `compatible`,
@@ -201,7 +204,7 @@ and translation prompts. **No prompt** removes only the customization: Summyz al
 immutable base prompt that pins language, structure, evidence, literal-value preservation, and
 security rules. Transcripts and editable prompts are untrusted content. Transcription defaults to
 no editable prompt. The remaining
-defaults are created in English or Brazilian Portuguese according to the account's dashboard
+defaults are created in English or Brazilian Portuguese according to the installation's dashboard
 language, while asking for the summary output language selected in the profile. Changing that
 language adapts prompts that still match the previous default and preserves customized text. The
 **Restore default** action uses the current dashboard language. Effective prompts and models are
@@ -273,7 +276,7 @@ External APIs are optimized through independent requests controlled by `TRANSCRI
 
 ## Dashboard and history
 
-Dashboard and History are restricted to the selected Discord server owner. Their server selector is
+Dashboard and History expose only servers where the configured bot is installed. Their server selector is
 shared and persisted in the browser. Call-count and duration totals include old and new meetings
 whose pipeline completed; speaker rankings begin with meetings recorded using manifest v3. Talk time
 sums word intervals, unions overlaps from the same person, and distributes integer rounding so the

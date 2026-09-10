@@ -161,24 +161,27 @@ const profileBaseShape = {
   language: profileLanguageSchema.default("auto"),
   name: z.string().trim().min(1).max(100),
   profileId: identifierSchema,
-  userId: identifierSchema,
 };
-export const externalAiProfileSchema = z.object({
-  ...profileBaseShape,
-  profileType: z.literal("external"),
-  refinement: externalRefinementAiProfileSchema,
-  summary: externalSummaryAiProfileSchema,
-  transcription: externalTranscriptionAiProfileSchema,
-  translation: externalTranslationAiProfileSchema.nullable().default(null),
-});
-export const localAiProfileSchema = z.object({
-  ...profileBaseShape,
-  profileType: z.literal("local"),
-  refinement: localRefinementAiProfileSchema,
-  summary: localSummaryAiProfileSchema,
-  transcription: localTranscriptionAiProfileSchema,
-  translation: localTranslationAiProfileSchema.nullable().default(null),
-});
+export const externalAiProfileSchema = z
+  .object({
+    ...profileBaseShape,
+    profileType: z.literal("external"),
+    refinement: externalRefinementAiProfileSchema,
+    summary: externalSummaryAiProfileSchema,
+    transcription: externalTranscriptionAiProfileSchema,
+    translation: externalTranslationAiProfileSchema.nullable().default(null),
+  })
+  .strict();
+export const localAiProfileSchema = z
+  .object({
+    ...profileBaseShape,
+    profileType: z.literal("local"),
+    refinement: localRefinementAiProfileSchema,
+    summary: localSummaryAiProfileSchema,
+    transcription: localTranscriptionAiProfileSchema,
+    translation: localTranslationAiProfileSchema.nullable().default(null),
+  })
+  .strict();
 export const aiProfileSchema = z.discriminatedUnion("profileType", [
   externalAiProfileSchema,
   localAiProfileSchema,
@@ -188,7 +191,6 @@ export type AiProfile = z.infer<typeof aiProfileSchema>;
 export type AiProfileType = AiProfile["profileType"];
 
 export function createInitialAiProfile(
-  userId: string,
   profileType: AiProfileType,
   dashboardLanguage: "en" | "pt-BR",
 ): AiProfile {
@@ -228,9 +230,8 @@ export function createInitialAiProfile(
         };
   return aiProfileSchema.parse({
     name: localizedName,
-    profileId: `${userId}-${profileType}-profile-1`,
+    profileId: `${profileType}-profile-1`,
     profileType,
-    userId,
     ...providerSelection,
   });
 }

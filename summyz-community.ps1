@@ -8,7 +8,7 @@ $remainingArguments = @($args | Select-Object -Skip 1)
 $dryRun = $remainingArguments -contains "--dry-run"
 $unexpectedArguments = @($remainingArguments | Where-Object { $_ -ne "--dry-run" })
 if ($commandName -eq "" -or $unexpectedArguments.Count -gt 0) {
-  [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-owner> [--dry-run]")
+  [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-access> [--dry-run]")
   exit 2
 }
 
@@ -256,7 +256,7 @@ function Open-SetupPage {
   }
   $setupUrl = "$baseUrl/setup#claim=$([Uri]::EscapeDataString($setupToken))"
   if ([Environment]::GetEnvironmentVariable("SUMMYZ_PUBLIC_MODE", "Process") -eq "true") {
-    Write-Output "Open the private setup link shown below. It stops working after Discord is connected."
+    Write-Output "Open the private setup link shown below. It stops working after setup is completed."
     Write-Output $setupUrl
     return
   }
@@ -288,9 +288,9 @@ switch ($commandName) {
   "down" { Invoke-Compose "down" }
   "status" { Invoke-Compose "ps" }
   "logs" { Invoke-Compose "logs" "--follow" }
-  "recover-owner" { Invoke-Compose "exec" "dashboard" "node" "dist/api/owner-recovery.js" }
+  "recover-access" { Invoke-Compose "exec" "dashboard" "node" "dist/api/installation-access-recovery.js" }
   default {
-    [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-owner> [--dry-run]")
+    [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-access> [--dry-run]")
     exit 2
   }
 }

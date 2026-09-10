@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 
 interface StoredBotConfiguration {
-  discordClientId: string | null;
+  discordApplicationId: string | null;
   discordToken: string | undefined;
   setupCompleted: boolean;
 }
@@ -13,17 +13,17 @@ interface WaitForBotConfigurationOptions {
 
 export async function waitForBotConfiguration(
   options: WaitForBotConfigurationOptions,
-): Promise<{ discordClientId: string; discordToken: string }> {
+): Promise<{ discordApplicationId: string; discordToken: string }> {
   const wait = options.delay ?? (() => delay(5_000));
   for (;;) {
     const configuration = await options.read();
     if (
       configuration.setupCompleted &&
-      configuration.discordClientId !== null &&
+      configuration.discordApplicationId !== null &&
       configuration.discordToken !== undefined
     ) {
       return {
-        discordClientId: configuration.discordClientId,
+        discordApplicationId: configuration.discordApplicationId,
         discordToken: configuration.discordToken,
       };
     }

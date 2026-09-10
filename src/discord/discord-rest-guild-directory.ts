@@ -3,7 +3,18 @@ import { z } from "zod";
 import type { GuildDirectory, GuildMemberDirectoryItem } from "../api/server-contracts.js";
 import { memberDirectoryPageOptionsSchema } from "../directory-pagination.js";
 
-const guildsSchema = z.array(z.object({ id: z.string().min(1) }));
+const guildsSchema = z.array(
+  z.object({
+    icon: z.string().nullable().optional(),
+    id: z.string().min(1),
+    name: z.string().min(1),
+  }),
+);
+const applicationSchema = z.object({
+  icon: z.string().nullable().optional(),
+  id: z.string().min(1),
+  name: z.string().min(1),
+});
 const rolesSchema = z.array(z.object({ id: z.string().min(1), name: z.string().min(1) }));
 const channelsSchema = z.array(
   z.object({
@@ -49,9 +60,37 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     this.#getBotToken = options.getBotToken;
   }
 
-  public async getInstalledGuildIds(): Promise<ReadonlySet<string>> {
+  public async listInstalledGuilds() {
     const payload = await this.#request("/users/@me/guilds");
-    return new Set(guildsSchema.parse(payload).map((guild) => guild.id));
+    return guildsSchema.parse(payload).map((guild) => ({
+      iconUrl:
+        guild.icon === undefined || guild.icon === null
+          ? null
+          : `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`,
+      id: guild.id,
+      name: guild.name,
+    }));
+  }
+
+  public async inspectBotToken(token: string) {
+    const validatedToken = z.string().min(1).parse(token);
+    const response = await this.#fetch("https://discord.com/api/v10/oauth2/applications/@me", {
+      headers: { authorization: `Bot ${validatedToken}` },
+    });
+    if (!response.ok) {
+      const error = new Error("invalid_discord_bot_token") as Error & { statusCode: number };
+      error.statusCode = 400;
+      throw error;
+    }
+    const application = applicationSchema.parse(await response.json());
+    return {
+      iconUrl:
+        application.icon === undefined || application.icon === null
+          ? null
+          : `https://cdn.discordapp.com/app-icons/${application.id}/${application.icon}.png?size=128`,
+      id: application.id,
+      name: application.name,
+    };
   }
 
   public async getResources(guildId: string) {

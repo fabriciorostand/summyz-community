@@ -8,8 +8,8 @@ export async function registerCommands(config: AppConfig): Promise<void> {
   const commandDefinitions = createCommandDefinitions(config.botLanguage);
   const route =
     config.discordGuildId === undefined
-      ? Routes.applicationCommands(config.discordClientId)
-      : Routes.applicationGuildCommands(config.discordClientId, config.discordGuildId);
+      ? Routes.applicationCommands(config.discordApplicationId)
+      : Routes.applicationGuildCommands(config.discordApplicationId, config.discordGuildId);
 
   await rest.put(route, { body: commandDefinitions.map((command) => command.toJSON()) });
 }

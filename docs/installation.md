@@ -48,9 +48,9 @@ AMD ROCm acceleration is available only on Linux. If an explicitly requested GPU
 usable, startup stops unless `LOCAL_AI_FALLBACK=cpu` was deliberately configured.
 
 The launcher opens a private setup URL whose fragment contains the automatically generated setup
-claim. Enter the Discord bot token, OAuth client ID, and OAuth client secret, then connect the single
-Discord account that owns the installation. The bot connects when this OAuth step succeeds. The
-`/record` command remains unavailable until the owner configures and activates a valid AI profile.
+claim. Enter only the Discord bot token; the backend validates it with Discord and derives the
+Application ID. Public mode also requires one installation-wide password. The bot connects when
+setup finishes. `/record` remains unavailable until a valid AI profile is active for the server.
 
 ## Administration
 
@@ -59,11 +59,16 @@ Discord account that owns the installation. The bot connects when this OAuth ste
 ./summyz-community logs
 ./summyz-community restart
 ./summyz-community down
-./summyz-community recover-owner
+./summyz-community recover-access
 ```
 
 Use the `.ps1` launcher on Windows. Direct Compose is retained for advanced operators,
 but they must choose the correct overlay and provide a complete `.env` themselves.
+
+`recover-access` is available only in public mode. It prints a single-use URL valid for ten minutes
+to choose a new installation password. The old password remains valid until replacement succeeds;
+all previous sessions are then revoked. Recovery is impossible without host access. Local mode has
+no dashboard password.
 
 PostgreSQL and dashboard ports bind to `127.0.0.1` by default. For a VPS, set the exact public HTTPS
 origin in `PUBLIC_BASE_URL` in `.env`, point its DNS records to the host, and run

@@ -14,7 +14,7 @@ const gibibyte = 1_024 ** 3;
 
 describe("perfis de IA", () => {
   it("cria o Profile 1 local sem escolher modelos", () => {
-    const profile = createInitialAiProfile("user-1", "local", "en");
+    const profile = createInitialAiProfile("local", "en");
 
     expect(profile).toMatchObject({
       language: "auto",
@@ -33,14 +33,13 @@ describe("perfis de IA", () => {
         provider: "faster-whisper",
       },
       translation: null,
-      userId: "user-1",
     });
     expect(isAiProfileComplete(profile)).toBe(false);
   });
 
   it("exige tradução somente para idioma explícito e fixa todas as opções", () => {
     const profile = aiProfileSchema.parse({
-      ...createInitialAiProfile("user-1", "local", "pt-BR"),
+      ...createInitialAiProfile("local", "pt-BR"),
       language: "pt-BR",
       refinement: {
         generation: { seed: 0, temperature: 0, think: false },
@@ -169,7 +168,7 @@ describe("perfis de IA", () => {
   });
 
   it("fica incompleto imediatamente ao selecionar idioma explícito sem modelo de tradução", () => {
-    const base = createInitialAiProfile("user-1", "external", "pt-BR");
+    const base = createInitialAiProfile("external", "pt-BR");
     const configured = aiProfileSchema.parse({
       ...base,
       language: "es",
@@ -239,7 +238,7 @@ describe("perfis de IA", () => {
   });
 
   it("cobre perfis incompletos, provedores remotos e limites de CPU/GPU", () => {
-    expect(() => resolveAiProfile(createInitialAiProfile("user-1", "external", "pt-BR"))).toThrow(
+    expect(() => resolveAiProfile(createInitialAiProfile("external", "pt-BR"))).toThrow(
       /incomplete/i,
     );
 

@@ -118,7 +118,7 @@ const storedBotConfiguration = await waitForBotConfiguration({
   read: async () => {
     const settings = await installationSettings.getSettings();
     return {
-      discordClientId: settings.discordClientId,
+      discordApplicationId: settings.discordApplicationId,
       discordToken: await installationSettings.getSecret("discord_bot_token"),
       setupCompleted: settings.setupCompleted,
     };

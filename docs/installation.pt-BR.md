@@ -49,10 +49,10 @@ inicialização para, salvo quando `LOCAL_AI_FALLBACK=cpu` tiver sido configurad
 deliberada.
 
 O launcher abre uma URL privada de setup cujo fragmento contém a credencial de primeiro acesso
-gerada automaticamente. Informe o token do bot, o client ID e o client secret OAuth do Discord e
-vincule a única conta Discord proprietária da instalação. O bot se conecta quando esse OAuth é
-concluído. O comando `/record` permanece indisponível até que o proprietário configure e ative um
-perfil de IA válido.
+gerada automaticamente. Informe somente o token do bot; o backend o valida no Discord e obtém o
+Application ID. No modo público, o setup também exige uma senha única da instalação. O bot se
+conecta quando o setup termina. `/record` permanece indisponível até existir um perfil de IA válido
+e ativo no servidor.
 
 ## Administração
 
@@ -61,11 +61,16 @@ perfil de IA válido.
 ./summyz-community logs
 ./summyz-community restart
 ./summyz-community down
-./summyz-community recover-owner
+./summyz-community recover-access
 ```
 
 Use o launcher `.ps1` no Windows. O Compose direto continua disponível para operadores
 avançados, que deverão escolher o overlay correto e fornecer um `.env` completo.
+
+`recover-access` existe somente para o modo público. Ele gera no terminal uma URL de uso único,
+válida por dez minutos, para escolher uma nova senha. A senha anterior continua válida até a
+substituição ser concluída; depois disso, todas as sessões anteriores são revogadas. Sem acesso ao
+host não há recuperação. No modo local, o dashboard não usa senha.
 
 As portas do PostgreSQL e dashboard escutam em `127.0.0.1` por padrão. Em uma VPS, configure a
 origem HTTPS exata em `PUBLIC_BASE_URL` no `.env`, aponte os registros DNS para o host e execute

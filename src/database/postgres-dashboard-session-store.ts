@@ -2,18 +2,14 @@ import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
 
-import { type DashboardIdentity, dashboardIdentitySchema } from "../auth/dashboard-session.js";
+import { dashboardAccessSchema, type StoredDashboardAccess } from "../auth/dashboard-session.js";
 import { dashboardLanguageSchema, dashboardThemeSchema } from "../auth/auth-domain.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
-const identifierSchema = z.string().min(1).max(128);
 const dateSchema = z.iso.datetime();
 const rowSchema = z.object({
   dashboard_language: dashboardLanguageSchema,
   dashboard_theme: dashboardThemeSchema,
-  discord_avatar: z.string().nullable(),
-  discord_user_id: identifierSchema,
-  discord_username: z.string().min(1).max(100),
 });
 
 export class PostgresDashboardSessionStore {
@@ -24,19 +20,19 @@ export class PostgresDashboardSessionStore {
   }
 
   public async createSession(input: {
-    discordUserId: string;
+    absoluteExpiresAt: string;
     expiresAt: string;
     tokenHash: string;
   }): Promise<void> {
     await this.#database.query(
       `INSERT INTO dashboard_sessions (
-         session_id, discord_user_id, token_hash, expires_at
+         session_id, token_hash, expires_at, absolute_expires_at
        ) VALUES ($1, $2, $3, $4)`,
       [
         randomUUID(),
-        identifierSchema.parse(input.discordUserId),
         z.string().min(1).parse(input.tokenHash),
         dateSchema.parse(input.expiresAt),
+        dateSchema.parse(input.absoluteExpiresAt),
       ],
     );
   }
@@ -45,21 +41,16 @@ export class PostgresDashboardSessionStore {
     expiresAt: string;
     now: string;
     tokenHash: string;
-  }): Promise<DashboardIdentity | undefined> {
+  }): Promise<StoredDashboardAccess | undefined> {
     const result = await this.#database.query(
       `UPDATE dashboard_sessions AS session
-       SET expires_at = $3, last_used_at = $2
+       SET expires_at = LEAST($3, session.absolute_expires_at), last_used_at = $2
        FROM installation_settings AS settings
-       JOIN discord_connections AS connection
-         ON connection.discord_user_id = settings.owner_discord_user_id
        WHERE session.token_hash = $1
-         AND session.discord_user_id = settings.owner_discord_user_id
          AND session.revoked_at IS NULL
          AND session.expires_at > $2
-       RETURNING session.discord_user_id,
-                 connection.discord_username,
-                 connection.discord_avatar,
-                 settings.dashboard_language,
+         AND session.absolute_expires_at > $2
+       RETURNING settings.dashboard_language,
                  settings.dashboard_theme`,
       [
         z.string().min(1).parse(input.tokenHash),
@@ -69,12 +60,9 @@ export class PostgresDashboardSessionStore {
     );
     if (result.rows[0] === undefined) return undefined;
     const row = rowSchema.parse(result.rows[0]);
-    return dashboardIdentitySchema.parse({
+    return dashboardAccessSchema.parse({
       dashboardLanguage: row.dashboard_language,
       dashboardTheme: row.dashboard_theme,
-      discordAvatar: row.discord_avatar,
-      discordUserId: row.discord_user_id,
-      discordUsername: row.discord_username,
     });
   }
 

@@ -48,9 +48,9 @@ automaticamente no fluxo Docker.
    aleatórios sem imprimir seus valores.
 2. O launcher roda
    no host, detecta CPU, NVIDIA ou AMD, escolhe os overlays seguros e chama o Docker Compose.
-3. O launcher abre uma URL privada de configuração. Informe o token do bot, o client ID e o client
-   secret OAuth do Discord e vincule a única conta Discord proprietária da instalação. OpenRouter e
-   perfis de IA são configurados posteriormente no dashboard.
+3. O launcher abre uma URL privada de configuração. Informe somente o token do bot. O Summyz o
+   valida no Discord e obtém o Application ID automaticamente. No modo público, escolha também a
+   senha única da instalação. OpenRouter e perfis de IA são configurados depois no dashboard.
 4. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
    variável, os comandos são registrados globalmente e podem demorar para aparecer.
 
@@ -60,9 +60,9 @@ Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community 
 disponível para operadores avançados. `docker compose up -d --build` usa CPU; para NVIDIA ou AMD,
 inclua manualmente `docker-compose.nvidia.yaml` ou `docker-compose.amd.yaml`.
 
-Use `recover-owner` para reconectar um proprietário por uma URL OAuth Discord de uso único gerada
-no host. Vincular outra conta Discord substitui a proprietária atual e invalida imediatamente suas
-sessões do dashboard; os perfis permanecem associados à respectiva conta Discord.
+No modo público, a recuperação da senha exige acesso ao host: `recover-access` gera uma URL de uso
+único que expira em dez minutos. O modo local não autentica o dashboard. O Community não possui
+contas de usuário Summyz, cadastro público, envio de e-mail nem OAuth de usuário Discord.
 
 Para desenvolver nativamente, execute `npm install` e informe um `FFMPEG_PATH` absoluto ou deixe
 `ffmpeg`/`ffmpeg.exe` disponível no `PATH`. O bot valida o executável e o encoder `libopus` antes de
@@ -78,10 +78,13 @@ Para uma instalação pública em VPS, configure uma origem HTTPS em `PUBLIC_BAS
 `.\summyz-community-public.ps1 up`. Esse modo opcional adiciona o Caddy para TLS automático. O
 launcher local não publica o dashboard na Internet. Se o `.env` ainda não existir, o launcher
 público o cria e pede que o operador configure a origem HTTPS antes de executar o comando novamente.
+No setup público, escolha uma senha da instalação com 15 a 128 caracteres. Ela é normalizada em
+Unicode NFC e armazenada somente como hash Argon2id; cookies de sessão são `HttpOnly`, `Secure` e
+`SameSite=Strict`, com sete dias de inatividade e validade absoluta de trinta dias.
 
 Nunca versione o arquivo `.env`, publique o token do bot ou compartilhe a URL privada de setup.
 
-As migrações e a conexão PostgreSQL são validadas antes do login no Discord; se o banco estiver
+As migrações e a conexão PostgreSQL são validadas antes de o bot conectar ao Discord; se o banco estiver
 indisponível ou a URL for inválida, o processo encerra com uma mensagem segura. Os volumes
 `postgres_data`, `summyz_community_data`, `ollama_models` e `faster_whisper_models` preservam o banco, os
 arquivos e os modelos gerenciados após reinício.
@@ -158,8 +161,8 @@ retries rápidos dos provedores, uma falha transitória agenda execuções durá
 - Anexar arquivos;
 - Usar comandos de aplicativo.
 
-Conecte sua conta Discord ao dashboard. Ele mostra apenas servidores dos quais essa conta é dona e
-fornece a ação de instalação para cada servidor. Se o bot já
+O dashboard mostra apenas os servidores nos quais o bot configurado está instalado e fornece uma
+ação genérica para instalar o bot em outro servidor. Se o bot já
 estiver instalado, alterar as permissões padrão no Developer Portal não atualiza automaticamente o
 cargo existente: ajuste as permissões do cargo do bot e as sobrescritas do canal onde as reuniões
 serão publicadas, ou reinstale o bot com o novo link.
@@ -179,19 +182,18 @@ ele autorizar podem usar `/record` e `/stop`; os cargos não recebem outros pode
 
 ## Perfis de processamento
 
-Os perfis são pessoais e globais: pertencem à conta do dashboard e podem ser reutilizados nos
-servidores dos quais essa conta é proprietária. A página **Perfis** separa configurações de **API
-externa** e **Local**. Cada conta recebe um `Perfil 1` localizado de cada tipo, sem modelos
-preenchidos. O último perfil de cada tipo e qualquer perfil ativo não podem ser excluídos.
+Os perfis são globais da instalação e podem ser reutilizados em todos os servidores nos quais o bot
+está instalado. A página **Perfis** separa configurações de **API externa** e **Local**. Uma
+instalação nova recebe um perfil de cada tipo com os modelos vazios. Um perfil ativo não pode ser
+excluído.
 
 Cada servidor mantém no máximo um desses perfis como ativo, independentemente do tipo. Servidores
 novos começam sem perfil ativo; enquanto transcrição, refinamento e resumo do perfil escolhido não
 tiverem modelos explícitos, `/record` mostra um aviso efêmero e não inicia a gravação. Ao escolher
 um idioma explícito, o modelo de tradução também passa a ser obrigatório e o perfil fica incompleto
-imediatamente até ele ser preenchido. Trocar um modelo preserva os demais parâmetros do perfil. Se a
-propriedade do servidor mudar no Discord, o
-perfil do proprietário anterior é desassociado: o servidor deixa sua lista e o novo proprietário
-precisa conectar a própria conta e fazer sua configuração.
+imediatamente até ele ser preenchido. Trocar um modelo preserva os demais parâmetros do perfil. Se
+o bot sair de um servidor, ele deixa de aparecer no dashboard, mas seus dados persistidos são
+preservados. Reinstalar o mesmo bot nesse servidor torna esses dados visíveis novamente.
 
 Não existe modelo `auto` nem `openrouter/auto`. A escolha é livre e o Summyz nunca substitui o
 modelo selecionado. A avaliação local usa os estados `recommended`, `compatible`,
@@ -207,7 +209,7 @@ consolidação e tradução. **Sem prompt** remove apenas a personalização: um
 Summyz sempre é enviado para fixar idioma, estrutura, evidências, preservação literal e regras de
 segurança. Transcrições e prompts editáveis são tratados como conteúdo não confiável. O padrão de
 transcrição não possui bloco editável. Os demais
-padrões nascem em inglês ou pt-BR conforme o idioma da conta no dashboard, enquanto o texto do
+padrões nascem em inglês ou pt-BR conforme o idioma global do dashboard, enquanto o texto do
 prompt solicita o idioma configurado para o resumo. Ao alterar esse idioma, prompts ainda iguais ao
 padrão são adaptados; textos personalizados são preservados. O botão **Restaurar padrão** usa o
 idioma atual do dashboard. Os prompts e modelos efetivos são fixados no manifesto quando a reunião
@@ -284,7 +286,7 @@ palavra. Para APIs externas, o Summyz otimiza requisições independentes por me
 
 ## Dashboard e histórico
 
-O Dashboard e o Histórico são restritos ao proprietário do servidor Discord selecionado. O seletor
+O Dashboard e o Histórico mostram apenas servidores onde o bot configurado está instalado. O seletor
 é compartilhado entre as páginas e preservado no navegador. Os totais de calls e duração consideram
 reuniões antigas e novas cujo pipeline terminou; o ranking de falantes começa nas reuniões gravadas
 com o manifesto v3. A participação soma os intervalos de cada palavra, une sobreposições da mesma

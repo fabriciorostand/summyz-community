@@ -45,7 +45,7 @@ describe("AI prompts", () => {
   );
 
   it("cria perfis iniciais já completos quanto aos prompts", () => {
-    const profile = createInitialAiProfile("user-1", "external", "pt-BR");
+    const profile = createInitialAiProfile("external", "pt-BR");
 
     expect(profile.transcription.prompt).toBeNull();
     expect(profile.refinement.prompt).toContain("revisor conservador");
@@ -54,7 +54,7 @@ describe("AI prompts", () => {
   });
 
   it("fixa no snapshot da reunião os prompts completos ou a decisão de não enviá-los", () => {
-    const initial = createInitialAiProfile("user-1", "external", "pt-BR");
+    const initial = createInitialAiProfile("external", "pt-BR");
     const englishPrompts = createDefaultAiPrompts("pt-BR", "en");
     const profile = aiProfileSchema.parse({
       ...initial,
@@ -80,7 +80,7 @@ describe("AI prompts", () => {
   });
 
   it("executes canonical English defaults even when the dashboard displays Portuguese", () => {
-    const profile = createInitialAiProfile("user-1", "external", "pt-BR");
+    const profile = createInitialAiProfile("external", "pt-BR");
     const complete = aiProfileSchema.parse({
       ...profile,
       refinement: { ...profile.refinement, model: "review" },
@@ -106,7 +106,7 @@ describe("AI prompts", () => {
   });
 
   it("rejeita perfis sem os prompts persistidos", () => {
-    const profile = createInitialAiProfile("user-1", "external", "en");
+    const profile = createInitialAiProfile("external", "en");
     const { prompt: _prompt, ...refinementWithoutPrompt } = profile.refinement;
 
     expect(() =>

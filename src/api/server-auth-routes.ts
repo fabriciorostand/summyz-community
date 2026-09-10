@@ -2,76 +2,114 @@ import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
 import { createDefaultAiPrompts } from "../ai-prompts.js";
+import { DashboardSessionError } from "../auth/dashboard-session.js";
+import { InstallationLoginThrottle } from "../auth/installation-login-throttle.js";
 import type { ApiServerDependencies } from "./server-contracts.js";
-import {
-  authenticateRequest,
-  clearSessionCookie,
-  safeEqual,
-  setSessionCookie,
-} from "./server-support.js";
+import { authorizeDashboard, clearSessionCookie, setSessionCookie } from "./server-support.js";
+
+const loginSchema = z.object({ password: z.string() });
+const changePasswordSchema = z.object({
+  currentPassword: z.string(),
+  newPassword: z.string(),
+});
+const recoverySchema = z.object({ newPassword: z.string() });
 
 export function registerAuthRoutes(
   app: FastifyInstance,
   dependencies: ApiServerDependencies,
 ): void {
-  app.get("/api/auth/discord", async (_request, reply) => {
+  const throttle = new InstallationLoginThrottle();
+
+  app.get("/api/access/status", async (request) => {
     const settings = await dependencies.settings.getSettings();
-    if (!settings.setupCompleted) {
-      return reply.status(409).send({ error: "setup_required" });
+    let authenticated = dependencies.accessMode === "local";
+    if (!authenticated && request.cookies.summyz_session !== undefined) {
+      try {
+        await authorizeDashboard(request, dependencies);
+        authenticated = true;
+      } catch (error) {
+        if (!(error instanceof DashboardSessionError)) throw error;
+      }
     }
     return {
-      authorizationUrl: await dependencies.discord.createAuthorizationUrl({ intent: "login" }),
+      accessMode: dependencies.accessMode,
+      authenticated,
+      passwordConfigured: await dependencies.passwords.isConfigured(),
+      setupCompleted: settings.setupCompleted,
     };
   });
 
-  app.get("/api/setup/discord", async (request, reply) => {
-    const settings = await dependencies.settings.getSettings();
-    if (settings.setupCompleted) {
-      return reply.status(409).send({ error: "setup_already_completed" });
-    }
-    const suppliedToken = z.string().parse(request.headers["x-summyz-setup-token"]);
-    if (!safeEqual(suppliedToken, dependencies.setupToken)) {
-      return reply.status(403).send({ error: "invalid_setup_token" });
-    }
-    return {
-      authorizationUrl: await dependencies.discord.createAuthorizationUrl({ intent: "setup" }),
-    };
-  });
+  app.post(
+    "/api/access/login",
+    { config: { rateLimit: { max: 20, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (dependencies.accessMode !== "public") {
+        return reply.status(404).send({ error: "not_found" });
+      }
+      throttle.check(request.ip);
+      const { password } = loginSchema.parse(request.body);
+      try {
+        await dependencies.passwords.authenticate(password);
+      } catch (error) {
+        throttle.recordFailure(request.ip);
+        throw error;
+      }
+      throttle.recordSuccess(request.ip);
+      setSessionCookie(reply, await dependencies.auth.create());
+      return reply.status(204).send();
+    },
+  );
 
-  app.get("/api/discord/connect", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
-    return {
-      authorizationUrl: await dependencies.discord.createAuthorizationUrl({
-        initiatorDiscordUserId: user.userId,
-        intent: "replace",
-      }),
-    };
-  });
-
-  app.get("/api/discord/callback", async (request, reply) => {
-    const query = z
-      .object({ code: z.string().min(1), state: z.string().min(1) })
-      .parse(request.query);
-    const connection = await dependencies.discord.completeAuthorization(query.code, query.state);
-    setSessionCookie(
-      reply,
-      await dependencies.auth.create(connection.discordUserId),
-      dependencies.secureCookies,
-    );
-    return reply.redirect("/setup?discord=connected");
-  });
-
-  app.post("/api/auth/logout", async (request, reply) => {
+  app.post("/api/access/logout", async (request, reply) => {
     const sessionToken = request.cookies.summyz_session;
     if (sessionToken !== undefined) await dependencies.auth.logout(sessionToken);
-    clearSessionCookie(reply, dependencies.secureCookies);
+    clearSessionCookie(reply);
     return reply.status(204).send();
   });
 
-  app.get("/api/auth/me", async (request) => authenticateRequest(request, dependencies));
+  app.put("/api/access/password", async (request, reply) => {
+    if (dependencies.accessMode !== "public") {
+      return reply.status(404).send({ error: "not_found" });
+    }
+    await authorizeDashboard(request, dependencies);
+    const body = changePasswordSchema.parse(request.body);
+    await dependencies.passwords.change(body.currentPassword, body.newPassword);
+    setSessionCookie(reply, await dependencies.auth.create());
+    return reply.status(204).send();
+  });
 
-  app.put("/api/account/preferences", async (request, reply) => {
-    await authenticateRequest(request, dependencies);
+  app.post(
+    "/api/access/recovery",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      if (dependencies.accessMode !== "public") {
+        return reply.status(404).send({ error: "not_found" });
+      }
+      const token = request.headers["x-summyz-recovery-token"];
+      if (typeof token !== "string") {
+        return reply.status(403).send({ error: "invalid_recovery_token" });
+      }
+      const { newPassword } = recoverySchema.parse(request.body);
+      await dependencies.recovery.recover(token, newPassword);
+      setSessionCookie(reply, await dependencies.auth.create());
+      return reply.status(204).send();
+    },
+  );
+
+  app.get("/api/settings", async (request) => {
+    const access = await authorizeDashboard(request, dependencies);
+    const settings = await dependencies.settings.getSettings();
+    return {
+      accessMode: dependencies.accessMode,
+      dashboardLanguage: access.dashboardLanguage,
+      dashboardTheme: access.dashboardTheme,
+      discordApplicationId: settings.discordApplicationId,
+      secrets: settings.secrets,
+    };
+  });
+
+  app.put("/api/settings/preferences", async (request, reply) => {
+    await authorizeDashboard(request, dependencies);
     const preferences = z
       .object({
         dashboardLanguage: z.enum(["en", "pt-BR"]),
@@ -83,15 +121,10 @@ export function registerAuthRoutes(
   });
 
   app.get("/api/ai/prompts/defaults", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
+    const access = await authorizeDashboard(request, dependencies);
     const { summaryLanguage } = z
       .object({ summaryLanguage: z.string().min(1).max(32) })
       .parse(request.query);
-    return createDefaultAiPrompts(user.dashboardLanguage, summaryLanguage);
-  });
-
-  app.get("/api/discord/connection", async (request) => {
-    const user = await authenticateRequest(request, dependencies);
-    return dependencies.discord.getConnectionStatus(user.userId);
+    return createDefaultAiPrompts(access.dashboardLanguage, summaryLanguage);
   });
 }

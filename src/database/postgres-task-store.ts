@@ -98,7 +98,7 @@ export class PostgresTaskStore {
   public async setCompleted(
     guildId: string,
     taskId: string,
-    completedByUserId: string,
+    completedByUserId: string | null,
     completed: boolean,
   ): Promise<void> {
     const result = await this.#database.query(
@@ -110,7 +110,7 @@ export class PostgresTaskStore {
       [
         identifierSchema.parse(guildId),
         taskIdSchema.parse(taskId),
-        identifierSchema.parse(completedByUserId),
+        completedByUserId === null ? null : identifierSchema.parse(completedByUserId),
         z.boolean().parse(completed),
       ],
     );
