@@ -439,24 +439,16 @@ jobs:
       - name: Preflight NVIDIA system packages
         shell: bash
         run: |
-          read_docker_arg() {
-            sed -n "s/^ARG $1=//p" services/faster-whisper/Dockerfile
-          }
-          libopus_version="$(read_docker_arg UBUNTU_LIBOPUS_VERSION)"
-          python_version="$(read_docker_arg UBUNTU_PYTHON_VERSION)"
-          python_pip_version="$(read_docker_arg UBUNTU_PYTHON_PIP_VERSION)"
-          python_venv_version="$(read_docker_arg UBUNTU_PYTHON_312_VENV_VERSION)"
-          package_urls=(
-            "http://archive.ubuntu.com/ubuntu/pool/main/o/opus/libopus0_${libopus_version}_amd64.deb"
-            "http://archive.ubuntu.com/ubuntu/pool/main/p/python3-defaults/python3_${python_version}_amd64.deb"
-            "http://archive.ubuntu.com/ubuntu/pool/universe/p/python-pip/python3-pip_${python_pip_version}_all.deb"
-            "http://archive.ubuntu.com/ubuntu/pool/universe/p/python3.12/python3.12-venv_${python_venv_version}_amd64.deb"
-            "http://archive.ubuntu.com/ubuntu/pool/universe/p/python3-defaults/python3-venv_${python_version}_amd64.deb"
+          repository_urls=(
+            "https://archive.ubuntu.com/ubuntu/dists/noble/InRelease"
+            "https://security.ubuntu.com/ubuntu/dists/noble-security/InRelease"
           )
-          for package_url in "${package_urls[@]}"; do
-            curl --fail --location --silent --show-error \
-              --retry 1 --retry-all-errors --connect-timeout 5 --max-time 15 \
-              --output /dev/null "${package_url}"
+          for repository_url in "${repository_urls[@]}"; do
+            echo "Checking NVIDIA package repository: ${repository_url}"
+            curl --fail --head --location --silent --show-error \
+              --retry 5 --retry-all-errors --retry-max-time 180 \
+              --connect-timeout 15 --max-time 60 \
+              --output /dev/null "${repository_url}"
           done
 
       - name: Set up Buildx

@@ -487,8 +487,10 @@ quality and security diagnostics under **Issue details** and in the complete art
 The runtime gate builds the bot, dashboard, CPU faster-whisper, and NVIDIA packaging images,
 validates the Compose variants, and performs real local inference on CPU with verified model
 revisions. Execution on an actual GPU remains outside this workflow. Node.js 22.23.2, npm 10.9.8,
-Python 3.12.14, base images, actions, lock files, Debian repository snapshots, and the direct Ubuntu
-packages used by the NVIDIA image are pinned.
+Python 3.12.14, base images, actions, lock files, and Debian repository snapshots are pinned. The
+NVIDIA image resolves its Ubuntu system packages from the official HTTPS repositories at build
+time so superseded security updates do not make the image unbuildable; the image vulnerability
+scan remains authoritative for fixable `HIGH` or `CRITICAL` findings.
 The `ubuntu-24.04` runner and scanner vulnerability databases remain services updated by GitHub and
 their vendors. npm, pip, BuildKit, and model caches make later runs faster without skipping version,
 hash, and digest checks.

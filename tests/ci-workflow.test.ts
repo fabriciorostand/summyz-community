@@ -227,35 +227,44 @@ describe("continuous integration contract", () => {
 
     expect(preflightIndex).toBeGreaterThan(-1);
     expect(preflightIndex).toBeLessThan(botBuildIndex);
-    expect(preflight).toContain("read_docker_arg");
-    expect(preflight).toContain("archive.ubuntu.com/ubuntu/pool/");
+    expect(preflight).toContain("repository_urls");
+    expect(preflight).toContain("https://archive.ubuntu.com/ubuntu/dists/noble/InRelease");
+    expect(preflight).toContain(
+      "https://security.ubuntu.com/ubuntu/dists/noble-security/InRelease",
+    );
+    expect(preflight).toContain(`echo "Checking NVIDIA package repository: \${repository_url}"`);
+    expect(preflight).toContain("--head");
+    expect(preflight).toContain("--retry 5");
     expect(preflight).toContain("--retry-all-errors");
-    expect(preflight).toContain("--max-time 15");
+    expect(preflight).toContain("--retry-max-time 180");
+    expect(preflight).toContain("--connect-timeout 15");
+    expect(preflight).toContain("--max-time 60");
     expect(storageCleanupIndex).toBeGreaterThan(imagePolicyIndex);
     expect(cudaBuildIndex).toBeGreaterThan(storageCleanupIndex);
     expect(cudaBuild).toContain("load: false");
     expect(cudaBuild).not.toContain("load: true");
   });
 
-  it("pins CUDA system packages while bounding official archive failures", async () => {
+  it("installs current CUDA system packages while bounding official archive failures", async () => {
     const dockerfile = await readFile(new URL("services/faster-whisper/Dockerfile", root), "utf8");
     const cudaSetup = dockerfile.slice(
       dockerfile.indexOf("FROM nvidia/cuda:"),
       dockerfile.indexOf("WORKDIR /service", dockerfile.indexOf("FROM nvidia/cuda:")),
     );
 
-    expect(cudaSetup).toContain("UBUNTU_LIBOPUS_VERSION=1.4-1build1");
-    expect(cudaSetup).toContain("UBUNTU_PYTHON_VERSION=3.12.3-0ubuntu2.1");
-    expect(cudaSetup).toContain("UBUNTU_PYTHON_PIP_VERSION=24.0+dfsg-1ubuntu1.3");
-    expect(cudaSetup).toContain("UBUNTU_PYTHON_312_VENV_VERSION=3.12.3-1ubuntu0.16");
-    expect(cudaSetup).toContain(`libopus0=\${UBUNTU_LIBOPUS_VERSION}`);
-    expect(cudaSetup).toContain(`python3=\${UBUNTU_PYTHON_VERSION}`);
-    expect(cudaSetup).toContain(`python3-pip=\${UBUNTU_PYTHON_PIP_VERSION}`);
-    expect(cudaSetup).toContain(`python3.12-venv=\${UBUNTU_PYTHON_312_VENV_VERSION}`);
-    expect(cudaSetup).toContain(`python3-venv=\${UBUNTU_PYTHON_VERSION}`);
-    expect(cudaSetup).toContain("Acquire::Retries=1");
-    expect(cudaSetup).toContain("Acquire::http::Timeout=15");
-    expect(cudaSetup).toContain("Acquire::https::Timeout=15");
+    expect(cudaSetup).not.toContain("UBUNTU_LIBOPUS_VERSION");
+    expect(cudaSetup).not.toContain("UBUNTU_PYTHON_VERSION");
+    expect(cudaSetup).not.toContain("UBUNTU_PYTHON_PIP_VERSION");
+    expect(cudaSetup).not.toContain("UBUNTU_PYTHON_312_VENV_VERSION");
+    expect(cudaSetup).toContain("libopus0 \\");
+    expect(cudaSetup).toContain("python3 \\");
+    expect(cudaSetup).toContain("python3-pip \\");
+    expect(cudaSetup).toContain("python3-venv;");
+    expect(cudaSetup).toContain("https://archive.ubuntu.com/ubuntu/");
+    expect(cudaSetup).toContain("https://security.ubuntu.com/ubuntu/");
+    expect(cudaSetup).toContain("Acquire::Retries=5");
+    expect(cudaSetup).toContain("Acquire::http::Timeout=60");
+    expect(cudaSetup).toContain("Acquire::https::Timeout=60");
     expect(cudaSetup).toContain("APT::Update::Error-Mode=any");
     expect(cudaSetup).not.toContain("snapshot.ubuntu.com");
   });
