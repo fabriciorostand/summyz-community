@@ -330,6 +330,18 @@ describe("continuous integration contract", () => {
     expect(smokeTest).not.toContain("size_vram");
   });
 
+  it("hides every GPU backend from the CPU smoke-test Ollama service", async () => {
+    const overlay = await readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8");
+    const ollamaSection = overlay.split("\n  ollama:")[1]?.split(/\n {2}\S/u)[0];
+
+    expect(ollamaSection).toContain("OLLAMA_LLM_LIBRARY: cpu");
+    expect(ollamaSection).toContain('OLLAMA_VULKAN: "false"');
+    expect(ollamaSection).toContain('CUDA_VISIBLE_DEVICES: "-1"');
+    expect(ollamaSection).toContain('HIP_VISIBLE_DEVICES: "-1"');
+    expect(ollamaSection).toContain('ROCR_VISIBLE_DEVICES: "-1"');
+    expect(ollamaSection).toContain('GGML_VK_VISIBLE_DEVICES: "-1"');
+  });
+
   it("does not require a developer .env file for CI Compose operations", async () => {
     const [overlay, implementation] = await Promise.all([
       readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8"),

@@ -6,6 +6,13 @@ services:
     env_file: !reset []
 
   ollama:
+    environment:
+      CUDA_VISIBLE_DEVICES: "-1"
+      GGML_VK_VISIBLE_DEVICES: "-1"
+      HIP_VISIBLE_DEVICES: "-1"
+      OLLAMA_LLM_LIBRARY: cpu
+      OLLAMA_VULKAN: "false"
+      ROCR_VISIBLE_DEVICES: "-1"
     volumes:
       - ${CI_OLLAMA_CACHE}:/root/.ollama
 
