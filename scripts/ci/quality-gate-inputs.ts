@@ -3,10 +3,13 @@ import type { Diagnostic, SecurityFinding } from "./quality-gate.js";
 type JsonRecord = Record<string, unknown>;
 
 export interface CoverageAggregate {
+  readonly available: boolean;
   readonly covered: number;
   readonly percentage: number;
   readonly total: number;
 }
+
+const EXPECTED_COVERAGE_REPORT_COUNT = 3;
 
 export interface TrivyReportOptions {
   readonly sourcePath?: string;
@@ -39,7 +42,7 @@ const roundPercentage = (covered: number, total: number): number =>
   total === 0 ? 100 : Math.round((covered / total) * 10_000) / 100;
 
 export const aggregateDiffCoverage = (reports: readonly unknown[]): CoverageAggregate => {
-  if (reports.length === 0) return { covered: 0, percentage: 0, total: 0 };
+  if (reports.length === 0) return { available: false, covered: 0, percentage: 0, total: 0 };
   let total = 0;
   let violations = 0;
   for (const report of reports) {
@@ -48,7 +51,12 @@ export const aggregateDiffCoverage = (reports: readonly unknown[]): CoverageAggr
     violations += numberValue(report, "total_num_violations");
   }
   const covered = Math.max(0, total - violations);
-  return { covered, percentage: roundPercentage(covered, total), total };
+  return {
+    available: reports.length === EXPECTED_COVERAGE_REPORT_COUNT,
+    covered,
+    percentage: roundPercentage(covered, total),
+    total,
+  };
 };
 
 const coverageCounts = (report: unknown): Pick<CoverageAggregate, "covered" | "total"> => {
@@ -71,7 +79,7 @@ const coverageCounts = (report: unknown): Pick<CoverageAggregate, "covered" | "t
 };
 
 export const aggregateRepositoryCoverage = (reports: readonly unknown[]): CoverageAggregate => {
-  if (reports.length === 0) return { covered: 0, percentage: 0, total: 0 };
+  if (reports.length === 0) return { available: false, covered: 0, percentage: 0, total: 0 };
   let covered = 0;
   let total = 0;
   for (const report of reports) {
@@ -79,7 +87,12 @@ export const aggregateRepositoryCoverage = (reports: readonly unknown[]): Covera
     covered += counts.covered;
     total += counts.total;
   }
-  return { covered, percentage: roundPercentage(covered, total), total };
+  return {
+    available: reports.length === EXPECTED_COVERAGE_REPORT_COUNT,
+    covered,
+    percentage: roundPercentage(covered, total),
+    total,
+  };
 };
 
 const fixedVersions = (value: string): readonly string[] =>

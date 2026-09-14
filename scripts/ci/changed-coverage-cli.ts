@@ -32,14 +32,14 @@ const main = async (): Promise<void> => {
         "",
         `- Covered executable lines: ${result.covered}`,
         `- Total executable lines: ${result.total}`,
-        `- Coverage: ${result.percentage.toFixed(2)}%`,
+        `- Coverage: ${result.available ? `${result.percentage.toFixed(2)}%` : "unavailable"}`,
         "- Required: 85.00%",
         "",
       ].join("\n"),
       "utf8",
     ),
   ]);
-  if (result.percentage < 85) process.exitCode = 1;
+  if (!result.available || result.percentage < 85) process.exitCode = 1;
 };
 
 await main();

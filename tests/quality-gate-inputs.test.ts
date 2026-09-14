@@ -11,8 +11,18 @@ import {
 
 describe("Quality Gate report inputs", () => {
   it("does not report perfect coverage when coverage evidence is missing", () => {
-    expect(aggregateDiffCoverage([])).toEqual({ covered: 0, percentage: 0, total: 0 });
-    expect(aggregateRepositoryCoverage([])).toEqual({ covered: 0, percentage: 0, total: 0 });
+    expect(aggregateDiffCoverage([])).toEqual({
+      available: false,
+      covered: 0,
+      percentage: 0,
+      total: 0,
+    });
+    expect(aggregateRepositoryCoverage([])).toEqual({
+      available: false,
+      covered: 0,
+      percentage: 0,
+      total: 0,
+    });
   });
 
   it("aggregates new-code coverage across all components by executable line", () => {
@@ -22,7 +32,7 @@ describe("Quality Gate report inputs", () => {
       { total_num_lines: 0, total_num_violations: 0 },
     ]);
 
-    expect(result).toEqual({ covered: 8, percentage: 80, total: 10 });
+    expect(result).toEqual({ available: true, covered: 8, percentage: 80, total: 10 });
   });
 
   it("aggregates repository coverage across server, dashboard, and Python", () => {
@@ -32,7 +42,18 @@ describe("Quality Gate report inputs", () => {
       { totals: { covered_lines: 9, num_statements: 10 } },
     ]);
 
-    expect(result).toEqual({ covered: 107, percentage: 82.31, total: 130 });
+    expect(result).toEqual({ available: true, covered: 107, percentage: 82.31, total: 130 });
+  });
+
+  it("marks coverage as available only when all three component reports exist", () => {
+    const reports = [
+      { total_num_lines: 4, total_num_violations: 0 },
+      { total_num_lines: 3, total_num_violations: 0 },
+      { total_num_lines: 3, total_num_violations: 0 },
+    ];
+
+    expect(aggregateDiffCoverage(reports.slice(0, 2)).available).toBe(false);
+    expect(aggregateDiffCoverage(reports).available).toBe(true);
   });
 
   it("keeps fixed and unfixed Trivy findings in the complete report", () => {

@@ -19,15 +19,26 @@ describe("pre-commit quality hook", () => {
 
   it("installs the shared hook and fixes supported staged files before checking whitespace", async () => {
     const manifest = await readPackageManifest();
-    const hook = await readFile(new URL("../.husky/pre-commit", import.meta.url), "utf8");
+    const [dockerfile, hook, installer] = await Promise.all([
+      readFile(new URL("../Dockerfile", import.meta.url), "utf8"),
+      readFile(new URL("../.husky/pre-commit", import.meta.url), "utf8"),
+      readFile(new URL("../scripts/install-husky.mjs", import.meta.url), "utf8"),
+    ]);
 
-    expect(manifest.scripts?.prepare).toBe("husky");
+    expect(manifest.scripts?.prepare).toBe("node scripts/install-husky.mjs");
     expect(manifest.devDependencies?.husky).toBeDefined();
     expect(manifest.devDependencies?.["lint-staged"]).toBeDefined();
     expect(manifest["lint-staged"]).toEqual({
       "*": "biome check --write --no-errors-on-unmatched --files-ignore-unknown=true",
     });
     expect(hook.trim().split(/\r?\n/)).toEqual(["npx lint-staged", "git diff --cached --check"]);
+    expect(installer).toContain('process.env.NODE_ENV === "production"');
+    expect(installer).toContain('process.env.CI === "true"');
+    expect(installer).toContain('new URL("../.git", import.meta.url)');
+    expect(installer).toContain('import("husky")');
+
+    const testStage = dockerfile.split("FROM build AS test")[1]?.split("FROM node:")[0];
+    expect(testStage).toContain("COPY .husky ./.husky");
   });
 });
 

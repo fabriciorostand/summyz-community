@@ -20,6 +20,7 @@ ARG NPM_VERSION=10.9.8
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 COPY web/package.json ./web/package.json
+COPY scripts/install-husky.mjs ./scripts/install-husky.mjs
 RUN npm install --global "npm@${NPM_VERSION}" && \
     test "$(npm --version)" = "${NPM_VERSION}" && \
     npm ci
@@ -43,6 +44,7 @@ COPY biome.json ./
 COPY .gitignore ./
 COPY docker ./docker
 COPY .github ./.github
+COPY .husky ./.husky
 COPY tests ./tests
 COPY scripts ./scripts
 COPY services ./services
@@ -65,6 +67,7 @@ RUN sed -i \
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 COPY web/package.json ./web/package.json
+COPY scripts/install-husky.mjs ./scripts/install-husky.mjs
 RUN npm install --global "npm@${NPM_VERSION}" && \
     test "$(npm --version)" = "${NPM_VERSION}" && \
     npm ci --omit=dev && \

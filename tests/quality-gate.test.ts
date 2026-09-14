@@ -16,11 +16,13 @@ const metrics = (securityFindings: readonly SecurityFinding[]): GateMetrics => (
   changedOversizedModuleCount: 0,
   modules: [{ changed: false, path: "src/example.ts", sloc: 20 }],
   newCoverage: 90,
+  newCoverageAvailable: true,
   newDuplication: 0,
   newMaxComplexity: 4,
   newComplexityViolations: 0,
   newIssues: [],
   repositoryCoverage: 92,
+  repositoryCoverageAvailable: true,
   repositoryDuplication: 0.4,
   repositoryIssues: [],
   repositoryMaxComplexity: 4,
@@ -180,6 +182,33 @@ describe("Quality Gate", () => {
     const result = evaluateQualityGate(metrics([]));
 
     expect(result.failures.filter((failure) => failure.includes("complexity"))).toHaveLength(0);
+  });
+
+  it("fails closed and reports unavailable coverage when required evidence is missing", () => {
+    const result = evaluateQualityGate({
+      ...metrics([]),
+      newCoverage: 0,
+      newCoverageAvailable: false,
+      repositoryCoverage: 94.85,
+      repositoryCoverageAvailable: false,
+    });
+    const markdown = renderQualityGateMarkdown(result, {
+      commitSha: "0123456789abcdef",
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      repository: "example/summyz",
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.failures).toContain(
+      "New-code coverage is unavailable because required coverage reports are missing.",
+    );
+    expect(result.failures).toContain(
+      "Repository coverage is unavailable because required coverage reports are missing.",
+    );
+    const coverageRow = markdown.split("\n").find((line) => line.startsWith("| Coverage |"));
+    expect(coverageRow).toContain("unavailable");
+    expect(coverageRow).not.toContain("0.00%");
+    expect(coverageRow).not.toContain("94.85%");
   });
 
   it("passes with a green zero when all vulnerabilities are unfixable", () => {
