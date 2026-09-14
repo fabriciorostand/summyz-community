@@ -427,6 +427,16 @@ export const dashboardTaskSchema = z.object({
   voiceChannelName: z.string().nullable(),
 });
 
+/** Slash-command reference the bot registers, grouped and localized by the backend. */
+export const commandReferenceSchema = z
+  .array(
+    z.object({
+      commands: z.array(z.object({ description: z.string(), name: z.string() })).min(1),
+      label: z.string(),
+    }),
+  )
+  .min(1);
+
 export type AccessMode = z.infer<typeof accessModeSchema>;
 export type AccessStatus = z.infer<typeof accessStatusSchema>;
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
@@ -453,3 +463,4 @@ export type MeetingHistoryPage = z.infer<typeof meetingHistoryPageSchema>;
 export type MeetingHistoryDetail = z.infer<typeof meetingHistoryDetailSchema>;
 export type MeetingHistorySummary = z.infer<typeof meetingHistorySummarySchema>;
 export type DashboardTask = z.infer<typeof dashboardTaskSchema>;
+export type CommandReference = z.infer<typeof commandReferenceSchema>;

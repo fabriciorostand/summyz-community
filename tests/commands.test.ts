@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { createCommandReference } from "../src/discord/command-catalog.js";
 import { createCommandDefinitions } from "../src/discord/commands.js";
 
 describe("comandos do bot", () => {
@@ -75,5 +76,52 @@ describe("comandos do bot", () => {
     expect(JSON.stringify(portuguese)).toContain(
       "Inicia a gravação do canal de voz em que você está",
     );
+  });
+
+  it("mantém a referência do dashboard alinhada aos comandos registrados", () => {
+    const registeredPaths = commandDefinitions.flatMap((command) => {
+      const definition = command.toJSON();
+      const subcommands = definition.options?.filter((option) => option.type === 1) ?? [];
+      return subcommands.length === 0
+        ? [`/${definition.name}`]
+        : subcommands.map((subcommand) => `/${definition.name} ${subcommand.name}`);
+    });
+    const referencePaths = createCommandReference("pt-BR").flatMap((group) =>
+      group.commands.map((command) => command.name),
+    );
+
+    expect(referencePaths.toSorted()).toEqual(registeredPaths.toSorted());
+  });
+
+  it("localiza os grupos e as descrições da referência", () => {
+    const english = createCommandReference("en");
+    const portuguese = createCommandReference("pt-BR");
+
+    expect(english[0]).toMatchObject({
+      commands: [
+        {
+          description: "Starts recording the voice channel you are in",
+          name: "/record",
+        },
+        {
+          description: "Stops recording the voice channel you are in",
+          name: "/stop",
+        },
+      ],
+      label: "Recording",
+    });
+    expect(portuguese[0]).toMatchObject({
+      commands: [
+        {
+          description: "Inicia a gravação do canal de voz em que você está",
+          name: "/record",
+        },
+        {
+          description: "Encerra a gravação do canal de voz em que você está",
+          name: "/stop",
+        },
+      ],
+      label: "Gravação",
+    });
   });
 });

@@ -17,6 +17,7 @@ vi.mock("./lib/api", async () => {
       getDashboard: vi.fn(),
       getSettings: vi.fn(),
       getSetupStatus: vi.fn(),
+      listCommands: vi.fn(),
       listGuilds: vi.fn(),
       listMeetings: vi.fn(),
       listTasks: vi.fn(),
@@ -60,6 +61,14 @@ beforeEach(() => {
     total: 0,
   });
   vi.mocked(api.listTasks).mockResolvedValue([]);
+  vi.mocked(api.listCommands).mockResolvedValue([
+    {
+      commands: [
+        { description: "Inicia a gravação do canal de voz em que você está", name: "/record" },
+      ],
+      label: "Gravação",
+    },
+  ]);
 });
 
 afterEach(() => {

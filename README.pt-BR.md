@@ -549,9 +549,7 @@ Consulte [CONTRIBUTING.pt-BR.md](./CONTRIBUTING.pt-BR.md) e
 [CLA-INDIVIDUAL.pt-BR.md](./CLA-INDIVIDUAL.pt-BR.md). Para relatar bugs ou solicitar
 funcionalidades, abra uma issue.
 
-O guia completo está em [docs/installation.pt-BR.md](./docs/installation.pt-BR.md). A integração do
-novo frontend está especificada em
-[docs/dashboard-backend-contract.pt-BR.md](./docs/dashboard-backend-contract.pt-BR.md). Quem
+O guia completo está em [docs/installation.pt-BR.md](./docs/installation.pt-BR.md). Quem
 mantém releases também deve seguir
 [docs/release-checklist.pt-BR.md](./docs/release-checklist.pt-BR.md).
 
