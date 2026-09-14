@@ -124,7 +124,7 @@ describe("TasksPage", () => {
   it("asks the operator to install the bot when no server has it", () => {
     renderScreen(<TasksPage />, {
       context: dashboardContext({
-        guilds: guildSelection({ allGuilds: [], guilds: [], selectedGuildId: "" }),
+        guilds: guildSelection({ guilds: [], selectedGuildId: "" }),
       }),
     });
     expect(screen.getByRole("heading", { name: "Nenhum servidor instalado" })).toBeInTheDocument();

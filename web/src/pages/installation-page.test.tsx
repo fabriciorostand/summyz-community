@@ -1,54 +1,34 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api, type InstallationHealth, type InstallationSettings } from "../lib/api";
-import { renderScreen } from "../tests/test-utils";
+import { ApiError, api, type InstallationHealth } from "../lib/api";
+import { aSettings, dashboardContext, renderScreen } from "../tests/test-utils";
 import { InstallationPage } from "./installation-page";
 
-vi.mock("../lib/api", () => ({
-  api: {
-    getInstallationHealth: vi.fn(),
-    getInstallationSettings: vi.fn(),
-    updateInstallationSettings: vi.fn(),
-    updateSecret: vi.fn(),
-  },
-}));
-
-function settings(overrides: Partial<InstallationSettings> = {}): InstallationSettings {
+vi.mock("../lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
   return {
-    discordClientId: "1289443021764919306",
-    publicBaseUrl: "http://127.0.0.1:8787",
-    registrationEnabled: true,
-    secrets: {
-      discordBotToken: true,
-      discordClientSecret: true,
-      openRouterApiKey: false,
-      smtpPassword: true,
+    ApiError: actual.ApiError,
+    api: {
+      changePassword: vi.fn(),
+      getInstallationHealth: vi.fn(),
+      removeSecret: vi.fn(),
+      replaceBotToken: vi.fn(),
+      updateSecret: vi.fn(),
     },
-    setupCompleted: true,
-    smtp: {
-      fromEmail: "bot@pixelforge.gg",
-      fromName: "Summyz Community",
-      host: "smtp-relay.brevo.com",
-      port: 587,
-      replyTo: null,
-      secure: false,
-      user: "9a1b2c001@smtp-brevo.com",
-    },
-    ...overrides,
   };
-}
+});
 
-function health(): InstallationHealth {
+function aHealth(overrides: Partial<InstallationHealth> = {}): InstallationHealth {
   return {
-    checkedAt: "2026-09-08T12:00:00.000Z",
+    checkedAt: "2026-09-08T17:00:00.000Z",
     components: [
       {
         componentId: "bot-1",
         componentType: "bot",
         details: {},
-        heartbeatAt: "2026-09-08T11:59:00.000Z",
+        heartbeatAt: "2026-09-08T16:59:00.000Z",
         stale: false,
         status: "ready",
       },
@@ -60,35 +40,22 @@ function health(): InstallationHealth {
         stale: true,
         status: "degraded",
       },
-      {
-        componentId: "ollama-1",
-        componentType: "ollama",
-        details: {},
-        heartbeatAt: null,
-        stale: false,
-        status: "not_configured",
-      },
-      {
-        componentId: "smtp-1",
-        componentType: "smtp",
-        details: {},
-        heartbeatAt: null,
-        stale: false,
-        status: "unavailable",
-      },
     ],
     database: { latencyMs: 3, migrationVersion: 12, status: "ready" },
-    externalConfiguration: { openRouterConfigured: false, smtpConfigured: true },
+    externalConfiguration: { openRouterConfigured: true },
     localAiRequired: false,
     queue: { active: 0, failed: 0, oldestPendingAt: null, scheduled: 0 },
+    ...overrides,
   };
 }
 
 beforeEach(() => {
-  vi.mocked(api.getInstallationSettings).mockResolvedValue(settings());
-  vi.mocked(api.getInstallationHealth).mockResolvedValue(health());
-  vi.mocked(api.updateInstallationSettings).mockResolvedValue(undefined);
+  vi.mocked(api.getInstallationHealth).mockResolvedValue(aHealth());
+  vi.mocked(api.replaceBotToken).mockResolvedValue(undefined);
   vi.mocked(api.updateSecret).mockResolvedValue(undefined);
+  vi.mocked(api.removeSecret).mockResolvedValue(undefined);
+  vi.mocked(api.changePassword).mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText: vi.fn().mockResolvedValue(undefined) } });
 });
 
 afterEach(() => {
@@ -96,98 +63,129 @@ afterEach(() => {
 });
 
 describe("InstallationPage", () => {
-  it("loads the current credentials", async () => {
+  it("shows the read-only Application ID with a copy action", async () => {
     renderScreen(<InstallationPage />);
-    expect(await screen.findByLabelText("Client ID")).toHaveValue("1289443021764919306");
-    expect(screen.getByLabelText("URL pública")).toHaveValue("http://127.0.0.1:8787");
+    expect(screen.getByText("1289443021764919306")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Copiar Application ID" }));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("1289443021764919306");
+    expect(screen.queryByLabelText(/client secret/i)).toBeNull();
+    expect(screen.queryByText(/SMTP/)).toBeNull();
   });
 
-  it("marks which secrets are already configured", async () => {
+  it("replaces the bot token through the dedicated route", async () => {
     renderScreen(<InstallationPage />);
-    expect(await screen.findByLabelText("Token do bot")).toHaveAttribute(
-      "placeholder",
-      "Configurado — digite para substituir",
+    const field = screen.getByLabelText("Token do bot");
+    expect(field).toHaveAttribute("placeholder", "Configurado — digite para substituir");
+    await userEvent.type(field, "new-token");
+    await userEvent.click(screen.getByRole("button", { name: "Substituir" }));
+    await waitFor(() => expect(api.replaceBotToken).toHaveBeenCalledWith("new-token"));
+    expect(await screen.findByText(/Token substituído/)).toBeInTheDocument();
+    expect(field).toHaveValue("");
+  });
+
+  it("shows the Discord rejection when the new token is invalid", async () => {
+    vi.mocked(api.replaceBotToken).mockRejectedValue(
+      new ApiError(400, "invalid_discord_bot_token"),
     );
+    renderScreen(<InstallationPage />);
+    await userEvent.type(screen.getByLabelText("Token do bot"), "bad");
+    await userEvent.click(screen.getByRole("button", { name: "Substituir" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Token recusado pelo Discord");
+  });
+
+  it("updates and removes the OpenRouter key", async () => {
+    renderScreen(<InstallationPage />);
+    await userEvent.type(screen.getByLabelText("Chave OpenRouter"), "sk-or-1");
+    await userEvent.click(screen.getByRole("button", { name: "Atualizar" }));
+    await waitFor(() =>
+      expect(api.updateSecret).toHaveBeenCalledWith("openrouter_api_key", "sk-or-1"),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Remover chave OpenRouter" }));
+    await waitFor(() => expect(api.removeSecret).toHaveBeenCalledWith("openrouter_api_key"));
     expect(screen.getByLabelText("Chave OpenRouter")).toHaveAttribute(
       "placeholder",
       "Ainda não configurado",
     );
+    expect(screen.queryByText(/criptografados/)).toBeNull();
   });
 
-  it("keeps the secret update button disabled until something is typed", async () => {
+  it("hides the password block entirely in local mode", () => {
     renderScreen(<InstallationPage />);
-    await screen.findByLabelText("Token do bot");
-    const buttons = screen.getAllByRole("button", { name: "Atualizar" });
-    expect(buttons[0]).toBeDisabled();
-  });
-
-  it("sends a replacement secret", async () => {
-    renderScreen(<InstallationPage />);
-    await userEvent.type(await screen.findByLabelText("Token do bot"), "novo-token");
-    const buttons = screen.getAllByRole("button", { name: "Atualizar" });
-    await userEvent.click(buttons[0] as HTMLElement);
-    await waitFor(() =>
-      expect(api.updateSecret).toHaveBeenCalledWith("discord_bot_token", "novo-token"),
+    expect(screen.getByRole("banner")).toHaveTextContent("Modo local");
+    const access = screen.getByRole("region", { name: "Acesso ao dashboard" });
+    expect(within(access).getByRole("listitem", { name: "Modo local" })).toHaveTextContent("Ativo");
+    expect(within(access).getByRole("listitem", { name: "Modo público" })).not.toHaveTextContent(
+      "Ativo",
     );
+    expect(screen.queryByRole("heading", { name: "Senha da instalação" })).toBeNull();
+    expect(screen.queryByLabelText("Senha atual")).toBeNull();
+    expect(screen.queryByText(/recover-access/)).toBeNull();
   });
 
-  it("saves the installation settings", async () => {
+  it("shows the password block in public mode", () => {
+    renderScreen(<InstallationPage />, {
+      context: dashboardContext({ settings: aSettings({ accessMode: "public" }) }),
+    });
+    expect(screen.getByRole("heading", { name: "Senha da instalação" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Senha atual")).toBeEnabled();
+    expect(screen.getByText(/recover-access/)).toBeInTheDocument();
+  });
+
+  it("changes the installation password in public mode", async () => {
+    renderScreen(<InstallationPage />, {
+      context: dashboardContext({ settings: aSettings({ accessMode: "public" }) }),
+    });
+    expect(screen.getByRole("banner")).toHaveTextContent("Modo público");
+    await userEvent.type(screen.getByLabelText("Senha atual"), "senha antiga bem longa");
+    await userEvent.type(screen.getByLabelText("Nova senha"), "senha nova ainda mais longa");
+    await userEvent.click(screen.getByRole("button", { name: "Trocar senha" }));
+    await waitFor(() =>
+      expect(api.changePassword).toHaveBeenCalledWith(
+        "senha antiga bem longa",
+        "senha nova ainda mais longa",
+      ),
+    );
+    expect(await screen.findByText(/Senha trocada/)).toBeInTheDocument();
+  });
+
+  it("refuses a short new password before calling the API", async () => {
+    renderScreen(<InstallationPage />, {
+      context: dashboardContext({ settings: aSettings({ accessMode: "public" }) }),
+    });
+    await userEvent.type(screen.getByLabelText("Senha atual"), "senha antiga bem longa");
+    await userEvent.type(screen.getByLabelText("Nova senha"), "curta");
+    await userEvent.click(screen.getByRole("button", { name: "Trocar senha" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(/15 a 128/);
+    expect(api.changePassword).not.toHaveBeenCalled();
+  });
+
+  it("tells when the current password does not match", async () => {
+    vi.mocked(api.changePassword).mockRejectedValue(new ApiError(401, "invalid_password"));
+    renderScreen(<InstallationPage />, {
+      context: dashboardContext({ settings: aSettings({ accessMode: "public" }) }),
+    });
+    await userEvent.type(screen.getByLabelText("Senha atual"), "senha antiga bem longa");
+    await userEvent.type(screen.getByLabelText("Nova senha"), "senha nova ainda mais longa");
+    await userEvent.click(screen.getByRole("button", { name: "Trocar senha" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("A senha atual não confere");
+  });
+
+  it("lists the component health", async () => {
     renderScreen(<InstallationPage />);
-    await userEvent.click(await screen.findByRole("button", { name: "Salvar instalação" }));
-    await waitFor(() => expect(api.updateInstallationSettings).toHaveBeenCalledTimes(1));
-    expect(await screen.findByText("Alterações salvas")).toBeInTheDocument();
+    const health = await screen.findByRole("region", { name: "Estado da instalação" });
+    await waitFor(() =>
+      expect(within(health).getByText("Bot autenticado no Discord")).toBeInTheDocument(),
+    );
+    expect(within(health).getByText("FFmpeg com libopus")).toBeInTheDocument();
+    expect(within(health).getByText(/migração 12/)).toBeInTheDocument();
+    expect(within(health).getByText(/0 na fila/)).toBeInTheDocument();
   });
 
-  it("hides the SMTP fields when e-mail is turned off", async () => {
-    renderScreen(<InstallationPage />);
-    await userEvent.click(await screen.findByRole("checkbox", { name: /Envio de e-mail ativo/ }));
-    expect(screen.queryByLabelText("Servidor SMTP")).toBeNull();
-  });
-
-  it("edits the SMTP host", async () => {
-    renderScreen(<InstallationPage />);
-    const host = await screen.findByLabelText("Servidor SMTP");
-    await userEvent.clear(host);
-    await userEvent.type(host, "smtp.example.com");
-    expect(host).toHaveValue("smtp.example.com");
-  });
-
-  it("toggles public registration", async () => {
-    renderScreen(<InstallationPage />);
-    const toggle = await screen.findByRole("checkbox", { name: /Cadastro público/ });
-    expect(toggle).toBeChecked();
-    await userEvent.click(toggle);
-    expect(toggle).not.toBeChecked();
-  });
-
-  it("reports the health of every component", async () => {
-    renderScreen(<InstallationPage />);
-    expect(await screen.findByText("Bot autenticado no Discord")).toBeInTheDocument();
-    expect(screen.getByText("FFmpeg com libopus")).toBeInTheDocument();
-    expect(screen.getByText("sem heartbeat recente")).toBeInTheDocument();
-    expect(screen.getByText("migração 12 · 3 ms")).toBeInTheDocument();
-    expect(screen.getByText("0 na fila · 0 falhas")).toBeInTheDocument();
-  });
-
-  it("says when the health check itself fails", async () => {
+  it("degrades gracefully when the health check fails", async () => {
     vi.mocked(api.getInstallationHealth).mockRejectedValue(new Error("offline"));
     renderScreen(<InstallationPage />);
     expect(
       await screen.findByText("Não foi possível consultar o estado dos componentes."),
     ).toBeInTheDocument();
-  });
-
-  it("shows a skeleton while the settings load", () => {
-    renderScreen(<InstallationPage />);
-    expect(screen.getByRole("status")).toHaveTextContent("Carregando a instalação…");
-  });
-
-  it("starts from Brevo defaults when SMTP was never configured", async () => {
-    vi.mocked(api.getInstallationSettings).mockResolvedValue(settings({ smtp: null }));
-    renderScreen(<InstallationPage />);
-    const toggle = await screen.findByRole("checkbox", { name: /Envio de e-mail ativo/ });
-    expect(toggle).not.toBeChecked();
-    await userEvent.click(toggle);
-    expect(screen.getByLabelText("Servidor SMTP")).toHaveValue("smtp-relay.brevo.com");
   });
 });

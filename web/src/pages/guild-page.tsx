@@ -15,8 +15,9 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Disclosure } from "../components/disclosure";
-import { ErrorState, LoadingPanel } from "../components/states";
+import { ErrorState, GuildRemovedState, LoadingPanel } from "../components/states";
 import {
+  Avatar,
   Badge,
   Card,
   Notice,
@@ -25,22 +26,23 @@ import {
   SelectField,
   Toggle,
 } from "../components/ui";
+import { useBotInstallation } from "../hooks/use-bot-installation";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
-import { api, type GuildConfiguration, type GuildResources } from "../lib/api";
+import { ApiError, api, type GuildConfiguration, type GuildResources } from "../lib/api";
 import { formatCost, formatInteger } from "../lib/format";
 import { Screen } from "./screen";
 
 export function GuildPage() {
   const { guildId = "" } = useParams();
-  const { dashboard, guilds } = useDashboard();
+  const { dashboard, guilds, period } = useDashboard();
   const [configuration, setConfiguration] = useState<GuildConfiguration>();
   const [resources, setResources] = useState<GuildResources>();
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<"request_failed" | "guild_access_denied">();
   const [saved, setSaved] = useState(false);
 
   const load = useCallback(async () => {
-    setLoadError(false);
+    setLoadError(undefined);
     setConfiguration(undefined);
     setResources(undefined);
     try {
@@ -50,8 +52,13 @@ export function GuildPage() {
       ]);
       setConfiguration(nextConfiguration);
       setResources(nextResources);
-    } catch {
-      setLoadError(true);
+    } catch (caught) {
+      // A 403 means the bot left this server; everything else is a plain failure.
+      setLoadError(
+        caught instanceof ApiError && caught.status === 403
+          ? "guild_access_denied"
+          : "request_failed",
+      );
     }
   }, [guildId]);
 
@@ -77,18 +84,26 @@ export function GuildPage() {
           ) : undefined
         }
         breadcrumb={
-          <Link
-            className="flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
-            to="/servers"
-          >
-            <ArrowLeft className="size-3.5" />
-            Servidores
-          </Link>
+          <>
+            <Link
+              className="flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
+              to="/servers"
+            >
+              <ArrowLeft className="size-3.5" />
+              Servidores
+            </Link>
+            <span className="font-mono text-[11px] text-ink-dim">/</span>
+            {guild !== undefined && (
+              <Avatar avatarUrl={guild.iconUrl} name={guild.name} size={22} />
+            )}
+          </>
         }
         title={guild?.name ?? "Configuração do servidor"}
       />
       <Screen>
-        {loadError ? (
+        {loadError === "guild_access_denied" ? (
+          <RemovedGuild guildName={guild?.name} />
+        ) : loadError === "request_failed" ? (
           <ErrorState
             code="request_failed"
             onRetry={() => void load()}
@@ -105,6 +120,7 @@ export function GuildPage() {
             guildId={guildId}
             onChange={setConfiguration}
             onSaved={flashSaved}
+            periodLabel={periodLabels[period]}
             resources={resources}
           />
         )}
@@ -113,12 +129,24 @@ export function GuildPage() {
   );
 }
 
+function RemovedGuild({ guildName }: { guildName: string | undefined }) {
+  const { installUrl } = useBotInstallation();
+  return <GuildRemovedState guildName={guildName} installUrl={installUrl} />;
+}
+
+const periodLabels = {
+  "30d": "Últimos 30 dias.",
+  "90d": "Últimos 90 dias.",
+  all: "Todo o histórico.",
+} as const;
+
 function GuildBody({
   configuration,
   dashboard,
   guildId,
   onChange,
   onSaved,
+  periodLabel,
   resources,
 }: {
   configuration: GuildConfiguration;
@@ -126,6 +154,7 @@ function GuildBody({
   guildId: string;
   onChange: (value: GuildConfiguration) => void;
   onSaved: () => void;
+  periodLabel: string;
   resources: GuildResources;
 }) {
   async function activateProfile(profileId: string) {
@@ -177,6 +206,7 @@ function GuildBody({
   }
 
   const forum = resources.forums.find((item) => item.id === configuration.summaryForum?.forumId);
+  const selectedTag = forum?.tags.find((tag) => tag.id === configuration.summaryForum?.tagId);
   const memberCountsUnavailable = resources.memberCounts?.status === "unavailable";
 
   return (
@@ -194,7 +224,7 @@ function GuildBody({
                 <ArrowUpRight className="size-3.5" />
               </Link>
             }
-            description="Define os modelos de transcrição, refino e resumo das próximas reuniões."
+            description="Sem um perfil ativo aqui, o /record responde que falta configurar — o resto do bot continua no ar."
             icon={<Bot className="size-4" />}
             title="Perfil de IA usado neste servidor"
           />
@@ -238,33 +268,18 @@ function GuildBody({
             icon={<Megaphone className="size-4" />}
             title="Onde publicar os resumos"
           />
-          <div className="grid gap-3 sm:grid-cols-2">
-            <SelectField
-              label="Canal de fórum"
-              onChange={(event) => void updateForum(event.currentTarget.value)}
-              value={configuration.summaryForum?.forumId ?? ""}
-            >
-              <option value="">Não configurado</option>
-              {resources.forums.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.name}
-                </option>
-              ))}
-            </SelectField>
-            <SelectField
-              disabled={forum === undefined}
-              label="Tag padrão"
-              onChange={(event) => void updateTag(event.currentTarget.value)}
-              value={configuration.summaryForum?.tagId ?? ""}
-            >
-              <option value="">Sem tag</option>
-              {forum?.tags.map((tag) => (
-                <option key={tag.id} value={tag.id}>
-                  {tag.name}
-                </option>
-              ))}
-            </SelectField>
-          </div>
+          <SelectField
+            label="Canal de fórum"
+            onChange={(event) => void updateForum(event.currentTarget.value)}
+            value={configuration.summaryForum?.forumId ?? ""}
+          >
+            <option value="">Não configurado</option>
+            {resources.forums.map((item) => (
+              <option key={item.id} value={item.id}>
+                {item.name}
+              </option>
+            ))}
+          </SelectField>
         </Card>
 
         <Card>
@@ -337,24 +352,40 @@ function GuildBody({
         </Disclosure>
         <Disclosure
           icon={<Languages className="size-4" />}
-          summary={
+          summary={`${
             configuration.settings.botLanguage === "pt-BR" ? "Português (Brasil)" : "English"
-          }
-          title="Idioma do bot"
+          } · ${selectedTag === undefined ? "sem tag" : `tag ${selectedTag.name}`}`}
+          title="Idioma do bot e tag de publicação"
         >
-          <SelectField
-            label="Idioma do bot"
-            onChange={(event) =>
-              void saveSettings({
-                ...configuration.settings,
-                botLanguage: event.currentTarget.value === "pt-BR" ? "pt-BR" : "en",
-              })
-            }
-            value={configuration.settings.botLanguage}
-          >
-            <option value="pt-BR">Português (Brasil)</option>
-            <option value="en">English</option>
-          </SelectField>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <SelectField
+              label="Idioma do bot"
+              onChange={(event) =>
+                void saveSettings({
+                  ...configuration.settings,
+                  botLanguage: event.currentTarget.value === "pt-BR" ? "pt-BR" : "en",
+                })
+              }
+              value={configuration.settings.botLanguage}
+            >
+              <option value="pt-BR">Português (Brasil)</option>
+              <option value="en">English</option>
+            </SelectField>
+            <SelectField
+              disabled={forum === undefined}
+              hint="Aplicada aos posts publicados no fórum de resumos."
+              label="Tag de publicação"
+              onChange={(event) => void updateTag(event.currentTarget.value)}
+              value={configuration.summaryForum?.tagId ?? ""}
+            >
+              <option value="">Sem tag</option>
+              {forum?.tags.map((tag) => (
+                <option key={tag.id} value={tag.id}>
+                  {tag.name}
+                </option>
+              ))}
+            </SelectField>
+          </div>
         </Disclosure>
       </div>
 
@@ -363,9 +394,7 @@ function GuildBody({
           <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
             Este servidor em números
           </h2>
-          <p className="m-0 mt-1 mb-3 text-[11.5px] text-ink-muted">
-            Período selecionado na visão geral.
-          </p>
+          <p className="m-0 mt-1 mb-3 text-[11.5px] text-ink-muted">{periodLabel}</p>
           {dashboard === undefined ? (
             <p className="m-0 text-[12.5px] text-ink-muted">Métricas indisponíveis.</p>
           ) : (
@@ -398,7 +427,11 @@ function GuildBody({
             <CheckItem done={configuration.activeProfileId !== null} label="Perfil de IA ativo" />
             <CheckItem
               done={configuration.recordingRoleIds.length > 0}
-              label="Cargo extra autorizado"
+              label={
+                configuration.recordingRoleIds.length > 0
+                  ? "Cargo extra autorizado"
+                  : "Nenhum cargo extra autorizado"
+              }
             />
           </div>
         </Card>

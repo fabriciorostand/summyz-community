@@ -11,7 +11,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 
 import { Disclosure, Tabs } from "../../components/disclosure";
 import { ErrorState, LoadingPanel } from "../../components/states";
-import { Badge, Button, Card, Field, Notice, RailLabel } from "../../components/ui";
+import { Badge, Button, Card, Field, HelpTip, Notice, RailLabel } from "../../components/ui";
 import { useDashboard } from "../../layout/dashboard-layout";
 import { TopBar } from "../../layout/top-bar";
 import {
@@ -35,7 +35,7 @@ function firstProfileId(
 }
 
 export function ProfilesPage() {
-  const { controls, user } = useDashboard();
+  const { settings } = useDashboard();
   const [items, setItems] = useState<ProfileListItem[]>();
   const [profileType, setProfileType] = useState<Profile["profileType"]>("external");
   const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
@@ -89,19 +89,21 @@ export function ProfilesPage() {
     <>
       <TopBar
         actions={
-          <>
-            {items !== undefined && selected !== undefined && (
-              <CreateProfileButton
-                items={items}
-                locale={user.dashboardLanguage}
-                onCreated={addProfile}
-                template={selected.profile}
-              />
-            )}
-            {controls}
-          </>
+          items !== undefined &&
+          selected !== undefined && (
+            <CreateProfileButton
+              items={items}
+              locale={settings.dashboardLanguage}
+              onCreated={addProfile}
+              template={selected.profile}
+            />
+          )
         }
-        meta="Pessoais · reutilizáveis em qualquer servidor"
+        meta={
+          <HelpTip>
+            Perfis são globais da instalação: qualquer servidor pode ativar qualquer perfil.
+          </HelpTip>
+        }
         title="Perfis de IA"
       />
       <Screen>
@@ -250,7 +252,7 @@ function CreateProfileButton({
 }) {
   const [busy, setBusy] = useState(false);
   async function create() {
-    const { profileId: _profileId, userId: _userId, ...base } = template;
+    const { profileId: _profileId, ...base } = template;
     setBusy(true);
     try {
       onCreated(

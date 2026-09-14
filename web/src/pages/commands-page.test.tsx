@@ -7,6 +7,7 @@ import { CommandsPage } from "./commands-page";
 describe("CommandsPage", () => {
   it("groups the commands the bot registers", () => {
     renderScreen(<CommandsPage />);
+    expect(screen.getByRole("banner")).toHaveTextContent("Registrados pelo bot no Discord");
     expect(screen.getByText("Gravação")).toBeInTheDocument();
     expect(screen.getByText("Atalhos administrativos")).toBeInTheDocument();
     expect(screen.getByText("Custo — só para o dono do servidor")).toBeInTheDocument();
@@ -19,11 +20,9 @@ describe("CommandsPage", () => {
     expect(screen.getByText("/recording-cost period")).toBeInTheDocument();
   });
 
-  it("points at the file that holds the canonical names", () => {
+  it("is a plain reference without a second column", () => {
     renderScreen(<CommandsPage />);
-    expect(screen.getByText("BOT_COMMANDS.md")).toBeInTheDocument();
-    expect(
-      screen.getByRole("heading", { name: "O dashboard é a fonte da verdade" }),
-    ).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { level: 2 })).toBeNull();
+    expect(screen.queryByTestId("controls")).toBeNull();
   });
 });

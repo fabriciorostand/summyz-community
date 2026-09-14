@@ -1,24 +1,28 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { App } from "./app";
-import { ApiError, api } from "./lib/api";
-import { aDashboard, aGuild, aUser } from "./tests/test-utils";
+import { ApiError, api, subscribeToSessionExpiry } from "./lib/api";
+import { aDashboard, aGuild, aSettings } from "./tests/test-utils";
 
 vi.mock("./lib/api", async () => {
   const actual = await vi.importActual<typeof import("./lib/api")>("./lib/api");
   return {
     ApiError: actual.ApiError,
     api: {
+      getAccessStatus: vi.fn(),
+      getBotInstallation: vi.fn(),
       getDashboard: vi.fn(),
+      getSettings: vi.fn(),
       getSetupStatus: vi.fn(),
       listGuilds: vi.fn(),
       listMeetings: vi.fn(),
       listTasks: vi.fn(),
-      me: vi.fn(),
+      login: vi.fn(),
     },
+    subscribeToSessionExpiry: vi.fn(),
   };
 });
 
@@ -31,11 +35,21 @@ function renderApp(route: string) {
 }
 
 beforeEach(() => {
-  vi.mocked(api.getSetupStatus).mockResolvedValue({
-    registrationEnabled: true,
+  vi.mocked(subscribeToSessionExpiry).mockReturnValue(() => undefined);
+  vi.mocked(api.getAccessStatus).mockResolvedValue({
+    accessMode: "local",
+    authenticated: true,
+    passwordConfigured: false,
     setupCompleted: true,
   });
-  vi.mocked(api.me).mockResolvedValue(aUser());
+  vi.mocked(api.getSetupStatus).mockResolvedValue({
+    accessMode: "local",
+    passwordConfigured: false,
+    setupCompleted: false,
+    technicalSetupCompleted: false,
+  });
+  vi.mocked(api.getSettings).mockResolvedValue(aSettings());
+  vi.mocked(api.getBotInstallation).mockResolvedValue({ configured: false });
   vi.mocked(api.listGuilds).mockResolvedValue([aGuild()]);
   vi.mocked(api.getDashboard).mockResolvedValue(aDashboard());
   vi.mocked(api.listMeetings).mockResolvedValue({
@@ -53,13 +67,13 @@ afterEach(() => {
 });
 
 describe("App", () => {
-  it("waits for the setup status before routing", () => {
+  it("waits for the access status before routing", () => {
     renderApp("/");
     expect(screen.getByRole("status")).toHaveTextContent("Preparando o Summyz Community…");
   });
 
   it("offers a retry when the API cannot be reached", async () => {
-    vi.mocked(api.getSetupStatus).mockRejectedValueOnce(new Error("offline"));
+    vi.mocked(api.getAccessStatus).mockRejectedValueOnce(new Error("offline"));
     renderApp("/");
     expect(
       await screen.findByRole("heading", { name: "Não foi possível falar com o servidor" }),
@@ -68,36 +82,80 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
   });
 
-  it("forces the setup wizard until the first run is complete", async () => {
-    vi.mocked(api.getSetupStatus).mockResolvedValue({
-      registrationEnabled: false,
+  it("forces the first-run setup until it is complete", async () => {
+    vi.mocked(api.getAccessStatus).mockResolvedValue({
+      accessMode: "local",
+      authenticated: true,
+      passwordConfigured: false,
       setupCompleted: false,
     });
     renderApp("/history");
-    expect(await screen.findByText("Passo 1 de 3 · Conta administradora")).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Cole o token do bot" })).toBeInTheDocument();
   });
 
-  it("renders the overview once authenticated", async () => {
+  it("renders the overview straight away in local mode", async () => {
     renderApp("/");
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+    expect(api.getSettings).toHaveBeenCalled();
+  });
+
+  it("asks for the installation password in public mode until unlocked", async () => {
+    vi.mocked(api.getAccessStatus).mockResolvedValue({
+      accessMode: "public",
+      authenticated: false,
+      passwordConfigured: true,
+      setupCompleted: true,
+    });
+    renderApp("/tasks");
+    expect(await screen.findByRole("heading", { name: "Desbloquear" })).toBeInTheDocument();
+    expect(api.getSettings).not.toHaveBeenCalled();
+  });
+
+  it("sends an unlocked public visitor away from the login screen", async () => {
+    vi.mocked(api.getAccessStatus).mockResolvedValue({
+      accessMode: "public",
+      authenticated: true,
+      passwordConfigured: true,
+      setupCompleted: true,
+    });
+    renderApp("/login");
     expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
   });
 
-  it("sends an unauthenticated visitor to the login screen", async () => {
-    vi.mocked(api.me).mockRejectedValue(new ApiError(401, "session_expired"));
+  it("shows the expired-session state when a request loses the session", async () => {
+    vi.mocked(api.getAccessStatus).mockResolvedValue({
+      accessMode: "public",
+      authenticated: true,
+      passwordConfigured: true,
+      setupCompleted: true,
+    });
     renderApp("/");
-    expect(await screen.findByRole("heading", { level: 1, name: "Entrar" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+    const [listener] = vi.mocked(subscribeToSessionExpiry).mock.calls.at(-1) ?? [];
+    if (listener === undefined) throw new Error("expected a session expiry listener");
+    act(() => listener());
+    expect(await screen.findByRole("heading", { name: "Sua sessão expirou" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("link", { name: /Desbloquear/ }));
+    expect(await screen.findByRole("heading", { name: "Desbloquear" })).toBeInTheDocument();
   });
 
-  it("keeps waiting when the identity request fails for another reason", async () => {
-    vi.mocked(api.me).mockRejectedValue(new Error("offline"));
+  it("keeps waiting when the settings request fails for another reason", async () => {
+    vi.mocked(api.getSettings).mockRejectedValue(new Error("offline"));
     renderApp("/");
-    await waitFor(() => expect(api.me).toHaveBeenCalled());
+    await waitFor(() => expect(api.getSettings).toHaveBeenCalled());
     expect(screen.getByRole("status")).toBeInTheDocument();
   });
 
-  it("serves the login screen directly", async () => {
-    renderApp("/login");
-    expect(await screen.findByRole("heading", { level: 1, name: "Entrar" })).toBeInTheDocument();
+  it("treats a 401 from the settings request as an expired session", async () => {
+    vi.mocked(api.getAccessStatus).mockResolvedValue({
+      accessMode: "public",
+      authenticated: true,
+      passwordConfigured: true,
+      setupCompleted: true,
+    });
+    vi.mocked(api.getSettings).mockRejectedValue(new ApiError(401, "session_expired"));
+    renderApp("/");
+    expect(await screen.findByRole("heading", { name: "Sua sessão expirou" })).toBeInTheDocument();
   });
 
   it("redirects an unknown route back to the overview", async () => {
@@ -115,13 +173,13 @@ describe("App", () => {
     expect(await screen.findByRole("heading", { name: "Comandos" })).toBeInTheDocument();
   });
 
-  it("no longer exposes the registration route", async () => {
-    renderApp("/register");
-    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+  it("routes to the preferences screen", async () => {
+    renderApp("/settings");
+    expect(await screen.findByRole("heading", { name: "Preferências" })).toBeInTheDocument();
   });
 
-  it("no longer exposes the password recovery route", async () => {
-    renderApp("/forgot-password");
+  it("no longer exposes the account route", async () => {
+    renderApp("/account");
     expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
   });
 });

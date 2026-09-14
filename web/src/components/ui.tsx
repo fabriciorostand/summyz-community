@@ -1,10 +1,12 @@
 import {
   type ButtonHTMLAttributes,
+  type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useId,
+  useState,
 } from "react";
 
 import { initialsOf } from "../lib/format";
@@ -163,9 +165,13 @@ export function Toggle({
   );
 }
 
-export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
+export function Card({
+  children,
+  className = "",
+  ...props
+}: HTMLAttributes<HTMLElement> & { children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-xl border border-line bg-surface p-5 ${className}`}>
+    <section className={`rounded-xl border border-line bg-surface p-5 ${className}`} {...props}>
       {children}
     </section>
   );
@@ -175,11 +181,13 @@ export function SectionHeading({
   action,
   description,
   icon,
+  id,
   title,
 }: {
   action?: ReactNode;
   description?: string;
   icon?: ReactNode;
+  id?: string;
   title: string;
 }) {
   return (
@@ -190,7 +198,9 @@ export function SectionHeading({
         </span>
       )}
       <div className="min-w-0 flex-1">
-        <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">{title}</h2>
+        <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink" id={id}>
+          {title}
+        </h2>
         {description !== undefined && (
           <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-ink-muted">{description}</p>
         )}
@@ -312,5 +322,81 @@ export function FormError({ children }: { children: ReactNode }) {
     >
       {children}
     </p>
+  );
+}
+
+/** Discord's own mark, used wherever the design sends the operator to the Discord authorization. */
+export function DiscordIcon({ className = "size-4" }: { className?: string }) {
+  return (
+    <svg aria-hidden="true" className={className} fill="currentColor" viewBox="0 0 24 24">
+      <path d="M20.317 4.3698a19.7913 19.7913 0 0 0-4.8851-1.5152.0741.0741 0 0 0-.0785.0371c-.211.3753-.4447.8648-.6083 1.2495-1.8447-.2762-3.68-.2762-5.4868 0-.1636-.3933-.4058-.8742-.6177-1.2495a.077.077 0 0 0-.0785-.037 19.7363 19.7363 0 0 0-4.8852 1.515.0699.0699 0 0 0-.0321.0277C.5334 9.0458-.319 13.5799.0992 18.0578a.0824.0824 0 0 0 .0312.0561c2.0528 1.5076 4.0413 2.4228 5.9929 3.0294a.0777.0777 0 0 0 .0842-.0276c.4616-.6304.8731-1.2952 1.226-1.9942a.076.076 0 0 0-.0416-.1057c-.6528-.2476-1.2743-.5495-1.8722-.8923a.077.077 0 0 1-.0076-.1277c.1258-.0943.2517-.1923.3718-.2914a.0743.0743 0 0 1 .0776-.0105c3.9278 1.7933 8.18 1.7933 12.0614 0a.0739.0739 0 0 1 .0785.0095c.1202.099.246.198.3728.2924a.077.077 0 0 1-.0066.1276 12.2986 12.2986 0 0 1-1.873.8914.0766.0766 0 0 0-.0407.1067c.3604.698.7719 1.3628 1.225 1.9932a.076.076 0 0 0 .0842.0286c1.961-.6067 3.9495-1.5219 6.0023-3.0294a.077.077 0 0 0 .0313-.0552c.5004-5.177-.8382-9.6739-3.5485-13.6604a.061.061 0 0 0-.0312-.0286zM8.02 15.3312c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9555-2.4189 2.157-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.9555 2.4189-2.1569 2.4189zm7.9748 0c-1.1825 0-2.1569-1.0857-2.1569-2.419 0-1.3332.9554-2.4189 2.1569-2.4189 1.2108 0 2.1757 1.0952 2.1568 2.419 0 1.3332-.946 2.4189-2.1568 2.4189z" />
+    </svg>
+  );
+}
+
+/** Reads like a link, behaves like one when there is somewhere to go and stays inert otherwise. */
+export function InlineLink({
+  children,
+  className = "",
+  href,
+}: {
+  children: ReactNode;
+  className?: string;
+  href?: string;
+}) {
+  const base = `inline-flex items-center gap-1 text-[12.5px] ${className}`;
+  if (href === undefined) {
+    return (
+      <span aria-disabled="true" className={`${base} cursor-default text-ink-dim`}>
+        {children}
+      </span>
+    );
+  }
+  return (
+    <a className={`${base} text-accent hover:text-accent-hover`} href={href}>
+      {children}
+    </a>
+  );
+}
+
+/**
+ * The "?" affordance from the design: a short explanation that shows on hover or focus and
+ * is wired through aria-describedby so keyboard and screen-reader users get it too.
+ */
+export function HelpTip({
+  children,
+  placement = "below",
+}: {
+  children: ReactNode;
+  placement?: "below" | "left";
+}) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const position =
+    placement === "left" ? "top-[-6px] right-[calc(100%+10px)]" : "top-[26px] left-[-8px]";
+  return (
+    <span className="relative inline-flex">
+      <button
+        aria-describedby={open ? id : undefined}
+        aria-label="Ajuda"
+        className="grid size-[17px] cursor-help place-items-center rounded-full border border-line-strong font-mono text-[10px] font-bold text-ink-dim transition-colors hover:border-action hover:text-accent-hover focus:border-action focus:text-accent-hover focus:outline-none"
+        onBlur={() => setOpen(false)}
+        onFocus={() => setOpen(true)}
+        onMouseEnter={() => setOpen(true)}
+        onMouseLeave={() => setOpen(false)}
+        type="button"
+      >
+        ?
+      </button>
+      {open && (
+        <span
+          className={`absolute z-10 w-[260px] rounded-lg border border-line-strong bg-surface-inset px-3.5 py-2.5 text-left text-[11.5px] leading-relaxed font-normal tracking-normal normal-case text-ink-secondary shadow-xl ${position}`}
+          id={id}
+          role="tooltip"
+        >
+          {children}
+        </span>
+      )}
+    </span>
   );
 }
