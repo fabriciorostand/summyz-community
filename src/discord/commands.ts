@@ -1,6 +1,6 @@
 import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 
-import { commandCatalog, type CommandLanguage } from "./command-catalog.js";
+import { type CommandLanguage, commandCatalog } from "./command-catalog.js";
 
 export function createCommandDefinitions(language: CommandLanguage) {
   const { record, recordingCost, recordingRole, recordingSummaryForum, stop } = commandCatalog;
