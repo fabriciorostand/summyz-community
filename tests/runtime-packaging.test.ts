@@ -80,6 +80,12 @@ describe("runtime packaging", () => {
     expect(fasterWhisperDockerfile).toContain("--no-binary=av");
     expect(fasterWhisperDockerfile).toContain("requirements.lock");
     expect(dashboardRuntime).not.toContain("apt-get install");
+    // Base images lag behind bookworm-security, so the scanned runtimes must apply the
+    // pinned snapshot's security upgrades before they ship.
+    const runtimeBase = dockerfile.split(" AS runtime-base")[1]?.split(" AS bot-runtime")[0];
+    const whisperCpu = fasterWhisperDockerfile.split(" AS cpu")[1]?.split(" AS cuda")[0];
+    expect(runtimeBase).toContain("apt-get upgrade --yes --no-install-recommends");
+    expect(whisperCpu).toContain("apt-get upgrade --yes --no-install-recommends");
     expect(dockerfile).toContain("COPY package.json package-lock.json .npmrc ./");
     expect(dockerfile).not.toContain("COPY config");
   });
@@ -152,7 +158,8 @@ describe("runtime packaging", () => {
     );
 
     for (const contents of [dockerfile, fasterWhisperDockerfile]) {
-      expect(contents).toContain("DEBIAN_SNAPSHOT=20260906T000000Z");
+      expect(contents).toContain("DEBIAN_SNAPSHOT=20260913T000000Z");
+      expect(contents).not.toContain("DEBIAN_SNAPSHOT=20260906T000000Z");
       expect(contents).toMatch(/snapshot\.debian\.org\/archive\/debian\/\$\{DEBIAN_SNAPSHOT\}/u);
       expect(contents).toMatch(
         /snapshot\.debian\.org\/archive\/debian-security\/\$\{DEBIAN_SNAPSHOT\}/u,
