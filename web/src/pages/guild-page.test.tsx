@@ -2,7 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../lib/api";
+import { ApiError, api } from "../lib/api";
 import {
   aGuildConfiguration,
   aGuildResources,
@@ -12,22 +12,32 @@ import {
 } from "../tests/test-utils";
 import { GuildPage } from "./guild-page";
 
-vi.mock("../lib/api", () => ({
-  api: {
-    getGuildConfiguration: vi.fn(),
-    getGuildResources: vi.fn(),
-    setActiveProfile: vi.fn(),
-    updateForum: vi.fn(),
-    updateGuildSettings: vi.fn(),
-    updateRecordingPermissions: vi.fn(),
-  },
-}));
+vi.mock("../lib/api", async () => {
+  const actual = await vi.importActual<typeof import("../lib/api")>("../lib/api");
+  return {
+    ApiError: actual.ApiError,
+    api: {
+      getBotInstallation: vi.fn(),
+      getGuildConfiguration: vi.fn(),
+      getGuildResources: vi.fn(),
+      setActiveProfile: vi.fn(),
+      updateForum: vi.fn(),
+      updateGuildSettings: vi.fn(),
+      updateRecordingPermissions: vi.fn(),
+    },
+  };
+});
 
 function renderGuild(context = dashboardContext()) {
   return renderScreen(<GuildPage />, { context, path: "/guilds/:guildId", route: "/guilds/g1" });
 }
 
 beforeEach(() => {
+  vi.mocked(api.getBotInstallation).mockResolvedValue({
+    applicationId: "1",
+    configured: true,
+    installUrl: "https://discord.com/oauth2/authorize?client_id=1",
+  });
   vi.mocked(api.getGuildConfiguration).mockResolvedValue(aGuildConfiguration());
   vi.mocked(api.getGuildResources).mockResolvedValue(aGuildResources());
   vi.mocked(api.setActiveProfile).mockResolvedValue(undefined);
@@ -113,10 +123,12 @@ describe("GuildPage", () => {
     await waitFor(() => expect(api.updateForum).toHaveBeenCalledWith("g1", null));
   });
 
-  it("sets the default forum tag", async () => {
+  it("keeps the default forum tag behind the advanced disclosure", async () => {
     renderGuild();
-    await screen.findByLabelText("Tag padrão");
-    await userEvent.selectOptions(screen.getByLabelText("Tag padrão"), "t1");
+    const toggle = await screen.findByRole("button", { name: /Idioma do bot e tag de publicação/ });
+    expect(toggle).toHaveTextContent("Português (Brasil) · sem tag");
+    await userEvent.click(toggle);
+    await userEvent.selectOptions(screen.getByLabelText("Tag de publicação"), "t1");
     await waitFor(() =>
       expect(api.updateForum).toHaveBeenCalledWith("g1", { forumId: "f1", tagId: "t1" }),
     );
@@ -185,5 +197,24 @@ describe("GuildPage", () => {
   it("says when the metrics are unavailable", async () => {
     renderGuild(dashboardContext({ dashboard: undefined }));
     expect(await screen.findByText("Métricas indisponíveis.")).toBeInTheDocument();
+  });
+
+  it("explains a 403 as the bot having left the server", async () => {
+    vi.mocked(api.getGuildConfiguration).mockRejectedValue(
+      new ApiError(403, "guild_access_denied"),
+    );
+    renderGuild();
+    expect(
+      await screen.findByRole("heading", { name: "O bot não está mais neste servidor" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("alert")).toHaveTextContent("Pixelforge");
+    expect(await screen.findByRole("link", { name: /Adicionar de volta/ })).toHaveAttribute(
+      "href",
+      "https://discord.com/oauth2/authorize?client_id=1",
+    );
+    expect(screen.getByRole("link", { name: "Ver servidores" })).toHaveAttribute(
+      "href",
+      "/servers",
+    );
   });
 });

@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -15,10 +15,15 @@ import {
 import { OverviewPage } from "./overview-page";
 
 vi.mock("../lib/api", () => ({
-  api: { listMeetings: vi.fn(), listTasks: vi.fn() },
+  api: { getBotInstallation: vi.fn(), listMeetings: vi.fn(), listTasks: vi.fn() },
 }));
 
 beforeEach(() => {
+  vi.mocked(api.getBotInstallation).mockResolvedValue({
+    applicationId: "1",
+    configured: true,
+    installUrl: "https://discord.com/oauth2/authorize?client_id=1",
+  });
   vi.mocked(api.listMeetings).mockResolvedValue(aMeetingPage());
   vi.mocked(api.listTasks).mockResolvedValue([aTask()]);
 });
@@ -43,11 +48,21 @@ describe("OverviewPage", () => {
     expect(await screen.findByText("2 pendentes")).toBeInTheDocument();
   });
 
-  it("breaks the cost down by phase and provider", async () => {
+  it("breaks the cost down by phase and provider with a stacked bar", async () => {
     renderScreen(<OverviewPage />);
     expect(await screen.findByText(/Transcrição/)).toBeInTheDocument();
     expect(screen.getByText("USD 7,21")).toBeInTheDocument();
     expect(screen.getByText("sem custo")).toBeInTheDocument();
+    expect(
+      screen.getByRole("img", { name: "Distribuição do custo confirmado" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the cost detail link inert until that screen exists", async () => {
+    renderScreen(<OverviewPage />);
+    const detail = await screen.findByText("Detalhar");
+    expect(detail).toHaveAttribute("aria-disabled", "true");
+    expect(detail.closest("a")).toBeNull();
   });
 
   it("ranks the top speakers by share of talk time", async () => {
@@ -77,9 +92,23 @@ describe("OverviewPage", () => {
     expect(screen.getByText(/perfil/)).toHaveTextContent("Padrão OpenRouter");
   });
 
-  it("lists the open tasks with a link to the full screen", async () => {
+  it("groups the open tasks by owner with a link to the full screen", async () => {
+    vi.mocked(api.listTasks).mockResolvedValue([
+      aTask(),
+      aTask({ deadlineDate: null, taskId: "33333333-3333-4333-8333-333333333333", text: "Plano" }),
+      aTask({
+        ownerDisplayName: "RespawnRita",
+        ownerUserId: "u2",
+        taskId: "44444444-4444-4444-8444-444444444444",
+        text: "Abrir o repro",
+      }),
+    ]);
     renderScreen(<OverviewPage />);
-    expect(await screen.findByText("Marcar a branch de release")).toBeInTheDocument();
+    const panel = (await screen.findByText("Marcar a branch de release")).closest("section");
+    if (panel === null) throw new Error("expected the tasks card");
+    expect(within(panel).getByText("PixelPaladin").closest("div")).toHaveTextContent("2");
+    expect(within(panel).getByText("RespawnRita").closest("div")).toHaveTextContent("1");
+    expect(within(panel).getAllByText("SEX 04/09")).toHaveLength(2);
     expect(screen.getByRole("link", { name: "Ver todas as 7" })).toHaveAttribute("href", "/tasks");
   });
 
@@ -89,27 +118,36 @@ describe("OverviewPage", () => {
     expect(screen.getByRole("link", { name: "Histórico" })).toHaveAttribute("href", "/history");
   });
 
-  it("offers to install the bot when no server has it", () => {
+  it("offers the Discord authorization when the bot is in no server", async () => {
     renderScreen(<OverviewPage />, {
       context: dashboardContext({
         dashboard: undefined,
-        guilds: guildSelection({ allGuilds: [], guilds: [], selectedGuildId: "" }),
+        guilds: guildSelection({ guilds: [], selectedGuildId: "" }),
       }),
     });
-    expect(screen.getByRole("heading", { name: "Nenhum servidor ainda" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "O bot ainda não está em nenhum servidor" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: /Adicionar o bot a um servidor/ }),
+    ).toHaveAttribute("href", "https://discord.com/oauth2/authorize?client_id=1");
   });
 
-  it("shows a retryable error when the metrics fail", async () => {
+  it("shows a retryable error pointing at the installation when the metrics fail", async () => {
     const reload = vi.fn();
     renderScreen(<OverviewPage />, {
       context: dashboardContext({
         dashboardError: true,
-        guilds: guildSelection({ allGuilds: [], guilds: [], reload, selectedGuild: undefined }),
+        guilds: guildSelection({ guilds: [], reload, selectedGuild: undefined }),
       }),
     });
     expect(
       screen.getByRole("heading", { name: "Não foi possível carregar as métricas" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ver instalação" })).toHaveAttribute(
+      "href",
+      "/installation",
+    );
     await userEvent.click(screen.getByRole("button", { name: /Tentar novamente/ }));
     expect(reload).toHaveBeenCalledTimes(1);
   });
@@ -164,7 +202,9 @@ describe("OverviewPage cost warnings", () => {
         },
       }),
     });
-    expect(await screen.findByText(/não atribuída\(s\) automaticamente/)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/2 tentativas não foram atribuídas automaticamente/),
+    ).toBeInTheDocument();
   });
 
   it("says when no cost was registered", async () => {

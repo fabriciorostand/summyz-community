@@ -3,14 +3,21 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { Tabs } from "../components/disclosure";
-import { EmptyState, ErrorState, LoadingPanel } from "../components/states";
-import { Avatar, Badge, Card, Meter, RailLabel } from "../components/ui";
+import { ErrorState, LoadingPanel, NoServerState, secondaryLinkClass } from "../components/states";
+import { Avatar, Badge, Card, InlineLink, Meter, RailLabel } from "../components/ui";
+import { useBotInstallation } from "../hooks/use-bot-installation";
 import { type DashboardPeriod, useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
-import { api, type DashboardAnalytics, type MeetingHistoryPage } from "../lib/api";
+import {
+  api,
+  type DashboardAnalytics,
+  type DashboardTask,
+  type MeetingHistoryPage,
+} from "../lib/api";
 import {
   formatCost,
   formatDate,
+  formatDeadline,
   formatDuration,
   formatElapsed,
   formatInteger,
@@ -18,7 +25,14 @@ import {
   percentageOf,
   pipelineStatus,
 } from "../lib/format";
+import { groupByOwner } from "../lib/task-groups";
 import { Screen } from "./screen";
+
+const periodLabels: Record<DashboardPeriod, string> = {
+  "30d": "Últimos 30 dias",
+  "90d": "Últimos 90 dias",
+  all: "Todo o histórico",
+};
 
 export function OverviewPage() {
   const { controls, dashboard, dashboardError, guilds, period, setPeriod } = useDashboard();
@@ -63,16 +77,14 @@ function OverviewBody({
         code="request_failed"
         onRetry={onRetry}
         secondaryAction={
-          <Link
-            className="rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
-            to="/account"
-          >
-            Ver conexão Discord
+          <Link className={secondaryLinkClass} to="/installation">
+            Ver instalação
           </Link>
         }
         title="Não foi possível carregar as métricas"
       >
-        A consulta ao servidor falhou. Isso não afeta as gravações em andamento.
+        A consulta falhou. As gravações em andamento não são afetadas — o bot roda separado do
+        dashboard.
       </ErrorState>
     );
   }
@@ -87,7 +99,7 @@ function OverviewBody({
         {dashboard.liveMeeting != null && <LiveCard liveMeeting={dashboard.liveMeeting} />}
         <div>
           <div className="mb-3 flex items-center gap-3">
-            <span className="label-mono text-ink-muted">Período</span>
+            <span className="label-mono text-ink-muted">Período · {periodLabels[period]}</span>
             <span className="h-px flex-1 bg-line-soft" />
             <Tabs
               ariaLabel="Período"
@@ -115,29 +127,8 @@ function OverviewBody({
 }
 
 function NoGuildState() {
-  return (
-    <EmptyState
-      action={
-        <Link
-          className="rounded-lg bg-action px-3.5 py-2 text-[13.5px] font-medium text-white"
-          to="/servers"
-        >
-          Instalar no Discord
-        </Link>
-      }
-      secondaryAction={
-        <Link
-          className="rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
-          to="/commands"
-        >
-          Ver os comandos do bot
-        </Link>
-      }
-      title="Nenhum servidor ainda"
-    >
-      Instale o Summyz em um servidor do Discord para começar a gravar calls e ver as métricas aqui.
-    </EmptyState>
-  );
+  const { installUrl } = useBotInstallation();
+  return <NoServerState installUrl={installUrl} />;
 }
 
 function LiveCard({
@@ -306,7 +297,7 @@ function Metric({
     <div>
       <div className="label-mono text-ink-muted">{label}</div>
       <div className="mt-2 flex items-baseline gap-2">
-        <strong className="font-mono text-[26px] leading-none font-medium tracking-tight text-ink">
+        <strong className="font-mono text-[26px] leading-none font-medium tracking-tight whitespace-nowrap text-ink">
           {value}
         </strong>
         {delta !== undefined && delta !== null && (
@@ -361,45 +352,96 @@ function TopSpeakersCard({ dashboard }: { dashboard: DashboardAnalytics }) {
   );
 }
 
+const phaseLabels = {
+  refinement: "Refino",
+  summary: "Resumo",
+  transcription: "Transcrição",
+  translation: "Tradução",
+} as const;
+
+const costSegmentColors = ["bg-action", "bg-accent", "bg-[#4ea8e0]", "bg-ok", "bg-warn"] as const;
+
+type CostEntry = DashboardAnalytics["cost"]["breakdown"][number];
+
+/** Sum of an entry's confirmed amounts; the stacked bar only needs proportions. */
+function confirmedAmount(entry: CostEntry): number {
+  return entry.confirmed.reduce((sum, item) => {
+    const amount = Number(item.amount);
+    return Number.isFinite(amount) ? sum + amount : sum;
+  }, 0);
+}
+
+function segmentColor(index: number): string {
+  return costSegmentColors[index % costSegmentColors.length] ?? "bg-action";
+}
+
 function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
   const unattributed = dashboard.cost.attemptCounts.unattributed;
-  const phaseLabels = {
-    refinement: "Refino",
-    summary: "Resumo",
-    transcription: "Transcrição",
-    translation: "Tradução",
-  } as const;
+  const paid = dashboard.cost.breakdown.filter((entry) => entry.execution !== "local");
+  const total = paid.reduce((sum, entry) => sum + confirmedAmount(entry), 0);
   return (
     <Card>
-      <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">
-        Custo por provedor
-      </h2>
+      <div className="mb-4 flex items-center justify-between">
+        <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
+          Custo por provedor
+        </h2>
+        <InlineLink>Detalhar</InlineLink>
+      </div>
       {dashboard.cost.breakdown.length === 0 ? (
         <p className="m-0 text-[12.5px] text-ink-muted">Nenhum custo registrado no período.</p>
       ) : (
-        <div className="flex flex-col gap-2.5">
-          {dashboard.cost.breakdown.map((entry) => (
+        <>
+          {total > 0 && (
             <div
-              className="flex items-baseline justify-between gap-3"
-              key={`${entry.phase}:${entry.provider}:${entry.execution}`}
+              aria-label="Distribuição do custo confirmado"
+              className="mb-4 flex h-[9px] overflow-hidden rounded-[5px]"
+              role="img"
             >
-              <span className="min-w-0 text-[12.5px] text-ink">
-                {phaseLabels[entry.phase]}
-                <span className="text-ink-dim"> · {entry.provider}</span>
-              </span>
-              <span className="shrink-0 font-mono text-[11.5px] text-ink-secondary">
-                {entry.execution === "local" ? "sem custo" : formatCost(entry.confirmed)}
-              </span>
+              {paid.map((entry, index) => (
+                <div
+                  className={segmentColor(index)}
+                  key={`${entry.phase}:${entry.provider}`}
+                  style={{ width: `${String((confirmedAmount(entry) / total) * 100)}%` }}
+                />
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+          <div className="flex flex-col gap-2.5">
+            {dashboard.cost.breakdown.map((entry) => (
+              <div
+                className="flex items-center gap-2.5"
+                key={`${entry.phase}:${entry.provider}:${entry.execution}`}
+              >
+                <span
+                  className={`size-2 shrink-0 rounded-sm ${
+                    entry.execution === "local"
+                      ? "bg-surface-inset"
+                      : segmentColor(paid.indexOf(entry))
+                  }`}
+                />
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
+                  {entry.execution === "local" ? entry.provider : phaseLabels[entry.phase]}
+                  <span className="text-ink-dim">
+                    {" "}
+                    · {entry.execution === "local" ? "local" : entry.provider}
+                  </span>
+                </span>
+                <span className="shrink-0 font-mono text-[11.5px] text-ink-secondary">
+                  {entry.execution === "local" ? "sem custo" : formatCost(entry.confirmed)}
+                </span>
+              </div>
+            ))}
+          </div>
+        </>
       )}
       {unattributed > 0 && (
         <div className="mt-4 flex items-start gap-2 text-[11.5px] leading-relaxed text-warn">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            {String(unattributed)} tentativa(s) não atribuída(s) automaticamente. O subtotal
-            confirmado não é necessariamente completo.
+            {unattributed === 1
+              ? "1 tentativa não foi atribuída automaticamente."
+              : `${String(unattributed)} tentativas não foram atribuídas automaticamente.`}{" "}
+            O subtotal confirmado não é necessariamente completo.
           </span>
         </div>
       )}
@@ -415,7 +457,7 @@ function OpenTasksCard({ dashboard, guildId }: { dashboard: DashboardAnalytics; 
         <div>
           <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">Tarefas abertas</h2>
           <p className="m-0 mt-1 text-[12.5px] text-ink-muted">
-            Extraídas dos resumos e agrupadas por responsável.
+            Agrupadas por responsável, extraídas dos resumos.
           </p>
         </div>
         <Link className="shrink-0 text-[12.5px] text-accent hover:text-accent-hover" to="/tasks">
@@ -428,7 +470,7 @@ function OpenTasksCard({ dashboard, guildId }: { dashboard: DashboardAnalytics; 
 }
 
 function TaskPreview({ guildId, timeZone }: { guildId: string; timeZone: string }) {
-  const [tasks, setTasks] = useState<Awaited<ReturnType<typeof api.listTasks>>>();
+  const [tasks, setTasks] = useState<DashboardTask[]>();
   useEffect(() => {
     let active = true;
     void api
@@ -444,16 +486,39 @@ function TaskPreview({ guildId, timeZone }: { guildId: string; timeZone: string 
     };
   }, [guildId]);
   if (tasks === undefined) return <LoadingPanel label="Carregando tarefas…" />;
+  const groups = groupByOwner(tasks).slice(0, 3);
   return (
-    <div className="flex flex-col gap-2">
-      {tasks.slice(0, 5).map((task) => (
-        <div className="flex items-center gap-2.5" key={task.taskId}>
-          <Avatar avatarUrl={task.ownerAvatarUrl} name={task.ownerDisplayName ?? "?"} size={22} />
-          <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">{task.text}</span>
-          {task.overdue && <Badge tone="fail">Atrasada</Badge>}
+    <div className="grid gap-3 md:grid-cols-3">
+      {groups.map((group) => (
+        <div className="rounded-lg border border-line bg-surface-raised p-3" key={group.key}>
+          <div className="mb-2.5 flex items-center gap-2">
+            <Avatar avatarUrl={group.avatarUrl} name={group.name} size={22} />
+            <span className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-ink">
+              {group.name}
+            </span>
+            <span className="font-mono text-[10.5px] text-ink-muted">{group.openCount}</span>
+          </div>
+          <div className="flex flex-col gap-2">
+            {group.tasks.slice(0, 3).map((task) => (
+              <div className="flex items-start gap-2" key={task.taskId}>
+                <span
+                  className={`mt-1.5 size-1.5 shrink-0 rounded-full ${task.overdue ? "bg-fail" : "bg-accent"}`}
+                />
+                <span className="min-w-0 text-[12px] leading-snug text-ink-secondary">
+                  {task.text}
+                  {task.deadlineDate !== null && (
+                    <em
+                      className={`label-mono mt-1 block not-italic ${task.overdue ? "text-fail" : "text-ink-dim"}`}
+                    >
+                      {formatDeadline(task, task.deadlineTimeZone ?? timeZone)}
+                    </em>
+                  )}
+                </span>
+              </div>
+            ))}
+          </div>
         </div>
       ))}
-      <p className="label-mono m-0 mt-1 text-ink-dim">Fuso {timeZone}</p>
     </div>
   );
 }

@@ -1,7 +1,4 @@
-import { CircleHelp } from "lucide-react";
-
-import { Card, RailLabel } from "../components/ui";
-import { useDashboard } from "../layout/dashboard-layout";
+import { RailLabel } from "../components/ui";
 import { TopBar } from "../layout/top-bar";
 import { Screen } from "./screen";
 
@@ -30,11 +27,11 @@ const groups = [
   },
 ] as const;
 
+/** Static reference; the canonical names live in BOT_COMMANDS.md at the repository root. */
 export function CommandsPage() {
-  const { controls } = useDashboard();
   return (
     <>
-      <TopBar actions={controls} meta="Registrados pelo bot no Discord" title="Comandos" />
+      <TopBar meta="Registrados pelo bot no Discord" title="Comandos" />
       <Screen width="narrow">
         {groups.map((group) => (
           <div key={group.label}>
@@ -52,27 +49,6 @@ export function CommandsPage() {
             </div>
           </div>
         ))}
-        <Card>
-          <div className="flex items-start gap-3">
-            <CircleHelp className="mt-0.5 size-4 shrink-0 text-accent" />
-            <div>
-              <h2 className="m-0 text-[14px] font-semibold text-ink">
-                O dashboard é a fonte da verdade
-              </h2>
-              <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-ink-muted">
-                A configuração completa vive aqui. Os comandos continuam no Discord para quem já
-                está na call.
-              </p>
-              <p className="m-0 mt-3 text-[12.5px] leading-relaxed text-ink-muted">
-                Os nomes exatos registrados pelo bot são mantidos em{" "}
-                <code className="rounded bg-surface-inset px-1.5 py-0.5 font-mono text-[11px]">
-                  BOT_COMMANDS.md
-                </code>{" "}
-                no repositório.
-              </p>
-            </div>
-          </div>
-        </Card>
       </Screen>
     </>
   );

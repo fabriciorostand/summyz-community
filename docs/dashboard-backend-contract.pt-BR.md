@@ -1,7 +1,7 @@
 # Contrato do backend para o novo dashboard Community
 
 O Community não possui conta de usuário Summyz, cadastro, e-mail SMTP nem OAuth de usuário
-Discord. O frontend existente ainda não implementa este contrato e permanece fora desta etapa.
+Discord. O frontend em `web/` implementa este contrato.
 
 ## Modos de acesso
 

@@ -1,17 +1,17 @@
 import { z } from "zod";
 
 import {
+  accessStatusSchema,
+  botInstallationSchema,
   dashboardAnalyticsSchema,
+  dashboardSettingsSchema,
   dashboardTaskSchema,
-  discordConnectionSchema,
   type GuildConfiguration,
   guildConfigurationSchema,
   guildMemberPageSchema,
   guildSchema,
   historicalParticipantPageSchema,
-  type InstallationSettings,
   installationHealthSchema,
-  installationSettingsSchema,
   meetingHistoryDetailSchema,
   meetingHistoryPageSchema,
   type Profile,
@@ -20,20 +20,21 @@ import {
   promptDefaultsSchema,
   resourcesSchema,
   setupStatusSchema,
-  userSchema,
 } from "./api-contracts";
 
 export type {
+  AccessMode,
+  AccessStatus,
+  BotInstallation,
   DashboardAnalytics,
+  DashboardSettings,
   DashboardTask,
-  DiscordConnection,
   Guild,
   GuildConfiguration,
   GuildMemberPage,
   GuildResources,
   HistoricalParticipantPage,
   InstallationHealth,
-  InstallationSettings,
   MeetingHistoryDetail,
   MeetingHistoryPage,
   MeetingHistorySummary,
@@ -42,38 +43,38 @@ export type {
   ProfileListItem,
   PromptDefaults,
   SetupStatus,
-  User,
 } from "./api-contracts";
 export { profileSchema } from "./api-contracts";
 
 export class ApiError extends Error {
   public readonly code: string;
+  public readonly retryAfterSeconds: number | undefined;
   public readonly status: number;
 
-  public constructor(status: number, code: string) {
+  public constructor(status: number, code: string, retryAfterSeconds?: number) {
     super(code);
     this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
     this.status = status;
   }
 }
 
-let refreshRequest: Promise<boolean> | undefined;
+type SessionExpiryListener = () => void;
+const sessionExpiryListeners = new Set<SessionExpiryListener>();
 
-async function refreshSession(): Promise<boolean> {
-  refreshRequest ??= fetch("/api/auth/refresh", {
-    credentials: "same-origin",
-    method: "POST",
-  })
-    .then((response) => response.ok)
-    .catch(() => false)
-    .finally(() => {
-      refreshRequest = undefined;
-    });
-  return refreshRequest;
+/**
+ * In public mode any request can discover that the session is gone. Screens subscribe here so
+ * the shell can swap to the "session expired" state instead of every page handling a 401.
+ */
+export function subscribeToSessionExpiry(listener: SessionExpiryListener): () => void {
+  sessionExpiryListeners.add(listener);
+  return () => {
+    sessionExpiryListeners.delete(listener);
+  };
 }
 
 async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit): Promise<T> {
-  const response = await authenticatedFetch(path, init);
+  const response = await send(path, init);
   await throwIfFailed(response);
   if (response.status === 204) return schema.parse(undefined);
   const body: unknown = await response.json();
@@ -81,46 +82,42 @@ async function request<T>(path: string, schema: z.ZodType<T>, init?: RequestInit
 }
 
 async function requestText(path: string, init?: RequestInit): Promise<string> {
-  const response = await authenticatedFetch(path, init);
+  const response = await send(path, init);
   await throwIfFailed(response);
   return response.text();
 }
 
-async function authenticatedFetch(path: string, init?: RequestInit): Promise<Response> {
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
   if (init?.body !== undefined) headers.set("content-type", "application/json");
-  let response = await fetch(path, {
-    credentials: "same-origin",
-    ...init,
-    headers,
-  });
-  if (response.status === 401 && !path.startsWith("/api/auth/")) {
-    if (await refreshSession()) {
-      response = await fetch(path, {
-        credentials: "same-origin",
-        ...init,
-        headers,
-      });
-    }
-  }
-  return response;
+  return fetch(path, { credentials: "same-origin", ...init, headers });
 }
 
 async function throwIfFailed(response: Response): Promise<void> {
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => ({}));
-    const parsed = z.object({ error: z.string() }).safeParse(body);
-    throw new ApiError(response.status, parsed.success ? parsed.data.error : "request_failed");
+  if (response.ok) return;
+  const body: unknown = await response.json().catch(() => ({}));
+  const parsed = z.object({ error: z.string() }).safeParse(body);
+  const code = parsed.success ? parsed.data.error : "request_failed";
+  const retryAfter = Number(response.headers.get("retry-after"));
+  if (response.status === 401 && code === "session_expired") {
+    for (const listener of sessionExpiryListeners) listener();
   }
+  throw new ApiError(
+    response.status,
+    code,
+    Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : undefined,
+  );
 }
 
 const emptySchema = z.undefined();
 const json = (value: unknown) => JSON.stringify(value);
 
 export const api = {
-  completeDiscord: (code: string, state: string) =>
-    request(`/api/discord/callback?${new URLSearchParams({ code, state })}`, emptySchema),
-  connectDiscord: () => request("/api/discord/connect", z.object({ authorizationUrl: z.url() })),
+  changePassword: (currentPassword: string, newPassword: string) =>
+    request("/api/access/password", emptySchema, {
+      body: json({ currentPassword, newPassword }),
+      method: "PUT",
+    }),
   createProfile: (profile: ProfileInput) =>
     request("/api/profiles", profileSchema, {
       body: json(profile),
@@ -128,20 +125,8 @@ export const api = {
     }),
   deleteProfile: (profileId: string) =>
     request(`/api/profiles/${profileId}`, emptySchema, { method: "DELETE" }),
-  getPromptDefaults: (summaryLanguage: string) =>
-    request(
-      `/api/ai/prompts/defaults?${new URLSearchParams({ summaryLanguage })}`,
-      promptDefaultsSchema,
-    ),
-  disconnectDiscord: () => request("/api/discord/connection", emptySchema, { method: "DELETE" }),
-  forgotPassword: (email: string) =>
-    request("/api/auth/forgot-password", emptySchema, { body: json({ email }), method: "POST" }),
-  getGuildConfiguration: (guildId: string) =>
-    request(`/api/guilds/${guildId}/configuration`, guildConfigurationSchema),
-  getGuildResources: (guildId: string) =>
-    request(`/api/guilds/${guildId}/resources`, resourcesSchema),
-  getInstallationSettings: () => request("/api/installation/settings", installationSettingsSchema),
-  getInstallationHealth: () => request("/api/installation/health", installationHealthSchema),
+  getAccessStatus: () => request("/api/access/status", accessStatusSchema),
+  getBotInstallation: () => request("/api/installation/bot", botInstallationSchema),
   getDashboard: (guildId: string, period: "30d" | "90d" | "all" = "30d") =>
     request(
       `/api/guilds/${guildId}/dashboard${
@@ -149,13 +134,22 @@ export const api = {
       }`,
       dashboardAnalyticsSchema,
     ),
+  getGuildConfiguration: (guildId: string) =>
+    request(`/api/guilds/${guildId}/configuration`, guildConfigurationSchema),
+  getGuildResources: (guildId: string) =>
+    request(`/api/guilds/${guildId}/resources`, resourcesSchema),
+  getInstallationHealth: () => request("/api/installation/health", installationHealthSchema),
   getMeeting: (guildId: string, meetingId: string) =>
     request(`/api/guilds/${guildId}/meetings/${meetingId}`, meetingHistoryDetailSchema),
   getMeetingExport: (guildId: string, meetingId: string) =>
     requestText(`/api/guilds/${guildId}/meetings/${meetingId}/export`),
-  getDiscordConnection: () => request("/api/discord/connection", discordConnectionSchema),
+  getPromptDefaults: (summaryLanguage: string) =>
+    request(
+      `/api/ai/prompts/defaults?${new URLSearchParams({ summaryLanguage })}`,
+      promptDefaultsSchema,
+    ),
+  getSettings: () => request("/api/settings", dashboardSettingsSchema),
   getSetupStatus: () => request("/api/setup/status", setupStatusSchema),
-  listGuilds: () => request("/api/guilds", z.array(guildSchema)),
   listGuildMembers: (
     guildId: string,
     filters: { page: number; query?: string; roleId?: string },
@@ -164,6 +158,15 @@ export const api = {
     if (filters.query !== undefined) parameters.set("query", filters.query);
     if (filters.roleId !== undefined) parameters.set("roleId", filters.roleId);
     return request(`/api/guilds/${guildId}/members?${parameters}`, guildMemberPageSchema);
+  },
+  listGuilds: () => request("/api/guilds", z.array(guildSchema)),
+  listHistoricalParticipants: (guildId: string, page: number, query?: string) => {
+    const parameters = new URLSearchParams({ page: String(page) });
+    if (query !== undefined) parameters.set("query", query);
+    return request(
+      `/api/guilds/${guildId}/participants?${parameters}`,
+      historicalParticipantPageSchema,
+    );
   },
   listMeetings: (
     guildId: string,
@@ -201,58 +204,37 @@ export const api = {
         }),
       ),
     ),
-  listHistoricalParticipants: (guildId: string, page: number, query?: string) => {
-    const parameters = new URLSearchParams({ page: String(page) });
-    if (query !== undefined) parameters.set("query", query);
-    return request(
-      `/api/guilds/${guildId}/participants?${parameters}`,
-      historicalParticipantPageSchema,
-    );
-  },
-  login: (email: string, password: string) =>
-    request("/api/auth/login", emptySchema, { body: json({ email, password }), method: "POST" }),
-  logout: () => request("/api/auth/logout", emptySchema, { method: "POST" }),
-  me: () => request("/api/auth/me", userSchema),
-  register: (email: string, password: string, dashboardLanguage: "en" | "pt-BR") =>
-    request("/api/auth/register", emptySchema, {
-      body: json({ dashboardLanguage, email, password }),
-      method: "POST",
-    }),
   listTasks: (guildId: string, filters: { completed?: boolean; meetingId?: string } = {}) => {
     const parameters = new URLSearchParams();
     if (filters.completed !== undefined) parameters.set("completed", String(filters.completed));
     if (filters.meetingId !== undefined) parameters.set("meetingId", filters.meetingId);
     return request(`/api/guilds/${guildId}/tasks?${parameters}`, z.array(dashboardTaskSchema));
   },
+  login: (password: string) =>
+    request("/api/access/login", emptySchema, { body: json({ password }), method: "POST" }),
+  logout: () => request("/api/access/logout", emptySchema, { method: "POST" }),
+  removeSecret: (name: "openrouter_api_key") =>
+    request(`/api/installation/secrets/${name}`, emptySchema, { method: "DELETE" }),
+  replaceBotToken: (discordBotToken: string) =>
+    request("/api/installation/bot", emptySchema, {
+      body: json({ discordBotToken }),
+      method: "PUT",
+    }),
+  setActiveProfile: (guildId: string, profileId: string) =>
+    request(`/api/guilds/${guildId}/profiles/${profileId}/active`, emptySchema, { method: "PUT" }),
   setTaskCompleted: (guildId: string, taskId: string, completed: boolean) =>
     request(`/api/guilds/${guildId}/tasks/${taskId}/completion`, emptySchema, {
       body: json({ completed }),
       method: "PATCH",
     }),
-  resetPassword: (token: string, password: string) =>
-    request("/api/auth/reset-password", emptySchema, {
-      body: json({ password, token }),
-      method: "POST",
-    }),
-  changePassword: (currentPassword: string, newPassword: string) =>
-    request("/api/auth/change-password", emptySchema, {
-      body: json({ currentPassword, newPassword }),
-      method: "POST",
-    }),
-  updatePreferences: (
-    dashboardLanguage: "en" | "pt-BR",
-    dashboardTheme: "system" | "light" | "dark",
+  /** The claim token only exists in public mode; local installations skip it entirely. */
+  setup: (
+    claimToken: string | undefined,
+    value: { discordBotToken: string; installationPassword?: string },
   ) =>
-    request("/api/account/preferences", emptySchema, {
-      body: json({ dashboardLanguage, dashboardTheme }),
-      method: "PUT",
-    }),
-  setActiveProfile: (guildId: string, profileId: string) =>
-    request(`/api/guilds/${guildId}/profiles/${profileId}/active`, emptySchema, { method: "PUT" }),
-  setup: (setupToken: string, value: unknown) =>
     request("/api/setup", emptySchema, {
       body: json(value),
-      headers: { "x-summyz-setup-token": setupToken },
+      headers: claimToken === undefined ? {} : { "x-summyz-setup-token": claimToken },
       method: "POST",
     }),
   updateForum: (guildId: string, forum: { forumId: string; tagId?: string } | null) =>
@@ -265,11 +247,16 @@ export const api = {
       body: json(settings),
       method: "PUT",
     }),
-  updateInstallationSettings: (
-    settings: Omit<InstallationSettings, "secrets" | "setupCompleted">,
-  ) => request("/api/installation/settings", emptySchema, { body: json(settings), method: "PUT" }),
+  updatePreferences: (
+    dashboardLanguage: "en" | "pt-BR",
+    dashboardTheme: "system" | "light" | "dark",
+  ) =>
+    request("/api/settings/preferences", emptySchema, {
+      body: json({ dashboardLanguage, dashboardTheme }),
+      method: "PUT",
+    }),
   updateProfile: (profile: Profile) => {
-    const { profileId, userId: _userId, ...body } = profile;
+    const { profileId, ...body } = profile;
     return request(`/api/profiles/${profileId}`, emptySchema, {
       body: json(body),
       method: "PUT",
@@ -283,11 +270,9 @@ export const api = {
       body: json(permissions),
       method: "PUT",
     }),
-  updateSecret: (name: string, value: string) =>
+  updateSecret: (name: "openrouter_api_key", value: string) =>
     request(`/api/installation/secrets/${name}`, emptySchema, {
       body: json({ value }),
       method: "PUT",
     }),
-  verifyEmail: (token: string) =>
-    request("/api/auth/verify", emptySchema, { body: json({ token }), method: "POST" }),
 };

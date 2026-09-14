@@ -1,17 +1,39 @@
 import { z } from "zod";
 
-export const setupStatusSchema = z.object({
-  registrationEnabled: z.boolean(),
+const accessModeSchema = z.enum(["local", "public"]);
+const dashboardLanguageSchema = z.enum(["en", "pt-BR"]);
+const dashboardThemeSchema = z.enum(["system", "light", "dark"]);
+
+export const accessStatusSchema = z.object({
+  accessMode: accessModeSchema,
+  authenticated: z.boolean(),
+  passwordConfigured: z.boolean(),
   setupCompleted: z.boolean(),
 });
-export const userSchema = z.object({
-  dashboardLanguage: z.enum(["en", "pt-BR"]),
-  dashboardTheme: z.enum(["system", "light", "dark"]).default("system"),
-  email: z.email(),
-  emailVerified: z.boolean(),
-  installationRole: z.enum(["administrator", "member"]),
-  userId: z.uuid(),
+export const setupStatusSchema = z.object({
+  accessMode: accessModeSchema,
+  passwordConfigured: z.boolean(),
+  setupCompleted: z.boolean(),
+  technicalSetupCompleted: z.boolean(),
 });
+export const dashboardSettingsSchema = z.object({
+  accessMode: accessModeSchema,
+  dashboardLanguage: dashboardLanguageSchema,
+  dashboardTheme: dashboardThemeSchema,
+  discordApplicationId: z.string().nullable(),
+  secrets: z.object({
+    discordBotToken: z.boolean(),
+    openRouterApiKey: z.boolean(),
+  }),
+});
+export const botInstallationSchema = z.discriminatedUnion("configured", [
+  z.object({ configured: z.literal(false) }),
+  z.object({
+    applicationId: z.string(),
+    configured: z.literal(true),
+    installUrl: z.url(),
+  }),
+]);
 export const guildSchema = z.object({
   activeProfile: z
     .object({
@@ -24,8 +46,6 @@ export const guildSchema = z.object({
   callCount: z.number().int().nullable().optional(),
   iconUrl: z.url().nullable(),
   id: z.string(),
-  installUrl: z.url(),
-  installed: z.boolean(),
   name: z.string(),
   summaryForum: z
     .object({
@@ -37,10 +57,6 @@ export const guildSchema = z.object({
     .nullable()
     .optional(),
 });
-export const discordConnectionSchema = z.discriminatedUnion("connected", [
-  z.object({ connected: z.literal(false) }),
-  z.object({ connected: z.literal(true), discordUsername: z.string().min(1) }),
-]);
 const generationSchema = z.object({
   seed: z.number().int().optional(),
   temperature: z.number().optional(),
@@ -81,7 +97,6 @@ const profileBaseShape = {
   language: z.enum(profileLanguages),
   name: z.string(),
   profileId: z.string(),
-  userId: z.string(),
 };
 const refinementBaseShape = {
   generation: generationSchema,
@@ -207,29 +222,6 @@ export const historicalParticipantPageSchema = z.object({
   pageSize: z.number().int(),
   total: z.number().int(),
 });
-export const installationSettingsSchema = z.object({
-  discordClientId: z.string().nullable(),
-  publicBaseUrl: z.url().nullable(),
-  registrationEnabled: z.boolean(),
-  secrets: z.object({
-    discordBotToken: z.boolean(),
-    discordClientSecret: z.boolean(),
-    openRouterApiKey: z.boolean(),
-    smtpPassword: z.boolean(),
-  }),
-  setupCompleted: z.boolean(),
-  smtp: z
-    .object({
-      fromEmail: z.email(),
-      fromName: z.string(),
-      host: z.string(),
-      port: z.number().int(),
-      replyTo: z.email().nullable(),
-      secure: z.boolean(),
-      user: z.string(),
-    })
-    .nullable(),
-});
 export const installationHealthSchema = z.object({
   checkedAt: z.iso.datetime(),
   components: z.array(
@@ -244,7 +236,6 @@ export const installationHealthSchema = z.object({
         "ollama",
         "faster_whisper",
         "openrouter",
-        "smtp",
       ]),
       details: z.record(z.string(), z.json()),
       heartbeatAt: z.iso.datetime().nullable(),
@@ -259,7 +250,6 @@ export const installationHealthSchema = z.object({
   }),
   externalConfiguration: z.object({
     openRouterConfigured: z.boolean(),
-    smtpConfigured: z.boolean(),
   }),
   localAiRequired: z.boolean(),
   queue: z.object({
@@ -437,14 +427,16 @@ export const dashboardTaskSchema = z.object({
   voiceChannelName: z.string().nullable(),
 });
 
+export type AccessMode = z.infer<typeof accessModeSchema>;
+export type AccessStatus = z.infer<typeof accessStatusSchema>;
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
-export type User = z.infer<typeof userSchema>;
+export type DashboardSettings = z.infer<typeof dashboardSettingsSchema>;
+export type BotInstallation = z.infer<typeof botInstallationSchema>;
 export type Guild = z.infer<typeof guildSchema>;
-export type DiscordConnection = z.infer<typeof discordConnectionSchema>;
 export type Profile = z.infer<typeof profileSchema>;
 export type ProfileInput =
-  | Omit<Extract<Profile, { profileType: "external" }>, "profileId" | "userId">
-  | Omit<Extract<Profile, { profileType: "local" }>, "profileId" | "userId">;
+  | Omit<Extract<Profile, { profileType: "external" }>, "profileId">
+  | Omit<Extract<Profile, { profileType: "local" }>, "profileId">;
 export interface ProfileListItem {
   active: boolean;
   activeServerCount?: number | undefined;
@@ -455,7 +447,6 @@ export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;
 export type GuildMemberPage = z.infer<typeof guildMemberPageSchema>;
 export type HistoricalParticipantPage = z.infer<typeof historicalParticipantPageSchema>;
-export type InstallationSettings = z.infer<typeof installationSettingsSchema>;
 export type InstallationHealth = z.infer<typeof installationHealthSchema>;
 export type DashboardAnalytics = z.infer<typeof dashboardAnalyticsSchema>;
 export type MeetingHistoryPage = z.infer<typeof meetingHistoryPageSchema>;

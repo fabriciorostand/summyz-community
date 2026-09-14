@@ -5,6 +5,7 @@ import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import type { DashboardContext } from "../layout/dashboard-layout";
 import type {
   DashboardAnalytics,
+  DashboardSettings,
   DashboardTask,
   Guild,
   GuildConfiguration,
@@ -12,17 +13,15 @@ import type {
   MeetingHistoryDetail,
   MeetingHistoryPage,
   Profile,
-  User,
 } from "../lib/api";
 
-export function aUser(overrides: Partial<User> = {}): User {
+export function aSettings(overrides: Partial<DashboardSettings> = {}): DashboardSettings {
   return {
+    accessMode: "local",
     dashboardLanguage: "pt-BR",
     dashboardTheme: "dark",
-    email: "ana@pixelforge.gg",
-    emailVerified: true,
-    installationRole: "administrator",
-    userId: "11111111-1111-4111-8111-111111111111",
+    discordApplicationId: "1289443021764919306",
+    secrets: { discordBotToken: true, openRouterApiKey: true },
     ...overrides,
   };
 }
@@ -33,8 +32,6 @@ export function aGuild(overrides: Partial<Guild> = {}): Guild {
     callCount: 42,
     iconUrl: null,
     id: "g1",
-    installUrl: "https://discord.com/install",
-    installed: true,
     name: "Pixelforge",
     summaryForum: { forumId: "f1", name: "#atas-de-reuniao" },
     ...overrides,
@@ -242,7 +239,6 @@ export function aProfile(overrides: Partial<Profile> = {}): Profile {
       },
     },
     translation: null,
-    userId: "u1",
     ...overrides,
   } as Profile;
 }
@@ -278,7 +274,6 @@ export function guildSelection(
 ): DashboardContext["guilds"] {
   const installed = [aGuild()];
   return {
-    allGuilds: installed,
     error: false,
     guilds: installed,
     reload: () => undefined,
@@ -299,8 +294,8 @@ export function dashboardContext(overrides: Partial<DashboardContext> = {}): Das
     reloadDashboard: () => undefined,
     setPeriod: () => undefined,
     setPreferences: () => undefined,
+    settings: aSettings(),
     theme: "dark",
-    user: aUser(),
     ...overrides,
   };
 }

@@ -1,28 +1,28 @@
 import {
   Command,
   Gauge,
-  LogOut,
   PhoneCall,
   Server,
   Settings,
   SlidersHorizontal,
+  SlidersVertical,
   SquareCheckBig,
-  UserRound,
 } from "lucide-react";
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
-import { Avatar } from "../components/ui";
-import type { User } from "../lib/api";
 
-export function Brand({ compact = false }: { compact?: boolean }) {
+export function Brand({ label = "Summyz", size = 28 }: { label?: string; size?: number }) {
   return (
-    <div className="flex items-center gap-2.5 px-2 pt-1.5 pb-5">
-      <span className="grid size-7 place-items-center rounded-lg bg-action text-[13px] font-bold text-white">
-        S
-      </span>
-      {!compact && (
-        <span className="text-[14.5px] font-semibold tracking-tight text-ink">Summyz</span>
-      )}
+    <div className="flex items-center gap-2.5">
+      <img
+        alt="Summyz"
+        className="block shrink-0 object-contain"
+        height={size}
+        src="/summyz-logo.png"
+        style={{ height: `${String(size)}px`, width: `${String(size)}px` }}
+        width={size}
+      />
+      <span className="text-[14.5px] font-semibold tracking-tight text-ink">{label}</span>
     </div>
   );
 }
@@ -78,21 +78,20 @@ function NavItem({
   );
 }
 
+/** No account footer: the design has no user identity, only the installation itself. */
 export function Sidebar({
   callCount,
-  onLogout,
   openTaskCount,
-  user,
 }: {
   callCount: number | undefined;
-  onLogout: () => void;
   openTaskCount: number | undefined;
-  user: User;
 }) {
   const iconClass = "size-[15px]";
   return (
     <aside className="flex w-[236px] shrink-0 flex-col border-r border-line-soft bg-surface-rail px-3 py-4.5">
-      <Brand />
+      <div className="px-2 pt-1.5 pb-5">
+        <Brand />
+      </div>
       <NavGroup label="Reuniões">
         <NavItem icon={<Gauge className={iconClass} />} label="Visão geral" to="/" />
         <NavItem
@@ -119,32 +118,13 @@ export function Sidebar({
         <NavItem icon={<Command className={iconClass} />} label="Comandos" to="/commands" />
       </NavGroup>
       <NavGroup label="Sistema">
-        <NavItem icon={<UserRound className={iconClass} />} label="Minha conta" to="/account" />
-        {user.installationRole === "administrator" && (
-          <NavItem
-            icon={<Settings className={iconClass} />}
-            label="Instalação"
-            to="/installation"
-          />
-        )}
+        <NavItem
+          icon={<SlidersVertical className={iconClass} />}
+          label="Preferências"
+          to="/settings"
+        />
+        <NavItem icon={<Settings className={iconClass} />} label="Instalação" to="/installation" />
       </NavGroup>
-      <div className="mt-auto flex items-center gap-2.5 border-t border-line-soft pt-4">
-        <Avatar name={user.email} />
-        <span className="flex min-w-0 flex-1 flex-col">
-          <strong className="truncate text-[11.5px] font-medium text-ink">{user.email}</strong>
-          <small className="label-mono mt-0.5 text-ink-muted">
-            {user.installationRole === "administrator" ? "Admin" : "Membro"}
-          </small>
-        </span>
-        <button
-          aria-label="Sair"
-          className="rounded p-1 text-ink-muted transition-colors hover:bg-surface-inset hover:text-ink"
-          onClick={onLogout}
-          type="button"
-        >
-          <LogOut className="size-3.5" />
-        </button>
-      </div>
     </aside>
   );
 }

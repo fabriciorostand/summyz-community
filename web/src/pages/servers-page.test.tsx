@@ -1,93 +1,102 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { api } from "../lib/api";
 import { aGuild, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
 import { ServersPage } from "./servers-page";
 
-const engineGuild = aGuild({ id: "g2", installed: false, name: "Engine Guild" });
+vi.mock("../lib/api", () => ({ api: { getBotInstallation: vi.fn() } }));
 
-function withGuilds(overrides: Parameters<typeof guildSelection>[0]) {
-  return dashboardContext({ guilds: guildSelection(overrides) });
-}
+const installUrl = "https://discord.com/oauth2/authorize?client_id=1289443021764919306";
+
+beforeEach(() => {
+  vi.mocked(api.getBotInstallation).mockResolvedValue({
+    applicationId: "1289443021764919306",
+    configured: true,
+    installUrl,
+  });
+});
+
+afterEach(() => {
+  vi.clearAllMocks();
+});
 
 describe("ServersPage", () => {
-  it("shows the installed server with its configuration summary", () => {
-    renderScreen(<ServersPage />, { context: dashboardContext() });
+  it("lists the servers the bot is in with their essentials", async () => {
+    renderScreen(<ServersPage />);
+    expect(screen.getByText("1 servidor com o bot")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Pixelforge" })).toBeInTheDocument();
     expect(screen.getByText("Instalado e configurado")).toBeInTheDocument();
     expect(screen.getByText("Padrão OpenRouter")).toBeInTheDocument();
     expect(screen.getByText("#atas-de-reuniao")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
-  });
-
-  it("links an installed server to its configuration screen", () => {
-    renderScreen(<ServersPage />, { context: dashboardContext() });
     expect(screen.getByRole("link", { name: /Configurar/ })).toHaveAttribute("href", "/guilds/g1");
+    const links = await screen.findAllByRole("link", { name: /Adicionar o bot/ });
+    expect(links).toHaveLength(2);
+    for (const link of links) expect(link).toHaveAttribute("href", installUrl);
   });
 
-  it("lists a server that does not have the bot yet", () => {
+  it("pluralizes the counter", () => {
+    const guilds = [aGuild(), aGuild({ id: "g2", name: "Engine Guild" })];
     renderScreen(<ServersPage />, {
-      context: withGuilds({ allGuilds: [engineGuild], guilds: [], selectedGuildId: "" }),
+      context: dashboardContext({ guilds: guildSelection({ guilds }) }),
     });
-    expect(screen.getByText("Bot não instalado")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /Instalar no Discord/ })).toHaveAttribute(
-      "href",
-      "https://discord.com/install",
-    );
+    expect(screen.getByText("2 servidores com o bot")).toBeInTheDocument();
   });
 
-  it("counts installed and available servers", () => {
+  it("shows what is missing on a server without profile or forum", () => {
+    const guild = aGuild({ activeProfile: null, callCount: null, summaryForum: null });
     renderScreen(<ServersPage />, {
-      context: withGuilds({ allGuilds: [aGuild(), engineGuild], guilds: [aGuild()] }),
+      context: dashboardContext({ guilds: guildSelection({ guilds: [guild] }) }),
     });
-    expect(screen.getByText("1 instalado · 1 disponíveis")).toBeInTheDocument();
+    expect(screen.getByText("Falta configurar")).toBeInTheDocument();
+    expect(screen.getByText("Nenhum")).toBeInTheDocument();
+    expect(screen.getByText("Não configurado")).toBeInTheDocument();
+    expect(screen.getByText("—")).toBeInTheDocument();
   });
 
-  it("refreshes the list on demand", async () => {
+  it("reloads the list on demand", async () => {
     const reload = vi.fn();
-    renderScreen(<ServersPage />, { context: withGuilds({ reload }) });
+    renderScreen(<ServersPage />, {
+      context: dashboardContext({ guilds: guildSelection({ reload }) }),
+    });
     await userEvent.click(screen.getByRole("button", { name: /Atualizar lista/ }));
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
-  it("shows a skeleton while the list loads", () => {
+  it("explains that the bot decides the list when it is in no server", async () => {
     renderScreen(<ServersPage />, {
-      context: withGuilds({ allGuilds: undefined, guilds: undefined, selectedGuildId: "" }),
+      context: dashboardContext({ guilds: guildSelection({ guilds: [] }) }),
     });
-    expect(screen.getByRole("status")).toHaveTextContent("Carregando servidores…");
+    expect(
+      screen.getByRole("heading", { name: "O bot ainda não está em nenhum servidor" }),
+    ).toBeInTheDocument();
+    expect(
+      await screen.findByRole("link", { name: /Adicionar o bot a um servidor/ }),
+    ).toHaveAttribute("href", installUrl);
   });
 
-  it("points at the Discord connection when the list fails", () => {
-    renderScreen(<ServersPage />, {
-      context: withGuilds({
-        allGuilds: undefined,
-        error: true,
-        guilds: undefined,
-        selectedGuildId: "",
-      }),
+  it("keeps the Discord shortcut inert until the bot is configured", async () => {
+    vi.mocked(api.getBotInstallation).mockResolvedValue({ configured: false });
+    renderScreen(<ServersPage />);
+    await waitFor(() => expect(api.getBotInstallation).toHaveBeenCalled());
+    expect(screen.queryByRole("link", { name: /Adicionar o bot/ })).toBeNull();
+  });
+
+  it("shows loading and error states", () => {
+    const { unmount } = renderScreen(<ServersPage />, {
+      context: dashboardContext({ guilds: guildSelection({ guilds: undefined }) }),
     });
-    expect(screen.getByRole("heading", { name: "Servidores indisponíveis" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ver conexão Discord" })).toHaveAttribute(
+    expect(screen.getByRole("status")).toBeInTheDocument();
+    unmount();
+    renderScreen(<ServersPage />, {
+      context: dashboardContext({ guilds: guildSelection({ error: true, guilds: undefined }) }),
+    });
+    expect(screen.getByRole("alert")).toHaveTextContent("Servidores indisponíveis");
+    expect(screen.getByRole("link", { name: "Ver instalação" })).toHaveAttribute(
       "href",
-      "/account",
+      "/installation",
     );
-  });
-
-  it("asks the operator to connect Discord when nothing is owned", () => {
-    renderScreen(<ServersPage />, {
-      context: withGuilds({ allGuilds: [], guilds: [], selectedGuildId: "" }),
-    });
-    expect(screen.getByRole("heading", { name: "Nenhum servidor encontrado" })).toBeInTheDocument();
-  });
-
-  it("falls back when the server has no profile or forum yet", () => {
-    const bare = aGuild({ activeProfile: null, callCount: null, summaryForum: null });
-    renderScreen(<ServersPage />, {
-      context: withGuilds({ allGuilds: [bare], guilds: [bare] }),
-    });
-    expect(screen.getByText("Nenhum")).toBeInTheDocument();
-    expect(screen.getByText("Não configurado")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
   });
 });

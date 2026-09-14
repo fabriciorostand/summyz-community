@@ -21,10 +21,8 @@ function storeGuildId(guildId: string): void {
 }
 
 export interface GuildSelection {
-  /** Every server the account owns, installed or not. The Servers screen needs both. */
-  allGuilds: Guild[] | undefined;
   error: boolean;
-  /** Only the servers with the bot installed, which is what the dashboard can be scoped to. */
+  /** The servers the bot is currently in; the backend decides what is visible. */
   guilds: Guild[] | undefined;
   reload(): void;
   selectedGuild: Guild | undefined;
@@ -32,9 +30,8 @@ export interface GuildSelection {
   setSelectedGuildId(value: string): void;
 }
 
-/** Loads the installed servers and remembers which one the dashboard is scoped to. */
+/** Loads the servers the bot is in and remembers which one the dashboard is scoped to. */
 export function useGuildSelection(): GuildSelection {
-  const [allGuilds, setAllGuilds] = useState<Guild[]>();
   const [guilds, setGuilds] = useState<Guild[]>();
   const [error, setError] = useState(false);
   const [selectedGuildId, setSelectedGuildIdState] = useState("");
@@ -44,18 +41,15 @@ export function useGuildSelection(): GuildSelection {
   useEffect(() => {
     let active = true;
     setError(false);
-    setAllGuilds(undefined);
     setGuilds(undefined);
     void api
       .listGuilds()
-      .then((allGuilds) => {
+      .then((installed) => {
         if (!active) return;
-        const installed = allGuilds.filter((guild) => guild.installed);
         const stored = readStoredGuildId();
         const selected = installed.some((guild) => guild.id === stored)
           ? (stored ?? "")
           : (installed[0]?.id ?? "");
-        setAllGuilds(allGuilds);
         setGuilds(installed);
         setSelectedGuildIdState(selected);
         if (selected.length > 0) storeGuildId(selected);
@@ -74,7 +68,6 @@ export function useGuildSelection(): GuildSelection {
   }, []);
 
   return {
-    allGuilds,
     error,
     guilds,
     reload: useCallback(() => setReloadToken((token) => token + 1), []),

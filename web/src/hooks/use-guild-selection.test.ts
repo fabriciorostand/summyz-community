@@ -18,26 +18,15 @@ afterEach(() => {
 });
 
 describe("useGuildSelection", () => {
-  it("keeps only installed guilds and selects the first one", async () => {
+  it("lists the servers the bot is in and selects the first one", async () => {
     listGuilds.mockResolvedValue([
       aGuild({ id: "g1", name: "Pixelforge" }),
-      aGuild({ id: "g2", installed: false, name: "Engine Guild" }),
+      aGuild({ id: "g2", name: "Engine Guild" }),
     ]);
     const { result } = renderHook(() => useGuildSelection());
-    await waitFor(() => expect(result.current.guilds).toHaveLength(1));
+    await waitFor(() => expect(result.current.guilds).toHaveLength(2));
     expect(result.current.selectedGuildId).toBe("g1");
     expect(result.current.selectedGuild?.name).toBe("Pixelforge");
-  });
-
-  it("keeps every owned guild so the servers screen can offer the install link", async () => {
-    listGuilds.mockResolvedValue([
-      aGuild({ id: "g1" }),
-      aGuild({ id: "g2", installed: false }),
-      aGuild({ id: "g3", installed: false }),
-    ]);
-    const { result } = renderHook(() => useGuildSelection());
-    await waitFor(() => expect(result.current.allGuilds).toHaveLength(3));
-    expect(result.current.guilds).toHaveLength(1);
   });
 
   it("restores the guild remembered by this browser", async () => {
@@ -92,8 +81,8 @@ describe("useGuildSelection", () => {
     vi.restoreAllMocks();
   });
 
-  it("selects nothing when no guild is installed", async () => {
-    listGuilds.mockResolvedValue([aGuild({ installed: false })]);
+  it("selects nothing when the bot is in no server", async () => {
+    listGuilds.mockResolvedValue([]);
     const { result } = renderHook(() => useGuildSelection());
     await waitFor(() => expect(result.current.guilds).toHaveLength(0));
     expect(result.current.selectedGuildId).toBe("");
