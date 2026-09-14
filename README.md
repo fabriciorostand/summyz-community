@@ -512,8 +512,6 @@ issue.
 
 The complete setup guide is in [docs/installation.md](./docs/installation.md). Release
 maintainers must also follow [docs/release-checklist.md](./docs/release-checklist.md).
-The backend contract for the replacement dashboard is documented in
-[docs/dashboard-backend-contract.pt-BR.md](./docs/dashboard-backend-contract.pt-BR.md).
 
 ## License
 

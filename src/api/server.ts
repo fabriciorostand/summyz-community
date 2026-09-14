@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
 import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
+import { createCommandReference } from "../discord/command-catalog.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
 import { registerAnalyticsRoutes } from "./server-analytics-routes.js";
 import { registerAuthRoutes } from "./server-auth-routes.js";
@@ -143,6 +144,10 @@ export async function createApiServer(
   registerSetupRoutes(app, dependencies);
   registerAuthRoutes(app, dependencies);
 
+  app.get("/api/commands", async (request) => {
+    const access = await authorizeDashboard(request, dependencies);
+    return createCommandReference(access.dashboardLanguage);
+  });
   app.get("/api/guilds", async (request) => {
     await authorizeDashboard(request, dependencies);
     const guilds = await resolveGuildAccess();

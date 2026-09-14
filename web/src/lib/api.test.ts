@@ -22,6 +22,37 @@ describe("dashboard API client", () => {
     );
   });
 
+  it("lists the command reference grouped the way the bot registers it", async () => {
+    const reference = [
+      {
+        commands: [
+          { description: "Inicia a gravação do canal de voz em que você está", name: "/record" },
+          { description: "Encerra a gravação do canal de voz em que você está", name: "/stop" },
+        ],
+        label: "Gravação",
+      },
+    ];
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(reference));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.listCommands()).resolves.toEqual(reference);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/commands",
+      expect.objectContaining({ credentials: "same-origin" }),
+    );
+  });
+
+  it("rejects a command reference without groups or with a group without commands", async () => {
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json([])));
+    await expect(api.listCommands()).rejects.toThrow();
+
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(Response.json([{ commands: [], label: "Gravação" }])),
+    );
+    await expect(api.listCommands()).rejects.toThrow();
+  });
+
   it("surfaces an expired session as a 401 error and notifies subscribers", async () => {
     const listener = vi.fn();
     const unsubscribe = subscribeToSessionExpiry(listener);

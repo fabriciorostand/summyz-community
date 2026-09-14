@@ -1,139 +1,118 @@
 import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
 
-import type { AppConfig } from "../config.js";
+import { type CommandLanguage, commandCatalog } from "./command-catalog.js";
 
-type BotLanguage = AppConfig["botLanguage"];
-
-const descriptions = {
-  en: {
-    record: "Starts recording the voice channel you are in",
-    recordingCost: "Shows confirmed AI processing costs",
-    recordingCostFrom: "First meeting date (YYYY-MM-DD)",
-    recordingCostMeeting: "Shows costs for a completed meeting",
-    recordingCostMeetingId: "Meeting ID",
-    recordingCostPeriod: "Shows costs for meetings started in a period",
-    recordingCostTo: "Last meeting date (YYYY-MM-DD)",
-    recordingRole: "Configures the roles that can control recordings",
-    recordingRoleAdd: "Allows a role to start and stop recordings",
-    recordingRoleAddOption: "Role that will be authorized",
-    recordingRoleList: "Lists the authorized roles in this server",
-    recordingRoleRemove: "Removes authorization from a role",
-    recordingRoleRemoveOption: "Role that will no longer be authorized",
-    summaryForum: "Configures the forum used to publish summaries and transcripts",
-    summaryForumClear: "Removes the forum and blocks recordings until another is configured",
-    summaryForumSet: "Sets the summary and transcript forum",
-    summaryForumSetForum: "Forum that will receive the posts",
-    summaryForumSetTag: "Name or ID of an existing forum tag",
-    summaryForumShow: "Shows the forum configured in this server",
-    stop: "Stops recording the voice channel you are in",
-  },
-  "pt-BR": {
-    record: "Inicia a gravação do canal de voz em que você está",
-    recordingCost: "Mostra os custos confirmados do processamento por IA",
-    recordingCostFrom: "Primeira data de reunião (AAAA-MM-DD)",
-    recordingCostMeeting: "Mostra os custos de uma reunião concluída",
-    recordingCostMeetingId: "ID da reunião",
-    recordingCostPeriod: "Mostra os custos das reuniões iniciadas em um período",
-    recordingCostTo: "Última data de reunião (AAAA-MM-DD)",
-    recordingRole: "Configura os cargos que podem controlar gravações",
-    recordingRoleAdd: "Autoriza um cargo a iniciar e encerrar gravações",
-    recordingRoleAddOption: "Cargo que será autorizado",
-    recordingRoleList: "Lista os cargos autorizados neste servidor",
-    recordingRoleRemove: "Remove a autorização de um cargo",
-    recordingRoleRemoveOption: "Cargo que deixará de ser autorizado",
-    summaryForum: "Configura o fórum usado para publicar resumos e transcrições",
-    summaryForumClear: "Remove o fórum e bloqueia novas gravações até outra configuração",
-    summaryForumSet: "Define o fórum de resumos e transcrições",
-    summaryForumSetForum: "Fórum que receberá as publicações",
-    summaryForumSetTag: "Nome ou identificador de uma tag existente no fórum",
-    summaryForumShow: "Mostra o fórum configurado neste servidor",
-    stop: "Encerra a gravação do canal de voz em que você está",
-  },
-} as const satisfies Record<BotLanguage, Record<string, string>>;
-
-export function createCommandDefinitions(language: BotLanguage) {
-  const text = descriptions[language];
+export function createCommandDefinitions(language: CommandLanguage) {
+  const { record, recordingCost, recordingRole, recordingSummaryForum, stop } = commandCatalog;
   const recordCommand = new SlashCommandBuilder()
-    .setName("record")
-    .setDescription(text.record)
+    .setName(record.name)
+    .setDescription(record.description[language])
     .setDMPermission(false);
 
   const stopCommand = new SlashCommandBuilder()
-    .setName("stop")
-    .setDescription(text.stop)
+    .setName(stop.name)
+    .setDescription(stop.description[language])
     .setDMPermission(false);
 
   const recordingRoleCommand = new SlashCommandBuilder()
-    .setName("recording-role")
-    .setDescription(text.recordingRole)
+    .setName(recordingRole.name)
+    .setDescription(recordingRole.description[language])
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("add")
-        .setDescription(text.recordingRoleAdd)
+        .setName(recordingRole.subcommands.add.name)
+        .setDescription(recordingRole.subcommands.add.description[language])
         .addRoleOption((option) =>
-          option.setName("role").setDescription(text.recordingRoleAddOption).setRequired(true),
+          option
+            .setName(recordingRole.subcommands.add.options.role.name)
+            .setDescription(recordingRole.subcommands.add.options.role.description[language])
+            .setRequired(true),
         ),
     )
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("remove")
-        .setDescription(text.recordingRoleRemove)
+        .setName(recordingRole.subcommands.remove.name)
+        .setDescription(recordingRole.subcommands.remove.description[language])
         .addRoleOption((option) =>
-          option.setName("role").setDescription(text.recordingRoleRemoveOption).setRequired(true),
+          option
+            .setName(recordingRole.subcommands.remove.options.role.name)
+            .setDescription(recordingRole.subcommands.remove.options.role.description[language])
+            .setRequired(true),
         ),
     )
     .addSubcommand((subcommand) =>
-      subcommand.setName("list").setDescription(text.recordingRoleList),
+      subcommand
+        .setName(recordingRole.subcommands.list.name)
+        .setDescription(recordingRole.subcommands.list.description[language]),
     );
 
   const recordingSummaryForumCommand = new SlashCommandBuilder()
-    .setName("recording-summary-forum")
-    .setDescription(text.summaryForum)
+    .setName(recordingSummaryForum.name)
+    .setDescription(recordingSummaryForum.description[language])
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("set")
-        .setDescription(text.summaryForumSet)
+        .setName(recordingSummaryForum.subcommands.set.name)
+        .setDescription(recordingSummaryForum.subcommands.set.description[language])
         .addChannelOption((option) =>
           option
-            .setName("forum")
-            .setDescription(text.summaryForumSetForum)
+            .setName(recordingSummaryForum.subcommands.set.options.forum.name)
+            .setDescription(
+              recordingSummaryForum.subcommands.set.options.forum.description[language],
+            )
             .addChannelTypes(ChannelType.GuildForum)
             .setRequired(true),
         )
         .addStringOption((option) =>
-          option.setName("tag").setDescription(text.summaryForumSetTag).setRequired(false),
+          option
+            .setName(recordingSummaryForum.subcommands.set.options.tag.name)
+            .setDescription(recordingSummaryForum.subcommands.set.options.tag.description[language])
+            .setRequired(false),
         ),
     )
-    .addSubcommand((subcommand) => subcommand.setName("show").setDescription(text.summaryForumShow))
     .addSubcommand((subcommand) =>
-      subcommand.setName("clear").setDescription(text.summaryForumClear),
+      subcommand
+        .setName(recordingSummaryForum.subcommands.show.name)
+        .setDescription(recordingSummaryForum.subcommands.show.description[language]),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName(recordingSummaryForum.subcommands.clear.name)
+        .setDescription(recordingSummaryForum.subcommands.clear.description[language]),
     );
 
   const recordingCostCommand = new SlashCommandBuilder()
-    .setName("recording-cost")
-    .setDescription(text.recordingCost)
+    .setName(recordingCost.name)
+    .setDescription(recordingCost.description[language])
     .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("meeting")
-        .setDescription(text.recordingCostMeeting)
+        .setName(recordingCost.subcommands.meeting.name)
+        .setDescription(recordingCost.subcommands.meeting.description[language])
         .addStringOption((option) =>
-          option.setName("id").setDescription(text.recordingCostMeetingId).setRequired(true),
+          option
+            .setName(recordingCost.subcommands.meeting.options.id.name)
+            .setDescription(recordingCost.subcommands.meeting.options.id.description[language])
+            .setRequired(true),
         ),
     )
     .addSubcommand((subcommand) =>
       subcommand
-        .setName("period")
-        .setDescription(text.recordingCostPeriod)
+        .setName(recordingCost.subcommands.period.name)
+        .setDescription(recordingCost.subcommands.period.description[language])
         .addStringOption((option) =>
-          option.setName("from").setDescription(text.recordingCostFrom).setRequired(true),
+          option
+            .setName(recordingCost.subcommands.period.options.from.name)
+            .setDescription(recordingCost.subcommands.period.options.from.description[language])
+            .setRequired(true),
         )
         .addStringOption((option) =>
-          option.setName("to").setDescription(text.recordingCostTo).setRequired(true),
+          option
+            .setName(recordingCost.subcommands.period.options.to.name)
+            .setDescription(recordingCost.subcommands.period.options.to.description[language])
+            .setRequired(true),
         ),
     );
 

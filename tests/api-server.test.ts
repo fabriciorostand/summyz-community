@@ -159,6 +159,57 @@ describe("Community dashboard API", () => {
     await localApp.close();
   });
 
+  it("returns the command reference in the persisted dashboard language", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
+      dashboardLanguage: "en",
+      dashboardTheme: "system",
+      discordApplicationId: null,
+      secrets: { discordBotToken: false, openRouterApiKey: false },
+      setupCompleted: false,
+    });
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({ method: "GET", url: "/api/commands" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual([
+      {
+        commands: [
+          {
+            description: "Starts recording the voice channel you are in",
+            name: "/record",
+          },
+          {
+            description: "Stops recording the voice channel you are in",
+            name: "/stop",
+          },
+        ],
+        label: "Recording",
+      },
+      expect.objectContaining({ label: "Administrative shortcuts" }),
+      expect.objectContaining({ label: "Cost — server owner only" }),
+    ]);
+    await app.close();
+  });
+
+  it("requires public dashboard access for the command reference", async () => {
+    const dependencies = createDependencies("public");
+    const app = await createApiServer(dependencies);
+
+    const rejected = await app.inject({ method: "GET", url: "/api/commands" });
+    const accepted = await app.inject({
+      cookies: { summyz_session: "session-token" },
+      method: "GET",
+      url: "/api/commands",
+    });
+
+    expect(rejected.statusCode).toBe(401);
+    expect(accepted.statusCode).toBe(200);
+    expect(accepted.json()[0]).toMatchObject({ label: "Gravação" });
+    await app.close();
+  });
+
   it("authorizes only guilds where the configured bot is installed", async () => {
     const dependencies = createDependencies("local");
     const app = await createApiServer(dependencies);

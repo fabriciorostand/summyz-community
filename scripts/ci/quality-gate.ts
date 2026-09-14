@@ -67,10 +67,12 @@ export interface GateMetrics {
   readonly modules: readonly ModuleSize[];
   readonly newComplexityViolations: number;
   readonly newCoverage: number;
+  readonly newCoverageAvailable: boolean;
   readonly newDuplication: number;
   readonly newIssues: readonly Diagnostic[];
   readonly newMaxComplexity: number;
   readonly repositoryCoverage: number;
+  readonly repositoryCoverageAvailable: boolean;
   readonly repositoryDuplication: number;
   readonly repositoryIssues: readonly Diagnostic[];
   readonly repositoryMaxComplexity: number;
@@ -144,6 +146,21 @@ export const isActionableSecurityFinding = (finding: SecurityFinding): boolean =
     normalizeSeverity(finding.severity) === "CRITICAL") &&
   finding.fixedVersions.some((version) => version.trim().length > 0);
 
+const coverageFailure = (
+  label: "New-code" | "Repository",
+  available: boolean,
+  percentage: number,
+  minimum: number,
+): string | undefined => {
+  if (!available) {
+    return `${label} coverage is unavailable because required coverage reports are missing.`;
+  }
+  if (percentage < minimum) {
+    return `${label} coverage ${percentage.toFixed(2)}% is below ${minimum.toFixed(2)}%.`;
+  }
+  return undefined;
+};
+
 export const evaluateQualityGate = (
   metrics: GateMetrics,
   config: GateConfig = DEFAULT_GATE_CONFIG,
@@ -157,16 +174,20 @@ export const evaluateQualityGate = (
   );
   const failures: string[] = [];
 
-  if (metrics.repositoryCoverage < config.coverageMinimum) {
-    failures.push(
-      `Repository coverage ${metrics.repositoryCoverage.toFixed(2)}% is below ${config.coverageMinimum.toFixed(2)}%.`,
-    );
-  }
-  if (metrics.newCoverage < config.coverageMinimum) {
-    failures.push(
-      `New-code coverage ${metrics.newCoverage.toFixed(2)}% is below ${config.coverageMinimum.toFixed(2)}%.`,
-    );
-  }
+  const repositoryCoverageFailure = coverageFailure(
+    "Repository",
+    metrics.repositoryCoverageAvailable,
+    metrics.repositoryCoverage,
+    config.coverageMinimum,
+  );
+  if (repositoryCoverageFailure) failures.push(repositoryCoverageFailure);
+  const newCoverageFailure = coverageFailure(
+    "New-code",
+    metrics.newCoverageAvailable,
+    metrics.newCoverage,
+    config.coverageMinimum,
+  );
+  if (newCoverageFailure) failures.push(newCoverageFailure);
   if (metrics.repositoryDuplication > config.duplicationMaximum) {
     failures.push(
       `Repository duplication ${metrics.repositoryDuplication.toFixed(2)}% exceeds ${config.duplicationMaximum.toFixed(2)}%.`,
@@ -260,6 +281,9 @@ const integerDelta = (current: number, base: number | undefined): string => {
   const difference = current - base;
   return `${difference > 0 ? "+" : ""}${difference}`;
 };
+
+const coverageValue = (available: boolean, percentage: number): string =>
+  available ? `${percentage.toFixed(2)}%` : "unavailable";
 
 const sourceUrl = (
   context: Pick<MarkdownContext, "commitSha" | "repository">,
@@ -404,13 +428,21 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
     [
       "Coverage",
       linkedMetric(
-        icon(metrics.newCoverage >= config.coverageMinimum, context),
-        `${metrics.newCoverage.toFixed(2)}%`,
+        icon(
+          metrics.newCoverageAvailable && metrics.newCoverage >= config.coverageMinimum,
+          context,
+        ),
+        coverageValue(metrics.newCoverageAvailable, metrics.newCoverage),
         context.detailsUrl,
       ),
-      detailsLink(`${metrics.repositoryCoverage.toFixed(2)}%`, context.detailsUrl),
       detailsLink(
-        delta(metrics.repositoryCoverage, metrics.baseRepositoryCoverage, " pp"),
+        coverageValue(metrics.repositoryCoverageAvailable, metrics.repositoryCoverage),
+        context.detailsUrl,
+      ),
+      detailsLink(
+        metrics.repositoryCoverageAvailable
+          ? delta(metrics.repositoryCoverage, metrics.baseRepositoryCoverage, " pp")
+          : "—",
         context.detailsUrl,
       ),
       detailsLink(`≥ ${config.coverageMinimum}%`, context.detailsUrl),

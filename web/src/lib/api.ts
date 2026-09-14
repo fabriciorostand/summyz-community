@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   accessStatusSchema,
   botInstallationSchema,
+  commandReferenceSchema,
   dashboardAnalyticsSchema,
   dashboardSettingsSchema,
   dashboardTaskSchema,
@@ -26,6 +27,7 @@ export type {
   AccessMode,
   AccessStatus,
   BotInstallation,
+  CommandReference,
   DashboardAnalytics,
   DashboardSettings,
   DashboardTask,
@@ -159,6 +161,7 @@ export const api = {
     if (filters.roleId !== undefined) parameters.set("roleId", filters.roleId);
     return request(`/api/guilds/${guildId}/members?${parameters}`, guildMemberPageSchema);
   },
+  listCommands: () => request("/api/commands", commandReferenceSchema),
   listGuilds: () => request("/api/guilds", z.array(guildSchema)),
   listHistoricalParticipants: (guildId: string, page: number, query?: string) => {
     const parameters = new URLSearchParams({ page: String(page) });
