@@ -42,14 +42,14 @@ jobs:
       - name: Check formatting, linting, types, and builds
         shell: bash
         run: |
-          mkdir -p reports/quality
+          mkdir -p artifacts/reports/quality
           quality_status=0
           ./node_modules/.bin/biome ci . --reporter=sarif \
-            --reporter-file=reports/quality/biome.sarif || quality_status=1
-          npm run typecheck 2>&1 | tee reports/quality/typecheck-server.txt || quality_status=1
-          npm run typecheck:web 2>&1 | tee reports/quality/typecheck-dashboard.txt || quality_status=1
-          npm run build 2>&1 | tee reports/quality/build.txt || quality_status=1
-          echo "${quality_status}" > reports/quality/node.status
+            --reporter-file=artifacts/reports/quality/biome.sarif || quality_status=1
+          npm run typecheck 2>&1 | tee artifacts/reports/quality/typecheck-server.txt || quality_status=1
+          npm run typecheck:web 2>&1 | tee artifacts/reports/quality/typecheck-dashboard.txt || quality_status=1
+          npm run build 2>&1 | tee artifacts/reports/quality/build.txt || quality_status=1
+          echo "${quality_status}" > artifacts/reports/quality/node.status
 
       - name: Set up exact Python
         if: always()
@@ -57,33 +57,34 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements-ci.lock
+          cache-dependency-path: requirements/ci.lock
 
       - name: Install verified CI tools
         if: always()
-        run: python -m pip install --require-hashes --requirement requirements-ci.lock
+        run: python -m pip install --require-hashes --requirement requirements/ci.lock
 
       - name: Check Python formatting, linting, and types
         if: always()
         shell: bash
         run: |
-          mkdir -p reports/quality
+          mkdir -p artifacts/reports/quality
           quality_status=0
           ruff check services/faster-whisper --output-format sarif \
-            --output-file reports/quality/ruff.sarif || quality_status=1
+            --output-file artifacts/reports/quality/ruff.sarif || quality_status=1
           ruff format --check services/faster-whisper 2>&1 \
-            | tee reports/quality/ruff-format.txt || quality_status=1
+            | tee artifacts/reports/quality/ruff-format.txt || quality_status=1
           mypy services/faster-whisper 2>&1 \
-            | tee reports/quality/mypy.txt || quality_status=1
+            | tee artifacts/reports/quality/mypy.txt || quality_status=1
           # ruff has no cognitive complexity rule (only C901, which is cyclomatic), so the
           # Python side gets the same metric Biome enforces on TypeScript.
           complexipy services/faster-whisper \
             --exclude "test_*.py" \
+            --cache-dir .cache/complexipy \
             --max-complexity-allowed 15 \
             --output-format sarif \
-            --output reports/quality/complexipy.sarif \
+            --output artifacts/reports/quality/complexipy.sarif \
             --quiet || quality_status=1
-          echo "${quality_status}" > reports/quality/python.status
+          echo "${quality_status}" > artifacts/reports/quality/python.status
 
       - name: Analyze source metrics
         if: always()
@@ -91,7 +92,7 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          git diff --output=reports/quality/source.diff "${BASE_SHA}...HEAD" -- \
+          git diff --output=artifacts/reports/quality/source.diff "${BASE_SHA}...HEAD" -- \
             src web/src services/faster-whisper
           ./node_modules/.bin/jscpd \
             --min-lines 5 \
@@ -99,7 +100,7 @@ jobs:
             --threshold 3 \
             --exit-code 0 \
             --reporters console,json,html \
-            --output reports/quality/jscpd \
+            --output artifacts/reports/quality/jscpd \
             --format typescript,tsx,python \
             --skip-comments \
             --ignore "**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*.d.ts" \
@@ -109,31 +110,31 @@ jobs:
           # rest of the file into it, so its numbers do not describe the code. Cognitive
           # complexity for .tsx is enforced by Biome instead (see biome.json overrides).
           lizard -l typescript -l python -C 10 -i -1 \
-            -x "*test*" -x "*spec*" --csv -o reports/quality/lizard.csv \
+            -x "*test*" -x "*spec*" --csv -o artifacts/reports/quality/lizard.csv \
             src web/src services/faster-whisper
           lizard -l typescript -l python -C 10 -i -1 \
-            -x "*test*" -x "*spec*" --xml -o reports/quality/lizard.xml \
+            -x "*test*" -x "*spec*" --xml -o artifacts/reports/quality/lizard.xml \
             src web/src services/faster-whisper
           ./node_modules/.bin/tsx scripts/ci/source-quality-cli.ts \
-            reports/quality/source.diff \
-            reports/quality/jscpd/jscpd-report.json \
-            reports/quality/lizard.csv \
-            reports/quality/lizard.xml \
-            reports/quality/source-quality.json
+            artifacts/reports/quality/source.diff \
+            artifacts/reports/quality/jscpd/jscpd-report.json \
+            artifacts/reports/quality/lizard.csv \
+            artifacts/reports/quality/lizard.xml \
+            artifacts/reports/quality/source-quality.json
 
       - name: Enforce quality checks
         if: always()
         shell: bash
         run: |
-          test "$(cat reports/quality/node.status 2>/dev/null)" = "0"
-          test "$(cat reports/quality/python.status 2>/dev/null)" = "0"
+          test "$(cat artifacts/reports/quality/node.status 2>/dev/null)" = "0"
+          test "$(cat artifacts/reports/quality/python.status 2>/dev/null)" = "0"
 
       - name: Upload quality reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-quality
-          path: reports/quality
+          path: artifacts/reports/quality
           if-no-files-found: warn
 
   security:
@@ -160,17 +161,17 @@ jobs:
 
       - name: Initialize security reports
         if: always()
-        run: mkdir -p reports/security
+        run: mkdir -p artifacts/reports/security
 
       - name: Audit Node.js runtime dependencies
         shell: bash
         run: |
           set +e
-          npm audit --package-lock-only --omit=optional --json > reports/security/npm-audit.json
+          npm audit --package-lock-only --omit=optional --json > artifacts/reports/security/npm-audit.json
           audit_status=$?
           set -e
           test "${audit_status}" -le 1
-          node -e 'const report=require("./reports/security/npm-audit.json"); if(report.error) process.exit(1)'
+          node -e 'const report=require("./artifacts/reports/security/npm-audit.json"); if(report.error) process.exit(1)'
 
       - name: Set up exact Python
         if: always()
@@ -178,11 +179,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements-ci.lock
+          cache-dependency-path: requirements/ci.lock
 
       - name: Install verified security tools
         if: always()
-        run: python -m pip install --require-hashes --requirement requirements-ci.lock
+        run: python -m pip install --require-hashes --requirement requirements/ci.lock
 
       - name: Audit Python runtime dependencies
         if: always()
@@ -190,7 +191,7 @@ jobs:
         run: |
           audit_status=0
           pip-audit --strict --requirement services/faster-whisper/requirements.lock \
-            --format json --output reports/security/pip-audit.json || audit_status=$?
+            --format json --output artifacts/reports/security/pip-audit.json || audit_status=$?
           test "${audit_status}" -le 1
 
       - name: Scan GitHub Actions definitions
@@ -199,7 +200,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: >-
           zizmor --min-severity medium --format sarif
-          .github/workflows > reports/security/zizmor.sarif
+          .github/workflows > artifacts/reports/security/zizmor.sarif
 
       - name: Scan the complete history for secrets
         if: always()
@@ -208,7 +209,7 @@ jobs:
           docker run --rm -v "${PWD}:/repo" \
             zricethezav/gitleaks:v8.24.0@sha256:2bcceac45179b3a91bff11a824d0fb952585b429e54fc928728b1d4d5c3e5176 \
             detect --source=/repo --redact --verbose --no-banner \
-              --report-format=sarif --report-path=/repo/reports/security/gitleaks.sarif
+              --report-format=sarif --report-path=/repo/artifacts/reports/security/gitleaks.sarif
 
       - name: Report every repository vulnerability
         if: always()
@@ -219,7 +220,7 @@ jobs:
           scanners: vuln
           ignore-unfixed: false
           format: json
-          output: reports/security/trivy-filesystem.json
+          output: artifacts/reports/security/trivy-filesystem.json
           exit-code: "0"
           version: v0.74.0
 
@@ -233,7 +234,7 @@ jobs:
           severity: HIGH,CRITICAL
           format: sarif
           limit-severities-for-sarif: true
-          output: reports/security/trivy-policy.sarif
+          output: artifacts/reports/security/trivy-policy.sarif
           exit-code: "1"
           version: v0.74.0
 
@@ -249,7 +250,7 @@ jobs:
                   and ((.FixedVersion // "") | length > 0)
                 )
             ] | length == 0
-          ' reports/security/trivy-filesystem.json
+          ' artifacts/reports/security/trivy-filesystem.json
           jq -e '
             [
               .vulnerabilities[]?
@@ -258,14 +259,14 @@ jobs:
                   and (.fixAvailable != false and .fixAvailable != null)
                 )
             ] | length == 0
-          ' reports/security/npm-audit.json
+          ' artifacts/reports/security/npm-audit.json
 
       - name: Upload security reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-security
-          path: reports/security
+          path: artifacts/reports/security
           if-no-files-found: warn
 
   tests:
@@ -302,6 +303,7 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
+          file: docker/Dockerfile
           target: test
           load: true
           tags: summyz-community-tests:ci
@@ -310,21 +312,21 @@ jobs:
 
       - name: Initialize test reports
         run: |
-          mkdir -p reports
-          chmod 0777 reports
+          mkdir -p artifacts/reports
+          chmod 0777 artifacts/reports
 
       - name: Run server tests with real PostgreSQL and coverage
         run: >-
           docker run --rm --network host
           --env POSTGRES_TEST_URL=postgresql://summyz_ci:ci-only-password@127.0.0.1:5432/summyz_ci
-          --volume "${{ github.workspace }}/reports:/app/reports"
+          --volume "${{ github.workspace }}/artifacts/reports:/app/artifacts/reports"
           summyz-community-tests:ci npm run test:coverage:ci
 
       - name: Run dashboard tests with coverage
         if: always()
         run: >-
           docker run --rm
-          --volume "${{ github.workspace }}/reports:/app/reports"
+          --volume "${{ github.workspace }}/artifacts/reports:/app/artifacts/reports"
           summyz-community-tests:ci npm run test:web:coverage
 
       - name: Build the exact Python test environment
@@ -342,28 +344,28 @@ jobs:
       - name: Run Python tests with coverage
         if: always()
         run: |
-          mkdir -p reports/python
-          chmod 0777 reports/python
+          mkdir -p artifacts/reports/python
+          chmod 0777 artifacts/reports/python
           docker run --rm \
-            --volume "${{ github.workspace }}/reports:/workspace/reports" \
+            --volume "${{ github.workspace }}/artifacts/reports:/workspace/artifacts/reports" \
             summyz-community-python-tests:ci \
             python -m pytest services/faster-whisper \
             --cov=services/faster-whisper --cov-branch --cov-fail-under=85 \
-            --cov-report=term-missing --cov-report=xml:reports/python/coverage.xml \
-            --cov-report=json:reports/python/coverage.json \
-            --cov-report=html:reports/python/coverage --junitxml=reports/python/junit.xml
+            --cov-report=term-missing --cov-report=xml:artifacts/reports/python/coverage.xml \
+            --cov-report=json:artifacts/reports/python/coverage.json \
+            --cov-report=html:artifacts/reports/python/coverage --junitxml=artifacts/reports/python/junit.xml
 
       - name: Enforce 85% coverage for each domain group
         if: always()
         run: >-
           docker run --rm
-          --volume "${{ github.workspace }}/reports:/app/reports"
+          --volume "${{ github.workspace }}/artifacts/reports:/app/artifacts/reports"
           summyz-community-tests:ci
           ./node_modules/.bin/tsx scripts/ci/coverage-domains.ts
-          reports/server/coverage/coverage-summary.json
-          reports/web/coverage/coverage-summary.json
-          reports/python/coverage.json
-          reports/domain-coverage/results.json
+          artifacts/reports/server/coverage/coverage-summary.json
+          artifacts/reports/web/coverage/coverage-summary.json
+          artifacts/reports/python/coverage.json
+          artifacts/reports/domain-coverage/results.json
 
       - name: Set up exact Python for changed-code coverage # zizmor: ignore[cache-poisoning] Installs remain hash-verified.
         if: always()
@@ -371,11 +373,11 @@ jobs:
         with:
           python-version: ${{ env.PYTHON_VERSION }}
           cache: pip
-          cache-dependency-path: requirements-ci.lock
+          cache-dependency-path: requirements/ci.lock
 
       - name: Install verified coverage tools
         if: always()
-        run: python -m pip install --require-hashes --requirement requirements-ci.lock
+        run: python -m pip install --require-hashes --requirement requirements/ci.lock
 
       - name: Measure coverage on changed code
         if: always()
@@ -383,22 +385,22 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          mkdir -p reports/diff-coverage
-          git diff --output=reports/diff-coverage/server.diff "${BASE_SHA}...HEAD" -- src
-          git diff --relative=web --output=reports/diff-coverage/web.diff "${BASE_SHA}...HEAD" -- web
+          mkdir -p artifacts/reports/diff-coverage
+          git diff --output=artifacts/reports/diff-coverage/server.diff "${BASE_SHA}...HEAD" -- src
+          git diff --relative=web --output=artifacts/reports/diff-coverage/web.diff "${BASE_SHA}...HEAD" -- web
           git diff --relative=services/faster-whisper \
-            --output=reports/diff-coverage/python.diff \
+            --output=artifacts/reports/diff-coverage/python.diff \
             "${BASE_SHA}...HEAD" -- services/faster-whisper
           for component in server web python; do
             case "${component}" in
-              server) report="reports/server/coverage/cobertura-coverage.xml" ;;
-              web) report="reports/web/coverage/cobertura-coverage.xml" ;;
-              python) report="reports/python/coverage.xml" ;;
+              server) report="artifacts/reports/server/coverage/cobertura-coverage.xml" ;;
+              web) report="artifacts/reports/web/coverage/cobertura-coverage.xml" ;;
+              python) report="artifacts/reports/python/coverage.xml" ;;
             esac
             if [[ -s "${report}" ]]; then
               diff-cover "${report}" \
-                --diff-file "reports/diff-coverage/${component}.diff" \
-                --format "html:reports/diff-coverage/${component}.html,json:reports/diff-coverage/${component}.json" \
+                --diff-file "artifacts/reports/diff-coverage/${component}.diff" \
+                --format "html:artifacts/reports/diff-coverage/${component}.html,json:artifacts/reports/diff-coverage/${component}.json" \
                 --fail-under 0
             else
               echo "::error::Missing ${component} coverage report: ${report}"
@@ -407,21 +409,21 @@ jobs:
           done
           docker run --rm \
             --user "$(id -u):$(id -g)" \
-            --volume "${{ github.workspace }}/reports:/app/reports" \
+            --volume "${{ github.workspace }}/artifacts/reports:/app/artifacts/reports" \
             summyz-community-tests:ci \
             ./node_modules/.bin/tsx scripts/ci/changed-coverage-cli.ts \
-            reports/diff-coverage/server.json \
-            reports/diff-coverage/web.json \
-            reports/diff-coverage/python.json \
-            reports/diff-coverage/global.json \
-            reports/diff-coverage/global.md
+            artifacts/reports/diff-coverage/server.json \
+            artifacts/reports/diff-coverage/web.json \
+            artifacts/reports/diff-coverage/python.json \
+            artifacts/reports/diff-coverage/global.json \
+            artifacts/reports/diff-coverage/global.md
 
       - name: Upload test and coverage reports
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-tests-coverage
-          path: reports
+          path: artifacts/reports
           if-no-files-found: error
 
   runtime:
@@ -458,6 +460,7 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
+          file: docker/Dockerfile
           target: bot-runtime
           load: true
           tags: summyz-community-bot:ci
@@ -468,6 +471,7 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
+          file: docker/Dockerfile
           target: dashboard-runtime
           load: true
           tags: summyz-community-dashboard:ci
@@ -489,6 +493,7 @@ jobs:
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
+          file: docker/Dockerfile
           target: test
           load: true
           tags: summyz-community-smoke:latest
@@ -503,8 +508,8 @@ jobs:
       - name: Validate image users, versions, and Compose overlays
         shell: bash
         env:
-          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
-          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
           POSTGRES_PASSWORD: ci-only-password
           PUBLIC_BASE_URL: https://summyz.example.com
         run: |
@@ -514,22 +519,22 @@ jobs:
           test "$(docker run --rm --entrypoint id summyz-community-dashboard:ci -u)" != "0"
           test "$(docker run --rm --entrypoint python summyz-community-faster-whisper:ci --version 2>&1)" = "Python ${PYTHON_VERSION}"
           test "$(docker run --rm --entrypoint id summyz-community-faster-whisper:ci -u)" != "0"
-          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
-          docker compose -f docker-compose.yaml -f docker-compose.nvidia.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
-          docker compose -f docker-compose.yaml -f docker-compose.amd.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
-          docker compose -f docker-compose.yaml -f docker-compose.public.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
+          docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
+          docker compose -f compose.yaml -f docker/compose.nvidia.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
+          docker compose -f compose.yaml -f docker/compose.amd.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
+          docker compose -f compose.yaml -f docker/compose.public.yaml -f .github/ci/docker-compose.ci.yaml config --quiet
 
       - name: Restore immutable local-model cache # zizmor: ignore[cache-poisoning] PR cache scope is isolated and models are verified.
         uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
-          path: .ci-cache
+          path: .cache/ci
           key: local-ai-d90ca5fe260221311c53c58e660288d3deb8d356-8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7
 
       - name: Prepare local-model cache permissions
         shell: bash
         env:
-          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
-          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
         run: |
           mkdir -p "${CI_OLLAMA_CACHE}" "${CI_WHISPER_CACHE}"
           whisper_uid="$(docker run --rm --entrypoint id summyz-community-faster-whisper:ci -u)"
@@ -545,8 +550,8 @@ jobs:
         id: local_ai_smoke
         shell: bash
         env:
-          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
-          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
           POSTGRES_PASSWORD: ci-only-password
           SMOKE_OLLAMA_DIGEST: sha256:8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7
           SMOKE_OLLAMA_MODEL: qwen3:1.7b
@@ -554,14 +559,14 @@ jobs:
           SMOKE_WHISPER_REVISION: d90ca5fe260221311c53c58e660288d3deb8d356
         run: |
           docker tag summyz-community-faster-whisper:ci summyz-community-faster-whisper:latest
-          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+          docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml \
             --profile smoke up --detach --no-build --wait --wait-timeout 180 ollama faster-whisper
-          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+          docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml \
             --profile smoke run --rm --no-deps \
             -e SMOKE_OLLAMA_DIGEST -e SMOKE_OLLAMA_MODEL \
             -e SMOKE_WHISPER_MODEL -e SMOKE_WHISPER_REVISION smoke
           ollama_processes="$(
-            docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+            docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml \
               --profile smoke exec --no-TTY ollama ollama ps
           )"
           printf '%s\n' "${ollama_processes}"
@@ -571,28 +576,28 @@ jobs:
         if: failure() && steps.local_ai_smoke.outcome == 'failure'
         shell: bash
         env:
-          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
-          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
           POSTGRES_PASSWORD: ci-only-password
         run: |
-          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+          docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml \
             --profile smoke ps --all
-          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml \
+          docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml \
             --profile smoke logs --no-color --timestamps ollama faster-whisper
 
       - name: Stop local-AI services
         if: always()
         env:
-          CI_OLLAMA_CACHE: ${{ github.workspace }}/.ci-cache/ollama
-          CI_WHISPER_CACHE: ${{ github.workspace }}/.ci-cache/faster-whisper
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
           POSTGRES_PASSWORD: ci-only-password
         run: >-
-          docker compose -f docker-compose.yaml -f .github/ci/docker-compose.ci.yaml
+          docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml
           --profile smoke down --volumes
 
       - name: Initialize runtime reports
         if: always()
-        run: mkdir -p reports/runtime
+        run: mkdir -p artifacts/reports/runtime
 
       - name: Scan bot image
         if: always()
@@ -601,7 +606,7 @@ jobs:
           image-ref: summyz-community-bot:ci
           ignore-unfixed: false
           format: json
-          output: reports/runtime/trivy-bot.json
+          output: artifacts/reports/runtime/trivy-bot.json
           exit-code: "0"
           version: v0.74.0
 
@@ -612,7 +617,7 @@ jobs:
           image-ref: summyz-community-dashboard:ci
           ignore-unfixed: false
           format: json
-          output: reports/runtime/trivy-dashboard.json
+          output: artifacts/reports/runtime/trivy-dashboard.json
           exit-code: "0"
           version: v0.74.0
 
@@ -623,7 +628,7 @@ jobs:
           image-ref: summyz-community-faster-whisper:ci
           ignore-unfixed: false
           format: json
-          output: reports/runtime/trivy-faster-whisper.json
+          output: artifacts/reports/runtime/trivy-faster-whisper.json
           exit-code: "0"
           version: v0.74.0
 
@@ -640,9 +645,9 @@ jobs:
                   and ((.FixedVersion // "") | length > 0)
                 )
             ] | length == 0
-          ' reports/runtime/trivy-bot.json \
-            reports/runtime/trivy-dashboard.json \
-            reports/runtime/trivy-faster-whisper.json
+          ' artifacts/reports/runtime/trivy-bot.json \
+            artifacts/reports/runtime/trivy-dashboard.json \
+            artifacts/reports/runtime/trivy-faster-whisper.json
 
       - name: Reclaim Docker storage before CUDA packaging
         run: |
@@ -665,7 +670,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: ci-runtime
-          path: reports/runtime
+          path: artifacts/reports/runtime
           if-no-files-found: warn
 
   quality-gate:
@@ -689,7 +694,7 @@ jobs:
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           pattern: ci-*
-          path: reports
+          path: artifacts/reports
 
       - name: Locate the latest successful main baseline
         id: baseline
@@ -751,7 +756,7 @@ jobs:
           SECURITY_RESULT: ${{ needs.security.result }}
           TESTS_RESULT: ${{ needs.tests.result }}
         run: |
-          ./node_modules/.bin/tsx scripts/ci/quality-gate-cli.ts reports baseline ci-summary.md
+          ./node_modules/.bin/tsx scripts/ci/quality-gate-cli.ts artifacts/reports baseline ci-summary.md
           cat ci-summary.md >> "${GITHUB_STEP_SUMMARY}"
 
       - name: Upload aggregate report
@@ -762,7 +767,7 @@ jobs:
           path: |
             ci-summary.md
             quality-gate-result.json
-            reports
+            artifacts/reports
           if-no-files-found: warn
 
       - name: Upload the main Quality Gate baseline

@@ -1,5 +1,7 @@
 # Instalação
 
+[English](../installation.md) · [Início da documentação](./README.md)
+
 Este guia instala o Summyz Community a partir do código-fonte. O projeto não publicará
 imagens Summyz pré-compiladas na versão 1.0.0.
 
@@ -98,5 +100,5 @@ apaga; não adicione `--volumes` sem desejar uma exclusão permanente. Faça bac
 do PostgreSQL, volume de dados do Summyz e `.env`. Nunca publique `.env`, gravações brutas,
 transcrições completas, dumps do banco ou caches de modelos.
 
-Leia [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) antes de escolher modelos ou
+Leia [THIRD_PARTY_NOTICES.md](../../THIRD_PARTY_NOTICES.md) antes de escolher modelos ou
 redistribuir qualquer imagem construída localmente.

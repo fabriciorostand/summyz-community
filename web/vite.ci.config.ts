@@ -10,14 +10,14 @@ export default mergeConfig(baseConfig, {
       include: ["src/**/*.{ts,tsx}"],
       provider: "v8",
       reporter: ["text", "html", "json", "json-summary", "cobertura", "lcovonly"],
-      reportsDirectory: "../reports/web/coverage",
+      reportsDirectory: "../artifacts/reports/web/coverage",
       thresholds: {
         lines: 85,
         statements: 85,
       },
     },
     outputFile: {
-      junit: "../reports/web/junit.xml",
+      junit: "../artifacts/reports/web/junit.xml",
     },
     reporters: ["default", "junit"],
   },

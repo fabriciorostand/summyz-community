@@ -1,5 +1,7 @@
 # Revisão técnica de licenças para a versão 1.0.0
 
+[Início da documentação em pt-BR](../README.md)
+
 **Revisão atualizada:** 5 de setembro de 2026
 **Escopo:** código-fonte, dependências Node.js e Python, imagens Docker, FFmpeg/PyAV,
 CUDA/cuDNN, ROCm, modelos baixados, avisos de terceiros e preparação do SBOM.
@@ -149,7 +151,7 @@ regenerados no commit final e anexados à release 1.0.0.
 Esta etapa deliberadamente **não** torna o repositório público, cria tag ou cria release.
 Antes da publicação:
 
-1. executar toda a checklist em `docs/release-checklist.pt-BR.md` no commit final;
+1. executar toda a checklist em `docs/pt-BR/release-checklist.md` no commit final;
 2. repetir testes, builds, auditorias de vulnerabilidades e Gitleaks;
 3. validar fisicamente as plataformas disponíveis e declarar as lacunas restantes;
 4. construir todos os alvos com os nomes esperados e gerar os SBOMs finais em árvore limpa;

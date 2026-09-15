@@ -30,7 +30,7 @@ describe("public Community launcher", () => {
     try {
       const output = await runLauncher(fixture);
 
-      expect(output).toContain("docker-compose.public.yaml");
+      expect(output).toContain("docker/compose.public.yaml");
       expect(output).toContain("up -d --build");
       expect(output).not.toContain("setup-token-sensitive");
     } finally {

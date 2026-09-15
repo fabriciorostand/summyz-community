@@ -27,7 +27,7 @@ RUN sed -i \
     rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 COPY services/faster-whisper/requirements.txt services/faster-whisper/requirements.lock /requirements/
-COPY requirements-ci.lock /requirements/requirements-ci.lock
+COPY requirements/ci.lock /requirements/ci.lock
 RUN pip wheel \
       --no-binary=av \
       --require-hashes \
@@ -35,7 +35,7 @@ RUN pip wheel \
       --wheel-dir /wheels && \
     pip wheel \
       --require-hashes \
-      --requirement /requirements/requirements-ci.lock \
+      --requirement /requirements/ci.lock \
       --wheel-dir /ci-wheels
 
 FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS cpu
@@ -128,13 +128,13 @@ FROM cpu AS test
 
 USER root
 COPY --from=python-wheels /ci-wheels /ci-wheels
-COPY requirements-ci.lock /requirements-ci.lock
+COPY requirements/ci.lock /requirements/ci.lock
 RUN pip install --no-cache-dir --no-index --find-links=/ci-wheels \
-      --require-hashes --requirement /requirements-ci.lock && \
+      --require-hashes --requirement /requirements/ci.lock && \
     rm -rf /ci-wheels
 WORKDIR /workspace
 COPY pyproject.toml ./
 COPY services/faster-whisper ./services/faster-whisper
-RUN mkdir -p reports && chown -R nobody:nogroup /workspace
+RUN mkdir -p artifacts/reports && chown -R nobody:nogroup /workspace
 CMD ["python", "-m", "pytest", "services/faster-whisper"]
 USER nobody

@@ -28,5 +28,5 @@ CLA legal name: <!-- Replace this comment with your full legal name. -->
 
 - [ ] I confirm that every commit in this pull request is authored only by me, is linked to my GitHub account, and contains no `Co-authored-by` trailer.
 
-Read [CLA-INDIVIDUAL.md](../CLA-INDIVIDUAL.md) and
+Read [CLA-INDIVIDUAL.md](../docs/legal/CLA-INDIVIDUAL.md) and
 [CONTRIBUTING.md](../CONTRIBUTING.md) before accepting.

@@ -7,10 +7,10 @@ export default mergeConfig(baseConfig, {
     coverage: {
       exclude: ["scripts/**", "tests/**"],
       reporter: ["text", "html", "json", "json-summary", "cobertura"],
-      reportsDirectory: "reports/server/coverage",
+      reportsDirectory: "artifacts/reports/server/coverage",
     },
     outputFile: {
-      junit: "reports/server/junit.xml",
+      junit: "artifacts/reports/server/junit.xml",
     },
     reporters: ["default", "junit"],
   },

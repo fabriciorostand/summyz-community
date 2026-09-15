@@ -4,7 +4,7 @@ Thank you for contributing. Read this document, `AGENTS.md`, the Summyz Communit
 License 1.0, and the Individual Contributor License Agreement before opening a pull
 request.
 
-Portuguese: [CONTRIBUTING.pt-BR.md](./CONTRIBUTING.pt-BR.md)
+Portuguese: [docs/pt-BR/CONTRIBUTING.md](./docs/pt-BR/CONTRIBUTING.md)
 
 ## Development workflow
 
@@ -22,9 +22,10 @@ Identify all third-party code or assets and their licenses.
 ## Individual CLA required
 
 Only individual Contributions are accepted at this time. Every human contributor must
-accept [Summyz Individual Contributor License Agreement 1.0](./CLA-INDIVIDUAL.md).
+accept [Summyz Individual Contributor License Agreement 1.0](./docs/legal/CLA-INDIVIDUAL.md).
 Corporate Contributions are not accepted until the Project Owner publishes a private
-corporate intake procedure. The corporate agreement in `CLA-CORPORATE.md` is currently
+corporate intake procedure. The corporate agreement in
+[`docs/legal/CLA-CORPORATE.md`](./docs/legal/CLA-CORPORATE.md) is currently
 a template only.
 
 Do not submit a Contribution if an employer, client, educational institution, or other

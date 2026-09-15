@@ -116,8 +116,8 @@ const parseQualityIssues = async (files: readonly string[]): Promise<readonly Di
 };
 
 const trivySourcePath = (path: string): string | undefined => {
-  if (pathEndsWith(path, "/trivy-bot.json")) return "Dockerfile";
-  if (pathEndsWith(path, "/trivy-dashboard.json")) return "Dockerfile";
+  if (pathEndsWith(path, "/trivy-bot.json")) return "docker/Dockerfile";
+  if (pathEndsWith(path, "/trivy-dashboard.json")) return "docker/Dockerfile";
   if (pathEndsWith(path, "/trivy-faster-whisper.json")) {
     return "services/faster-whisper/Dockerfile";
   }
@@ -174,7 +174,7 @@ const requiredEnvironment = (name: string): string => {
 
 const main = async (): Promise<void> => {
   const [
-    reportsArgument = "reports",
+    reportsArgument = "artifacts/reports",
     baselineArgument = "baseline",
     outputArgument = "ci-summary.md",
   ] = process.argv.slice(2);

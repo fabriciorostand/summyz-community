@@ -1,5 +1,7 @@
 # Comandos do Summyz
 
+[English](../../reference/bot-commands.md) · [Início da documentação](../README.md)
+
 ## `/record`
 
 Inicia a gravação do canal de voz em que você está.
@@ -45,7 +47,7 @@ somente um aviso genérico.
 
 Quando o resumo é concluído, o post contém resumo executivo, tópicos discutidos, decisões,
 tarefas e pendências ou observações. Responsável e prazo só aparecem quando foram ditos
-explicitamente. Se o resumo falhar depois das tentativas configuradas, o Summyz ainda cria uma
+explicitamente. Se o resumo falhar depois das tentativas configuradas, o Summyz ainda cria um
 post com a transcrição completa e informa que o resumo está indisponível.
 
 ## `/recording-role add role:<cargo>`
@@ -121,11 +123,19 @@ servidor pode usar o comando, e a resposta é efêmera.
 - Se o canal estiver vazio após o reinício, o Summyz finaliza e processa a gravação parcial.
 - Falhas transitórias são repetidas internamente; não existem comandos públicos de status, retry ou
   exclusão nesta etapa.
-- Com a retenção de áudio desativada no dashboard, os áudios são excluídos após transcrição válida
-  ou falha definitiva; quando ativada, permanecem no disco até exclusão manual do administrador.
+- A retenção de conteúdo é ativada e a de áudio é desativada por padrão em novos servidores. Ambas
+  podem ser alteradas no dashboard.
 - As políticas de conteúdo e áudio são fixadas quando `/record` inicia; alterações posteriores no
   dashboard valem somente para novas reuniões.
-- O tipo do perfil ativo, o provedor, o modelo explícito, o idioma, o VAD e os demais parâmetros de
-  cada fase também ficam fixos nesse momento. Um perfil local nunca usa OpenRouter como fallback.
+- O tipo do perfil ativo, o provedor, os modelos explícitos, o idioma configurado, as configurações
+  de tradução, o VAD, os prompts e os demais parâmetros de cada fase também ficam fixos nesse
+  momento. Um perfil local nunca usa OpenRouter como fallback.
+- O `/record` é bloqueado antes da captura de áudio quando um modelo externo falha na verificação
+  prévia de recursos do OpenRouter ou quando o checkpoint carregado do faster-whisper é monolíngue
+  ou tem capacidade desconhecida. Um idioma explícito no perfil também exige um modelo de tradução.
+- A transcrição preserva todos os idiomas falados. `auto` publica o resumo no único idioma primário
+  predominante; uma tag explícita traduz somente o resumo-base validado.
+- Se a tradução falhar definitivamente, o resumo-base ainda será publicado e somente quem iniciou
+  `/record` receberá uma mensagem direta privada. Nenhum aviso será adicionado ao post no fórum.
 - Registros financeiros são mantidos indefinidamente, independentemente da retenção de áudio e
   transcrições.

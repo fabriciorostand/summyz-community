@@ -41,14 +41,16 @@ COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PATH=/opt/ffmpeg/bin:${PATH}
 COPY biome.json ./
-COPY .gitignore ./
+COPY .dockerignore .gitignore README.md SECURITY.md pyproject.toml ./
 COPY docker ./docker
+COPY docs ./docs
 COPY .github ./.github
 COPY .husky ./.husky
 COPY tests ./tests
 COPY scripts ./scripts
 COPY services ./services
-COPY Dockerfile .env.example docker-compose.yaml docker-compose.nvidia.yaml docker-compose.amd.yaml docker-compose.public.yaml summyz-community summyz-community.ps1 summyz-community-public summyz-community-public.ps1 ./
+COPY requirements ./requirements
+COPY .env.example compose.yaml summyz-community summyz-community.ps1 summyz-community-public summyz-community-public.ps1 ./
 COPY vitest.config.ts vitest.ci.config.ts vitest.smoke.config.ts ./
 CMD ["npm", "run", "test:smoke:local-ai"]
 

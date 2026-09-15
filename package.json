@@ -33,7 +33,7 @@
     "start:api": "node dist/api/main.js",
     "test": "vitest run",
     "test:python": "python -m unittest discover -s services/faster-whisper -p \"test_*.py\"",
-    "test:python:coverage": "python -m pytest services/faster-whisper --cov=services/faster-whisper --cov-branch --cov-report=term-missing --cov-report=xml:reports/python/coverage.xml --cov-report=html:reports/python/coverage --junitxml=reports/python/junit.xml",
+    "test:python:coverage": "python -m pytest services/faster-whisper --cov=services/faster-whisper --cov-branch --cov-report=term-missing --cov-report=xml:artifacts/reports/python/coverage.xml --cov-report=html:artifacts/reports/python/coverage --junitxml=artifacts/reports/python/junit.xml",
     "test:coverage": "vitest run --coverage",
     "test:coverage:ci": "vitest run --config vitest.ci.config.ts --coverage",
     "test:web": "npm test --workspace web",

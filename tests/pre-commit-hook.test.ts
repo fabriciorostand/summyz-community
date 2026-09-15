@@ -20,7 +20,7 @@ describe("pre-commit quality hook", () => {
   it("installs the shared hook and fixes supported staged files before checking whitespace", async () => {
     const manifest = await readPackageManifest();
     const [dockerfile, hook, installer] = await Promise.all([
-      readFile(new URL("../Dockerfile", import.meta.url), "utf8"),
+      readFile(new URL("../docker/Dockerfile", import.meta.url), "utf8"),
       readFile(new URL("../.husky/pre-commit", import.meta.url), "utf8"),
       readFile(new URL("../scripts/install-husky.mjs", import.meta.url), "utf8"),
     ]);

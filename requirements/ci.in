@@ -1,3 +1,4 @@
+# Repository-wide CI and quality tooling.
 complexipy==8.0.1
 coverage==7.10.6
 diff-cover==9.7.1

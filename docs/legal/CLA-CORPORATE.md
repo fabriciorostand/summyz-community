@@ -1,5 +1,7 @@
 # Summyz Corporate Contributor License Agreement 1.0
 
+[Português](../pt-BR/legal/CLA-CORPORATE.md) · [Documentation home](../../README.md)
+
 > **Current status:** template only. Corporate Contributions are not currently
 > accepted. Do not submit this Agreement until the Project Owner publishes a private
 > intake procedure and expressly invites Your organization to use it.

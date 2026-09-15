@@ -237,21 +237,21 @@ print_selection() {
 run_compose() {
   if [ "$profile" = "nvidia" ]; then
     if [ "${SUMMYZ_PUBLIC_MODE:-false}" = "true" ]; then
-      set -- -f docker-compose.yaml -f docker-compose.nvidia.yaml -f docker-compose.public.yaml "$@"
+      set -- -f compose.yaml -f docker/compose.nvidia.yaml -f docker/compose.public.yaml "$@"
     else
-      set -- -f docker-compose.yaml -f docker-compose.nvidia.yaml "$@"
+      set -- -f compose.yaml -f docker/compose.nvidia.yaml "$@"
     fi
   elif [ "$profile" = "amd" ]; then
     if [ "${SUMMYZ_PUBLIC_MODE:-false}" = "true" ]; then
-      set -- -f docker-compose.yaml -f docker-compose.amd.yaml -f docker-compose.public.yaml "$@"
+      set -- -f compose.yaml -f docker/compose.amd.yaml -f docker/compose.public.yaml "$@"
     else
-      set -- -f docker-compose.yaml -f docker-compose.amd.yaml "$@"
+      set -- -f compose.yaml -f docker/compose.amd.yaml "$@"
     fi
   else
     if [ "${SUMMYZ_PUBLIC_MODE:-false}" = "true" ]; then
-      set -- -f docker-compose.yaml -f docker-compose.public.yaml "$@"
+      set -- -f compose.yaml -f docker/compose.public.yaml "$@"
     else
-      set -- -f docker-compose.yaml "$@"
+      set -- -f compose.yaml "$@"
     fi
   fi
 
