@@ -1,8 +1,10 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { useCallback, useState } from "react";
+import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, api, type InstallationHealth } from "../lib/api";
+import { ApiError, api, type DashboardSettings, type InstallationHealth } from "../lib/api";
 import { aSettings, dashboardContext, renderScreen } from "../tests/test-utils";
 import { InstallationPage } from "./installation-page";
 
@@ -47,6 +49,39 @@ function aHealth(overrides: Partial<InstallationHealth> = {}): InstallationHealt
     queue: { active: 0, failed: 0, oldestPendingAt: null, scheduled: 0 },
     ...overrides,
   };
+}
+
+/**
+ * The real layout owns the settings; this stand-in keeps them in state so the page can be
+ * observed reacting to its own patches and to what the server answers on reload.
+ */
+function SettingsHarness({
+  initialSettings,
+  serverSettings,
+}: {
+  initialSettings: DashboardSettings;
+  serverSettings: () => Promise<DashboardSettings>;
+}) {
+  const [settings, setSettings] = useState(initialSettings);
+  // Stable like the real layout callbacks, otherwise the page would refresh on every render.
+  const patchSettings = useCallback(
+    (patch: Partial<DashboardSettings>) => setSettings((current) => ({ ...current, ...patch })),
+    [],
+  );
+  const reloadSettings = useCallback(
+    () => serverSettings().then(setSettings, () => undefined),
+    [serverSettings],
+  );
+  const context = dashboardContext({ patchSettings, reloadSettings, settings });
+  return (
+    <MemoryRouter initialEntries={["/installation"]}>
+      <Routes>
+        <Route element={<Outlet context={context} />}>
+          <Route element={<InstallationPage />} path="/installation" />
+        </Route>
+      </Routes>
+    </MemoryRouter>
+  );
 }
 
 beforeEach(() => {
@@ -94,19 +129,104 @@ describe("InstallationPage", () => {
   });
 
   it("updates and removes the OpenRouter key", async () => {
-    renderScreen(<InstallationPage />);
-    await userEvent.type(screen.getByLabelText("Chave OpenRouter"), "sk-or-1");
+    // A stand-in server whose answer follows the writes, the way the real one does.
+    let stored = false;
+    vi.mocked(api.updateSecret).mockImplementation(async () => {
+      stored = true;
+    });
+    vi.mocked(api.removeSecret).mockImplementation(async () => {
+      stored = false;
+    });
+    const serverSettings = vi
+      .fn<() => Promise<DashboardSettings>>()
+      .mockImplementation(async () =>
+        aSettings({ secrets: { discordBotToken: true, openRouterApiKey: stored } }),
+      );
+    render(
+      <SettingsHarness
+        initialSettings={aSettings({ secrets: { discordBotToken: true, openRouterApiKey: false } })}
+        serverSettings={serverSettings}
+      />,
+    );
+    const field = screen.getByLabelText("Chave OpenRouter");
+    await userEvent.type(field, "sk-or-1");
     await userEvent.click(screen.getByRole("button", { name: "Atualizar" }));
     await waitFor(() =>
       expect(api.updateSecret).toHaveBeenCalledWith("openrouter_api_key", "sk-or-1"),
     );
+    await waitFor(() =>
+      expect(field).toHaveAttribute("placeholder", "Configurado — digite para substituir"),
+    );
+    expect(field).toHaveValue("");
     await userEvent.click(screen.getByRole("button", { name: "Remover chave OpenRouter" }));
     await waitFor(() => expect(api.removeSecret).toHaveBeenCalledWith("openrouter_api_key"));
-    expect(screen.getByLabelText("Chave OpenRouter")).toHaveAttribute(
-      "placeholder",
-      "Ainda não configurado",
-    );
+    await waitFor(() => expect(field).toHaveAttribute("placeholder", "Ainda não configurado"));
     expect(screen.queryByText(/criptografados/)).toBeNull();
+  });
+
+  it("reloads the settings from the server when the page opens", async () => {
+    const reloadSettings = vi.fn().mockResolvedValue(undefined);
+    renderScreen(<InstallationPage />, { context: dashboardContext({ reloadSettings }) });
+    await waitFor(() => expect(reloadSettings).toHaveBeenCalledTimes(1));
+  });
+
+  it("shows the OpenRouter key as configured once the server confirms it", async () => {
+    const serverSettings = vi
+      .fn<() => Promise<DashboardSettings>>()
+      .mockResolvedValue(aSettings({ secrets: { discordBotToken: true, openRouterApiKey: true } }));
+    render(
+      <SettingsHarness
+        initialSettings={aSettings({
+          secrets: { discordBotToken: true, openRouterApiKey: false },
+        })}
+        serverSettings={serverSettings}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByLabelText("Chave OpenRouter")).toHaveAttribute(
+        "placeholder",
+        "Configurado — digite para substituir",
+      ),
+    );
+    expect(serverSettings).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the key as configured after saving even when the reload fails", async () => {
+    const serverSettings = vi
+      .fn<() => Promise<DashboardSettings>>()
+      .mockRejectedValue(new Error("offline"));
+    render(
+      <SettingsHarness
+        initialSettings={aSettings({
+          secrets: { discordBotToken: true, openRouterApiKey: false },
+        })}
+        serverSettings={serverSettings}
+      />,
+    );
+    const field = screen.getByLabelText("Chave OpenRouter");
+    expect(field).toHaveAttribute("placeholder", "Ainda não configurado");
+    await userEvent.type(field, "sk-or-1");
+    await userEvent.click(screen.getByRole("button", { name: "Atualizar" }));
+    await waitFor(() =>
+      expect(field).toHaveAttribute("placeholder", "Configurado — digite para substituir"),
+    );
+    await waitFor(() => expect(serverSettings).toHaveBeenCalledTimes(2));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByRole("button", { name: "Remover chave OpenRouter" })).toBeEnabled();
+  });
+
+  it("follows the server after the bot token is replaced", async () => {
+    const serverSettings = vi
+      .fn<() => Promise<DashboardSettings>>()
+      .mockResolvedValueOnce(aSettings())
+      .mockResolvedValue(aSettings({ discordApplicationId: "222" }));
+    render(<SettingsHarness initialSettings={aSettings()} serverSettings={serverSettings} />);
+    await waitFor(() => expect(serverSettings).toHaveBeenCalledTimes(1));
+    expect(screen.getByText("1289443021764919306")).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Token do bot"), "new-token");
+    await userEvent.click(screen.getByRole("button", { name: "Substituir" }));
+    expect(await screen.findByText("222")).toBeInTheDocument();
+    expect(serverSettings).toHaveBeenCalledTimes(2);
   });
 
   it("hides the password block entirely in local mode", () => {

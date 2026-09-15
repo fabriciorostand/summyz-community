@@ -44,12 +44,12 @@ describe("DiscordRestGuildDirectory", () => {
             {
               joined_at: "2026-09-08T12:00:00.000Z",
               roles: ["role-1"],
-              user: { bot: false, id: "user-1", username: "Ana" },
+              user: { bot: false, discriminator: "0", id: "user-1", username: "Ana" },
             },
             {
               joined_at: "2026-09-08T12:00:00.000Z",
               roles: ["role-1"],
-              user: { bot: true, id: "bot-1", username: "Bot" },
+              user: { bot: true, discriminator: "1234", id: "bot-1", username: "Bot" },
             },
           ]),
           { status: 200 },
@@ -161,7 +161,12 @@ describe("DiscordRestGuildDirectory", () => {
         return new Response(
           JSON.stringify({
             nick: "Sem avatar",
-            user: { avatar: null, id: defaultAvatarUserId, username: "no-avatar" },
+            user: {
+              avatar: null,
+              discriminator: "1234",
+              id: defaultAvatarUserId,
+              username: "no-avatar",
+            },
           }),
         );
       }
@@ -197,8 +202,8 @@ describe("DiscordRestGuildDirectory", () => {
       "300000000000000000",
     ]);
 
-    expect(profiles.get(defaultAvatarUserId)?.avatarUrl).toMatch(
-      /^https:\/\/cdn\.discordapp\.com\/embed\/avatars\/[0-5]\.png$/u,
+    expect(profiles.get(defaultAvatarUserId)?.avatarUrl).toBe(
+      "https://cdn.discordapp.com/embed/avatars/0.png",
     );
     expect(profiles.get("200000000000000000")?.avatarUrl).toContain(
       "/avatars/200000000000000000/global.png",

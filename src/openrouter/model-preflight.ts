@@ -2,6 +2,9 @@ import { z } from "zod";
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
+const OPENROUTER_MODELS_URL = "https://openrouter.ai/api/v1/models";
+const OPENROUTER_STT_MODELS_URL = `${OPENROUTER_MODELS_URL}?output_modalities=transcription`;
+
 const modelSchema = z.object({
   architecture: z.object({
     input_modalities: z.array(z.string()),
@@ -38,8 +41,11 @@ export class OpenRouterModelPreflight {
     transcriptionModel: string;
   }): Promise<void> {
     try {
-      const models = await this.#loadModels();
-      requireTranscriptionModel(models.get(input.transcriptionModel));
+      const [models, transcriptionModels] = await Promise.all([
+        this.#loadModels(OPENROUTER_MODELS_URL),
+        this.#loadModels(OPENROUTER_STT_MODELS_URL),
+      ]);
+      requireTranscriptionModel(transcriptionModels.get(input.transcriptionModel));
       for (const id of new Set(input.generativeModels)) requireGenerativeModel(models.get(id));
     } catch (error) {
       if (error instanceof OpenRouterModelPreflightError) throw error;
@@ -47,8 +53,8 @@ export class OpenRouterModelPreflight {
     }
   }
 
-  async #loadModels(): Promise<Map<string, z.infer<typeof modelSchema>>> {
-    const response = await this.#fetch("https://openrouter.ai/api/v1/models", {
+  async #loadModels(url: string): Promise<Map<string, z.infer<typeof modelSchema>>> {
+    const response = await this.#fetch(url, {
       headers: { Authorization: `Bearer ${this.#apiKey}` },
       method: "GET",
       signal: AbortSignal.timeout(30_000),
@@ -64,8 +70,12 @@ type CatalogModel = z.infer<typeof modelSchema>;
 
 function requireTranscriptionModel(model: CatalogModel | undefined): void {
   const supportsAudio = model?.architecture.input_modalities.includes("audio") === true;
-  const producesText = model?.architecture.output_modalities.includes("text") === true;
-  if (!supportsAudio || !producesText) throw new OpenRouterModelPreflightError();
+  const producesTranscription =
+    model?.architecture.output_modalities.includes("transcription") === true;
+  const supportsResponseFormat = model?.supported_parameters.includes("response_format") === true;
+  if (!supportsAudio || !producesTranscription || !supportsResponseFormat) {
+    throw new OpenRouterModelPreflightError();
+  }
 }
 
 function requireGenerativeModel(model: CatalogModel | undefined): void {

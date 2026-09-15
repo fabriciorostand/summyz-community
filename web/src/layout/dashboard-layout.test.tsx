@@ -10,18 +10,32 @@ import { DashboardLayout, useDashboard } from "./dashboard-layout";
 vi.mock("../lib/api", () => ({
   api: {
     getDashboard: vi.fn(),
+    getSettings: vi.fn(),
     listGuilds: vi.fn(),
     updatePreferences: vi.fn(),
   },
 }));
 
 function Probe() {
-  const { controls, dashboard, period, settings } = useDashboard();
+  const { controls, dashboard, patchSettings, period, reloadSettings, settings } = useDashboard();
   return (
     <div>
       <span data-testid="period">{period}</span>
       <span data-testid="mode">{settings.accessMode}</span>
+      <span data-testid="application-id">{settings.discordApplicationId}</span>
+      <span data-testid="openrouter">{String(settings.secrets.openRouterApiKey)}</span>
       <span data-testid="calls">{dashboard === undefined ? "…" : dashboard.totalCalls}</span>
+      <button onClick={() => void reloadSettings()} type="button">
+        reload
+      </button>
+      <button
+        onClick={() =>
+          patchSettings({ secrets: { discordBotToken: true, openRouterApiKey: true } })
+        }
+        type="button"
+      >
+        patch
+      </button>
       {controls}
     </div>
   );
@@ -107,6 +121,40 @@ describe("DashboardLayout", () => {
     renderLayout();
     await waitFor(() => expect(screen.getByTestId("calls")).toHaveTextContent("…"));
     expect(api.getDashboard).not.toHaveBeenCalled();
+  });
+
+  it("reloads the installation settings from the server on demand", async () => {
+    vi.mocked(api.getSettings).mockResolvedValue(
+      aSettings({
+        discordApplicationId: "999",
+        secrets: { discordBotToken: true, openRouterApiKey: false },
+      }),
+    );
+    renderLayout();
+    await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
+    expect(screen.getByTestId("openrouter")).toHaveTextContent("true");
+    await userEvent.click(screen.getByRole("button", { name: "reload" }));
+    await waitFor(() => expect(screen.getByTestId("openrouter")).toHaveTextContent("false"));
+    expect(screen.getByTestId("application-id")).toHaveTextContent("999");
+  });
+
+  it("keeps the current settings when the reload fails", async () => {
+    vi.mocked(api.getSettings).mockRejectedValue(new Error("offline"));
+    renderLayout();
+    await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
+    await userEvent.click(screen.getByRole("button", { name: "reload" }));
+    await waitFor(() => expect(api.getSettings).toHaveBeenCalled());
+    expect(screen.getByTestId("openrouter")).toHaveTextContent("true");
+    expect(screen.getByTestId("mode")).toHaveTextContent("local");
+  });
+
+  it("applies a local settings patch shared with every route", async () => {
+    renderLayout(aSettings({ secrets: { discordBotToken: true, openRouterApiKey: false } }));
+    await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
+    expect(screen.getByTestId("openrouter")).toHaveTextContent("false");
+    await userEvent.click(screen.getByRole("button", { name: "patch" }));
+    expect(screen.getByTestId("openrouter")).toHaveTextContent("true");
+    expect(api.getSettings).not.toHaveBeenCalled();
   });
 
   it("survives the dashboard request failing", async () => {
