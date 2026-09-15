@@ -16,8 +16,12 @@ export interface DashboardContext {
   dashboard: DashboardAnalytics | undefined;
   dashboardError: boolean;
   guilds: GuildSelection;
+  /** Applies a change already confirmed by the server without waiting for a reload. */
+  patchSettings(patch: Partial<DashboardSettings>): void;
   period: DashboardPeriod;
   reloadDashboard(): void;
+  /** Refreshes the settings from the server; when that fails the current snapshot stays. */
+  reloadSettings(): Promise<void>;
   setPeriod(value: DashboardPeriod): void;
   setPreferences(value: {
     dashboardLanguage: "en" | "pt-BR";
@@ -70,11 +74,24 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
 
   const reloadDashboard = useCallback(() => setReloadToken((token) => token + 1), []);
 
+  const patchSettings = useCallback(
+    (patch: Partial<DashboardSettings>) => setSettings((current) => ({ ...current, ...patch })),
+    [],
+  );
+
+  // The settings are loaded once when the shell mounts, so screens that change them ask for a
+  // refresh instead of trusting a local copy. A failed refresh keeps the last known state: the
+  // API client already reports an expired session, and the screens stay usable otherwise.
+  const reloadSettings = useCallback(
+    () => api.getSettings().then(setSettings, () => undefined),
+    [],
+  );
+
   function savePreferences(next: {
     dashboardLanguage: "en" | "pt-BR";
     dashboardTheme: ThemePreference;
   }) {
-    setSettings((current) => ({ ...current, ...next }));
+    patchSettings(next);
     theme.setPreference(next.dashboardTheme);
     void api.updatePreferences(next.dashboardLanguage, next.dashboardTheme);
   }
@@ -106,8 +123,10 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
     dashboard,
     dashboardError,
     guilds,
+    patchSettings,
     period,
     reloadDashboard,
+    reloadSettings,
     setPeriod,
     setPreferences: savePreferences,
     settings,

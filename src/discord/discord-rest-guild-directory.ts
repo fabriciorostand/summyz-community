@@ -34,10 +34,6 @@ const memberSchema = z.object({
   user: z.object({
     avatar: z.string().min(1).nullable().optional(),
     bot: z.boolean().optional(),
-    discriminator: z
-      .string()
-      .regex(/^\d{4}$/u)
-      .optional(),
     global_name: z.string().min(1).nullable().optional(),
     id: z.string().min(1),
     username: z.string().min(1),
@@ -281,10 +277,7 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
   }
 }
 
-function createDefaultAvatarUrl(userId: string, discriminator: string | undefined): string | null {
-  if (discriminator !== undefined && discriminator !== "0000") {
-    return `https://cdn.discordapp.com/embed/avatars/${Number(discriminator) % 5}.png`;
-  }
+function createDefaultAvatarUrl(userId: string): string | null {
   if (!/^\d+$/u.test(userId)) return null;
   const avatarIndex = Number((BigInt(userId) >> 22n) % 6n);
   return `https://cdn.discordapp.com/embed/avatars/${avatarIndex}.png`;
@@ -310,7 +303,7 @@ function createMemberAvatarUrl(guildId: string, member: DiscordGuildMember): str
   if (typeof member.user.avatar === "string") {
     return `https://cdn.discordapp.com/avatars/${member.user.id}/${member.user.avatar}.png?size=128`;
   }
-  return createDefaultAvatarUrl(member.user.id, member.user.discriminator);
+  return createDefaultAvatarUrl(member.user.id);
 }
 
 function getMemberDisplayName(member: DiscordGuildMember): string {

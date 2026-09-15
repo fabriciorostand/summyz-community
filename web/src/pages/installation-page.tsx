@@ -35,8 +35,13 @@ const minimumPasswordLength = 15;
 
 /** Every block saves on its own; there is no page-wide form. */
 export function InstallationPage() {
-  const { settings } = useDashboard();
-  const [secrets, setSecrets] = useState(settings.secrets);
+  const { patchSettings, reloadSettings, settings } = useDashboard();
+
+  // The shared snapshot may predate a save made on this screen, so the server decides.
+  useEffect(() => {
+    void reloadSettings();
+  }, [reloadSettings]);
+
   return (
     <>
       <TopBar
@@ -49,13 +54,16 @@ export function InstallationPage() {
           <div className="flex min-w-0 flex-col gap-4">
             <DiscordApplicationCard
               applicationId={settings.discordApplicationId}
-              tokenConfigured={secrets.discordBotToken}
+              onReplaced={reloadSettings}
+              tokenConfigured={settings.secrets.discordBotToken}
             />
             <ProvidersCard
-              configured={secrets.openRouterApiKey}
-              onChange={(openRouterApiKey) =>
-                setSecrets((current) => ({ ...current, openRouterApiKey }))
-              }
+              configured={settings.secrets.openRouterApiKey}
+              onChange={(openRouterApiKey) => {
+                // The write succeeded, so reflect it right away and let the reload confirm it.
+                patchSettings({ secrets: { ...settings.secrets, openRouterApiKey } });
+                void reloadSettings();
+              }}
             />
             {settings.accessMode === "public" && <PasswordCard />}
           </div>
@@ -80,9 +88,12 @@ function AccessModeChip({ accessMode }: { accessMode: AccessMode }) {
 
 function DiscordApplicationCard({
   applicationId,
+  onReplaced,
   tokenConfigured,
 }: {
   applicationId: string | null;
+  /** The server derives a new Application ID from the token, so the caller refreshes it. */
+  onReplaced: () => Promise<void>;
   tokenConfigured: boolean;
 }) {
   const [token, setToken] = useState("");
@@ -97,6 +108,7 @@ function DiscordApplicationCard({
       await api.replaceBotToken(token);
       setToken("");
       setOutcome("replaced");
+      await onReplaced();
     } catch (caught) {
       setOutcome(
         caught instanceof ApiError && caught.code === "invalid_discord_bot_token"
