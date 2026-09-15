@@ -4,7 +4,7 @@ Copyright (c) 2026 Fabricio Rostand Morais. Todos os direitos reservados, exceto
 expressamente concedidos por esta Licença.
 
 Esta é uma tradução informativa da Summyz Community License 1.0. Somente o texto em
-inglês de `LICENSE.md` possui força jurídica e prevalece em caso de divergência, na
+inglês de [`LICENSE.md`](../../../LICENSE.md) possui força jurídica e prevalece em caso de divergência, na
 medida permitida pela legislação aplicável.
 
 ## 1. Aceitação
@@ -235,7 +235,7 @@ Nenhuma licença de marca é concedida. Uma Versão Modificada deve usar nome de
 identidade visual distintos. Você pode afirmar de maneira verdadeira que ela é um
 "fork do Summyz Community" e fazer outras referências nominativas permitidas por lei,
 mas não pode nomear nem apresentar o fork como `Summyz`, `Summyz Community` ou um
-produto oficial do Summyz. Consulte `TRADEMARKS.md` para orientações adicionais.
+produto oficial do Summyz. Consulte [`TRADEMARKS.md`](../../../TRADEMARKS.md) para orientações adicionais.
 
 ## 12. Materiais de Terceiros
 

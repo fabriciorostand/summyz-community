@@ -212,14 +212,14 @@ function Find-Acceleration {
 function Invoke-Compose {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$ComposeCommand)
 
-  $composeArguments = @("-f", "docker-compose.yaml")
+  $composeArguments = @("-f", "compose.yaml")
   if ($script:profile -eq "nvidia") {
-    $composeArguments += @("-f", "docker-compose.nvidia.yaml")
+    $composeArguments += @("-f", "docker/compose.nvidia.yaml")
   } elseif ($script:profile -eq "amd") {
-    $composeArguments += @("-f", "docker-compose.amd.yaml")
+    $composeArguments += @("-f", "docker/compose.amd.yaml")
   }
   if ([Environment]::GetEnvironmentVariable("SUMMYZ_PUBLIC_MODE", "Process") -eq "true") {
-    $composeArguments += @("-f", "docker-compose.public.yaml")
+    $composeArguments += @("-f", "docker/compose.public.yaml")
   }
   $composeArguments += $ComposeCommand
   Write-Output "Executing: docker compose $($composeArguments -join ' ')"

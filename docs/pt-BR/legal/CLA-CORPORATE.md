@@ -1,11 +1,13 @@
 # Contrato de Licença de Contribuidor Corporativo do Summyz 1.0
 
+[English](../../legal/CLA-CORPORATE.md) · [Início da documentação](../README.md)
+
 > **Situação atual:** apenas modelo. Contribuições corporativas não são aceitas
 > atualmente. Não envie este Contrato até que o Titular do Projeto publique um
 > procedimento privado de recebimento e convide expressamente sua organização a usá-lo.
 
 Esta é uma tradução informativa do Summyz Corporate Contributor License Agreement 1.0.
-Somente o texto em inglês de `CLA-CORPORATE.md` possui força jurídica e prevalece em
+Somente o texto em inglês de [`CLA-CORPORATE.md`](../../legal/CLA-CORPORATE.md) possui força jurídica e prevalece em
 caso de divergência, na medida permitida pela legislação aplicável.
 
 Este Contrato de Licença de Contribuidor Corporativo (o **Contrato**) é celebrado entre

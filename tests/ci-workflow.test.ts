@@ -64,7 +64,7 @@ describe("continuous integration contract", () => {
   it("uses the exact Node.js and Python versions in project and images", async () => {
     const [packageJson, dockerfile, pythonDockerfile] = await Promise.all([
       readFile(new URL("package.json", root), "utf8"),
-      readFile(new URL("Dockerfile", root), "utf8"),
+      readFile(new URL("docker/Dockerfile", root), "utf8"),
       readFile(new URL("services/faster-whisper/Dockerfile", root), "utf8"),
     ]);
 
@@ -72,6 +72,16 @@ describe("continuous integration contract", () => {
     expect(packageJson).toContain('"packageManager": "npm@10.9.8"');
     expect(dockerfile).toContain("node:22.23.2-bookworm-slim@sha256:");
     expect(pythonDockerfile).toContain("python:3.12.14-slim-bookworm@sha256:");
+  });
+
+  it("builds every application target from the centralized Dockerfile", async () => {
+    const [implementation, qualityGateCli] = await Promise.all([
+      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL("scripts/ci/quality-gate-cli.ts", root), "utf8"),
+    ]);
+
+    expect(implementation.match(/file: docker\/Dockerfile/gu)).toHaveLength(4);
+    expect(qualityGateCli.match(/return "docker\/Dockerfile"/gu)).toHaveLength(2);
   });
 
   it("audits the Node.js lockfile without running dependency lifecycle scripts", async () => {
@@ -114,7 +124,7 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("lizard -l typescript -l python");
     expect(implementation).not.toContain("-l tsx");
     expect(implementation).toContain("--output-format sarif");
-    expect(implementation).toContain("reports/quality/complexipy.sarif");
+    expect(implementation).toContain("artifacts/reports/quality/complexipy.sarif");
     expect(implementation).toContain("quality-gate-baseline.json");
     expect(implementation).toContain("ci-summary.md");
     expect(implementation).not.toContain("pull-requests: write");
@@ -157,6 +167,7 @@ describe("continuous integration contract", () => {
       ],
     });
     expect(implementation).toContain("complexipy services/faster-whisper");
+    expect(implementation).toContain("--cache-dir .cache/complexipy");
     expect(implementation).toContain('--exclude "test_*.py"');
     expect(implementation.match(/-x "\*test\*" -x "\*spec\*"/gu)).toHaveLength(2);
     expect(webCiConfig).toContain('"src/tests/test-utils.tsx"');
@@ -167,11 +178,11 @@ describe("continuous integration contract", () => {
     const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
 
     for (const report of ["trivy-bot.json", "trivy-dashboard.json", "trivy-faster-whisper.json"]) {
-      expect(implementation).toContain(`output: reports/runtime/${report}`);
+      expect(implementation).toContain(`output: artifacts/reports/runtime/${report}`);
     }
     expect(implementation.match(/format: json/gu)?.length).toBeGreaterThanOrEqual(4);
     expect(implementation).toContain('exit-code: "0"');
-    expect(implementation).toContain("output: reports/security/trivy-policy.sarif");
+    expect(implementation).toContain("output: artifacts/reports/security/trivy-policy.sarif");
   });
 
   it("limits the blocking SARIF policy to configured severities", async () => {
@@ -201,8 +212,8 @@ describe("continuous integration contract", () => {
     expect(initializationIndex).toBeLessThan(
       testsJob.indexOf("- name: Run server tests with real PostgreSQL and coverage"),
     );
-    expect(initializationStep).toContain("mkdir -p reports");
-    expect(initializationStep).toContain("chmod 0777 reports");
+    expect(initializationStep).toContain("mkdir -p artifacts/reports");
+    expect(initializationStep).toContain("chmod 0777 artifacts/reports");
   });
 
   it("preflights CUDA packages early and builds the target after reclaiming storage", async () => {

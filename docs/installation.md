@@ -1,5 +1,7 @@
 # Installation
 
+[Português](./pt-BR/installation.md) · [Documentation home](../README.md)
+
 This guide installs Summyz Community from source. The project does not publish prebuilt
 Summyz images for version 1.0.0.
 

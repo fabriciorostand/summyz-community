@@ -42,7 +42,7 @@ describe("runtime packaging", () => {
   });
 
   it("mantém o gerenciador de pacotes fora das imagens finais", async () => {
-    const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
+    const dockerfile = await readFile(new URL("docker/Dockerfile", repositoryRoot), "utf8");
     const runtimeBase = dockerfile.split(" AS runtime-base")[1]?.split(" AS bot-runtime")[0];
     const botRuntime = dockerfile.split(" AS bot-runtime")[1]?.split(" AS dashboard-runtime")[0];
     const dashboardRuntime = dockerfile.split(" AS dashboard-runtime")[1];
@@ -53,7 +53,7 @@ describe("runtime packaging", () => {
   });
 
   it("usa o build FFmpeg/PyAV controlado e compatível apenas com LGPL", async () => {
-    const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
+    const dockerfile = await readFile(new URL("docker/Dockerfile", repositoryRoot), "utf8");
     const ffmpegBuild = await readFile(
       new URL("docker/ffmpeg/build-lgpl.sh", repositoryRoot),
       "utf8",
@@ -91,12 +91,14 @@ describe("runtime packaging", () => {
   });
 
   it("seleciona targets separados do bot e do dashboard no Compose", async () => {
-    const compose = await readFile(new URL("docker-compose.yaml", repositoryRoot), "utf8");
+    const compose = await readFile(new URL("compose.yaml", repositoryRoot), "utf8");
     const bot = compose.split("\n  bot:")[1]?.split("\n  dashboard:")[0];
     const dashboard = compose.split("\n  dashboard:")[1]?.split("\n  smoke:")[0];
 
     expect(bot).toContain("target: bot-runtime");
+    expect(bot).toContain("dockerfile: docker/Dockerfile");
     expect(dashboard).toContain("target: dashboard-runtime");
+    expect(dashboard).toContain("dockerfile: docker/Dockerfile");
     expect(bot).toMatch(/postgres:\s+condition: service_healthy/u);
     expect(compose).toContain('"python3",');
     expect(compose).not.toContain('"python",');
@@ -133,10 +135,10 @@ describe("runtime packaging", () => {
 
   it("fixa imagens externas por versão e digest", async () => {
     const files = await Promise.all([
-      readFile(new URL("Dockerfile", repositoryRoot), "utf8"),
+      readFile(new URL("docker/Dockerfile", repositoryRoot), "utf8"),
       readFile(new URL("services/faster-whisper/Dockerfile", repositoryRoot), "utf8"),
-      readFile(new URL("docker-compose.yaml", repositoryRoot), "utf8"),
-      readFile(new URL("docker-compose.amd.yaml", repositoryRoot), "utf8"),
+      readFile(new URL("compose.yaml", repositoryRoot), "utf8"),
+      readFile(new URL("docker/compose.amd.yaml", repositoryRoot), "utf8"),
     ]);
 
     for (const contents of files) {
@@ -151,7 +153,7 @@ describe("runtime packaging", () => {
   });
 
   it("fixa os repositórios Debian e protege o acesso aos repositórios Ubuntu", async () => {
-    const dockerfile = await readFile(new URL("Dockerfile", repositoryRoot), "utf8");
+    const dockerfile = await readFile(new URL("docker/Dockerfile", repositoryRoot), "utf8");
     const fasterWhisperDockerfile = await readFile(
       new URL("services/faster-whisper/Dockerfile", repositoryRoot),
       "utf8",
@@ -174,7 +176,7 @@ describe("runtime packaging", () => {
   });
 
   it("não aceita a senha PostgreSQL de exemplo como fallback", async () => {
-    const compose = await readFile(new URL("docker-compose.yaml", repositoryRoot), "utf8");
+    const compose = await readFile(new URL("compose.yaml", repositoryRoot), "utf8");
     const launchers = await Promise.all([
       readFile(new URL("summyz-community", repositoryRoot), "utf8"),
       readFile(new URL("summyz-community.ps1", repositoryRoot), "utf8"),
@@ -201,13 +203,13 @@ describe("runtime packaging", () => {
 
   it("empacota o modo público com Caddy fixado e launchers dedicados", async () => {
     const [dockerfile, publicCompose, shellLauncher, powershellLauncher] = await Promise.all([
-      readFile(new URL("Dockerfile", repositoryRoot), "utf8"),
-      readFile(new URL("docker-compose.public.yaml", repositoryRoot), "utf8"),
+      readFile(new URL("docker/Dockerfile", repositoryRoot), "utf8"),
+      readFile(new URL("docker/compose.public.yaml", repositoryRoot), "utf8"),
       readFile(new URL("summyz-community-public", repositoryRoot), "utf8"),
       readFile(new URL("summyz-community-public.ps1", repositoryRoot), "utf8"),
     ]);
 
-    expect(dockerfile).toContain("docker-compose.public.yaml");
+    expect(dockerfile).toContain("COPY docker ./docker");
     expect(dockerfile).toContain("summyz-community-public");
     expect(publicCompose).toContain(
       "caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648",
@@ -218,7 +220,7 @@ describe("runtime packaging", () => {
   });
 
   it("não concede a GPU NVIDIA ao processo do bot", async () => {
-    const overlay = await readFile(new URL("docker-compose.nvidia.yaml", repositoryRoot), "utf8");
+    const overlay = await readFile(new URL("docker/compose.nvidia.yaml", repositoryRoot), "utf8");
     const bot = overlay.split("\n  bot:")[1]?.split("\n  smoke:")[0];
 
     expect(bot).not.toContain("gpus:");
@@ -235,7 +237,7 @@ describe("release evidence", () => {
     );
 
     expect(packageJson).toContain('"release:sbom"');
-    expect(gitignore).toContain("artifacts/sbom/");
+    expect(gitignore).toContain("artifacts/");
     expect(generator).toContain("docker scout sbom");
     expect(generator).toContain("cyclonedx");
     expect(generator).toContain("spdx");

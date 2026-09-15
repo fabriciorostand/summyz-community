@@ -15,9 +15,9 @@ describe("Community launcher", () => {
   it("seleciona CPU sem adicionar overlay", async () => {
     const output = await runLauncher({ LOCAL_AI_DEVICE: "cpu" });
 
-    expect(output).toContain("docker-compose.yaml");
-    expect(output).not.toContain("docker-compose.nvidia.yaml");
-    expect(output).not.toContain("docker-compose.amd.yaml");
+    expect(output).toContain("compose.yaml");
+    expect(output).not.toContain("docker/compose.nvidia.yaml");
+    expect(output).not.toContain("docker/compose.amd.yaml");
     expect(output).toContain("up -d --build");
   });
 
@@ -29,7 +29,7 @@ describe("Community launcher", () => {
       SUMMYZ_DETECTED_GPU_VENDOR: "nvidia",
     });
 
-    expect(output).toContain("docker-compose.nvidia.yaml");
+    expect(output).toContain("docker/compose.nvidia.yaml");
     expect(output).toContain("NVIDIA GeForce RTX");
   });
 
@@ -47,7 +47,7 @@ describe("Community launcher", () => {
         fixtureRoot,
       );
 
-      expect(output).toContain("docker-compose.nvidia.yaml");
+      expect(output).toContain("docker/compose.nvidia.yaml");
       expect(output).toContain("NVIDIA GeForce RTX 2060");
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });
@@ -70,7 +70,7 @@ describe("Community launcher", () => {
     }
 
     const output = await runLauncher(environment);
-    expect(output).toContain("docker-compose.amd.yaml");
+    expect(output).toContain("docker/compose.amd.yaml");
     expect(output).toContain("AMD Radeon RX");
   });
 

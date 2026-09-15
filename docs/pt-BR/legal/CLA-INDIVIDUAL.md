@@ -1,7 +1,9 @@
 # Contrato de Licença de Contribuidor Individual do Summyz 1.0
 
+[English](../../legal/CLA-INDIVIDUAL.md) · [Início da documentação](../README.md)
+
 Esta é uma tradução informativa do Summyz Individual Contributor License Agreement
-1.0. Somente o texto em inglês de `CLA-INDIVIDUAL.md` possui força jurídica e prevalece
+1.0. Somente o texto em inglês de [`CLA-INDIVIDUAL.md`](../../legal/CLA-INDIVIDUAL.md) possui força jurídica e prevalece
 em caso de divergência, na medida permitida pela legislação aplicável.
 
 Este Contrato de Licença de Contribuidor Individual (o **Contrato**) é celebrado entre
@@ -110,7 +112,7 @@ Você não será responsável por danos resultantes apenas do uso da Contribuiç
 ## 8. Registro público de aceitação eletrônica
 
 Você concorda que poderá aceitar este Contrato eletronicamente pelo procedimento do
-GitHub descrito em `CONTRIBUTING.md`. O registro de aceitação poderá conter publicamente
+GitHub descrito em [`CONTRIBUTING.md`](../../../CONTRIBUTING.md). O registro de aceitação poderá conter publicamente
 somente:
 
 - seu nome civil declarado;
@@ -159,4 +161,4 @@ A declaração exata exigida em um pull request é:
 > am contributing as an individual and have the right to license my Contribution.
 
 Você também deverá informar seu nome civil no campo do pull request descrito em
-`CONTRIBUTING.md`.
+[`CONTRIBUTING.md`](../../../CONTRIBUTING.md).

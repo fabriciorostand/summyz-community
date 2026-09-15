@@ -1,6 +1,6 @@
 # Política de marcas do Summyz
 
-Esta é uma tradução informativa de `TRADEMARKS.md`. O texto em inglês é juridicamente
+Esta é uma tradução informativa de [`TRADEMARKS.md`](../../../TRADEMARKS.md). O texto em inglês é juridicamente
 principal e prevalece em caso de divergência, na medida permitida pela legislação
 aplicável.
 

@@ -1,5 +1,7 @@
 # Checklist de release
 
+[English](../release-checklist.md) · [Início da documentação](./README.md)
+
 Esta checklist foi preparada para a 1.0.0, mas deverá ser executada novamente no commit
 final exato. Concluir a preparação não autoriza publicar uma tag ou release no GitHub.
 
@@ -22,8 +24,8 @@ final exato. Concluir a preparação não autoriza publicar uma tag ou release n
       `scripts/release/sbom-targets.json`.
 
   ```console
-  docker build --target bot-runtime --tag summyz-community-bot:release .
-  docker build --target dashboard-runtime --tag summyz-community-dashboard:release .
+  docker build --file docker/Dockerfile --target bot-runtime --tag summyz-community-bot:release .
+  docker build --file docker/Dockerfile --target dashboard-runtime --tag summyz-community-dashboard:release .
   docker build --file services/faster-whisper/Dockerfile --target cpu --tag summyz-community-faster-whisper:release-cpu .
   docker build --file services/faster-whisper/Dockerfile --target cuda --tag summyz-community-faster-whisper:release-cuda .
   ```

@@ -1,5 +1,7 @@
 # Summyz Commands
 
+[Português](../pt-BR/reference/bot-commands.md) · [Documentation home](../../README.md)
+
 ## `/record`
 
 Starts recording the voice channel you are in.
@@ -122,10 +124,10 @@ can use it, and the response is ephemeral.
 - If the channel is empty after a restart, Summyz finalizes and processes the partial recording.
 - Transient failures are retried internally; there are no public status, retry, or deletion commands
   at this stage.
-- A retenção de conteúdo é ativada e a de áudio é desativada por padrão em novos servidores. Ambas
-  podem ser alteradas no dashboard.
-- As políticas de conteúdo e áudio são fixadas quando `/record` começa; alterações posteriores no
-  dashboard valem somente para novas reuniões.
+- Content retention is enabled and audio retention is disabled by default for new servers. Both can
+  be changed in the dashboard.
+- Content and audio policies are pinned when `/record` starts; later dashboard changes apply only
+  to new meetings.
 - The active profile type, provider, explicit models, configured language, translation settings,
   VAD, prompts, and other phase parameters are pinned then. A local profile never uses OpenRouter
   as fallback.

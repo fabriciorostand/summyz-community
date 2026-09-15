@@ -1,5 +1,7 @@
 # Summyz Individual Contributor License Agreement 1.0
 
+[Português](../pt-BR/legal/CLA-INDIVIDUAL.md) · [Documentation home](../../README.md)
+
 This Individual Contributor License Agreement (the **Agreement**) is between the
 individual accepting it (**You**) and Fabricio Rostand Morais, together with any
 successor or assignee that lawfully operates the Summyz projects (the **Project

@@ -60,6 +60,7 @@ services:
     image: summyz-community-bot
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: bot-runtime
     restart: unless-stopped
     depends_on:
@@ -80,6 +81,7 @@ services:
     image: summyz-community-dashboard
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: dashboard-runtime
     restart: unless-stopped
     depends_on:
@@ -97,6 +99,7 @@ services:
     profiles: ["smoke"]
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: test
     depends_on:
       faster-whisper:
@@ -108,6 +111,7 @@ services:
     profiles: ["benchmark"]
     build:
       context: .
+      dockerfile: docker/Dockerfile
       target: test
     command: ["npm", "run", "benchmark:transcription"]
     depends_on:

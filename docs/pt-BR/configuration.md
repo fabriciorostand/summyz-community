@@ -1,115 +1,6 @@
-<p align="center">
-  <img src="./assets/banner.png" width="820" alt="Summyz — bot de gravação e transcrição para Discord" />
-</p>
+# Configuração
 
-<p align="center">
-  <a href="./README.md">English</a> |
-  <a href="./README.pt-BR.md">Português</a>
-</p>
-
-<p align="center">
-  <b>Summyz Community</b> é um bot para Discord que grava calls sob comando, transcreve o áudio de cada participante e publica resumos
-  com decisões e tarefas.
-</p>
-
-<p align="center">
-  <img src="https://img.shields.io/badge/versão-1.0.0-blue" alt="Versão">
-  <img src="https://img.shields.io/badge/node-%3E%3D22.12-339933?logo=node.js&logoColor=white" alt="Node >= 22.12" />
-  <img src="https://img.shields.io/badge/PRs-welcome-23A559" alt="PRs welcome" />
-  <img src="https://img.shields.io/badge/self--hosted-100%25-0A0B0F" alt="Self-hosted" />
-  <img src="https://img.shields.io/badge/licen%C3%A7a-source--available-6E40C9" alt="Licença source-available" />
-</p>
-
----
-
-O Summyz grava cada participante separadamente e, depois do encerramento normal da call, transcreve
-os segmentos pelo provedor configurado e monta um arquivo único preservando falantes, timestamps e
-falas sobrepostas. Uma segunda etapa revisa apenas o texto da transcrição, sem
-permitir que o modelo altere IDs, falantes, timestamps ou ordem. Em seguida, gera um resumo
-estruturado e publica em um post de fórum do Discord o resumo executivo, os tópicos discutidos, as
-decisões, as tarefas e a transcrição completa.
-
-## Requisitos
-
-- Docker com Compose;
-- uma aplicação de bot criada no Discord Developer Portal;
-- uma conta no OpenRouter com créditos e uma chave de API somente para as fases configuradas com
-  `openrouter`;
-- drivers e integração Docker compatíveis se a aceleração NVIDIA ou AMD for utilizada.
-
-Node.js 22.23.2, npm 10.9.8 e uma instalação do FFmpeg com `libopus` são necessários somente para
-desenvolvimento nativo. PostgreSQL, Ollama, faster-whisper, Python, Node e FFmpeg são preparados
-automaticamente no fluxo Docker.
-
-## Configuração local
-
-1. No Linux ou macOS, execute `./summyz-community up`. No Windows, execute
-   `.\summyz-community.ps1 up`. No primeiro uso, o launcher cria `.env` com segredos locais
-   aleatórios sem imprimir seus valores.
-2. O launcher roda
-   no host, detecta CPU, NVIDIA ou AMD, escolhe os overlays seguros e chama o Docker Compose.
-3. O launcher abre uma URL privada de configuração. Informe somente o token do bot. O Summyz o
-   valida no Discord e obtém o Application ID automaticamente. No modo público, escolha também a
-   senha única da instalação. OpenRouter e perfis de IA são configurados depois no dashboard.
-4. Para desenvolvimento, preencha `DISCORD_GUILD_ID` com o ID do servidor de teste. Sem essa
-   variável, os comandos são registrados globalmente e podem demorar para aparecer.
-
-Use `./summyz-community status`, `./summyz-community logs`, `./summyz-community restart` e
-`./summyz-community down` para administrar a instalação; no Windows, substitua `./summyz-community` por
-`.\summyz-community.ps1`. O Compose direto continua
-disponível para operadores avançados. `docker compose up -d --build` usa CPU; para NVIDIA ou AMD,
-inclua manualmente `docker-compose.nvidia.yaml` ou `docker-compose.amd.yaml`.
-
-No modo público, a recuperação da senha exige acesso ao host: `recover-access` gera uma URL de uso
-único que expira em dez minutos. O modo local não autentica o dashboard. O Community não possui
-contas de usuário Summyz, cadastro público, envio de e-mail nem OAuth de usuário Discord.
-
-Para desenvolver nativamente, execute `npm install` e informe um `FFMPEG_PATH` absoluto ou deixe
-`ffmpeg`/`ffmpeg.exe` disponível no `PATH`. O bot valida o executável e o encoder `libopus` antes de
-conectar ao Discord. PostgreSQL, Ollama e faster-whisper podem continuar no Compose. Para a
-interface, use `npm run dev:api` e `npm run dev:web` em terminais separados.
-
-Se a porta local `5432` já estiver ocupada, altere `POSTGRES_PORT` e ajuste a porta de
-`DATABASE_URL`. O PostgreSQL é publicado somente em `127.0.0.1`; entre containers, a conexão
-continua usando `postgres:5432`.
-
-Para uma instalação pública em VPS, configure uma origem HTTPS em `PUBLIC_BASE_URL` dentro do
-`.env`, aponte o domínio para o host e execute `./summyz-community-public up` ou
-`.\summyz-community-public.ps1 up`. Esse modo opcional adiciona o Caddy para TLS automático. O
-launcher local não publica o dashboard na Internet. Se o `.env` ainda não existir, o launcher
-público o cria e pede que o operador configure a origem HTTPS antes de executar o comando novamente.
-No setup público, escolha uma senha da instalação com 15 a 128 caracteres. Ela é normalizada em
-Unicode NFC e armazenada somente como hash Argon2id; cookies de sessão são `HttpOnly`, `Secure` e
-`SameSite=Strict`, com sete dias de inatividade e validade absoluta de trinta dias.
-
-Nunca versione o arquivo `.env`, publique o token do bot ou compartilhe a URL privada de setup.
-
-As migrações e a conexão PostgreSQL são validadas antes de o bot conectar ao Discord; se o banco estiver
-indisponível ou a URL for inválida, o processo encerra com uma mensagem segura. Os volumes
-`postgres_data`, `summyz_community_data`, `ollama_models` e `faster_whisper_models` preservam o banco, os
-arquivos e os modelos gerenciados após reinício.
-
-## Persistência e privacidade
-
-- o PostgreSQL guarda configurações, perfis, reuniões, fila e tentativas; `DATABASE_URL` é
-  obrigatória;
-- a retenção de conteúdo é ativada por padrão em cada novo servidor. Quando ativa, o PostgreSQL
-  conserva transcrição bruta e refinada, resumo, publicação e manifesto em `meeting_contents`;
-- ao desativar a retenção de conteúdo no dashboard, esses artefatos são removidos depois do estado
-  terminal, mantendo apenas o mínimo operacional necessário à fila;
-- a retenção de áudio é desativada por padrão: os áudios são excluídos depois de uma transcrição
-  integralmente validada ou depois de esgotar as tentativas duráveis;
-- quando ativada no dashboard, os áudios permanecem indefinidamente em `DATA_DIR`, enquanto a
-  tabela `meeting_audio_segments` guarda metadados e caminhos relativos;
-- áudio nunca é armazenado como BLOB no PostgreSQL. Mesmo nesse modo, os bytes ficam no volume
-  durável montado em `DATA_DIR`;
-- o `manifest.json` local funciona como registro temporário de recuperação junto
-  dos áudios; o processamento o sincroniza com o banco antes de reservar o job;
-- não há expiração automática para conteúdo ou áudio preservado. A exclusão é uma operação manual
-  do administrador no disco ou banco.
-- registros de custos de provedores nunca expiram automaticamente e são independentes da retenção
-  de conteúdo e áudio. O PostgreSQL usa `provider_cost_attempts`, com relacionamentos protegidos
-  para reunião e servidor.
+[English](../configuration.md) · [Início da documentação](./README.md)
 
 ## Medição de custos dos provedores
 
@@ -147,8 +38,11 @@ retries rápidos dos provedores, uma falha transitória agenda execuções durá
 1. Abra a aplicação do Summyz no Discord Developer Portal.
 2. Em **Bot**, crie ou redefina o token e informe-o no setup do dashboard. Ele será criptografado
    no PostgreSQL com a chave mestra mantida no `.env`.
-3. Ainda em **Bot**, mantenha desativados os **Privileged Gateway Intents**. A implementação atual
-   usa somente os intents padrão `Guilds` e `Guild Voice States`.
+3. Ainda em **Bot**, ative o intent privilegiado **Server Members Intent**. O Summyz usa os
+   intents `Guilds`, `Guild Members` e `Guild Voice States`; o intent de membros permite contar
+   somente os membros humanos visíveis ao bot em cada cargo. Se ele estiver desativado, gravação e
+   publicação continuam funcionando, mas a API informa
+   `discord_members_intent_unavailable` e não exibe contagens possivelmente incorretas.
 4. Em **Installation**, configure **Guild Install** com os escopos `bot` e
    `applications.commands`.
 5. Nas permissões padrão da instalação, conceda ao bot:
@@ -173,7 +67,7 @@ sobrescritas. `Enviar mensagens` sozinho não permite responder dentro de um pos
 
 Depois de adicionar o bot, use `/recording-role add` para autorizar os cargos desejados e
 `/recording-summary-forum set` para definir o fórum das publicações. Novas gravações ficam
-bloqueadas enquanto não houver um fórum configurado. Consulte [BOT_COMMANDS.md](./BOT_COMMANDS.md)
+bloqueadas enquanto não houver um fórum configurado. Consulte a [referência de comandos](./reference/bot-commands.md)
 para ver todos os comandos e regras de acesso.
 
 Somente o dono literal do servidor Discord pode gerenciar fórum, cargos autorizados e custos.
@@ -406,164 +300,3 @@ na fala referenciada; tarefas explícitas podem permanecer sem esses campos.
 Pedidos vagos, como “alguém precisa decidir a ferramenta”, não são promovidos a decisão ou tarefa:
 eles aparecem em **Pendências e observações**. Prazos são mantidos no texto original, sem conversão
 automática de expressões como “amanhã” ou “até sexta-feira”.
-
-## Resultado da transcrição
-
-A transcrição começa automaticamente quando `/stop` conclui a gravação ou quando todas as pessoas
-saem do canal. Após um reinício, o bot retoma a gravação se ainda houver pessoas; se o canal estiver
-vazio, finaliza o áudio parcial e o processa normalmente.
-
-O resultado é escrito atomicamente em:
-
-```text
-data/recordings/<meetingId>/transcript.txt
-```
-
-Quando o refinamento é iniciado, a versão sem revisão fica preservada em
-`data/recordings/<meetingId>/transcript.raw.txt`; `transcript.txt` passa a conter a versão revisada
-ou permanece idêntico ao original quando ocorre fallback.
-
-Cada trecho segue este formato:
-
-```text
-[00:00:10.000 – 00:00:15.000] Ana: Vamos publicar amanhã.
-[00:00:12.000 – 00:00:14.000] Bruno: Concordo.
-```
-
-Intervalos coincidentes representam falas sobrepostas. Se dois participantes tiverem o mesmo nome
-de exibição, o arquivo usa sufixos estáveis como `Ana #1` e `Ana #2`, mantendo os IDs apenas nos
-artefatos internos.
-
-O arquivo só é criado depois que todos os segmentos têm sucesso ou são confirmados localmente como
-silêncio. Uma conversão PCM que falhou
-durante a gravação é tentada novamente em Ogg e, se necessário, empacotada sem perdas como WAV. Se
-algum segmento continuar impossível de analisar/processar ou o provedor esgotar os retries:
-
-- nenhum `transcript.txt` é disponibilizado;
-- a falha é persistida em `transcription.json`;
-- o Discord recebe somente um aviso genérico, sem detalhes internos;
-- os áudios são preservados entre tentativas duráveis;
-- depois da última tentativa, o Discord recebe o aviso genérico e os artefatos temporários são
-  excluídos.
-
-## Publicação no Discord
-
-Depois da transcrição e do resumo, o Summyz consulta a configuração mais recente do servidor e cria
-um post no fórum escolhido. Com o idioma do servidor configurado como `en`, o post de sucesso usa
-o nome `Summary — MM/DD/YYYY HH:mm — Voice channel name`; com `pt-BR`, usa
-`Resumo — DD/MM/AAAA HH:mm — Nome do canal de voz`. O post contém:
-
-- ID da reunião e resumo executivo na primeira mensagem;
-- tópicos discutidos;
-- decisões;
-- tarefas, com responsável e prazo somente quando explícitos;
-- pendências e observações;
-- `transcript.txt` como arquivo anexo.
-
-O Discord move o post para a área de posts antigos depois de até sete dias sem atividade; o
-conteúdo não é apagado e pode ser reaberto.
-
-Se o resumo continuar falhando depois dos retries, o título usa `Transcript` em inglês ou
-`Transcrição` em português. A primeira mensagem informa que o resumo está indisponível e inclui
-`transcript.txt` como anexo.
-
-O chat onde `/record` foi executado concentra o histórico público da sessão: início, falha ao
-iniciar, interrupção, retomada, falha definitiva de reconexão, encerramento manual, canal vazio,
-desligamento, falha da transcrição e falha da publicação. Ao usar `/stop`, somente quem executou o
-comando recebe uma confirmação efêmera no chat da interação, com referência ao chat original; o
-aviso público de encerramento menciona essa pessoa no chat do `/record`. No encerramento automático,
-o aviso identifica o canal de voz quando seu nome está disponível e informa que os segmentos serão
-processados. Se o fórum for alterado antes de uma publicação começar, a reunião usa o destino mais
-recente; uma publicação já iniciada ou concluída permanece no post original.
-
-Enquanto o job está em andamento, os estados ficam no volume durável em `refinement.json`,
-`summary.json` e `publication.json`. IDs de mensagem e thread são persistidos a cada passo e as
-respostas usam nonces determinísticos, permitindo retomar a publicação após reinício e reduzir
-duplicações. A criação inicial de posts de fórum não oferece
-nonce pela API do Discord; portanto, a garantia é de idempotência nas condições normais, não de
-atomicidade absoluta entre o volume e o Discord.
-
-Quando a retenção de áudio está desativada, os áudios são excluídos assim que a transcrição completa
-é validada e persistida, ou após a falha definitiva. Depois da publicação, os demais arquivos
-temporários são excluídos se a retenção de conteúdo estiver desativada. O conteúdo preservado
-permanece no PostgreSQL e o áudio preservado permanece em `DATA_DIR` até que o operador os exclua.
-
-## Qualidade
-
-Use `npm run check` antes de enviar mudanças. Esse comando valida formatação, lint, tipos, testes e
-cobertura. Use `npm run security:audit` para verificar as dependências.
-
-O decodificador Opus do MVP é `opusscript`, evitando a cadeia vulnerável encontrada na dependência
-nativa avaliada. O smoke test dos serviços locais é automatizado e executado dentro da rede privada
-com `docker compose --profile smoke run --rm smoke`; ele baixa modelos pequenos e pode demorar na
-primeira execução. Interações reais no Discord não são apresentadas como teste automatizado.
-
-O benchmark de faster-whisper usa `transcript.raw.txt` como referência, calcula WER, CER, tempo e
-fator de tempo real, e não inclui o conteúdo das reuniões no relatório. Configure
-`BENCHMARK_DEVICE`, `BENCHMARK_BATCH_SIZE` e `BENCHMARK_MODEL`, depois execute
-`docker compose --profile benchmark run --rm benchmark`. Ele só mede reuniões
-que ainda possuem todos os áudios.
-
-## Integração contínua
-
-O workflow `CI` é executado em pull requests para `main` e em pushes para `main`. Ele expõe os
-gates bloqueantes `Quality`, `Security`, `Tests` e `Runtime / Images`, seguidos pelo agregador
-`Quality Gate`. Um commit novo cancela a execução anterior do mesmo pull request; pushes para
-`main` permanecem em uma única fila e não cancelam execuções anteriores.
-
-Os testes do servidor sempre usam PostgreSQL 18.4 real. Servidor, dashboard e serviço Python
-precisam atingir pelo menos 85% de cobertura global por linhas e 85% em cada grupo de domínio. A
-cobertura do código novo ou modificado é calculada uma vez, como agregado ponderado por linhas dos
-três componentes, e também precisa atingir 85%. Relatórios HTML, JUnit, JSON e SARIF ficam
-disponíveis como artefatos, além do resumo da execução. Pull requests internos recebem um único
-comentário persistente do Quality Gate, integralmente em inglês e atualizado a cada execução; pull
-requests de forks recebem os mesmos checks, resumo e artefatos sem precisar expor secrets nem
-conceder permissão de escrita.
-
-A medida `Security` contabiliza somente vulnerabilidades únicas `HIGH` ou `CRITICAL` que tenham
-correção disponível. Esses achados reprovam o gate. Achados de severidade inferior e
-vulnerabilidades para as quais ainda não foi publicada uma correção não entram na medida nem
-reprovam o gate, mas continuam visíveis junto às issues de qualidade e segurança em `Issue details`
-e nos artefatos completos.
-
-O gate de runtime constrói as imagens do bot, dashboard, faster-whisper para CPU e o pacote NVIDIA,
-valida as variantes Compose e executa uma inferência local real em CPU com revisões verificadas dos
-modelos. A execução em uma GPU real fica fora deste workflow. Node.js 22.23.2, npm 10.9.8, Python
-3.12.14, imagens-base, actions, locks e snapshots dos repositórios Debian/Ubuntu estão fixados. O
-runner `ubuntu-24.04` e as bases de vulnerabilidades dos scanners permanecem serviços atualizados
-do GitHub e dos fornecedores. Caches de npm, pip, BuildKit e modelos reduzem as execuções seguintes
-sem dispensar as verificações de versão, hash e digest.
-
-## Contribuição
-
-Contribuições individuais são bem-vindas. Contribuições corporativas não são aceitas
-atualmente.
-
-1. Faça um fork do repositório e crie uma branch para a funcionalidade.
-2. Mantenha os módulos pequenos e com uma única responsabilidade, siga a estrutura existente.
-3. Adicione testes para novas lógicas — `npm test` deve passar.
-4. Leia e aceite o CLA Individual e crie o registro público de aceitação.
-5. Abra um pull request descrevendo a mudança e sua motivação.
-
-Consulte [CONTRIBUTING.pt-BR.md](./CONTRIBUTING.pt-BR.md) e
-[CLA-INDIVIDUAL.pt-BR.md](./CLA-INDIVIDUAL.pt-BR.md). Para relatar bugs ou solicitar
-funcionalidades, abra uma issue.
-
-O guia completo está em [docs/installation.pt-BR.md](./docs/installation.pt-BR.md). Quem
-mantém releases também deve seguir
-[docs/release-checklist.pt-BR.md](./docs/release-checklist.pt-BR.md).
-
-## Licença
-
-Summyz Community é software source-available sob a
-[Summyz Community License 1.0](./LICENSE.pt-BR.md). Ela permite uso pessoal, uso
-empresarial interno gratuito, disponibilização externa gratuita sob suas condições e
-administração remunerada de infraestrutura controlada pelo cliente dentro da exceção
-prevista. Ela não permite vender o bot, cobrar por seus serviços ou sua configuração,
-nem oferecer acesso hospedado monetizado.
-
-Esta não é uma licença open source aprovada pela Open Source Initiative. Os nomes e
-Ativos de Marca são regidos pela [política de marcas](./TRADEMARKS.pt-BR.md), e
-Materiais de Terceiros mantêm seus próprios termos. Consulte
-[NOTICE.pt-BR.md](./NOTICE.pt-BR.md) e
-[THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

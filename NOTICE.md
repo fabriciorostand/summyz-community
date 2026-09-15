@@ -4,7 +4,7 @@ Copyright (c) 2026 Fabricio Rostand Morais.
 
 Summyz Community source code and documentation are made available under the Summyz
 Community License 1.0 in `LICENSE.md`. The Portuguese translation in
-`LICENSE.pt-BR.md` is informational only.
+`docs/pt-BR/legal/LICENSE.md` is informational only.
 
 The names Summyz and Summyz Community and the project Brand Assets are governed by
 `TRADEMARKS.md` and are not licensed as part of the Software except for the limited

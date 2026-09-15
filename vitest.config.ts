@@ -21,6 +21,7 @@ export default defineConfig({
       ],
       provider: "v8",
       reporter: ["text", "html"],
+      reportsDirectory: "artifacts/coverage/server",
       thresholds: {
         branches: 85,
         functions: 85,
