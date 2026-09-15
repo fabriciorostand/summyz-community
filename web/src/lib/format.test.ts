@@ -7,6 +7,7 @@ import {
   formatDuration,
   formatElapsed,
   formatInteger,
+  formatRoundedCost,
   formatShortDate,
   initialsOf,
   percentageOf,
@@ -65,6 +66,37 @@ describe("formatCost", () => {
 
   it("falls back to the raw amount when it is not a number", () => {
     expect(formatCost([{ amount: "n/a", currency: "USD" }])).toBe("USD n/a");
+  });
+});
+
+describe("formatRoundedCost", () => {
+  it("always shows two decimals", () => {
+    expect(
+      formatRoundedCost([
+        { amount: "3.5", currency: "USD" },
+        { amount: "12.4812", currency: "BRL" },
+      ]),
+    ).toBe("USD 3,50 · BRL 12,48");
+  });
+
+  it("flags positive amounts that would round down to zero", () => {
+    expect(formatRoundedCost([{ amount: "0.004", currency: "USD" }])).toBe("< USD 0,01");
+  });
+
+  it("keeps an exact zero as zero", () => {
+    expect(formatRoundedCost([{ amount: "0", currency: "USD" }])).toBe("USD 0,00");
+  });
+
+  it("rounds amounts at the half-cent boundary up", () => {
+    expect(formatRoundedCost([{ amount: "0.005", currency: "USD" }])).toBe("USD 0,01");
+  });
+
+  it("renders a dash when nothing was confirmed", () => {
+    expect(formatRoundedCost([])).toBe("—");
+  });
+
+  it("falls back to the raw amount when it is not a number", () => {
+    expect(formatRoundedCost([{ amount: "n/a", currency: "USD" }])).toBe("USD n/a");
   });
 });
 

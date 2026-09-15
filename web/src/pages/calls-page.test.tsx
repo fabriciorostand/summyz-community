@@ -32,6 +32,7 @@ describe("CallsPage", () => {
     expect(await screen.findByText("Launch Week Sync")).toBeInTheDocument();
     expect(screen.getByText("perfil Padrão OpenRouter")).toBeInTheDocument();
     expect(screen.getByText("PixelPaladin 38%")).toBeInTheDocument();
+    expect(screen.getByText("Participantes · tempo de fala")).toBeInTheDocument();
     expect(screen.getByText("Concluída")).toBeInTheDocument();
     expect(screen.getByText("Falhou")).toBeInTheDocument();
   });
@@ -178,5 +179,32 @@ describe("CallsPage", () => {
     expect(
       within(failedRow as HTMLElement).getByText("Informação indisponível"),
     ).toBeInTheDocument();
+  });
+
+  it("says when the participants have no talk time yet", async () => {
+    const page = aMeetingPage();
+    const [meeting] = page.items;
+    if (meeting === undefined || meeting.participants === null) throw new Error("fixture");
+    listMeetings.mockResolvedValue({
+      ...page,
+      items: [
+        {
+          ...meeting,
+          participants: meeting.participants.map((participant) => ({
+            ...participant,
+            percentage: null,
+            talkTimeMs: null,
+          })),
+        },
+      ],
+    });
+    renderScreen(<CallsPage />);
+    expect(await screen.findByText("tempo de fala indisponível")).toBeInTheDocument();
+  });
+
+  it("does not print the time zone footer", async () => {
+    renderScreen(<CallsPage />);
+    await screen.findByText("Launch Week Sync");
+    expect(screen.queryByText(/fuso/i)).not.toBeInTheDocument();
   });
 });

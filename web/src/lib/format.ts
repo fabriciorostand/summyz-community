@@ -34,6 +34,28 @@ export function formatCost(entries: readonly { amount: string; currency: string 
     .join(" · ");
 }
 
+/**
+ * Overview variant of {@link formatCost}: two decimals, flagging positive amounts that would
+ * otherwise round down to zero.
+ */
+export function formatRoundedCost(
+  entries: readonly { amount: string; currency: string }[],
+): string {
+  if (entries.length === 0) return "—";
+  return entries
+    .map((entry) => {
+      const amount = Number(entry.amount);
+      if (!Number.isFinite(amount)) return `${entry.currency} ${entry.amount}`;
+      const rounded = amount.toLocaleString(locale, {
+        maximumFractionDigits: 2,
+        minimumFractionDigits: 2,
+      });
+      if (amount > 0 && rounded === "0,00") return `< ${entry.currency} 0,01`;
+      return `${entry.currency} ${rounded}`;
+    })
+    .join(" · ");
+}
+
 export function formatDate(value: string | null, timeZone: string): string {
   if (value === null) return "—";
   return new Intl.DateTimeFormat(locale, {
