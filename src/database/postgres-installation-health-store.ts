@@ -48,7 +48,7 @@ export interface InstallationHealthStatus {
     stale: boolean;
     status: z.infer<typeof componentStatusSchema>;
   }[];
-  database: { latencyMs: number; migrationVersion: number; status: "ready" };
+  database: { status: "ready" };
   localAiRequired: boolean;
   queue: {
     active: number;
@@ -90,11 +90,6 @@ export class PostgresInstallationHealthStore {
   }
 
   public async getStatus(): Promise<InstallationHealthStatus> {
-    const started = performance.now();
-    const migration = await this.#database.query(
-      "SELECT COALESCE(max(version), 0)::int AS migration_version FROM schema_migrations",
-    );
-    const latencyMs = Math.max(0, Math.round(performance.now() - started));
     const [queueResult, heartbeatResult, localProfiles] = await Promise.all([
       this.#database.query(
         `SELECT
@@ -169,15 +164,7 @@ export class PostgresInstallationHealthStore {
     return {
       checkedAt: now.toISOString(),
       components,
-      database: {
-        latencyMs,
-        migrationVersion: z.coerce
-          .number()
-          .int()
-          .nonnegative()
-          .parse(migration.rows[0]?.migration_version ?? 0),
-        status: "ready",
-      },
+      database: { status: "ready" },
       localAiRequired,
       queue: {
         active: queue.active,
