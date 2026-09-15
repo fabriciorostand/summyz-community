@@ -1,3 +1,5 @@
+import { PassThrough } from "node:stream";
+
 import { describe, expect, it, vi } from "vitest";
 
 import { createLogger } from "../src/logger.js";
@@ -82,22 +84,32 @@ describe("DurableJobWorker", () => {
   });
 
   it("registra falhas inesperadas com um código estável", async () => {
+    const destination = new PassThrough();
+    let output = "";
+    destination.on("data", (chunk: Buffer) => {
+      output += chunk.toString("utf8");
+    });
     const queue = createQueue();
     const handler: ProcessingJobHandler = {
       process: vi.fn(async () => {
-        throw new Error("detalhe interno");
+        throw Object.assign(new Error("detalhe interno sensível"), { code: "23505" });
       }),
     };
     const worker = new DurableJobWorker({
       handler,
-      logger: createLogger("silent"),
+      logger: createLogger("warn", destination),
       queue,
       workerId: "worker-1",
     });
 
     await expect(worker.processNext()).resolves.toBe(true);
+    await new Promise((resolve) => setImmediate(resolve));
 
     expect(queue.fail).toHaveBeenCalledWith(job, "unexpected_error", "worker-1", false);
+    expect(output).toContain('"errorCode":"23505"');
+    expect(output).toContain('"errorType":"Error"');
+    expect(output).toContain('"jobType":"transcription"');
+    expect(output).not.toContain("detalhe interno sensível");
   });
 
   it("limpa artefatos somente depois de persistir uma falha terminal", async () => {

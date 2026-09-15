@@ -173,9 +173,12 @@ export class DurableJobWorker {
       this.#logger.warn(
         {
           attemptCount: job.attemptCount,
+          ...safeErrorCode(error),
+          errorType: getErrorType(error),
           failureCode,
           jobId: job.jobId,
           jobStatus: status,
+          jobType: job.jobType,
           meetingId: job.meetingId,
         },
         "Etapa do processamento não foi concluída",
@@ -206,4 +209,11 @@ export class DurableJobWorker {
 
 function getErrorType(error: unknown): string {
   return error instanceof Error ? error.name : typeof error;
+}
+
+function safeErrorCode(error: unknown): { errorCode?: string } {
+  if (!(error instanceof Error) || !("code" in error) || typeof error.code !== "string") {
+    return {};
+  }
+  return /^(?:[0-9A-Z]{5}|E[A-Z0-9_]{1,31})$/.test(error.code) ? { errorCode: error.code } : {};
 }
