@@ -10,7 +10,7 @@ describe("PreferencesPage", () => {
     renderScreen(<PreferencesPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Preferências" })).toBeInTheDocument();
     expect(screen.getByText("Valem para a instalação inteira")).toBeInTheDocument();
-    expect(screen.getByText(/Não há contas/)).toBeInTheDocument();
+    expect(screen.queryByText(/Não há contas/)).toBeNull();
     expect(screen.queryByText(/senha/i)).toBeNull();
   });
 

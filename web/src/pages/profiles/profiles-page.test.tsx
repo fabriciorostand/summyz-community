@@ -110,6 +110,8 @@ describe("ProfilesPage", () => {
     expect(vad).toHaveAttribute("aria-expanded", "false");
     expect(screen.getByRole("button", { name: /Prompts do pipeline/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Geração e fatiamento/ })).toBeInTheDocument();
+    expect(screen.getByText("Avançado")).toBeInTheDocument();
+    expect(screen.queryByText("Mexa só se precisar")).toBeNull();
   });
 
   it("summarises the VAD configuration on the closed panel", async () => {

@@ -244,8 +244,6 @@ export const installationHealthSchema = z.object({
     }),
   ),
   database: z.object({
-    latencyMs: z.number().int(),
-    migrationVersion: z.number().int(),
     status: z.literal("ready"),
   }),
   externalConfiguration: z.object({
