@@ -155,9 +155,7 @@ export class PostgresAnalyticsStore {
     const participants = calculateTalkTime(manifest.participants, intervals);
     await this.#database.query(
       `
-WITH cleared AS (
-  DELETE FROM meeting_participants WHERE meeting_id = $1
-), inserted AS (
+WITH persisted_participants AS (
   INSERT INTO meeting_participants (
     meeting_id, guild_id, user_id, display_name, talk_time_ms, talk_percentage
   )
@@ -165,6 +163,10 @@ WITH cleared AS (
   FROM jsonb_to_recordset($3::jsonb) AS item(
     user_id text, display_name text, talk_time_ms bigint, talk_percentage smallint
   )
+  ON CONFLICT (meeting_id, user_id) DO UPDATE SET
+    display_name = EXCLUDED.display_name,
+    talk_time_ms = EXCLUDED.talk_time_ms,
+    talk_percentage = EXCLUDED.talk_percentage
 )
 UPDATE meetings
 SET talk_time_available = true, voice_channel_name = COALESCE($4, voice_channel_name), updated_at = now()
