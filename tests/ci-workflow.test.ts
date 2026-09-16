@@ -335,7 +335,7 @@ describe("continuous integration contract", () => {
     expect(diagnosticsStep).toContain("logs --no-color --timestamps ollama faster-whisper");
   });
 
-  it("validates CPU execution through the Ollama processor report", async () => {
+  it("validates CPU execution through the Ollama compute backend logs", async () => {
     const [implementation, smokeTest] = await Promise.all([
       readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
       readFile(new URL("tests/smoke/local-ai.smoke.test.ts", root), "utf8"),
@@ -345,8 +345,12 @@ describe("continuous integration contract", () => {
     const diagnosticsIndex = runtimeJob.indexOf("- name: Diagnose local-AI smoke-test failure");
     const smokeStep = runtimeJob.slice(smokeIndex, diagnosticsIndex);
 
-    expect(smokeStep).toContain("ollama ps");
-    expect(smokeStep).toContain("100% CPU");
+    expect(smokeStep).toContain("logs --no-color ollama");
+    expect(smokeStep).toContain('msg="inference compute"');
+    expect(smokeStep).toContain("id=cpu");
+    expect(smokeStep).toContain("library=cpu");
+    expect(smokeStep).toContain("cuda|rocm|vulkan");
+    expect(smokeStep).not.toContain("100% CPU");
     expect(smokeTest).not.toContain("size_vram");
   });
 
