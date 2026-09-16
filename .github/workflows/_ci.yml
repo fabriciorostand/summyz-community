@@ -570,7 +570,24 @@ jobs:
               --profile smoke exec --no-TTY ollama ollama ps
           )"
           printf '%s\n' "${ollama_processes}"
-          grep --fixed-strings --quiet "100% CPU" <<<"${ollama_processes}"
+          ollama_logs="$(
+            docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml \
+              --profile smoke logs --no-color ollama
+          )"
+          printf '%s\n' "${ollama_logs}"
+          ollama_compute="$(grep --fixed-strings 'msg="inference compute"' <<<"${ollama_logs}" || true)"
+          if [[ -z "${ollama_compute}" ]]; then
+            echo "Ollama did not report an inference compute backend." >&2
+            exit 1
+          fi
+          grep --extended-regexp --quiet '(^|[[:space:]])id=cpu([[:space:]]|$)' <<<"${ollama_compute}"
+          grep --extended-regexp --quiet '(^|[[:space:]])library=cpu([[:space:]]|$)' <<<"${ollama_compute}"
+          if grep --extended-regexp --ignore-case --quiet \
+            '(^|[[:space:]])library=(cuda|rocm|vulkan)[^[:space:]]*([[:space:]]|$)' \
+            <<<"${ollama_compute}"; then
+            echo "Ollama reported a GPU inference backend." >&2
+            exit 1
+          fi
 
       - name: Diagnose local-AI smoke-test failure
         if: failure() && steps.local_ai_smoke.outcome == 'failure'
