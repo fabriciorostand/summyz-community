@@ -4,9 +4,8 @@ import type { PostgresExecutor } from "../src/database/postgres-database.js";
 import { PostgresInstallationHealthStore } from "../src/database/postgres-installation-health-store.js";
 
 describe("PostgresInstallationHealthStore", () => {
-  it("reports migrations, queue and stale component heartbeats without exposing secrets", async () => {
+  it("reports queue and stale component heartbeats without exposing secrets", async () => {
     const responses = [
-      { rows: [{ migration_version: 12 }] },
       { rows: [{ active: 1, failed: 2, oldest_pending_at: "2026-09-07T11:00:00Z", scheduled: 3 }] },
       {
         rows: [
@@ -40,7 +39,6 @@ describe("PostgresInstallationHealthStore", () => {
     const health = await store.getStatus();
 
     expect(health).toMatchObject({
-      database: { migrationVersion: 12, status: "ready" },
       localAiRequired: true,
       queue: { active: 1, failed: 2, scheduled: 3 },
     });

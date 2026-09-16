@@ -193,6 +193,20 @@ describe("Community dashboard API", () => {
     await app.close();
   });
 
+  it("returns only the database readiness status in installation health", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/installation/health",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().database).toEqual({ status: "ready" });
+    await app.close();
+  });
+
   it("requires public dashboard access for the command reference", async () => {
     const dependencies = createDependencies("public");
     const app = await createApiServer(dependencies);
@@ -421,7 +435,7 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
       getStatus: vi.fn(async () => ({
         checkedAt: "2026-09-09T12:00:00.000Z",
         components: [],
-        database: { latencyMs: 1, migrationVersion: 13, status: "ready" as const },
+        database: { status: "ready" as const },
         localAiRequired: false,
         queue: { active: 0, failed: 0, oldestPendingAt: null, scheduled: 0 },
       })),

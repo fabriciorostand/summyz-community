@@ -43,7 +43,7 @@ function aHealth(overrides: Partial<InstallationHealth> = {}): InstallationHealt
         status: "degraded",
       },
     ],
-    database: { latencyMs: 3, migrationVersion: 12, status: "ready" },
+    database: { status: "ready" },
     externalConfiguration: { openRouterConfigured: true },
     localAiRequired: false,
     queue: { active: 0, failed: 0, oldestPendingAt: null, scheduled: 0 },
@@ -233,7 +233,10 @@ describe("InstallationPage", () => {
     renderScreen(<InstallationPage />);
     expect(screen.getByRole("banner")).toHaveTextContent("Modo local");
     const access = screen.getByRole("region", { name: "Acesso ao dashboard" });
-    expect(within(access).getByRole("listitem", { name: "Modo local" })).toHaveTextContent("Ativo");
+    const local = within(access).getByRole("listitem", { name: "Modo local" });
+    expect(local).toHaveTextContent("Ativo");
+    expect(local).toHaveTextContent("127.0.0.1:8787");
+    expect(local).not.toHaveTextContent("sem TLS");
     expect(within(access).getByRole("listitem", { name: "Modo público" })).not.toHaveTextContent(
       "Ativo",
     );
@@ -297,7 +300,7 @@ describe("InstallationPage", () => {
       expect(within(health).getByText("Bot autenticado no Discord")).toBeInTheDocument(),
     );
     expect(within(health).getByText("FFmpeg com libopus")).toBeInTheDocument();
-    expect(within(health).getByText(/migração 12/)).toBeInTheDocument();
+    expect(within(health).queryByText(/migração/)).toBeNull();
     expect(within(health).getByText(/0 na fila/)).toBeInTheDocument();
   });
 

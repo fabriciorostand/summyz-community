@@ -15,12 +15,12 @@ import {
   type MeetingHistoryPage,
 } from "../lib/api";
 import {
-  formatCost,
   formatDate,
   formatDeadline,
   formatDuration,
   formatElapsed,
   formatInteger,
+  formatRoundedCost,
   formatShortDate,
   percentageOf,
   pipelineStatus,
@@ -120,7 +120,6 @@ function OverviewBody({
         <TopSpeakersCard dashboard={dashboard} />
         <CostCard dashboard={dashboard} />
         <RecentCallsCard guildId={guildId} />
-        <p className="label-mono m-0 text-ink-dim">Fuso {dashboard.timeZone}</p>
       </div>
     </div>
   );
@@ -229,7 +228,7 @@ function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
           <Metric
             label="Custo"
             note={pending > 0 ? `${String(pending)} pendentes` : undefined}
-            value={formatCost(dashboard.cost.confirmed)}
+            value={formatRoundedCost(dashboard.cost.confirmed)}
           />
         </div>
         <div className="flex gap-3">
@@ -320,13 +319,13 @@ function TopSpeakersCard({ dashboard }: { dashboard: DashboardAnalytics }) {
       <div className="mb-4 flex items-center justify-between">
         <h2 className="m-0 flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink">
           <Mic2 className="size-4 text-accent" />
-          Top speakers
+          Principais falantes
         </h2>
-        <span className="label-mono text-ink-muted">Talk time</span>
+        <span className="label-mono text-ink-muted">Tempo de fala</span>
       </div>
       {dashboard.topSpeakers.length === 0 ? (
         <p className="m-0 text-[12.5px] text-ink-muted">
-          O talk time estará disponível após a primeira call concluída.
+          O tempo de fala estará disponível após a primeira call concluída.
         </p>
       ) : (
         <div className="flex flex-col gap-3">
@@ -427,7 +426,7 @@ function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
                   </span>
                 </span>
                 <span className="shrink-0 font-mono text-[11.5px] text-ink-secondary">
-                  {entry.execution === "local" ? "sem custo" : formatCost(entry.confirmed)}
+                  {entry.execution === "local" ? "sem custo" : formatRoundedCost(entry.confirmed)}
                 </span>
               </div>
             ))}

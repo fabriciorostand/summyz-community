@@ -43,6 +43,34 @@ describe("OverviewPage", () => {
     expect(screen.getByText("+16%")).toBeInTheDocument();
   });
 
+  it("shows every cost of the overview with two decimals", async () => {
+    const dashboard = aDashboard();
+    renderScreen(<OverviewPage />, {
+      context: dashboardContext({
+        dashboard: {
+          ...dashboard,
+          cost: {
+            ...dashboard.cost,
+            breakdown: dashboard.cost.breakdown.map((entry) =>
+              entry.execution === "local"
+                ? entry
+                : { ...entry, confirmed: [{ amount: "0.004", currency: "USD" }] },
+            ),
+            confirmed: [{ amount: "3.5", currency: "USD" }],
+          },
+        },
+      }),
+    });
+    expect(await screen.findByText("USD 3,50")).toBeInTheDocument();
+    expect(screen.getByText("< USD 0,01")).toBeInTheDocument();
+  });
+
+  it("does not print the time zone footer", async () => {
+    renderScreen(<OverviewPage />);
+    await screen.findByRole("heading", { name: "Visão geral" });
+    expect(screen.queryByText(/Fuso/)).not.toBeInTheDocument();
+  });
+
   it("flags the attempts that are still pending", async () => {
     renderScreen(<OverviewPage />);
     expect(await screen.findByText("2 pendentes")).toBeInTheDocument();
@@ -63,6 +91,12 @@ describe("OverviewPage", () => {
     const detail = await screen.findByText("Detalhar");
     expect(detail).toHaveAttribute("aria-disabled", "true");
     expect(detail.closest("a")).toBeNull();
+  });
+
+  it("labels the speaker panel in Portuguese", async () => {
+    renderScreen(<OverviewPage />);
+    expect(await screen.findByRole("heading", { name: "Principais falantes" })).toBeInTheDocument();
+    expect(screen.getByText("Tempo de fala")).toBeInTheDocument();
   });
 
   it("ranks the top speakers by share of talk time", async () => {
@@ -162,7 +196,7 @@ describe("OverviewPage", () => {
       context: dashboardContext({ dashboard: aDashboard({ topSpeakers: [] }) }),
     });
     expect(
-      await screen.findByText(/O talk time estará disponível após a primeira call concluída/),
+      await screen.findByText(/O tempo de fala estará disponível após a primeira call concluída/),
     ).toBeInTheDocument();
   });
 

@@ -441,7 +441,6 @@ function ProfileEditor({
       <div className="mt-2 flex items-center gap-3">
         <span className="label-mono text-ink-muted">Avançado</span>
         <span className="h-px flex-1 bg-line-soft" />
-        <span className="label-mono text-ink-dim">Mexa só se precisar</span>
       </div>
 
       <Disclosure

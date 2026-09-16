@@ -11,13 +11,9 @@ export function PreferencesPage() {
       <TopBar meta="Valem para a instalação inteira" title="Preferências" />
       <Screen width="narrow">
         <Card>
-          <h2 className="m-0 mb-1 text-[15px] font-semibold tracking-tight text-ink">
+          <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">
             Idioma e tema
           </h2>
-          <p className="m-0 mb-4 text-[12.5px] leading-relaxed text-ink-muted">
-            Não há contas: a escolha vale para a instalação inteira, em qualquer navegador que abrir
-            o dashboard.
-          </p>
           <div className="grid gap-3 sm:grid-cols-2">
             <SelectField
               label="Idioma do dashboard"

@@ -222,11 +222,6 @@ export function CallsPage() {
             </div>
           </div>
         )}
-        {history !== undefined && (
-          <p className="label-mono m-0 text-ink-dim">
-            Datas e filtros usam o fuso {history.timeZone}
-          </p>
-        )}
       </Screen>
     </>
   );
@@ -341,7 +336,7 @@ function CallsBody({
       <div className="label-mono grid grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_90px_28px] gap-4 border-b border-line-soft px-4 py-3 text-ink-muted">
         <span>Quando</span>
         <span>Canal</span>
-        <span>Participantes · talk time</span>
+        <span>Participantes · tempo de fala</span>
         <span className="text-right">Duração</span>
         <span />
       </div>
@@ -386,7 +381,7 @@ function CallRow({
       <div className="min-w-0">
         {withTalkTime.length === 0 ? (
           <span className="text-[11.5px] text-ink-dim">
-            {participants.length === 0 ? "Informação indisponível" : "talk time indisponível"}
+            {participants.length === 0 ? "Informação indisponível" : "tempo de fala indisponível"}
           </span>
         ) : (
           <>

@@ -378,7 +378,7 @@ function AccessCard({ accessMode }: { accessMode: AccessMode }) {
       <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
         <AccessModeRow
           active={accessMode === "local"}
-          description={<span className="label-mono">127.0.0.1:8787 · sem TLS</span>}
+          description={<span className="label-mono">127.0.0.1:8787</span>}
           icon={<Monitor className="size-4" />}
           title="Modo local"
         />
@@ -476,11 +476,7 @@ function HealthCard() {
           <p className="m-0 text-[12.5px] text-ink-muted">Consultando componentes…</p>
         ) : (
           <div className="flex flex-col gap-2.5">
-            <HealthRow
-              detail={`migração ${String(health.database.migrationVersion)} · ${String(health.database.latencyMs)} ms`}
-              label="Banco de dados conectado"
-              status="ready"
-            />
+            <HealthRow label="Banco de dados conectado" status="ready" />
             {health.components.map((component) => (
               <HealthRow
                 detail={component.stale ? "sem heartbeat recente" : undefined}

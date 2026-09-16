@@ -23,15 +23,44 @@ export function formatElapsed(milliseconds: number): string {
   return hours === 0 ? tail : `${String(hours)}:${tail}`;
 }
 
-export function formatCost(entries: readonly { amount: string; currency: string }[]): string {
+type CostEntry = { amount: string; currency: string };
+
+/** Joins every confirmed currency, leaving non-numeric amounts untouched. */
+function formatCostEntries(
+  entries: readonly CostEntry[],
+  formatAmount: (amount: number, currency: string) => string,
+): string {
   if (entries.length === 0) return "—";
   return entries
     .map((entry) => {
       const amount = Number(entry.amount);
       if (!Number.isFinite(amount)) return `${entry.currency} ${entry.amount}`;
-      return `${entry.currency} ${amount.toLocaleString(locale, { maximumFractionDigits: 6 })}`;
+      return formatAmount(amount, entry.currency);
     })
     .join(" · ");
+}
+
+export function formatCost(entries: readonly CostEntry[]): string {
+  return formatCostEntries(
+    entries,
+    (amount, currency) =>
+      `${currency} ${amount.toLocaleString(locale, { maximumFractionDigits: 6 })}`,
+  );
+}
+
+/**
+ * Overview variant of {@link formatCost}: two decimals, flagging positive amounts that would
+ * otherwise round down to zero.
+ */
+export function formatRoundedCost(entries: readonly CostEntry[]): string {
+  return formatCostEntries(entries, (amount, currency) => {
+    const rounded = amount.toLocaleString(locale, {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2,
+    });
+    if (amount > 0 && rounded === "0,00") return `< ${currency} 0,01`;
+    return `${currency} ${rounded}`;
+  });
 }
 
 export function formatDate(value: string | null, timeZone: string): string {
