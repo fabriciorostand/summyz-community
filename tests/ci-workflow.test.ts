@@ -324,6 +324,55 @@ describe("continuous integration contract", () => {
     expect(storageCleanup).toContain("docker image prune --force");
   });
 
+  it("preserves the bot BuildKit cache when building the dashboard", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const botBuild = workflow.slice(
+      workflow.indexOf("- name: Build bot image"),
+      workflow.indexOf("- name: Build dashboard image"),
+    );
+    const dashboardBuild = workflow.slice(
+      workflow.indexOf("- name: Build dashboard image"),
+      workflow.indexOf("- name: Build CPU transcription image"),
+    );
+
+    expect(botBuild).toContain("cache-to: type=gha,mode=max,scope=summyz-runtime");
+    expect(dashboardBuild).toContain("cache-from: type=gha,scope=summyz-runtime");
+    expect(dashboardBuild).not.toContain("cache-to:");
+  });
+
+  it("caches only local model artifacts after a successful smoke test", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const runtimeJob = workflow.slice(workflow.indexOf("\n  runtime:"));
+    const restoreIndex = runtimeJob.indexOf("- name: Restore immutable local-model cache");
+    const smokeIndex = runtimeJob.indexOf("- name: Run real CPU local-AI smoke test");
+    const stopIndex = runtimeJob.indexOf("- name: Stop local-AI services");
+    const prepareIndex = runtimeJob.indexOf("- name: Prepare verified local-model cache");
+    const saveIndex = runtimeJob.indexOf("- name: Save verified local-model cache");
+    const reportIndex = runtimeJob.indexOf("- name: Initialize runtime reports");
+    const restoreStep = runtimeJob.slice(restoreIndex, smokeIndex);
+    const prepareStep = runtimeJob.slice(prepareIndex, saveIndex);
+    const saveStep = runtimeJob.slice(saveIndex, reportIndex);
+    const allowedPaths =
+      "with:\n          path: |\n            .cache/ci/ollama/models\n            .cache/ci/faster-whisper/managed\n          key:";
+
+    expect(restoreStep).toContain("uses: actions/cache/restore@");
+    expect(restoreStep).toContain(allowedPaths);
+    expect(restoreStep).not.toContain("path: .cache/ci\n");
+    expect(prepareIndex).toBeGreaterThan(stopIndex);
+    expect(saveIndex).toBeGreaterThan(prepareIndex);
+    expect(saveIndex).toBeLessThan(reportIndex);
+    expect(prepareStep).toContain("chown --recursive");
+    expect(prepareStep).toContain("steps.local_ai_smoke.outcome == 'success'");
+    expect(prepareStep).toContain("steps.local_model_cache.outputs.cache-hit != 'true'");
+    expect(saveStep).toContain("uses: actions/cache/save@");
+    expect(saveStep).toContain(allowedPaths);
+    expect(saveStep).not.toContain("path: .cache/ci\n");
+    expect(saveStep).toContain("steps.local_ai_smoke.outcome == 'success'");
+    expect(saveStep).toContain("steps.local_model_cache.outputs.cache-hit != 'true'");
+    expect(saveStep).toContain("steps.local_model_cache.outputs.cache-primary-key");
+    expect(saveStep).not.toContain("id_ed25519");
+  });
+
   it("makes the restored Whisper cache writable by the non-root runtime user", async () => {
     const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
