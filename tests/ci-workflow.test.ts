@@ -5,6 +5,13 @@ import { describe, expect, it } from "vitest";
 const root = new URL("../", import.meta.url);
 
 describe("continuous integration contract", () => {
+  it("shows the individual CLA check as CLA / Individual", async () => {
+    const workflow = await readFile(new URL(".github/workflows/individual-cla.yml", root), "utf8");
+
+    expect(workflow).toMatch(/^name: CLA$/mu);
+    expect(workflow).toMatch(/^ {2}validate-individual-cla:\n {4}name: Individual$/mu);
+  });
+
   it("runs one workflow for PRs and post-merge main while cancelling only superseded PRs", async () => {
     const entry = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const workflowFiles = await readdir(new URL(".github/workflows/", root));
