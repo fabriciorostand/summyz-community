@@ -50,4 +50,6 @@ modelos. A execução em uma GPU real fica fora deste workflow. Node.js 22.23.2,
 3.12.14, imagens-base, actions, locks e snapshots dos repositórios Debian/Ubuntu estão fixados. O
 runner `ubuntu-24.04` e as bases de vulnerabilidades dos scanners permanecem serviços atualizados
 do GitHub e dos fornecedores. Caches de npm, pip, BuildKit e modelos reduzem as execuções seguintes
-sem dispensar as verificações de versão, hash e digest.
+sem dispensar as verificações de versão, hash e digest. O dashboard reutiliza o cache BuildKit do
+bot sem sobrescrevê-lo. O cache dos modelos é salvo somente após o smoke test passar e contém apenas
+os artefatos de Ollama e faster-whisper, não o diretório inteiro dos serviços.
