@@ -20,10 +20,14 @@ que ainda possuem todos os áudios.
 
 ## Integração contínua
 
-O workflow `CI` é executado em pull requests para `main` e em pushes para `main`. Ele expõe os
-gates bloqueantes `Quality`, `Security`, `Tests` e `Runtime / Images`, seguidos pelo agregador
-`Quality Gate`. Um commit novo cancela a execução anterior do mesmo pull request; pushes para
-`main` permanecem em uma única fila e não cancelam execuções anteriores.
+O workflow `CI` é executado em pull requests para `main` e após merges, por meio do evento de push
+em `main`. Os jobs aparecem diretamente como `CI / Quality`, `CI / Security`, `CI / Tests`,
+`CI / Runtime / Images`, `CI / Quality Gate / Analysis` e `CI / Quality Gate`. `Analysis` reúne os
+relatórios dos quatro primeiros jobs, publica o resumo e atualiza o baseline após um merge.
+`Quality Gate` aplica o resultado agregado e atualiza o comentário persistente nos pull requests
+internos. Um commit novo cancela a execução anterior do mesmo pull request; as execuções em `main`
+podem ocorrer em paralelo e não cancelam umas às outras. O bloqueio de pushes diretos em `main`
+depende da proteção configurada no GitHub.
 
 Os testes do servidor sempre usam PostgreSQL 18.4 real. Servidor, dashboard e serviço Python
 precisam atingir pelo menos 85% de cobertura global por linhas e 85% em cada grupo de domínio. A

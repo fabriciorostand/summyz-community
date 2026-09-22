@@ -1,33 +1,47 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
 
 const root = new URL("../", import.meta.url);
 
 describe("continuous integration contract", () => {
-  it("routes PR cancellation and serialized main pushes through one implementation", async () => {
+  it("runs one workflow for PRs and post-merge main while cancelling only superseded PRs", async () => {
     const entry = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
-    const prJob = entry.slice(entry.indexOf("\n  pr:"), entry.indexOf("\n  main:"));
-    const mainJob = entry.slice(entry.indexOf("\n  main:"));
+    const workflowFiles = await readdir(new URL(".github/workflows/", root));
 
     expect(entry).toContain("pull_request:");
     expect(entry).toContain("push:");
-    expect(entry).toContain("uses: ./.github/workflows/_ci.yml");
-    expect(entry).toContain(["group: ci-pr-$", "{{ github.event.pull_request.number }}"].join(""));
-    expect(entry).toContain("cancel-in-progress: true");
-    expect(prJob).not.toContain("pull-requests: write");
-    expect(mainJob).toContain("concurrency:");
-    expect(mainJob).toContain("group: ci-main");
-    expect(mainJob).toContain("queue: max");
-    expect(mainJob).not.toContain("cancel-in-progress: true");
+    expect(entry).toContain("branches: [main]");
+    expect(entry).toContain(
+      `group: \${{ github.workflow }}-\${{ github.event_name == 'pull_request' && github.ref || github.run_id }}`,
+    );
+    expect(entry).toContain(`cancel-in-progress: \${{ github.event_name == 'pull_request' }}`);
+    expect(entry).not.toContain("queue: max");
+    expect(entry).not.toContain("uses: ./.github/workflows/_ci.yml");
+    expect(entry).not.toMatch(/\n {2}(?:pr|main):/u);
+    expect(workflowFiles).not.toContain("_ci.yml");
   });
 
-  it("exposes every blocking producer and an aggregate gate without custom timeouts", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+  it("exposes the six exact CI checks with analysis before the final gate", async () => {
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
 
-    for (const job of ["quality:", "security:", "tests:", "runtime:", "quality-gate:"]) {
-      expect(implementation).toContain(`\n  ${job}`);
+    const jobs = [
+      ["quality", "Quality"],
+      ["quality-gate-analysis", "Quality Gate / Analysis"],
+      ["quality-gate", "Quality Gate"],
+      ["runtime", "Runtime / Images"],
+      ["security", "Security"],
+      ["tests", "Tests"],
+    ] as const;
+    for (const [id, name] of jobs) {
+      expect(implementation).toContain(`\n  ${id}:\n    name: ${name}\n`);
     }
+    expect(implementation.split("\njobs:\n")[1]?.match(/^ {2}[a-z][a-z-]+:$/gmu)).toHaveLength(
+      jobs.length,
+    );
+    expect(implementation).toContain("needs: [quality, security, tests, runtime]");
+    expect(implementation).toContain("needs: quality-gate-analysis");
+    expect(implementation.match(/if: \$\{\{ !cancelled\(\) \}\}/gu)).toHaveLength(2);
     expect(implementation).toContain("runs-on: ubuntu-24.04");
     expect(implementation).not.toContain("timeout-minutes:");
     expect(implementation).toContain("postgres:18.4-alpine@sha256:");
@@ -39,7 +53,7 @@ describe("continuous integration contract", () => {
 
   it("pins every external action to a full commit SHA", async () => {
     const workflows = await Promise.all(
-      [".github/workflows/ci.yml", ".github/workflows/_ci.yml"].map((path) =>
+      [".github/workflows/ci.yml", ".github/workflows/individual-cla.yml"].map((path) =>
         readFile(new URL(path, root), "utf8"),
       ),
     );
@@ -51,7 +65,7 @@ describe("continuous integration contract", () => {
   });
 
   it("pins every Trivy scan to a patched action release", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const patchedTrivyAction =
       "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0";
 
@@ -76,7 +90,7 @@ describe("continuous integration contract", () => {
 
   it("builds every application target from the centralized Dockerfile", async () => {
     const [implementation, qualityGateCli] = await Promise.all([
-      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL(".github/workflows/ci.yml", root), "utf8"),
       readFile(new URL("scripts/ci/quality-gate-cli.ts", root), "utf8"),
     ]);
 
@@ -85,7 +99,7 @@ describe("continuous integration contract", () => {
   });
 
   it("audits the Node.js lockfile without running dependency lifecycle scripts", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const securityJob = implementation.slice(
       implementation.indexOf("\n  security:"),
       implementation.indexOf("\n  tests:"),
@@ -102,7 +116,7 @@ describe("continuous integration contract", () => {
 
   it("uses the explicit Ubuntu release in every workflow", async () => {
     const workflows = await Promise.all(
-      ["ci.yml", "_ci.yml", "individual-cla.yml"].map((name) =>
+      ["ci.yml", "individual-cla.yml"].map((name) =>
         readFile(new URL(`.github/workflows/${name}`, root), "utf8"),
       ),
     );
@@ -111,13 +125,15 @@ describe("continuous integration contract", () => {
     expect(workflows.join("\n")).toContain("runs-on: ubuntu-24.04");
   });
 
-  it("publishes the Scraper-style English Quality Gate from complete reports", async () => {
-    const [entry, implementation] = await Promise.all([
-      readFile(new URL(".github/workflows/ci.yml", root), "utf8"),
-      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
-    ]);
+  it("keeps analysis read-only and publishes the PR comment from the final gate", async () => {
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const analysis = implementation.slice(
+      implementation.indexOf("\n  quality-gate-analysis:"),
+      implementation.indexOf("\n  quality-gate:"),
+    );
+    const gate = implementation.slice(implementation.indexOf("\n  quality-gate:"));
 
-    expect(implementation).toContain("scripts/ci/quality-gate-cli.ts");
+    expect(analysis).toContain("scripts/ci/quality-gate-cli.ts");
     expect(implementation).toContain("scripts/ci/source-quality-cli.ts");
     expect(implementation).toContain("./node_modules/.bin/jscpd");
     // lizard cannot parse JSX, so .tsx complexity is enforced by Biome and complexipy covers Python.
@@ -127,19 +143,22 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("artifacts/reports/quality/complexipy.sarif");
     expect(implementation).toContain("quality-gate-baseline.json");
     expect(implementation).toContain("ci-summary.md");
-    expect(implementation).not.toContain("pull-requests: write");
-    expect(entry).toContain("quality-gate-comment:");
-    expect(entry).toContain("pull-requests: write");
-    expect(entry).toContain(
-      'const fullBody = await readFile("quality-gate-comment/ci-summary.md", "utf8")',
+    expect(analysis).not.toContain("pull-requests: write");
+    expect(analysis).toContain("ci-quality-gate-baseline");
+    expect(gate).toContain("pull-requests: write");
+    expect(gate).not.toContain("actions/checkout@");
+    expect(gate).toContain("github.event.pull_request.head.repo.full_name == github.repository");
+    expect(gate).toContain(
+      'const fullBody = await readFile("quality-gate-report/ci-summary.md", "utf8")',
     );
+    expect(gate).toContain("jq --exit-status '.passed == true'");
     expect(implementation).not.toContain("## Summyz Community CI");
   });
 
   it("excludes test files from cognitive and cyclomatic complexity checks", async () => {
     const [biomeSource, implementation, webCiConfig] = await Promise.all([
       readFile(new URL("biome.json", root), "utf8"),
-      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL(".github/workflows/ci.yml", root), "utf8"),
       readFile(new URL("web/vite.ci.config.ts", root), "utf8"),
     ]);
     const biomeConfig: unknown = JSON.parse(biomeSource);
@@ -175,7 +194,7 @@ describe("continuous integration contract", () => {
   });
 
   it("reports every image vulnerability but only lets the aggregate policy block", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
 
     for (const report of ["trivy-bot.json", "trivy-dashboard.json", "trivy-faster-whisper.json"]) {
       expect(implementation).toContain(`output: artifacts/reports/runtime/${report}`);
@@ -186,7 +205,7 @@ describe("continuous integration contract", () => {
   });
 
   it("limits the blocking SARIF policy to configured severities", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const policyStep = implementation.slice(
       implementation.indexOf("- name: Enforce repository secret and misconfiguration policy"),
       implementation.indexOf("- name: Enforce fixable HIGH/CRITICAL dependency vulnerabilities"),
@@ -197,7 +216,7 @@ describe("continuous integration contract", () => {
   });
 
   it("makes the shared reports root writable before test containers run", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const testsJob = implementation.slice(
       implementation.indexOf("\n  tests:"),
       implementation.indexOf("\n  runtime:"),
@@ -217,7 +236,7 @@ describe("continuous integration contract", () => {
   });
 
   it("preflights CUDA packages early and builds the target after reclaiming storage", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const preflightIndex = implementation.indexOf("- name: Preflight NVIDIA system packages");
     const cudaBuildIndex = implementation.indexOf("- name: Build NVIDIA packaging target");
     const botBuildIndex = implementation.indexOf("- name: Build bot image");
@@ -281,7 +300,7 @@ describe("continuous integration contract", () => {
   });
 
   it("reclaims duplicated build storage before runtime validation and smoke tests", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
     const smokeBuildIndex = runtimeJob.indexOf("- name: Build smoke-test image");
     const storageCleanupIndex = runtimeJob.indexOf(
@@ -299,7 +318,7 @@ describe("continuous integration contract", () => {
   });
 
   it("makes the restored Whisper cache writable by the non-root runtime user", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
     const restoreIndex = runtimeJob.indexOf("- name: Restore immutable local-model cache");
     const permissionsIndex = runtimeJob.indexOf("- name: Prepare local-model cache permissions");
@@ -317,7 +336,7 @@ describe("continuous integration contract", () => {
   });
 
   it("waits for local-AI healthchecks and prints diagnostics after smoke failures", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
     const smokeIndex = runtimeJob.indexOf("- name: Run real CPU local-AI smoke test");
     const diagnosticsIndex = runtimeJob.indexOf("- name: Diagnose local-AI smoke-test failure");
@@ -337,7 +356,7 @@ describe("continuous integration contract", () => {
 
   it("validates CPU execution through the Ollama compute backend logs", async () => {
     const [implementation, smokeTest] = await Promise.all([
-      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL(".github/workflows/ci.yml", root), "utf8"),
       readFile(new URL("tests/smoke/local-ai.smoke.test.ts", root), "utf8"),
     ]);
     const runtimeJob = implementation.slice(implementation.indexOf("\n  runtime:"));
@@ -369,7 +388,7 @@ describe("continuous integration contract", () => {
   it("does not require a developer .env file for CI Compose operations", async () => {
     const [overlay, implementation] = await Promise.all([
       readFile(new URL(".github/ci/docker-compose.ci.yaml", root), "utf8"),
-      readFile(new URL(".github/workflows/_ci.yml", root), "utf8"),
+      readFile(new URL(".github/workflows/ci.yml", root), "utf8"),
     ]);
 
     for (const service of ["bot", "dashboard"]) {
@@ -387,7 +406,7 @@ describe("continuous integration contract", () => {
   });
 
   it("enforces changed coverage once over the weighted server, dashboard, and Python total", async () => {
-    const implementation = await readFile(new URL(".github/workflows/_ci.yml", root), "utf8");
+    const implementation = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const changedCoverageStep = implementation.slice(
       implementation.indexOf("- name: Measure coverage on changed code"),
       implementation.indexOf("- name: Upload test and coverage reports"),
