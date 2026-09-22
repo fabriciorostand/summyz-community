@@ -22,8 +22,8 @@ all their audio files.
 
 The `CI` workflow runs for pull requests targeting `main` and pushes to `main`. It exposes the
 blocking `Quality`, `Security`, `Tests`, and `Runtime / Images` gates, followed by the aggregate
-`Quality Gate`. A new commit cancels the previous run for the same pull request; pushes to `main`
-remain in one queue and do not cancel earlier runs.
+`Quality Gate / Analysis` and `Quality Gate`. A new commit cancels the previous run for the same
+pull request.
 
 Server tests always use a real PostgreSQL 18.4 instance. The server, dashboard, and Python service
 must each reach at least 85% global line coverage and 85% in every domain group. Coverage on new or
