@@ -139,10 +139,11 @@ describe("TasksPage", () => {
     expect(await screen.findAllByText("Sem responsável")).toHaveLength(2);
   });
 
-  it("explains that completing a task does not touch the published summary", async () => {
+  it("omits the published-summary helper text", async () => {
     renderScreen(<TasksPage />);
+    await screen.findByText("Marcar a branch de release");
     expect(
-      await screen.findByText(/Marcar como concluída não altera o resumo publicado no Discord/),
-    ).toBeInTheDocument();
+      screen.queryByText(/Marcar como concluída não altera o resumo publicado no Discord/),
+    ).not.toBeInTheDocument();
   });
 });

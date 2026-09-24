@@ -86,6 +86,31 @@ describe("OverviewPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("labels refinement costs as Refinamento", async () => {
+    const dashboard = aDashboard();
+    renderScreen(<OverviewPage />, {
+      context: dashboardContext({
+        dashboard: {
+          ...dashboard,
+          cost: {
+            ...dashboard.cost,
+            breakdown: [
+              ...dashboard.cost.breakdown,
+              {
+                attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 0 },
+                confirmed: [{ amount: "1.25", currency: "USD" }],
+                execution: "api",
+                phase: "refinement",
+                provider: "openrouter",
+              },
+            ],
+          },
+        },
+      }),
+    });
+    expect(await screen.findByText("Refinamento")).toBeInTheDocument();
+  });
+
   it("keeps the cost detail link inert until that screen exists", async () => {
     renderScreen(<OverviewPage />);
     const detail = await screen.findByText("Detalhar");

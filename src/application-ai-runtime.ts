@@ -175,9 +175,11 @@ export class ApplicationAiRuntime {
     const apiKey = await this.requireOpenRouterApiKey();
     await new OpenRouterModelPreflight({ apiKey }).validate({
       generativeModels: [
-        configuration.refinement.model,
-        configuration.summary.model,
-        ...(configuration.translation === null ? [] : [configuration.translation.model]),
+        { model: configuration.refinement.model, phase: "refinement" },
+        { model: configuration.summary.model, phase: "summary" },
+        ...(configuration.translation === null
+          ? []
+          : [{ model: configuration.translation.model, phase: "translation" as const }]),
       ],
       transcriptionModel: configuration.transcription.model,
     });

@@ -116,8 +116,11 @@ explícita for idêntica à predominante, a tradução é ignorada. A transcriç
 traduzidos. Se a tradução falhar após as tentativas, o resumo-base é publicado e somente o autor de
 `/record` recebe a DM privada; não há aviso público nem fallback de DM.
 
-Perfis externos validam no OpenRouter a modalidade de transcrição e os contratos estruturados dos
-modelos antes de gravar. Perfis locais carregam o checkpoint faster-whisper e exigem a capacidade
+Perfis externos exigem que o catálogo da OpenRouter esteja acessível antes de gravar. O modelo de
+transcrição deve anunciar entrada de áudio e saída de transcrição. O catálogo STT não informa de
+forma confiável o parâmetro `response_format`, por isso a resposta com timestamps é validada durante
+o processamento. Refinamento, resumo e tradução exigem entrada e saída de texto e suporte anunciado
+a `response_format`. Perfis locais carregam o checkpoint faster-whisper e exigem a capacidade
 `multilingual=true` reportada pelo checkpoint real. `tiny.en`, `base.en`, `small.en`, `medium.en`,
 convertidos equivalentes e checkpoints cuja capacidade não possa ser determinada são bloqueados
 antes de qualquer áudio ou chamada de processamento. Não há detector auxiliar nem catálogo de

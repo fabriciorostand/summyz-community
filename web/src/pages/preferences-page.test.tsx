@@ -6,10 +6,10 @@ import { aSettings, dashboardContext, renderScreen } from "../tests/test-utils";
 import { PreferencesPage } from "./preferences-page";
 
 describe("PreferencesPage", () => {
-  it("frames the choices as installation-wide", () => {
+  it("shows the preferences without header helper text", () => {
     renderScreen(<PreferencesPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Preferências" })).toBeInTheDocument();
-    expect(screen.getByText("Valem para a instalação inteira")).toBeInTheDocument();
+    expect(screen.queryByText("Valem para a instalação inteira")).not.toBeInTheDocument();
     expect(screen.queryByText(/Não há contas/)).toBeNull();
     expect(screen.queryByText(/senha/i)).toBeNull();
   });

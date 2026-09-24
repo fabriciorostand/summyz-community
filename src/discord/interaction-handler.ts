@@ -17,13 +17,9 @@ import type { AppConfig } from "../config.js";
 import { CostReportError } from "../cost/cost-report.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
-import { MultilingualCheckpointRequiredError } from "../local-ai/local-model-manager.js";
-import { OpenRouterModelPreflightError } from "../openrouter/model-preflight.js";
-import {
-  RecordingAlreadyActiveError,
-  type RecordingCoordinator,
-} from "../recording/recording-coordinator.js";
+import type { RecordingCoordinator } from "../recording/recording-coordinator.js";
 import { getInteractionText, type InteractionText } from "./interaction-text.js";
+import { handleRecordingStartError } from "./recording-start-error.js";
 import { createEphemeralReply } from "./responses.js";
 
 interface CommandDependencies {
@@ -32,6 +28,7 @@ interface CommandDependencies {
   readonly costReport?: CostReportReader;
   readonly guildConfigStore: GuildConfigurationStore;
   readonly isOpenRouterConfigured: () => boolean | Promise<boolean>;
+  readonly logger: Logger;
   readonly resolveAiProfileCompatibility?: (
     guildId: string,
   ) => Promise<readonly AiProfileCompatibilityStatus[]>;
@@ -63,6 +60,7 @@ const dispatchCommand = async (
         dependencies.aiProfileStore,
         dependencies.resolveAiProfileCompatibility,
         dependencies.isOpenRouterConfigured,
+        dependencies.logger,
       );
     case "stop":
       return handleStop(interaction, dependencies.guildConfigStore, dependencies.coordinator, text);
@@ -111,6 +109,7 @@ export function installInteractionHandler(
           ...(costReport === undefined ? {} : { costReport }),
           guildConfigStore,
           isOpenRouterConfigured,
+          logger,
           ...(resolveAiProfileCompatibility === undefined ? {} : { resolveAiProfileCompatibility }),
         },
         text,
@@ -145,26 +144,6 @@ const validateActiveAiProfile = async (
     return false;
   }
   return true;
-};
-
-const handleRecordingStartError = async (
-  error: unknown,
-  interaction: ChatInputCommandInteraction,
-  text: InteractionText,
-): Promise<boolean> => {
-  if (error instanceof RecordingAlreadyActiveError) {
-    await interaction.editReply(text.recordingAlreadyActive);
-    return true;
-  }
-  if (error instanceof MultilingualCheckpointRequiredError) {
-    await interaction.editReply(text.multilingualCheckpointRequired);
-    return true;
-  }
-  if (error instanceof OpenRouterModelPreflightError) {
-    await interaction.editReply(text.modelPreflightFailed);
-    return true;
-  }
-  return false;
 };
 
 export interface CostReportReader {
@@ -386,6 +365,7 @@ async function handleRecord(
     | ((guildId: string) => Promise<readonly AiProfileCompatibilityStatus[]>)
     | undefined,
   isOpenRouterConfigured: () => boolean | Promise<boolean>,
+  logger: Logger,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
@@ -441,7 +421,7 @@ async function handleRecord(
       await interaction.followUp(createEphemeralReply(text.unknownAiProfileCompatibility));
     }
   } catch (error) {
-    if (await handleRecordingStartError(error, interaction, text)) return;
+    if (await handleRecordingStartError(error, interaction, text, logger)) return;
     throw error;
   }
 }

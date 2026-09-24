@@ -35,7 +35,7 @@ export function CommandsPage() {
 
   return (
     <>
-      <TopBar meta="Registrados pelo bot no Discord" title="Comandos" />
+      <TopBar title="Comandos" />
       <Screen width="narrow">
         {loadError ? (
           <ErrorState

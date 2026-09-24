@@ -6,7 +6,6 @@ import {
   Cloud,
   Copy,
   GlobeLock,
-  Info,
   KeyRound,
   Monitor,
   Terminal,
@@ -44,11 +43,7 @@ export function InstallationPage() {
 
   return (
     <>
-      <TopBar
-        actions={<AccessModeChip accessMode={settings.accessMode} />}
-        meta="Cada bloco salva separadamente"
-        title="Instalação"
-      />
+      <TopBar actions={<AccessModeChip accessMode={settings.accessMode} />} title="Instalação" />
       <Screen>
         <div className="grid items-start gap-4 xl:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
@@ -168,10 +163,6 @@ function DiscordApplicationCard({
           Substituir o token revalida a aplicação e reescreve o Application ID. O processo do bot
           precisa ser reiniciado depois da troca, e os servidores visíveis passam a ser os do bot
           novo.
-        </Notice>
-        <Notice icon={<Info className="mt-0.5 size-3.5 shrink-0" />}>
-          Não existe client secret: o Community não usa OAuth de usuário. Domínio e URL pública
-          ficam no <InlineCode>.env</InlineCode>.
         </Notice>
       </div>
     </Card>
@@ -371,10 +362,6 @@ function AccessCard({ accessMode }: { accessMode: AccessMode }) {
         id="access-title"
         title="Acesso ao dashboard"
       />
-      <p className="m-0 mb-4 text-[12.5px] leading-relaxed text-ink-muted">
-        Definido pelo script usado para subir a instalação. O dashboard mostra o estado, mas não
-        altera a infraestrutura.
-      </p>
       <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
         <AccessModeRow
           active={accessMode === "local"}
@@ -389,12 +376,6 @@ function AccessCard({ accessMode }: { accessMode: AccessMode }) {
           title="Modo público"
         />
       </ul>
-      <div className="mt-3.5">
-        <Notice icon={<Terminal className="mt-0.5 size-3.5 shrink-0" />}>
-          Para publicar: defina o domínio no <InlineCode>.env</InlineCode>, e suba com{" "}
-          <InlineCode accent>summyz-community-public</InlineCode>.
-        </Notice>
-      </div>
     </Card>
   );
 }

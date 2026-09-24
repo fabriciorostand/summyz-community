@@ -8,7 +8,7 @@ export function PreferencesPage() {
   const { setPreferences, settings, theme } = useDashboard();
   return (
     <>
-      <TopBar meta="Valem para a instalação inteira" title="Preferências" />
+      <TopBar title="Preferências" />
       <Screen width="narrow">
         <Card>
           <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">
