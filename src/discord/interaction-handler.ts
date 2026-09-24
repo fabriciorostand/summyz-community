@@ -17,13 +17,9 @@ import type { AppConfig } from "../config.js";
 import { CostReportError } from "../cost/cost-report.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
-import { MultilingualCheckpointRequiredError } from "../local-ai/local-model-manager.js";
-import { OpenRouterModelPreflightError } from "../openrouter/model-preflight.js";
-import {
-  RecordingAlreadyActiveError,
-  type RecordingCoordinator,
-} from "../recording/recording-coordinator.js";
+import type { RecordingCoordinator } from "../recording/recording-coordinator.js";
 import { getInteractionText, type InteractionText } from "./interaction-text.js";
+import { handleRecordingStartError } from "./recording-start-error.js";
 import { createEphemeralReply } from "./responses.js";
 
 interface CommandDependencies {
@@ -148,52 +144,6 @@ const validateActiveAiProfile = async (
     return false;
   }
   return true;
-};
-
-const handleRecordingStartError = async (
-  error: unknown,
-  interaction: ChatInputCommandInteraction,
-  text: InteractionText,
-  logger: Logger,
-): Promise<boolean> => {
-  if (error instanceof RecordingAlreadyActiveError) {
-    await interaction.editReply(text.recordingAlreadyActive);
-    return true;
-  }
-  if (error instanceof MultilingualCheckpointRequiredError) {
-    await interaction.editReply(text.multilingualCheckpointRequired);
-    return true;
-  }
-  if (error instanceof OpenRouterModelPreflightError) {
-    logger.warn(
-      {
-        guildId: interaction.guildId,
-        httpStatus: error.httpStatus,
-        phase: error.phase,
-        reason: error.reason,
-      },
-      "OpenRouter model preflight failed",
-    );
-    let message: string;
-    switch (error.reason) {
-      case "catalog_unavailable":
-        message = text.modelCatalogUnavailable(error.httpStatus);
-        break;
-      case "catalog_invalid":
-        message = text.modelCatalogInvalid;
-        break;
-      case "model_missing":
-        message = error.phase === undefined ? text.commandFailed : text.modelMissing(error.phase);
-        break;
-      case "capability_missing":
-        message =
-          error.phase === undefined ? text.commandFailed : text.modelCapabilityMissing(error.phase);
-        break;
-    }
-    await interaction.editReply(message);
-    return true;
-  }
-  return false;
 };
 
 export interface CostReportReader {
