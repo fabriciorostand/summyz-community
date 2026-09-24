@@ -32,6 +32,7 @@ interface CommandDependencies {
   readonly costReport?: CostReportReader;
   readonly guildConfigStore: GuildConfigurationStore;
   readonly isOpenRouterConfigured: () => boolean | Promise<boolean>;
+  readonly logger: Logger;
   readonly resolveAiProfileCompatibility?: (
     guildId: string,
   ) => Promise<readonly AiProfileCompatibilityStatus[]>;
@@ -63,6 +64,7 @@ const dispatchCommand = async (
         dependencies.aiProfileStore,
         dependencies.resolveAiProfileCompatibility,
         dependencies.isOpenRouterConfigured,
+        dependencies.logger,
       );
     case "stop":
       return handleStop(interaction, dependencies.guildConfigStore, dependencies.coordinator, text);
@@ -111,6 +113,7 @@ export function installInteractionHandler(
           ...(costReport === undefined ? {} : { costReport }),
           guildConfigStore,
           isOpenRouterConfigured,
+          logger,
           ...(resolveAiProfileCompatibility === undefined ? {} : { resolveAiProfileCompatibility }),
         },
         text,
@@ -151,6 +154,7 @@ const handleRecordingStartError = async (
   error: unknown,
   interaction: ChatInputCommandInteraction,
   text: InteractionText,
+  logger: Logger,
 ): Promise<boolean> => {
   if (error instanceof RecordingAlreadyActiveError) {
     await interaction.editReply(text.recordingAlreadyActive);
@@ -161,7 +165,32 @@ const handleRecordingStartError = async (
     return true;
   }
   if (error instanceof OpenRouterModelPreflightError) {
-    await interaction.editReply(text.modelPreflightFailed);
+    logger.warn(
+      {
+        guildId: interaction.guildId,
+        httpStatus: error.httpStatus,
+        phase: error.phase,
+        reason: error.reason,
+      },
+      "OpenRouter model preflight failed",
+    );
+    let message: string;
+    switch (error.reason) {
+      case "catalog_unavailable":
+        message = text.modelCatalogUnavailable(error.httpStatus);
+        break;
+      case "catalog_invalid":
+        message = text.modelCatalogInvalid;
+        break;
+      case "model_missing":
+        message = error.phase === undefined ? text.commandFailed : text.modelMissing(error.phase);
+        break;
+      case "capability_missing":
+        message =
+          error.phase === undefined ? text.commandFailed : text.modelCapabilityMissing(error.phase);
+        break;
+    }
+    await interaction.editReply(message);
     return true;
   }
   return false;
@@ -386,6 +415,7 @@ async function handleRecord(
     | ((guildId: string) => Promise<readonly AiProfileCompatibilityStatus[]>)
     | undefined,
   isOpenRouterConfigured: () => boolean | Promise<boolean>,
+  logger: Logger,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction, text);
   if (context === undefined) {
@@ -441,7 +471,7 @@ async function handleRecord(
       await interaction.followUp(createEphemeralReply(text.unknownAiProfileCompatibility));
     }
   } catch (error) {
-    if (await handleRecordingStartError(error, interaction, text)) return;
+    if (await handleRecordingStartError(error, interaction, text, logger)) return;
     throw error;
   }
 }

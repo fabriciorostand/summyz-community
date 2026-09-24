@@ -15,10 +15,27 @@ const modelSchema = z.object({
 });
 const catalogSchema = z.object({ data: z.array(modelSchema) });
 
+export type OpenRouterModelPhase = "transcription" | "refinement" | "summary" | "translation";
+export type OpenRouterModelPreflightReason =
+  | "catalog_unavailable"
+  | "catalog_invalid"
+  | "model_missing"
+  | "capability_missing";
+
 export class OpenRouterModelPreflightError extends Error {
-  public constructor() {
+  public readonly reason: OpenRouterModelPreflightReason;
+  public readonly phase: OpenRouterModelPhase | undefined;
+  public readonly httpStatus: number | undefined;
+
+  public constructor(
+    reason: OpenRouterModelPreflightReason,
+    options: { phase?: OpenRouterModelPhase; httpStatus?: number } = {},
+  ) {
     super("The OpenRouter model catalog could not validate the active profile");
     this.name = "OpenRouterModelPreflightError";
+    this.reason = reason;
+    this.phase = options.phase;
+    this.httpStatus = options.httpStatus;
   }
 }
 
@@ -37,31 +54,46 @@ export class OpenRouterModelPreflight {
   }
 
   public async validate(input: {
-    generativeModels: readonly string[];
+    generativeModels: readonly {
+      model: string;
+      phase: Exclude<OpenRouterModelPhase, "transcription">;
+    }[];
     transcriptionModel: string;
   }): Promise<void> {
-    try {
-      const [models, transcriptionModels] = await Promise.all([
-        this.#loadModels(OPENROUTER_MODELS_URL),
-        this.#loadModels(OPENROUTER_STT_MODELS_URL),
-      ]);
-      requireTranscriptionModel(transcriptionModels.get(input.transcriptionModel));
-      for (const id of new Set(input.generativeModels)) requireGenerativeModel(models.get(id));
-    } catch (error) {
-      if (error instanceof OpenRouterModelPreflightError) throw error;
-      throw new OpenRouterModelPreflightError();
+    const [models, transcriptionModels] = await Promise.all([
+      this.#loadModels(OPENROUTER_MODELS_URL),
+      this.#loadModels(OPENROUTER_STT_MODELS_URL),
+    ]);
+    requireTranscriptionModel(transcriptionModels.get(input.transcriptionModel));
+    for (const selection of input.generativeModels) {
+      requireGenerativeModel(models.get(selection.model), selection.phase);
     }
   }
 
   async #loadModels(url: string): Promise<Map<string, z.infer<typeof modelSchema>>> {
-    const response = await this.#fetch(url, {
-      headers: { Authorization: `Bearer ${this.#apiKey}` },
-      method: "GET",
-      signal: AbortSignal.timeout(30_000),
-    });
-    if (!response.ok) throw new OpenRouterModelPreflightError();
-    const parsed = catalogSchema.safeParse(await response.json().catch(() => null));
-    if (!parsed.success) throw new OpenRouterModelPreflightError();
+    let response: Response;
+    try {
+      response = await this.#fetch(url, {
+        headers: { Authorization: `Bearer ${this.#apiKey}` },
+        method: "GET",
+        signal: AbortSignal.timeout(30_000),
+      });
+    } catch {
+      throw new OpenRouterModelPreflightError("catalog_unavailable");
+    }
+    if (!response.ok) {
+      throw new OpenRouterModelPreflightError("catalog_unavailable", {
+        httpStatus: response.status,
+      });
+    }
+    let body: unknown;
+    try {
+      body = await response.json();
+    } catch {
+      throw new OpenRouterModelPreflightError("catalog_invalid");
+    }
+    const parsed = catalogSchema.safeParse(body);
+    if (!parsed.success) throw new OpenRouterModelPreflightError("catalog_invalid");
     return new Map(parsed.data.data.map((model) => [model.id, model]));
   }
 }
@@ -69,18 +101,25 @@ export class OpenRouterModelPreflight {
 type CatalogModel = z.infer<typeof modelSchema>;
 
 function requireTranscriptionModel(model: CatalogModel | undefined): void {
-  const supportsAudio = model?.architecture.input_modalities.includes("audio") === true;
-  const producesTranscription =
-    model?.architecture.output_modalities.includes("transcription") === true;
-  const supportsResponseFormat = model?.supported_parameters.includes("response_format") === true;
-  if (!supportsAudio || !producesTranscription || !supportsResponseFormat) {
-    throw new OpenRouterModelPreflightError();
+  if (model === undefined) {
+    throw new OpenRouterModelPreflightError("model_missing", { phase: "transcription" });
+  }
+  const supportsAudio = model.architecture.input_modalities.includes("audio");
+  const producesTranscription = model.architecture.output_modalities.includes("transcription");
+  if (!supportsAudio || !producesTranscription) {
+    throw new OpenRouterModelPreflightError("capability_missing", { phase: "transcription" });
   }
 }
 
-function requireGenerativeModel(model: CatalogModel | undefined): void {
-  const acceptsText = model?.architecture.input_modalities.includes("text") === true;
-  const producesText = model?.architecture.output_modalities.includes("text") === true;
-  const producesJson = model?.supported_parameters.includes("response_format") === true;
-  if (!acceptsText || !producesText || !producesJson) throw new OpenRouterModelPreflightError();
+function requireGenerativeModel(
+  model: CatalogModel | undefined,
+  phase: Exclude<OpenRouterModelPhase, "transcription">,
+): void {
+  if (model === undefined) throw new OpenRouterModelPreflightError("model_missing", { phase });
+  const acceptsText = model.architecture.input_modalities.includes("text");
+  const producesText = model.architecture.output_modalities.includes("text");
+  const producesJson = model.supported_parameters.includes("response_format");
+  if (!acceptsText || !producesText || !producesJson) {
+    throw new OpenRouterModelPreflightError("capability_missing", { phase });
+  }
 }

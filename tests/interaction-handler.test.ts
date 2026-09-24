@@ -13,6 +13,7 @@ import { CostReportError } from "../src/cost/cost-report.js";
 import { installInteractionHandler } from "../src/discord/interaction-handler.js";
 import { MultilingualCheckpointRequiredError } from "../src/local-ai/local-model-manager.js";
 import { createLogger } from "../src/logger.js";
+import { OpenRouterModelPreflightError } from "../src/openrouter/model-preflight.js";
 import type { RecordingCoordinator } from "../src/recording/recording-coordinator.js";
 import { RecordingAlreadyActiveError } from "../src/recording/recording-coordinator.js";
 import { InMemoryGuildConfigurationStore } from "./in-memory-guild-config-store.js";
@@ -662,6 +663,69 @@ describe("fluxo de comandos do Discord", () => {
 
     expect(context.editReply).toHaveBeenCalledWith(
       expect.stringMatching(/somente um idioma.*checkpoint multilíngue.*detecção automática/i),
+    );
+  });
+
+  it("distingue catálogo OpenRouter indisponível de modelo STT ausente", async () => {
+    const unavailable = await createHarness({
+      administrator: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await unavailable.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    unavailable.start.mockRejectedValueOnce(
+      new OpenRouterModelPreflightError("catalog_unavailable", { httpStatus: 503 }),
+    );
+
+    await unavailable.listener(unavailable.interaction);
+
+    expect(unavailable.editReply).toHaveBeenCalledWith(
+      expect.stringMatching(/catálogo.*OpenRouter.*HTTP 503.*tente novamente/i),
+    );
+
+    const missing = await createHarness({
+      administrator: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await missing.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    missing.start.mockRejectedValueOnce(
+      new OpenRouterModelPreflightError("model_missing", { phase: "transcription" }),
+    );
+
+    await missing.listener(missing.interaction);
+
+    expect(missing.editReply).toHaveBeenCalledWith(
+      expect.stringMatching(/modelo de transcrição.*não foi encontrado.*OpenRouter/i),
+    );
+  });
+
+  it("informa catálogo inválido e capacidade ausente na fase correta", async () => {
+    const invalid = await createHarness({
+      administrator: true,
+      botLanguage: "en",
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await invalid.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    invalid.start.mockRejectedValueOnce(new OpenRouterModelPreflightError("catalog_invalid"));
+
+    await invalid.listener(invalid.interaction);
+
+    expect(invalid.editReply).toHaveBeenCalledWith(
+      expect.stringMatching(/OpenRouter model catalog returned invalid data/i),
+    );
+
+    const incompatible = await createHarness({
+      administrator: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await incompatible.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    incompatible.start.mockRejectedValueOnce(
+      new OpenRouterModelPreflightError("capability_missing", { phase: "translation" }),
+    );
+
+    await incompatible.listener(incompatible.interaction);
+
+    expect(incompatible.editReply).toHaveBeenCalledWith(
+      expect.stringMatching(/modelo de tradução.*capacidades exigidas/i),
     );
   });
 

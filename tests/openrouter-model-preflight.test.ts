@@ -33,7 +33,7 @@ describe("preflight de modelos OpenRouter", () => {
 
     await expect(
       preflight.validate({
-        generativeModels: ["vendor/generative"],
+        generativeModels: [{ model: "vendor/generative", phase: "refinement" }],
         transcriptionModel: "openai/whisper-large-v3",
       }),
     ).resolves.toBeUndefined();
@@ -64,21 +64,51 @@ describe("preflight de modelos OpenRouter", () => {
 
     await expect(
       preflight.validate({
-        generativeModels: ["vendor/generative"],
+        generativeModels: [{ model: "vendor/generative", phase: "refinement" }],
         transcriptionModel: "vendor/stt",
       }),
     ).resolves.toBeUndefined();
     expect(fetch.mock.calls[0]?.[1]?.headers).toMatchObject({ Authorization: "Bearer secret" });
   });
 
+  it("aceita Whisper quando o catálogo STT não declara response_format", async () => {
+    const preflight = new OpenRouterModelPreflight({
+      apiKey: "secret",
+      fetch: vi.fn(async (url: string) =>
+        Response.json({
+          data: url.includes("output_modalities=transcription")
+            ? [
+                {
+                  architecture: {
+                    input_modalities: ["audio"],
+                    output_modalities: ["transcription"],
+                  },
+                  id: "openai/whisper-large-v3",
+                  supported_parameters: [],
+                },
+              ]
+            : [
+                {
+                  architecture: { input_modalities: ["text"], output_modalities: ["text"] },
+                  id: "google/gemini-3.7-flash",
+                  supported_parameters: ["response_format"],
+                },
+              ],
+        }),
+      ),
+    });
+
+    await expect(
+      preflight.validate({
+        generativeModels: [{ model: "google/gemini-3.7-flash", phase: "summary" }],
+        transcriptionModel: "openai/whisper-large-v3",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
   it.each([
     ["modelo ausente", ["vendor/missing"], "vendor/stt"],
     ["transcrição sem áudio", ["vendor/generative"], "vendor/generative"],
-    [
-      "transcrição sem resposta detalhada",
-      ["vendor/generative"],
-      "vendor/stt-without-response-format",
-    ],
     ["geração sem resposta estruturada", ["vendor/stt"], "vendor/stt"],
   ])("bloqueia %s", async (_name, generativeModels, transcriptionModel) => {
     const preflight = new OpenRouterModelPreflight({
@@ -113,7 +143,10 @@ describe("preflight de modelos OpenRouter", () => {
     });
 
     await expect(
-      preflight.validate({ generativeModels, transcriptionModel }),
+      preflight.validate({
+        generativeModels: generativeModels.map((model) => ({ model, phase: "summary" })),
+        transcriptionModel,
+      }),
     ).rejects.toBeInstanceOf(OpenRouterModelPreflightError);
   });
 
@@ -129,9 +162,57 @@ describe("preflight de modelos OpenRouter", () => {
 
     await expect(
       unavailable.validate({ generativeModels: [], transcriptionModel: "vendor/stt" }),
-    ).rejects.toBeInstanceOf(OpenRouterModelPreflightError);
+    ).rejects.toMatchObject({ reason: "catalog_unavailable", httpStatus: 503 });
     await expect(
       invalid.validate({ generativeModels: [], transcriptionModel: "vendor/stt" }),
-    ).rejects.toBeInstanceOf(OpenRouterModelPreflightError);
+    ).rejects.toMatchObject({ reason: "catalog_invalid" });
+  });
+
+  it("distingue modelo ausente de modalidade incompatível", async () => {
+    const preflight = new OpenRouterModelPreflight({
+      apiKey: "secret",
+      fetch: vi.fn(async () =>
+        Response.json({
+          data: [
+            {
+              architecture: { input_modalities: ["audio"], output_modalities: ["transcription"] },
+              id: "vendor/stt",
+              supported_parameters: [],
+            },
+            {
+              architecture: { input_modalities: ["text"], output_modalities: ["audio"] },
+              id: "vendor/incompatible",
+              supported_parameters: ["response_format"],
+            },
+          ],
+        }),
+      ),
+    });
+
+    await expect(
+      preflight.validate({ generativeModels: [], transcriptionModel: "vendor/missing" }),
+    ).rejects.toMatchObject({ reason: "model_missing", phase: "transcription" });
+    await expect(
+      preflight.validate({
+        generativeModels: [{ model: "vendor/incompatible", phase: "summary" }],
+        transcriptionModel: "vendor/stt",
+      }),
+    ).rejects.toMatchObject({ reason: "capability_missing", phase: "summary" });
+  });
+
+  it("não expõe a causa de uma falha de rede que contenha credenciais", async () => {
+    const preflight = new OpenRouterModelPreflight({
+      apiKey: "secret",
+      fetch: vi.fn(async () => {
+        throw new Error("Bearer secret");
+      }),
+    });
+
+    await expect(
+      preflight.validate({ generativeModels: [], transcriptionModel: "vendor/stt" }),
+    ).rejects.toMatchObject({
+      reason: "catalog_unavailable",
+      message: expect.not.stringContaining("secret"),
+    });
   });
 });

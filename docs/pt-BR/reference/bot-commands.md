@@ -130,8 +130,10 @@ servidor pode usar o comando, e a resposta é efêmera.
 - O tipo do perfil ativo, o provedor, os modelos explícitos, o idioma configurado, as configurações
   de tradução, o VAD, os prompts e os demais parâmetros de cada fase também ficam fixos nesse
   momento. Um perfil local nunca usa OpenRouter como fallback.
-- O `/record` é bloqueado antes da captura de áudio quando um modelo externo falha na verificação
-  prévia de recursos do OpenRouter ou quando o checkpoint carregado do faster-whisper é monolíngue
+- O `/record` é bloqueado antes da captura de áudio quando o catálogo da OpenRouter está indisponível,
+  um modelo externo está ausente ou suas modalidades exigidas são incompatíveis. A resposta de
+  transcrição com timestamps é validada durante o processamento. O comando também bloqueia quando
+  o checkpoint carregado do faster-whisper é monolíngue
   ou tem capacidade desconhecida. Um idioma explícito no perfil também exige um modelo de tradução.
 - A transcrição preserva todos os idiomas falados. `auto` publica o resumo no único idioma primário
   predominante; uma tag explícita traduz somente o resumo-base validado.

@@ -1,4 +1,5 @@
 import type { AppConfig } from "../config.js";
+import type { OpenRouterModelPhase } from "../openrouter/model-preflight.js";
 
 export interface InteractionText {
   aboveRecommendedAiProfile: string;
@@ -19,7 +20,10 @@ export interface InteractionText {
   incompatibleAiProfile: string;
   invalidForum: string;
   multilingualCheckpointRequired: string;
-  modelPreflightFailed: string;
+  modelCatalogUnavailable(httpStatus?: number): string;
+  modelCatalogInvalid: string;
+  modelMissing(phase: OpenRouterModelPhase): string;
+  modelCapabilityMissing(phase: OpenRouterModelPhase): string;
   joinVoiceFirst: string;
   locale: string;
   noActiveRecording: string;
@@ -39,6 +43,21 @@ export interface InteractionText {
   userMustBeInRecordedChannel: string;
   unknownAiProfileCompatibility: string;
 }
+
+const phaseLabels = {
+  en: {
+    transcription: "transcription",
+    refinement: "refinement",
+    summary: "summary",
+    translation: "translation",
+  },
+  "pt-BR": {
+    transcription: "transcrição",
+    refinement: "refinamento",
+    summary: "resumo",
+    translation: "tradução",
+  },
+} satisfies Record<AppConfig["botLanguage"], Record<OpenRouterModelPhase, string>>;
 
 const texts = {
   en: {
@@ -76,8 +95,14 @@ const texts = {
     invalidForum: "Select a valid forum channel.",
     multilingualCheckpointRequired:
       "The selected transcription model accepts only one language. Summyz requires a multilingual faster-whisper checkpoint to operate with automatic language detection. Update the profile before recording.",
-    modelPreflightFailed:
-      "OpenRouter could not validate every selected model and its required capability. Review the transcription, refinement, summary, and translation models before recording.",
+    modelCatalogUnavailable: (httpStatus) =>
+      `The OpenRouter model catalog could not be reached${httpStatus === undefined ? "" : ` (HTTP ${httpStatus})`}. Recording did not start; try again later.`,
+    modelCatalogInvalid:
+      "The OpenRouter model catalog returned invalid data. Recording did not start; try again later.",
+    modelMissing: (phase) =>
+      `The ${phaseLabels.en[phase]} model was not found in the OpenRouter catalog. Review the active profile before recording.`,
+    modelCapabilityMissing: (phase) =>
+      `The ${phaseLabels.en[phase]} model does not advertise the required capabilities in the OpenRouter catalog. Review the active profile before recording.`,
     joinVoiceFirst: "Join a voice channel before using `/record`.",
     locale: "en",
     noActiveRecording: "There is no active recording in this server.",
@@ -145,8 +170,14 @@ const texts = {
     invalidForum: "Selecione um canal de fórum válido.",
     multilingualCheckpointRequired:
       "O modelo de transcrição selecionado aceita somente um idioma. O Summyz exige um checkpoint multilíngue do faster-whisper para operar com detecção automática. Atualize o perfil antes de gravar.",
-    modelPreflightFailed:
-      "O OpenRouter não conseguiu validar todos os modelos selecionados e as capacidades exigidas. Revise os modelos de transcrição, refinamento, resumo e tradução antes de gravar.",
+    modelCatalogUnavailable: (httpStatus) =>
+      `Não foi possível consultar o catálogo de modelos da OpenRouter${httpStatus === undefined ? "" : ` (HTTP ${httpStatus})`}. A gravação não começou; tente novamente mais tarde.`,
+    modelCatalogInvalid:
+      "O catálogo de modelos da OpenRouter retornou dados inválidos. A gravação não começou; tente novamente mais tarde.",
+    modelMissing: (phase) =>
+      `O modelo de ${phaseLabels["pt-BR"][phase]} não foi encontrado no catálogo da OpenRouter. Revise o perfil ativo antes de gravar.`,
+    modelCapabilityMissing: (phase) =>
+      `O modelo de ${phaseLabels["pt-BR"][phase]} não anuncia as capacidades exigidas no catálogo da OpenRouter. Revise o perfil ativo antes de gravar.`,
     joinVoiceFirst: "Entre em um canal de voz antes de usar `/record`.",
     locale: "pt-BR",
     noActiveRecording: "Não existe uma gravação ativa neste servidor.",
