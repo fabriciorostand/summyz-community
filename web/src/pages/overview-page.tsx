@@ -352,7 +352,7 @@ function TopSpeakersCard({ dashboard }: { dashboard: DashboardAnalytics }) {
 }
 
 const phaseLabels = {
-  refinement: "Refino",
+  refinement: "Refinamento",
   summary: "Resumo",
   transcription: "Transcrição",
   translation: "Tradução",

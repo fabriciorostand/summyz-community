@@ -197,9 +197,10 @@ describe("ProfilesPage", () => {
     );
   });
 
-  it("warns about third-party model licences", async () => {
+  it("omits the model licence notice", async () => {
     renderScreen(<ProfilesPage />);
-    expect(await screen.findByText("Licenças dos modelos")).toBeInTheDocument();
+    await screen.findByLabelText("Idioma");
+    expect(screen.queryByText("Licenças dos modelos")).not.toBeInTheDocument();
   });
 
   it("adds the translation panel once a fixed language is chosen", async () => {

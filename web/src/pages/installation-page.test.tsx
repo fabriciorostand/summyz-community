@@ -98,6 +98,15 @@ afterEach(() => {
 });
 
 describe("InstallationPage", () => {
+  it("omits the requested installation guidance", () => {
+    renderScreen(<InstallationPage />);
+    expect(screen.getByRole("banner")).not.toHaveTextContent("Cada bloco salva separadamente");
+    expect(screen.queryByText(/Não existe client secret/)).not.toBeInTheDocument();
+    const access = screen.getByRole("region", { name: "Acesso ao dashboard" });
+    expect(within(access).queryByText(/Definido pelo script usado/)).not.toBeInTheDocument();
+    expect(within(access).queryByText(/Para publicar: defina o domínio/)).not.toBeInTheDocument();
+  });
+
   it("shows the read-only Application ID with a copy action", async () => {
     renderScreen(<InstallationPage />);
     expect(screen.getByText("1289443021764919306")).toBeInTheDocument();

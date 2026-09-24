@@ -99,10 +99,6 @@ export function TasksPage() {
           tasks={tasks}
           visibleGroups={visibleGroups}
         />
-        <p className="m-0 text-[11.5px] text-ink-dim">
-          As tarefas vêm dos resumos gerados pelo pipeline. Marcar como concluída não altera o
-          resumo publicado no Discord.
-        </p>
       </Screen>
     </>
   );

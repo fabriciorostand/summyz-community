@@ -1,17 +1,9 @@
-import {
-  AudioLines,
-  Bot,
-  Languages,
-  MessageSquareQuote,
-  Plus,
-  Scale,
-  Settings2,
-} from "lucide-react";
+import { AudioLines, Bot, Languages, MessageSquareQuote, Plus, Settings2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { Disclosure, Tabs } from "../../components/disclosure";
 import { ErrorState, LoadingPanel } from "../../components/states";
-import { Badge, Button, Card, Field, HelpTip, Notice, RailLabel } from "../../components/ui";
+import { Badge, Button, Card, Field, HelpTip, RailLabel } from "../../components/ui";
 import { useDashboard } from "../../layout/dashboard-layout";
 import { TopBar } from "../../layout/top-bar";
 import {
@@ -163,11 +155,6 @@ function ProfilesBody(props: ProfilesBodyProps) {
           selectedProfileId={props.selected?.profile.profileId}
           visible={props.visible}
         />
-        <Notice icon={<Scale className="mt-0.5 size-3.5 shrink-0" />}>
-          <strong className="block text-ink">Licenças dos modelos</strong>
-          Modelos são de terceiros e não fazem parte do Summyz Community. Verifique a licença antes
-          de usar.
-        </Notice>
       </div>
       {props.selected !== undefined && (
         <ProfileEditor

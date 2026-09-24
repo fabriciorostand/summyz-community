@@ -74,7 +74,7 @@ afterEach(() => {
 describe("CommandsPage", () => {
   it("groups the commands the bot registers", async () => {
     renderScreen(<CommandsPage />);
-    expect(screen.getByRole("banner")).toHaveTextContent("Registrados pelo bot no Discord");
+    expect(screen.getByRole("banner")).not.toHaveTextContent("Registrados pelo bot no Discord");
     expect(await screen.findByText("Gravação")).toBeInTheDocument();
     expect(screen.getByText("Atalhos administrativos")).toBeInTheDocument();
     expect(screen.getByText("Custo — só para o dono do servidor")).toBeInTheDocument();
