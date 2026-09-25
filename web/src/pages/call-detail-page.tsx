@@ -205,8 +205,23 @@ function SummaryCard({ summary }: { summary: MeetingHistorySummary | null }) {
     );
   }
   const labels = summary.labels;
+  const warning = summary.languageWarning;
   return (
     <Card>
+      {warning !== undefined && (
+        <div className="mb-4">
+          <Notice tone="warn">
+            Não foi possível confirmar que o resumo foi gerado em{" "}
+            <strong>{warning.requestedLanguage}</strong>.
+            {warning.detectedLanguage !== undefined && (
+              <>
+                {" "}
+                Idioma identificado: <strong>{warning.detectedLanguage}</strong>.
+              </>
+            )}
+          </Notice>
+        </div>
+      )}
       <div className="label-mono mb-3 text-ink-muted">
         {labels?.executiveSummary ?? "Resumo executivo"}
       </div>

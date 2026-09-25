@@ -98,13 +98,12 @@ function formatMeeting(
   const duration = formatClockDuration(
     new Date(completedAt).getTime() - new Date(data.meeting.startedAt).getTime(),
   );
-  const sections = (["transcription", "refinement", "summary", "translation"] as const).map(
-    (phase) =>
-      formatPhase(
-        phase,
-        data.attempts.filter((attempt) => attempt.phase === phase),
-        language,
-      ),
+  const sections = (["transcription", "refinement", "summary"] as const).map((phase) =>
+    formatPhase(
+      phase,
+      data.attempts.filter((attempt) => attempt.phase === phase),
+      language,
+    ),
   );
   const confirmed = confirmedCosts(data.attempts);
   const pending = data.attempts.filter((attempt) => attempt.financialStatus === "pending").length;
@@ -232,12 +231,10 @@ function formatPeriod(
     (attempt) => attempt.financialStatus === "unattributed",
   ).length;
   const period = `${displayDate(from)}–${displayDate(to)}`;
-  const phaseLines = (["transcription", "refinement", "summary", "translation"] as const).map(
-    (phase) => {
-      const selected = apiAttempts.filter((attempt) => attempt.phase === phase);
-      return `${phaseLabels[language][phase]}: ${String(selected.length)} ${language === "pt-BR" ? "requisições" : "requests"} — USD ${confirmedCosts(selected)}`;
-    },
-  );
+  const phaseLines = (["transcription", "refinement", "summary"] as const).map((phase) => {
+    const selected = apiAttempts.filter((attempt) => attempt.phase === phase);
+    return `${phaseLabels[language][phase]}: ${String(selected.length)} ${language === "pt-BR" ? "requisições" : "requests"} — USD ${confirmedCosts(selected)}`;
+  });
   const average = apiMeetings.length === 0 ? "0" : divideDecimal(total, apiMeetings.length);
   const apiDurationMs = apiMeetings.reduce((sum, item) => {
     if (item.meeting.completedAt === null) return sum;
@@ -414,12 +411,10 @@ const phaseLabels = {
     refinement: "Refinement",
     summary: "Summary",
     transcription: "Transcription",
-    translation: "Translation",
   },
   "pt-BR": {
     refinement: "Refinamento",
     summary: "Resumo",
     transcription: "Transcrição",
-    translation: "Tradução",
   },
 } as const;

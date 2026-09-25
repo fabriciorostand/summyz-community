@@ -355,7 +355,6 @@ const phaseLabels = {
   refinement: "Refinamento",
   summary: "Resumo",
   transcription: "Transcrição",
-  translation: "Tradução",
 } as const;
 
 const costSegmentColors = ["bg-action", "bg-accent", "bg-[#4ea8e0]", "bg-ok", "bg-warn"] as const;

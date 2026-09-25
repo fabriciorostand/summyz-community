@@ -101,6 +101,7 @@ export const localVadSchema = z
 
 const transcriptionBaseSchema = z.object({
   interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
+  language: profileLanguageSchema.default("auto"),
   mergeMaxGapMs: z.number().int().min(0).max(30_000).default(2_000),
   model: modelSchema.default(null),
   prompt: promptSchema,
@@ -121,12 +122,6 @@ const summaryBaseSchema = z.object({
   generation: generationSchema,
   maxChunkCharacters: z.number().int().min(1_000).max(10_000_000).default(500_000),
   model: modelSchema.default(null),
-});
-
-const translationBaseSchema = z.object({
-  generation: generationSchema,
-  model: modelSchema.default(null),
-  prompt: promptSchema,
 });
 
 export const externalTranscriptionAiProfileSchema = transcriptionBaseSchema.extend({
@@ -150,13 +145,6 @@ export const externalSummaryAiProfileSchema = summaryBaseSchema.extend({
 export const localSummaryAiProfileSchema = summaryBaseSchema.extend({
   provider: z.literal("ollama").default("ollama"),
 });
-export const externalTranslationAiProfileSchema = translationBaseSchema.extend({
-  provider: z.literal("openrouter").default("openrouter"),
-});
-export const localTranslationAiProfileSchema = translationBaseSchema.extend({
-  provider: z.literal("ollama").default("ollama"),
-});
-
 const profileBaseShape = {
   language: profileLanguageSchema.default("auto"),
   name: z.string().trim().min(1).max(100),
@@ -169,7 +157,6 @@ export const externalAiProfileSchema = z
     refinement: externalRefinementAiProfileSchema,
     summary: externalSummaryAiProfileSchema,
     transcription: externalTranscriptionAiProfileSchema,
-    translation: externalTranslationAiProfileSchema.nullable().default(null),
   })
   .strict();
 export const localAiProfileSchema = z
@@ -179,7 +166,6 @@ export const localAiProfileSchema = z
     refinement: localRefinementAiProfileSchema,
     summary: localSummaryAiProfileSchema,
     transcription: localTranscriptionAiProfileSchema,
-    translation: localTranslationAiProfileSchema.nullable().default(null),
   })
   .strict();
 export const aiProfileSchema = z.discriminatedUnion("profileType", [
@@ -211,7 +197,6 @@ export function createInitialAiProfile(
             provider: "openrouter" as const,
           },
           transcription: { model: null, prompt: null, provider: "openrouter" as const },
-          translation: null,
         }
       : {
           refinement: {
@@ -226,7 +211,6 @@ export function createInitialAiProfile(
             provider: "ollama" as const,
           },
           transcription: { model: null, prompt: null, provider: "faster-whisper" as const },
-          translation: null,
         };
   return aiProfileSchema.parse({
     name: localizedName,
@@ -240,6 +224,7 @@ export function localizeAiProfileDefaults(
   profile: AiProfile,
   dashboardLanguage: "en" | "pt-BR",
 ): AiProfile {
+  const summaryPromptLanguage = getSummaryPromptLanguage(profile);
   return aiProfileSchema.parse({
     ...profile,
     refinement: {
@@ -257,19 +242,20 @@ export function localizeAiProfileDefaults(
         profile.summary.consolidationPrompt,
         "summaryConsolidation",
         dashboardLanguage,
-        profile.language,
+        summaryPromptLanguage,
       ),
       extractionPrompt: localizeDefaultPrompt(
         profile.summary.extractionPrompt,
         "summaryExtraction",
         dashboardLanguage,
-        profile.language,
+        summaryPromptLanguage,
       ),
     },
   });
 }
 
 export function canonicalizeAiProfileDefaults(profile: AiProfile): AiProfile {
+  const summaryPromptLanguage = getSummaryPromptLanguage(profile);
   return aiProfileSchema.parse({
     ...profile,
     refinement: {
@@ -281,25 +267,20 @@ export function canonicalizeAiProfileDefaults(profile: AiProfile): AiProfile {
       consolidationPrompt: canonicalizeDefaultPrompt(
         profile.summary.consolidationPrompt,
         "summaryConsolidation",
-        profile.language,
+        summaryPromptLanguage,
       ),
       extractionPrompt: canonicalizeDefaultPrompt(
         profile.summary.extractionPrompt,
         "summaryExtraction",
-        profile.language,
+        summaryPromptLanguage,
       ),
     },
   });
 }
 
 export function isAiProfileComplete(profile: AiProfile): boolean {
-  const baseComplete = [profile.transcription, profile.refinement, profile.summary].every(
+  return [profile.transcription, profile.refinement, profile.summary].every(
     (phase) => phase.model !== null,
-  );
-  return (
-    baseComplete &&
-    (profile.language === "auto" ||
-      (profile.translation !== null && profile.translation.model !== null))
   );
 }
 
@@ -310,10 +291,7 @@ export function resolveAiProfile(profile: AiProfile) {
   const transcription = requireCompletePhase(profile.transcription);
   const refinement = requireCompletePhase(profile.refinement);
   const summary = requireCompletePhase(profile.summary);
-  const translation =
-    profile.language === "auto"
-      ? null
-      : requireCompletePhase(profile.translation ?? failIncompletePhase());
+  const summaryPromptLanguage = getSummaryPromptLanguage(profile);
   return {
     language: profile.language,
     profileType: profile.profileType,
@@ -328,12 +306,12 @@ export function resolveAiProfile(profile: AiProfile) {
       consolidationPrompt: canonicalizeDefaultPrompt(
         summary.consolidationPrompt,
         "summaryConsolidation",
-        profile.language,
+        summaryPromptLanguage,
       ),
       extractionPrompt: canonicalizeDefaultPrompt(
         summary.extractionPrompt,
         "summaryExtraction",
-        profile.language,
+        summaryPromptLanguage,
       ),
       generation: summary.generation,
       maxChunkCharacters: summary.maxChunkCharacters,
@@ -342,6 +320,7 @@ export function resolveAiProfile(profile: AiProfile) {
     },
     transcription: {
       interSpeechSilenceMs: transcription.interSpeechSilenceMs,
+      language: transcription.language,
       mergeMaxGapMs: transcription.mergeMaxGapMs,
       model: transcription.model,
       prompt: transcription.prompt ?? null,
@@ -357,20 +336,11 @@ export function resolveAiProfile(profile: AiProfile) {
         : {}),
       vad: transcription.vad,
     },
-    translation:
-      translation === null
-        ? null
-        : {
-            generation: translation.generation,
-            model: translation.model,
-            prompt: translation.prompt,
-            provider: translation.provider,
-          },
   };
 }
 
-function failIncompletePhase(): never {
-  throw new Error("The active AI profile is incomplete");
+function getSummaryPromptLanguage(profile: AiProfile): ProfileLanguage {
+  return profile.language === "auto" ? profile.transcription.language : profile.language;
 }
 
 function requireCompletePhase<T extends { model: string | null; provider: string }>(

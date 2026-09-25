@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Profile } from "../../lib/api";
 import { aProfile } from "../../tests/test-utils";
-import { PhaseSettings, TranscriptionSettings, TranslationSettings } from "./generation-editor";
+import { PhaseSettings, TranscriptionSettings } from "./generation-editor";
 import { VadEditor } from "./vad-editor";
 
 /** Narrows the fixture so a spread keeps the external branch of the discriminated union. */
@@ -35,6 +35,7 @@ const localProfile = aProfile({
   transcription: {
     batchSize: "auto",
     interSpeechSilenceMs: 700,
+    language: "auto",
     mergeMaxGapMs: 400,
     model: "large-v3",
     prompt: null,
@@ -49,7 +50,6 @@ const localProfile = aProfile({
       threshold: 0.5,
     },
   },
-  translation: null,
 }) as Profile;
 
 /**
@@ -263,32 +263,5 @@ describe("TranscriptionSettings", () => {
     expect(onChange).toHaveBeenLastCalledWith(
       expect.objectContaining({ transcription: expect.objectContaining({ batchSize: 8 }) }),
     );
-  });
-});
-
-describe("TranslationSettings", () => {
-  it("renders nothing when translation is disabled", () => {
-    const { container } = render(<TranslationSettings onChange={vi.fn()} profile={aProfile()} />);
-    expect(container).toBeEmptyDOMElement();
-  });
-
-  it("edits the translation model", async () => {
-    const onChange = vi.fn();
-    const profile = aProfile({
-      translation: { generation: {}, model: null, prompt: null, provider: "openrouter" },
-    });
-    render(<TranslationSettings onChange={onChange} profile={profile} />);
-    await userEvent.type(screen.getByLabelText("Modelo"), "m");
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ translation: expect.objectContaining({ model: "m" }) }),
-    );
-  });
-
-  it("warns that the phase costs an extra model call", () => {
-    const profile = aProfile({
-      translation: { generation: {}, model: null, prompt: null, provider: "openrouter" },
-    });
-    render(<TranslationSettings onChange={vi.fn()} profile={profile} />);
-    expect(screen.getByText(/adiciona uma chamada ao modelo/)).toBeInTheDocument();
   });
 });

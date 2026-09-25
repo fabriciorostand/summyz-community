@@ -83,48 +83,56 @@ excluído.
 
 Cada servidor mantém no máximo um desses perfis como ativo, independentemente do tipo. Servidores
 novos começam sem perfil ativo; enquanto transcrição, refinamento e resumo do perfil escolhido não
-tiverem modelos explícitos, `/record` mostra um aviso efêmero e não inicia a gravação. Ao escolher
-um idioma explícito, o modelo de tradução também passa a ser obrigatório e o perfil fica incompleto
-imediatamente até ele ser preenchido. Trocar um modelo preserva os demais parâmetros do perfil. Se
+tiverem modelos explícitos, `/record` mostra um aviso efêmero e não inicia a gravação. Trocar um
+modelo preserva os demais parâmetros do perfil. Se
 o bot sair de um servidor, ele deixa de aparecer no dashboard, mas seus dados persistidos são
 preservados. Reinstalar o mesmo bot nesse servidor torna esses dados visíveis novamente.
 
 Não existe modelo `auto` nem `openrouter/auto`. A escolha é livre e o Summyz nunca substitui o
 modelo selecionado. A avaliação local usa os estados `recommended`, `compatible`,
 `above_recommended`, `unknown` e `incompatible`: somente `incompatible` bloqueia a gravação;
-`above_recommended` e `unknown` geram avisos privados. O idioma é uma configuração principal do
-perfil, usa um catálogo pesquisável de tags BCP 47 e tem `auto` como padrão. Cada fase guarda o
-provedor, modelo e parâmetros próprios. Isso inclui batching e opções de STT, tamanho de chunks e as
-opções de geração `temperature`, `seed` e `think` quando aplicáveis. Valores não definidos não são
+`above_recommended` e `unknown` geram avisos privados. O `language` do resumo e o
+`transcription.language` do perfil usam um catálogo pesquisável de tags BCP 47 e têm `auto` como
+padrão. Cada fase guarda o provedor, modelo e parâmetros próprios. Isso inclui batching e opções de
+STT, tamanho de chunks e as opções de geração `temperature`, `seed` e `think` quando aplicáveis.
+Valores não definidos não são
 forçados pelo Summyz, preservando os padrões do provedor.
 
-O dashboard mostra integralmente os prompts editáveis de transcrição, refinamento, extração,
-consolidação e tradução. **Sem prompt** remove apenas a personalização: um prompt-base imutável do
-Summyz sempre é enviado para fixar idioma, estrutura, evidências, preservação literal e regras de
-segurança. Transcrições e prompts editáveis são tratados como conteúdo não confiável. O padrão de
-transcrição não possui bloco editável. Os demais
-padrões nascem em inglês ou pt-BR conforme o idioma global do dashboard, enquanto o texto do
-prompt solicita o idioma configurado para o resumo. Ao alterar esse idioma, prompts ainda iguais ao
-padrão são adaptados; textos personalizados são preservados. O botão **Restaurar padrão** usa o
-idioma atual do dashboard. Os prompts e modelos efetivos são fixados no manifesto quando a reunião
-começa, sem mudança silenciosa em retomadas.
+O dashboard mostra integralmente os prompts editáveis de transcrição, refinamento, extração e
+consolidação. **Sem prompt** remove apenas a personalização: um prompt-base imutável do Summyz
+sempre é enviado para fixar idioma, estrutura, evidências, preservação literal e regras de segurança.
+Transcrições e prompts editáveis são tratados como conteúdo não confiável. O padrão de transcrição
+não possui bloco editável. Os demais padrões nascem em inglês ou pt-BR conforme o idioma global do
+dashboard. A tela busca os prompts padrão do resumo para o idioma efetivo: o `language` explícito do
+resumo ou `transcription.language` quando o resumo está em `auto`. Alterar qualquer uma dessas
+configurações, quando isso muda o idioma efetivo, adapta os prompts de resumo ainda iguais ao padrão
+anterior; textos personalizados são preservados. O botão **Restaurar padrão** usa o idioma atual do
+dashboard. Os prompts e modelos efetivos são fixados no manifesto quando a reunião começa, sem
+mudança silenciosa em retomadas.
 
-Em `auto`, a transcrição preserva as alternâncias de idioma, todos os lotes contribuem uma única vez
-para escolher a tag primária predominante e o resumo é publicado nesse idioma. Com uma tag explícita,
-o resumo-base é primeiro validado e persistido no idioma predominante e só depois traduzido. Se a tag
-explícita for idêntica à predominante, a tradução é ignorada. A transcrição e o refinamento nunca são
-traduzidos. Se a tradução falhar após as tentativas, o resumo-base é publicado e somente o autor de
-`/record` recebe a DM privada; não há aviso público nem fallback de DM.
+Com `transcription.language: auto`, a transcrição detecta o idioma falado e preserva as alternâncias;
+cada lote contribui uma vez para determinar o idioma primário predominante. Um
+`transcription.language` explícito é enviado ao provedor de transcrição. Um `language` explícito para
+o resumo tem prioridade. Se o `language` do resumo for `auto`, o Summyz usa o idioma explícito da
+transcrição, quando houver, ou o idioma predominante detectado. O modelo gera o resumo diretamente
+nesse idioma; não há fase separada de tradução.
+
+O Summyz confere o idioma primário do resumo gerado. Se não conseguir confirmar o idioma solicitado,
+gera o resumo inteiro novamente, até três gerações no total. Após a terceira sem confirmação,
+publica o último resumo no fórum sem alteração e mostra um aviso somente no detalhe da reunião no
+dashboard. Nenhum aviso de idioma ou DM privada é enviado pelo Discord. A detecção pode ser
+inconclusiva para textos curtos; variantes regionais do mesmo idioma primário são aceitas.
 
 Perfis externos exigem que o catálogo da OpenRouter esteja acessível antes de gravar. O modelo de
 transcrição deve anunciar entrada de áudio e saída de transcrição. O catálogo STT não informa de
 forma confiável o parâmetro `response_format`, por isso a resposta com timestamps é validada durante
-o processamento. Refinamento, resumo e tradução exigem entrada e saída de texto e suporte anunciado
+o processamento. Refinamento e resumo exigem entrada e saída de texto e suporte anunciado
 a `response_format`. Perfis locais carregam o checkpoint faster-whisper e exigem a capacidade
 `multilingual=true` reportada pelo checkpoint real. `tiny.en`, `base.en`, `small.en`, `medium.en`,
 convertidos equivalentes e checkpoints cuja capacidade não possa ser determinada são bloqueados
-antes de qualquer áudio ou chamada de processamento. Não há detector auxiliar nem catálogo de
-compatibilidade entre modelos generativos e idiomas.
+antes de qualquer áudio ou chamada de processamento. Não há detector auxiliar de transcrição nem
+catálogo de compatibilidade entre modelos generativos e idiomas. O idioma do resumo é conferido
+separadamente.
 
 As migrations normalizam perfis criados antes de as chaves de prompt se tornarem obrigatórias. O
 texto existente é preservado, prompts de transcrição ausentes viram `null` e prompts de refinamento
@@ -154,17 +162,13 @@ registra participantes, segmentos, interrupções e métricas de recepção.
 - `TRANSCRIPTION_MAX_ATTEMPTS`: total de tentativas por lote; padrão `4`;
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout de cada tentativa; padrão `90000` ms;
 - `TRANSCRIPTION_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
-- `TRANSCRIPTION_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms;
-- `TRANSLATION_MAX_ATTEMPTS`: tentativas da tradução; padrão `3`;
-- `TRANSLATION_TIMEOUT_MS`: timeout por tentativa de tradução; padrão `120000` ms;
-- `TRANSLATION_RETRY_BASE_MS`: espera inicial da tradução; padrão `1000` ms;
-- `TRANSLATION_RETRY_MAX_MS`: espera máxima da tradução; padrão `30000` ms;
+- `TRANSCRIPTION_RETRY_MAX_MS`: espera máxima entre retries; padrão `30000` ms.
 
 Na fase de transcrição, cada perfil define:
 
 - `provider` e `model`, ambos obrigatórios para o perfil ficar completo;
-- a transcrição sempre usa detecção automática; o idioma configurado pertence ao perfil e controla
-  somente o idioma efetivo do resumo;
+- `language`: `auto` para detectar o idioma falado ou uma tag BCP 47 explícita para orientar a
+  transcrição;
 - `temperature`: temperatura da transcrição;
 - timestamps por palavra são obrigatórios; uma API externa incompatível encerra a transcrição sem
   aproximação por segmento ou pela duração inteira do lote;

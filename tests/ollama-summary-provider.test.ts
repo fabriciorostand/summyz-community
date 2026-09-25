@@ -21,7 +21,6 @@ const validSummary = {
     transcript: "Transcript",
   },
   observations: [],
-  protectedTerms: [],
   tasks: [],
 };
 

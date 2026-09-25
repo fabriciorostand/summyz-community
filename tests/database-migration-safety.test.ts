@@ -10,7 +10,10 @@ import { databaseMigrations } from "../src/database/migrations.js";
 describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
-    expect(databaseMigrations.at(-1)).toMatchObject({ version: 13 });
+    expect(databaseMigrations.at(-1)).toMatchObject({ version: 14 });
+    expect(databaseMigrations.find(({ version }) => version === 14)?.sql).toContain(
+      "DROP CONSTRAINT ai_profiles_translation_check",
+    );
     expect(databaseMigrations.find(({ version }) => version === 11)?.sql).toContain(
       "transcription_recovery_version",
     );

@@ -1,7 +1,7 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Logger } from "pino";
-import { ZodError } from "zod";
+import { ZodError, type z } from "zod";
 import type { DashboardAccess } from "../auth/auth-domain.js";
 import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { InstallationAccessRecoveryError } from "../auth/installation-access-recovery.js";
@@ -30,7 +30,7 @@ export async function authorizeDashboard(
     };
   }
   const sessionToken = request.cookies.summyz_session;
-  if (sessionToken === undefined) throw new DashboardSessionError();
+  if (sessionToken === undefined || sessionToken.length === 0) throw new DashboardSessionError();
   const access = await dependencies.auth.authenticate(sessionToken);
   authenticatedRequests.add(request);
   return access;
@@ -46,7 +46,7 @@ export async function authorizeGuild(
   resolveGuildAccess: GuildAccessResolver,
 ): Promise<{ access: DashboardAccess; guildId: string }> {
   const access = await authorizeDashboard(request, dependencies);
-  const { guildId } = guildParametersSchema.parse(request.params);
+  const { guildId } = parseRequestInput(guildParametersSchema, request.params);
   const guilds = await resolveGuildAccess();
   if (!guilds.some((guild) => guild.id === guildId)) {
     const error = new Error("guild_access_denied") as Error & { statusCode: number };
@@ -153,6 +153,7 @@ export function safeEqual(left: string, right: string): boolean {
 }
 
 export function getErrorStatusCode(error: unknown): number {
+  if (error instanceof ZodError) return 500;
   if (
     typeof error === "object" &&
     error !== null &&
@@ -164,6 +165,22 @@ export function getErrorStatusCode(error: unknown): number {
   return 500;
 }
 
+export class InvalidRequestError extends Error {
+  public readonly issues: ZodError["issues"];
+
+  public constructor(error: ZodError) {
+    super("invalid_request");
+    this.name = "InvalidRequestError";
+    this.issues = error.issues;
+  }
+}
+
+export function parseRequestInput<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
+  const result = schema.safeParse(input);
+  if (!result.success) throw new InvalidRequestError(result.error);
+  return result.data;
+}
+
 export function getKnownApiError(error: unknown):
   | {
       body: { error: string; issues?: unknown[] };
@@ -171,7 +188,7 @@ export function getKnownApiError(error: unknown):
       statusCode: number;
     }
   | undefined {
-  if (error instanceof ZodError) {
+  if (error instanceof InvalidRequestError) {
     return { body: { error: "invalid_request", issues: error.issues }, statusCode: 400 };
   }
   if (error instanceof DashboardSessionError) {

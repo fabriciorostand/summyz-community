@@ -719,13 +719,13 @@ describe("fluxo de comandos do Discord", () => {
     });
     await incompatible.store.setSummaryForum("guild-1", { forumId: "forum-1" });
     incompatible.start.mockRejectedValueOnce(
-      new OpenRouterModelPreflightError("capability_missing", { phase: "translation" }),
+      new OpenRouterModelPreflightError("capability_missing", { phase: "summary" }),
     );
 
     await incompatible.listener(incompatible.interaction);
 
     expect(incompatible.editReply).toHaveBeenCalledWith(
-      expect.stringMatching(/modelo de tradução.*capacidades exigidas/i),
+      expect.stringMatching(/modelo de resumo.*capacidades exigidas/i),
     );
   });
 

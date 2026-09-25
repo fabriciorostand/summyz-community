@@ -187,12 +187,19 @@ describe("PostgresAnalyticsStore", () => {
             summary: {
               attempts: 1,
               completedAt: "2026-08-28T01:27:14.888Z",
+              effectiveLanguage: "pt-BR",
+              languageValidation: {
+                attempts: 1,
+                detectedLanguage: "pt",
+                requestedLanguage: "pt-BR",
+                status: "confirmed",
+              },
               meetingId: "meeting-1",
               schemaVersion: 1,
               startedAt: "2026-08-28T01:27:05.529Z",
               status: "completed",
               summary: {
-                decisions: [{ sourceEntryIds: ["entry-1"], text: "Adotar o fluxo." }],
+                decisions: ["Adotar o fluxo."],
                 discussedTopics: ["Planejamento"],
                 executiveSummary: "A equipe alinhou o projeto.",
                 observations: ["Revisar o cronograma."],
@@ -200,7 +207,6 @@ describe("PostgresAnalyticsStore", () => {
                   {
                     deadlineText: "sexta-feira",
                     ownerName: "Ana",
-                    sourceEntryIds: ["entry-2"],
                     text: "Publicar o documento.",
                   },
                 ],

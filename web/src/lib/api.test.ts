@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api, type Profile, profileSchema, subscribeToSessionExpiry } from "./api";
+import { meetingHistoryDetailSchema } from "./api-contracts";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -108,6 +109,63 @@ describe("dashboard API client", () => {
     const { prompt: _prompt, ...transcription } = profile.transcription;
 
     expect(profileSchema.safeParse({ ...profile, transcription }).success).toBe(false);
+  });
+
+  it("requires the transcription language on every profile", () => {
+    const profile = validProfile();
+    const { language: _language, ...transcription } = profile.transcription;
+
+    expect(profileSchema.safeParse({ ...profile, transcription }).success).toBe(false);
+    expect(profileSchema.parse(profile).transcription.language).toBe("pt-BR");
+  });
+
+  it("drops the removed translation phase from profiles", () => {
+    const parsed = profileSchema.parse({ ...validProfile(), translation: null });
+
+    expect(parsed).not.toHaveProperty("translation");
+  });
+
+  it("keeps the language warning of a completed summary", () => {
+    const detail = meetingHistoryDetailSchema.parse({
+      ...meetingDetailPayload(),
+      summary: {
+        ...completedSummaryPayload(),
+        languageWarning: { detectedLanguage: "glg", requestedLanguage: "pt-BR" },
+      },
+    });
+
+    expect(detail.summary).toMatchObject({
+      languageWarning: { detectedLanguage: "glg", requestedLanguage: "pt-BR" },
+    });
+  });
+
+  it("accepts a language warning without a detected language", () => {
+    const detail = meetingHistoryDetailSchema.parse({
+      ...meetingDetailPayload(),
+      summary: { ...completedSummaryPayload(), languageWarning: { requestedLanguage: "en" } },
+    });
+
+    expect(detail.summary).toMatchObject({ languageWarning: { requestedLanguage: "en" } });
+  });
+
+  it("rejects the removed translation cost phase", () => {
+    const breakdownEntry = {
+      attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 0 },
+      confirmed: [],
+      execution: "api",
+      provider: "openrouter",
+    };
+    const detail = (phase: string) => ({
+      ...meetingDetailPayload(),
+      cost: {
+        attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 0 },
+        breakdown: [{ ...breakdownEntry, phase }],
+        confirmed: [],
+      },
+    });
+
+    expect(meetingHistoryDetailSchema.safeParse(detail("summary")).success).toBe(true);
+    expect(meetingHistoryDetailSchema.safeParse(detail("translation")).success).toBe(false);
   });
 
   it("serializes all mutation requests at the API boundary", async () => {
@@ -370,6 +428,7 @@ function validProfile(): Profile {
     transcription: {
       batchSize: "auto" as const,
       interSpeechSilenceMs: 0,
+      language: "pt-BR" as const,
       mergeMaxGapMs: 2_000,
       model: "medium",
       prompt: null,
@@ -384,6 +443,36 @@ function validProfile(): Profile {
         threshold: 0.5,
       },
     },
-    translation: null,
+  };
+}
+
+function meetingDetailPayload() {
+  return {
+    aiProfile: null,
+    completedAt: "2026-09-01T10:30:00.000Z",
+    contentRetained: true,
+    durationMs: 1_800_000,
+    failureCode: null,
+    meetingId: "m1",
+    participants: null,
+    pipelineStatus: "completed",
+    rawTranscript: null,
+    startedAt: "2026-09-01T10:00:00.000Z",
+    summary: null,
+    timeZone: "America/Sao_Paulo",
+    transcript: null,
+    voiceChannelName: null,
+  };
+}
+
+function completedSummaryPayload() {
+  return {
+    decisions: [],
+    discussedTopics: [],
+    executiveSummary: "Resumo.",
+    language: "pt-BR",
+    observations: [],
+    status: "completed",
+    tasks: [],
   };
 }

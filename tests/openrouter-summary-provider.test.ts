@@ -41,7 +41,6 @@ function successResponse(): Response {
               executiveSummary: "A equipe discutiu o orçamento.",
               labels,
               observations: [],
-              protectedTerms: ["Bruno", "até sexta-feira"],
               tasks: [
                 {
                   deadlineText: "até sexta-feira",

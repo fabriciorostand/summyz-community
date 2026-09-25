@@ -110,11 +110,6 @@ interface DiscordMeetingPublisherOptions {
 }
 
 export interface MeetingPublisher {
-  notifyTranslationFallback?(
-    manifest: RecordingManifest,
-    configuredLanguage: string,
-    predominantLanguage: string,
-  ): Promise<void>;
   publishSummary(
     manifest: RecordingManifest,
     summary: PublicSummary,
@@ -148,28 +143,6 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     transcriptPath: string,
   ): Promise<void> {
     await this.#publish(manifest, "summary", transcriptPath, summary);
-  }
-
-  public async notifyTranslationFallback(
-    manifest: RecordingManifest,
-    configuredLanguage: string,
-    predominantLanguage: string,
-  ): Promise<void> {
-    if (manifest.startedByUserId === undefined) return;
-    const language = manifest.botLanguage ?? this.#language;
-    const content =
-      language === "pt-BR"
-        ? `⚠️ Não foi possível traduzir o resumo para o idioma configurado (\`${configuredLanguage}\`). O resumo foi publicado no idioma predominante da call (\`${predominantLanguage}\`), e a transcrição original foi preservada. Revise o idioma e o modelo de tradução do perfil antes da próxima gravação.`
-        : `⚠️ Summyz could not translate the summary into the configured language (\`${configuredLanguage}\`). The summary was published in the call's predominant language (\`${predominantLanguage}\`), and the original transcript was preserved. Review the profile language and translation model before the next recording.`;
-    try {
-      const user = await this.#client.users.fetch(manifest.startedByUserId);
-      await user.send({ allowedMentions: { parse: [] }, content });
-    } catch (error) {
-      this.#logger.warn(
-        { errorType: getErrorType(error), meetingId: manifest.meetingId },
-        "Unable to send private translation fallback notification",
-      );
-    }
   }
 
   public async publishTranscriptOnly(

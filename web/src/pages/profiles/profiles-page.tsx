@@ -1,4 +1,4 @@
-import { AudioLines, Bot, Languages, MessageSquareQuote, Plus, Settings2 } from "lucide-react";
+import { AudioLines, Bot, MessageSquareQuote, Plus, Settings2 } from "lucide-react";
 import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import { Disclosure, Tabs } from "../../components/disclosure";
@@ -14,7 +14,7 @@ import {
   profileSchema,
 } from "../../lib/api";
 import { Screen } from "../screen";
-import { PhaseSettings, TranscriptionSettings, TranslationSettings } from "./generation-editor";
+import { PhaseSettings, TranscriptionSettings } from "./generation-editor";
 import { LanguageSelector, nextLocalizedProfileName } from "./language-selector";
 import { PromptEditor } from "./prompt-editor";
 import { VadEditor } from "./vad-editor";
@@ -266,6 +266,11 @@ function keepCustom(
   return current === previousDefault ? nextDefault : current;
 }
 
+/** The summary follows the transcription language while its own language is auto. */
+function summaryPromptLanguage(profile: Profile): string {
+  return profile.language === "auto" ? profile.transcription.language : profile.language;
+}
+
 function retargetPrompts(
   profile: Profile,
   previous: PromptDefaults,
@@ -304,17 +309,18 @@ function ProfileEditor({
   const [promptDefaults, setPromptDefaults] = useState<PromptDefaults>();
   const [busy, setBusy] = useState(false);
   const previousDefaults = useRef<PromptDefaults | undefined>(undefined);
-  const { language, profileId } = draft;
+  const { profileId } = draft;
+  const promptLanguage = summaryPromptLanguage(draft);
 
-  // Switching the summary language rewrites the prompts that still hold the previous defaults.
+  // Switching the summary output language rewrites the prompts that still hold the previous defaults.
   useEffect(() => {
     let active = true;
-    void api.getPromptDefaults(language).then((next) => {
+    void api.getPromptDefaults(promptLanguage).then((next) => {
       if (!active) return;
       const previous = previousDefaults.current;
       if (previous !== undefined) {
         setDraft((current) =>
-          current.profileId === profileId && current.language === language
+          current.profileId === profileId && summaryPromptLanguage(current) === promptLanguage
             ? retargetPrompts(current, previous, next)
             : current,
         );
@@ -325,7 +331,7 @@ function ProfileEditor({
     return () => {
       active = false;
     };
-  }, [language, profileId]);
+  }, [promptLanguage, profileId]);
 
   const change = (next: unknown) => setDraft(profileSchema.parse(next));
 
@@ -374,21 +380,15 @@ function ProfileEditor({
             value={draft.name}
           />
           <LanguageSelector
-            onChange={(nextLanguage) =>
-              change({
-                ...draft,
-                language: nextLanguage,
-                translation:
-                  nextLanguage === "auto"
-                    ? null
-                    : (draft.translation ?? {
-                        generation: {},
-                        model: null,
-                        prompt: null,
-                        provider: draft.profileType === "external" ? "openrouter" : "ollama",
-                      }),
-              })
+            label="Idioma da transcrição"
+            onChange={(language) =>
+              change({ ...draft, transcription: { ...draft.transcription, language } })
             }
+            value={draft.transcription.language}
+          />
+          <LanguageSelector
+            label="Idioma do resumo"
+            onChange={(language) => change({ ...draft, language })}
             value={draft.language}
           />
           <div className="grid gap-3 sm:grid-cols-2">
@@ -418,10 +418,6 @@ function ProfileEditor({
               value={draft.summary.model ?? ""}
             />
           </div>
-          <p className="m-0 text-[11.5px] leading-relaxed text-ink-muted">
-            Em <span className="font-mono text-ink-secondary">auto</span>, o resumo usa o idioma
-            predominante da call e a tradução é ignorada — sem custo extra.
-          </p>
         </div>
       </Card>
 
@@ -493,27 +489,6 @@ function ProfileEditor({
           </div>
         </div>
       </Disclosure>
-
-      {draft.language !== "auto" && draft.translation !== null && (
-        <Disclosure
-          icon={<Languages className="size-4" />}
-          summary="Modelo e prompt usados quando o idioma difere do predominante"
-          title="Tradução"
-        >
-          <div className="flex flex-col gap-4">
-            <TranslationSettings onChange={change} profile={draft} />
-            <PromptEditor
-              defaultPrompt="Traduza somente os campos permitidos e preserve os termos protegidos."
-              label="Prompt de tradução"
-              onChange={(prompt) =>
-                change({ ...draft, translation: { ...draft.translation, prompt } })
-              }
-              toggleLabel="Usar prompt de tradução"
-              value={draft.translation.prompt}
-            />
-          </div>
-        </Disclosure>
-      )}
 
       <div className="flex flex-wrap items-center gap-3">
         <Button disabled={busy} type="submit">

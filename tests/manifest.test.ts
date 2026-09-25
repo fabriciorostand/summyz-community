@@ -14,6 +14,31 @@ import {
 import { migrateRecordingManifest } from "../src/recording/manifest-migration.js";
 
 describe("manifesto da gravação", () => {
+  it("fixa idioma da transcrição e aceita resumo explícito sem fase de tradução", () => {
+    const manifest = createManifest({
+      aiConfiguration: {
+        language: "en",
+        profileType: "external",
+        refinement: { model: "review", provider: "openrouter" },
+        summary: { model: "summary", provider: "openrouter" },
+        transcription: {
+          language: "pt-BR",
+          model: "stt",
+          provider: "openrouter",
+          vad: {},
+        },
+      },
+      guildId: "guild-1",
+      meetingId: "meeting-language",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+
+    expect(manifest.aiConfiguration?.transcription.language).toBe("pt-BR");
+    expect(manifest.aiConfiguration).not.toHaveProperty("translation");
+  });
+
   it("cria um manifesto versionado em estado recording", () => {
     const manifest = createManifest({
       guildId: "guild-1",
@@ -68,14 +93,9 @@ describe("manifesto da gravação", () => {
           provider: "ollama",
         },
         transcription: {
+          language: "pt-BR",
           model: "small",
           provider: "faster-whisper",
-        },
-        translation: {
-          generation: { temperature: 0 },
-          model: "qwen3:8b",
-          prompt: null,
-          provider: "ollama",
         },
       },
       aiProfile: { name: "Local rápido", profileId: "profile-1" },
@@ -91,8 +111,7 @@ describe("manifesto da gravação", () => {
       language: "es",
       refinement: { model: "qwen3:4b", provider: "ollama" },
       summary: { model: "qwen3:8b", provider: "ollama" },
-      transcription: { model: "small", provider: "faster-whisper" },
-      translation: { model: "qwen3:8b", provider: "ollama" },
+      transcription: { language: "pt-BR", model: "small", provider: "faster-whisper" },
     });
     expect(manifest.aiProfile).toEqual({ name: "Local rápido", profileId: "profile-1" });
     const detected = setPredominantLanguage(manifest, "pt");

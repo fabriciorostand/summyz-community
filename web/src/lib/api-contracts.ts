@@ -113,16 +113,12 @@ const summaryBaseShape = {
 };
 const transcriptionBaseShape = {
   interSpeechSilenceMs: z.number().int(),
+  language: z.enum(profileLanguages),
   mergeMaxGapMs: z.number().int(),
   model: z.string().nullable(),
   prompt: promptSchema,
   providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
   temperature: z.number().optional(),
-};
-const translationBaseShape = {
-  generation: generationSchema,
-  model: z.string().nullable(),
-  prompt: promptSchema,
 };
 export const profileSchema = z.discriminatedUnion("profileType", [
   z.object({
@@ -135,9 +131,6 @@ export const profileSchema = z.discriminatedUnion("profileType", [
       provider: z.literal("openrouter"),
       vad: externalVadSchema,
     }),
-    translation: z
-      .object({ ...translationBaseShape, provider: z.literal("openrouter") })
-      .nullable(),
   }),
   z.object({
     ...profileBaseShape,
@@ -150,7 +143,6 @@ export const profileSchema = z.discriminatedUnion("profileType", [
       provider: z.literal("faster-whisper"),
       vad: localVadSchema,
     }),
-    translation: z.object({ ...translationBaseShape, provider: z.literal("ollama") }).nullable(),
   }),
 ]);
 export const guildConfigurationSchema = z.object({
@@ -289,7 +281,7 @@ const costAnalyticsSchema = z.object({
       attemptCounts: costAttemptCountsSchema,
       confirmed: z.array(z.object({ amount: z.string(), currency: z.string().length(3) })),
       execution: z.enum(["api", "local"]),
-      phase: z.enum(["transcription", "refinement", "summary", "translation"]),
+      phase: z.enum(["transcription", "refinement", "summary"]),
       provider: z.string(),
     }),
   ),
@@ -383,6 +375,13 @@ const meetingHistorySummarySchema = z.discriminatedUnion("status", [
     discussedTopics: z.array(z.string()),
     executiveSummary: z.string(),
     language: z.string().regex(/^[a-z]{2,3}(?:-[A-Z]{2})?$/),
+    // Present only when no generation attempt confirmed the requested language.
+    languageWarning: z
+      .object({
+        detectedLanguage: z.string().min(1).optional(),
+        requestedLanguage: z.string().min(1),
+      })
+      .optional(),
     labels: meetingHistoryLabelsSchema.optional(),
     observations: z.array(z.string()),
     status: z.literal("completed"),

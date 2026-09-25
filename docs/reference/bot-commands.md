@@ -128,14 +128,15 @@ can use it, and the response is ephemeral.
   be changed in the dashboard.
 - Content and audio policies are pinned when `/record` starts; later dashboard changes apply only
   to new meetings.
-- The active profile type, provider, explicit models, configured language, translation settings,
+- The active profile type, provider, explicit models, summary and transcription languages,
   VAD, prompts, and other phase parameters are pinned then. A local profile never uses OpenRouter
   as fallback.
 - `/record` is blocked before audio capture when an external model fails its OpenRouter capability
-  preflight, or when the loaded faster-whisper checkpoint is monolingual or unknown. An explicit
-  profile language also requires a translation model.
-- The transcript preserves every spoken language. `auto` publishes the summary in the single
-  predominant primary language; an explicit tag translates only the validated base summary.
-- If translation ultimately fails, the base summary is still published and only the `/record`
-  author receives a private DM. No warning is added to the forum post.
+  preflight, or when the loaded faster-whisper checkpoint is monolingual or unknown.
+- Transcription with `auto` detects spoken languages; an explicit transcription language guides
+  the provider. An explicit summary language takes precedence. With summary `auto`, Summyz uses
+  the explicit transcription language or, if both are `auto`, the predominant detected language.
+- The summary is generated directly in the chosen language. If its language cannot be confirmed,
+  Summyz makes up to three total generations, then publishes the last result. A warning appears
+  only in the dashboard meeting detail; the forum post is unchanged.
 - Financial records are retained indefinitely, independently of audio and transcript retention.

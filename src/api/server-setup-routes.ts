@@ -4,7 +4,7 @@ import { createInitialAiProfile } from "../ai-profile.js";
 import { InstallationPasswordError } from "../auth/installation-password.js";
 import type { ApiServerDependencies } from "./server-contracts.js";
 import { setupSchema } from "./server-contracts.js";
-import { safeEqual, setSessionCookie } from "./server-support.js";
+import { parseRequestInput, safeEqual, setSessionCookie } from "./server-support.js";
 
 export function registerSetupRoutes(
   app: FastifyInstance,
@@ -32,7 +32,7 @@ export function registerSetupRoutes(
       if (!hasValidSetupClaim(request.headers["x-summyz-setup-token"], dependencies)) {
         return reply.status(403).send({ error: "invalid_setup_token" });
       }
-      const setup = setupSchema.parse(request.body);
+      const setup = parseRequestInput(setupSchema, request.body);
       if (dependencies.accessMode === "public" && setup.installationPassword === undefined) {
         return reply.status(400).send({ error: "installation_password_required" });
       }

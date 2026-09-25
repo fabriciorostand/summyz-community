@@ -251,7 +251,7 @@ const costRowSchema = z.object({
 });
 const costBreakdownRowSchema = costRowSchema.extend({
   execution: z.enum(["api", "local"]),
-  phase: z.enum(["transcription", "refinement", "summary", "translation"]),
+  phase: z.enum(["transcription", "refinement", "summary"]),
   provider: z.string().min(1),
 });
 

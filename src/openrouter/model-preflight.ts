@@ -15,7 +15,7 @@ const modelSchema = z.object({
 });
 const catalogSchema = z.object({ data: z.array(modelSchema) });
 
-export type OpenRouterModelPhase = "transcription" | "refinement" | "summary" | "translation";
+export type OpenRouterModelPhase = "transcription" | "refinement" | "summary";
 export type OpenRouterModelPreflightReason =
   | "catalog_unavailable"
   | "catalog_invalid"

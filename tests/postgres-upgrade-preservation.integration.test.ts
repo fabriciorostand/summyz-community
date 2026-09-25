@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import { Pool } from "pg";
 import { describe, expect, it } from "vitest";
+import { createInitialAiProfile, externalAiProfileSchema } from "../src/ai-profile.js";
 import { databaseMigrations } from "../src/database/migrations.js";
+import { PostgresAiProfileStore } from "../src/database/postgres-ai-profile-store.js";
 import { createPostgresDatabase } from "../src/database/postgres-database.js";
 import { PostgresMeetingStore } from "../src/database/postgres-meeting-store.js";
 import { DurableJobQueue } from "../src/processing/durable-job-queue.js";
@@ -129,6 +131,18 @@ INSERT INTO provider_cost_attempts (
         );
 
         await scopedDatabase.initialize();
+
+        const profile = externalAiProfileSchema.parse(createInitialAiProfile("external", "pt-BR"));
+        await new PostgresAiProfileStore(scopedDatabase).createProfile({
+          ...profile,
+          language: "en",
+          profileId: randomUUID(),
+          transcription: { ...profile.transcription, language: "pt-BR" },
+        });
+        const configuredProfiles = await new PostgresAiProfileStore(scopedDatabase).listProfiles();
+        expect(configuredProfiles).toMatchObject([
+          { language: "en", transcription: { language: "pt-BR" } },
+        ]);
 
         const meetingStore = new PostgresMeetingStore(scopedDatabase);
 

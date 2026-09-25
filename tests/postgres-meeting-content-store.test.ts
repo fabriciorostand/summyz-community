@@ -33,7 +33,7 @@ const completedSummary = markSummaryCompleted(
   },
   1,
   "2026-08-24T10:11:00.000Z",
-  "pt",
+  { attempts: 1, detectedLanguage: "pt", requestedLanguage: "pt", status: "confirmed" },
 );
 
 const content = {
