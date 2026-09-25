@@ -162,7 +162,6 @@ describe("provider cost integration", () => {
                 transcript: "Transcrição",
               },
               observations: [],
-              protectedTerms: [],
               tasks: [],
             }),
           },

@@ -9,6 +9,7 @@ import type { ApiServerDependencies } from "./server-contracts.js";
 import {
   authorizeGuild,
   type GuildAccessResolver,
+  parseRequestInput,
   refreshParticipantProfiles,
   requireAnalytics,
   runApiDependency,
@@ -65,9 +66,10 @@ export function registerAnalyticsRoutes(
   app.get("/api/guilds/:guildId/dashboard", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const analytics = requireAnalytics(dependencies);
-    const { period } = z
-      .object({ period: z.enum(["30d", "90d", "all"]).default("30d") })
-      .parse(request.query);
+    const { period } = parseRequestInput(
+      z.object({ period: z.enum(["30d", "90d", "all"]).default("30d") }),
+      request.query,
+    );
     const [dashboard, liveMeeting] = await Promise.all([
       analytics.getDashboard(guildId, {
         period,
@@ -102,7 +104,7 @@ export function registerAnalyticsRoutes(
   });
   app.get("/api/guilds/:guildId/meetings", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = meetingListQuerySchema.parse(request.query);
+    const query = parseRequestInput(meetingListQuerySchema, request.query);
     const analytics = requireAnalytics(dependencies);
     const history = await analytics.listMeetings(
       guildId,
@@ -139,7 +141,10 @@ export function registerAnalyticsRoutes(
   });
   app.get("/api/guilds/:guildId/meetings/:meetingId", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const { meetingId } = z.object({ meetingId: z.string().min(1).max(128) }).parse(request.params);
+    const { meetingId } = parseRequestInput(
+      z.object({ meetingId: z.string().min(1).max(128) }),
+      request.params,
+    );
     const analytics = requireAnalytics(dependencies);
     const meeting = await analytics.getMeeting(guildId, meetingId);
     if (meeting === undefined) return reply.status(404).send({ error: "meeting_not_found" });
@@ -166,7 +171,10 @@ export function registerAnalyticsRoutes(
   });
   app.get("/api/guilds/:guildId/meetings/:meetingId/export", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const { meetingId } = z.object({ meetingId: z.string().min(1).max(128) }).parse(request.params);
+    const { meetingId } = parseRequestInput(
+      z.object({ meetingId: z.string().min(1).max(128) }),
+      request.params,
+    );
     const meeting = await requireAnalytics(dependencies).getMeeting(guildId, meetingId);
     if (meeting === undefined) return reply.status(404).send({ error: "meeting_not_found" });
     try {
@@ -187,7 +195,7 @@ export function registerAnalyticsRoutes(
   });
   app.get("/api/guilds/:guildId/participants", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = directoryPageQuerySchema.parse(request.query);
+    const query = parseRequestInput(directoryPageQuerySchema, request.query);
     return runApiDependency("database", "list_meeting_participants", () =>
       dependencies.participants.list(guildId, {
         page: query.page,
@@ -198,12 +206,13 @@ export function registerAnalyticsRoutes(
   });
   app.get("/api/guilds/:guildId/tasks", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = z
-      .object({
+    const query = parseRequestInput(
+      z.object({
         completed: z.stringbool().optional(),
         meetingId: z.string().min(1).max(128).optional(),
-      })
-      .parse(request.query);
+      }),
+      request.query,
+    );
     const tasks = await dependencies.tasks.list(guildId, {
       ...(query.completed === undefined ? {} : { completed: query.completed }),
       ...(query.meetingId === undefined ? {} : { meetingId: query.meetingId }),
@@ -224,8 +233,8 @@ export function registerAnalyticsRoutes(
   });
   app.patch("/api/guilds/:guildId/tasks/:taskId/completion", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const { taskId } = z.object({ taskId: z.uuid() }).parse(request.params);
-    const { completed } = z.object({ completed: z.boolean() }).parse(request.body);
+    const { taskId } = parseRequestInput(z.object({ taskId: z.uuid() }), request.params);
+    const { completed } = parseRequestInput(z.object({ completed: z.boolean() }), request.body);
     await dependencies.tasks.setCompleted(guildId, taskId, null, completed);
     return reply.status(204).send();
   });

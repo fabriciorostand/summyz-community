@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import type { PublicSummary } from "../summary/summary-result.js";
-import { createPublicSummary, summaryDraftSchema } from "../summary/summary-result.js";
 import { summaryStateSchema } from "../summary/summary-state.js";
 
 const retainedMeetingManifestSchema = z.object({
@@ -9,29 +8,19 @@ const retainedMeetingManifestSchema = z.object({
 });
 
 export type MeetingHistorySummary =
-  | ({ language: string; status: "completed" } & PublicSummary)
+  | ({
+      language: string;
+      languageWarning?: { detectedLanguage?: string; requestedLanguage: string };
+      status: "completed";
+    } & PublicSummary)
   | { language: string; status: "failed" };
-
-const legacyCompletedSummaryStateSchema = z.object({
-  status: z.literal("completed"),
-  summary: summaryDraftSchema,
-});
 
 export function createMeetingHistorySummary(
   summaryState: unknown,
   meetingManifest: unknown,
 ): MeetingHistorySummary {
   const { botLanguage: language } = retainedMeetingManifestSchema.parse(meetingManifest);
-  const currentState = summaryStateSchema.safeParse(summaryState);
-  if (!currentState.success) {
-    const legacy = legacyCompletedSummaryStateSchema.parse(summaryState);
-    return {
-      ...createPublicSummary(legacy.summary),
-      language,
-      status: "completed",
-    };
-  }
-  const state = currentState.data;
+  const state = summaryStateSchema.parse(summaryState);
   if (state.status === "processing") {
     throw new Error("A retained meeting summary cannot still be processing");
   }
@@ -39,6 +28,16 @@ export function createMeetingHistorySummary(
   return {
     ...state.summary,
     language: state.effectiveLanguage,
+    ...(state.languageValidation.status === "unconfirmed"
+      ? {
+          languageWarning: {
+            ...(state.languageValidation.detectedLanguage === undefined
+              ? {}
+              : { detectedLanguage: state.languageValidation.detectedLanguage }),
+            requestedLanguage: state.languageValidation.requestedLanguage,
+          },
+        }
+      : {}),
     status: "completed",
   };
 }

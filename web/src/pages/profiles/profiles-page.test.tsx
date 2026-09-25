@@ -1,8 +1,8 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api } from "../../lib/api";
+import { api, type Profile } from "../../lib/api";
 import { aProfile, renderScreen } from "../../tests/test-utils";
 import { ProfilesPage } from "./profiles-page";
 
@@ -21,6 +21,13 @@ vi.mock("../../lib/api", async () => {
 });
 
 const listProfiles = vi.mocked(api.listProfiles);
+
+/** Narrows the fixture so a spread keeps the external branch of the discriminated union. */
+function externalProfile(): Extract<Profile, { profileType: "external" }> {
+  const profile = aProfile();
+  if (profile.profileType !== "external") throw new Error("fixture must be an external profile");
+  return profile;
+}
 
 const localProfile = aProfile({
   name: "Local sem custo",
@@ -44,6 +51,7 @@ const localProfile = aProfile({
   transcription: {
     batchSize: "auto",
     interSpeechSilenceMs: 700,
+    language: "auto",
     mergeMaxGapMs: 400,
     model: "large-v3",
     prompt: null,
@@ -58,7 +66,6 @@ const localProfile = aProfile({
       threshold: 0.5,
     },
   },
-  translation: null,
 });
 
 beforeEach(() => {
@@ -81,10 +88,11 @@ afterEach(() => {
 });
 
 describe("ProfilesPage", () => {
-  it("keeps only four fields in the essentials card", async () => {
+  it("keeps only five fields in the essentials card", async () => {
     renderScreen(<ProfilesPage />);
     expect(await screen.findByLabelText("Nome do perfil")).toHaveValue("Padrão OpenRouter");
-    expect(screen.getByLabelText("Idioma")).toBeInTheDocument();
+    expect(screen.getByLabelText("Idioma da transcrição")).toHaveValue("auto");
+    expect(screen.getByLabelText("Idioma do resumo")).toHaveValue("pt-BR");
     expect(screen.getByLabelText("Modelo de transcrição")).toHaveValue("openai/whisper-1");
     expect(screen.getByLabelText("Modelo de resumo")).toHaveValue("anthropic/claude-sonnet-4");
   });
@@ -199,23 +207,110 @@ describe("ProfilesPage", () => {
 
   it("omits the model licence notice", async () => {
     renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma");
+    await screen.findByLabelText("Idioma do resumo");
     expect(screen.queryByText("Licenças dos modelos")).not.toBeInTheDocument();
   });
 
-  it("adds the translation panel once a fixed language is chosen", async () => {
+  it("has no translation controls even with a fixed summary language", async () => {
     renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma");
-    expect(screen.queryByRole("button", { name: /^Tradução/ })).toBeNull();
+    await screen.findByLabelText("Idioma do resumo");
+    expect(screen.queryByRole("button", { name: /Tradução/ })).toBeNull();
+    expect(screen.queryByText(/tradução/i)).toBeNull();
   });
 
-  it("drops the translation panel in auto", async () => {
+  it("drops the note about the automatic language", async () => {
+    renderScreen(<ProfilesPage />);
+    await screen.findByLabelText("Idioma do resumo");
+    expect(screen.queryByText(/idioma predominante da call/)).toBeNull();
+  });
+
+  it("names the automatic option only auto in both selectors", async () => {
+    renderScreen(<ProfilesPage />);
+    for (const label of ["Idioma da transcrição", "Idioma do resumo"]) {
+      const select = await screen.findByLabelText(label);
+      expect(within(select).getByRole("option", { name: "auto" })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("option", { name: /auto —/ })).toBeNull();
+  });
+
+  it("saves the transcription language independently of the summary language", async () => {
+    renderScreen(<ProfilesPage />);
+    await userEvent.selectOptions(await screen.findByLabelText("Idioma da transcrição"), "en");
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    await waitFor(() =>
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          language: "pt-BR",
+          transcription: expect.objectContaining({ language: "en" }),
+        }),
+      ),
+    );
+    expect(vi.mocked(api.updateProfile).mock.calls[0]?.[0]).not.toHaveProperty("translation");
+  });
+
+  it("loads the default prompts in the fixed summary language", async () => {
     listProfiles.mockResolvedValue([
-      { active: false, activeServerCount: 0, profile: aProfile({ language: "auto" }) },
+      {
+        active: false,
+        activeServerCount: 0,
+        profile: aProfile({
+          transcription: { ...externalProfile().transcription, language: "en" },
+        }),
+      },
     ]);
     renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma");
-    expect(screen.queryByRole("button", { name: /^Tradução/ })).toBeNull();
+    await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("pt-BR"));
+    expect(api.getPromptDefaults).not.toHaveBeenCalledWith("en");
+  });
+
+  it("loads the default prompts in the transcription language when the summary is auto", async () => {
+    listProfiles.mockResolvedValue([
+      {
+        active: false,
+        activeServerCount: 0,
+        profile: aProfile({
+          language: "auto",
+          transcription: { ...externalProfile().transcription, language: "es" },
+        }),
+      },
+    ]);
+    renderScreen(<ProfilesPage />);
+    await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("es"));
+  });
+
+  it("retargets untouched prompts when the transcription language drives the summary", async () => {
+    vi.mocked(api.getPromptDefaults).mockImplementation((language) =>
+      Promise.resolve({
+        refinement: `refino ${language}`,
+        summaryConsolidation: `consolidação ${language}`,
+        summaryExtraction: `extração ${language}`,
+        transcription: null,
+      }),
+    );
+    const base = externalProfile();
+    listProfiles.mockResolvedValue([
+      {
+        active: false,
+        activeServerCount: 0,
+        profile: aProfile({
+          language: "auto",
+          summary: { ...base.summary, extractionPrompt: "extração auto" },
+        }),
+      },
+    ]);
+    renderScreen(<ProfilesPage />);
+    await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("auto"));
+    await userEvent.selectOptions(screen.getByLabelText("Idioma da transcrição"), "en");
+    await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("en"));
+    await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    await waitFor(() =>
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          summary: expect.objectContaining({ extractionPrompt: "extração en" }),
+        }),
+      ),
+    );
   });
 
   it("offers a retry when the profiles fail to load", async () => {
@@ -230,8 +325,11 @@ describe("ProfilesPage", () => {
 
   it("filters the language list as the operator searches", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.type(await screen.findByLabelText("Pesquisar idioma"), "zh");
-    expect(screen.getByRole("option", { name: "zh-TW" })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: "auto — usa o idioma predominante" })).toBeNull();
+    await userEvent.type(await screen.findByLabelText("Pesquisar idioma do resumo"), "zh");
+    const summary = screen.getByLabelText("Idioma do resumo");
+    expect(within(summary).getByRole("option", { name: "zh-TW" })).toBeInTheDocument();
+    expect(within(summary).queryByRole("option", { name: "auto" })).toBeNull();
+    const transcription = screen.getByLabelText("Idioma da transcrição");
+    expect(within(transcription).getByRole("option", { name: "pt-BR" })).toBeInTheDocument();
   });
 });

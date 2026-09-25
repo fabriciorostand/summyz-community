@@ -7,6 +7,7 @@ import { AudioPreparationError, MeetingAudioPreparer } from "./meeting-audio-pre
 import {
   aggregatePredominantLanguage,
   type LanguageEvidence,
+  normalizeDetectedLanguage,
   type PredominantLanguageResult,
 } from "./predominant-language.js";
 import type { SpeechAnalyzer } from "./speech-analyzer.js";
@@ -260,6 +261,13 @@ export class MeetingTranscriptionService {
   ): Promise<void> {
     if (manifest.aiConfiguration === undefined || manifest.predominantLanguage !== undefined)
       return;
+    const configuredLanguage = manifest.aiConfiguration.transcription.language;
+    if (configuredLanguage !== "auto") {
+      await this.#manifestStore.save(
+        setPredominantLanguage(manifest, normalizeDetectedLanguage(configuredLanguage)),
+      );
+      return;
+    }
     let language: PredominantLanguageResult;
     try {
       language = aggregatePredominantLanguage(evidence);
@@ -285,6 +293,7 @@ export class MeetingTranscriptionService {
   ): TranscriptionState {
     const shouldRestart =
       manifest.aiConfiguration !== undefined &&
+      manifest.aiConfiguration.transcription.language === "auto" &&
       manifest.predominantLanguage === undefined &&
       state.status === "processing" &&
       state.segments.some((segment) => segment.status === "completed");

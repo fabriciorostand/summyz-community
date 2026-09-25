@@ -36,33 +36,6 @@ async function createContext() {
 }
 
 describe("publicação da reunião em fórum do Discord", () => {
-  it("envia somente DM privada com o texto aprovado no fallback de tradução", async () => {
-    const context = await createContext();
-    const send = vi.fn(async () => undefined);
-    const publisher = new DiscordMeetingPublisher({
-      client: {
-        users: { fetch: vi.fn(async () => ({ send })) },
-      } as unknown as Client,
-      guildConfigStore: context.configStore,
-      language: "pt-BR",
-      logger: createLogger("silent"),
-      store: new PublicationStore(context.root),
-      timeZone: "America/Sao_Paulo",
-    });
-    const manifest = {
-      ...context.manifest,
-      botLanguage: "pt-BR" as const,
-      startedByUserId: "user-1",
-    };
-
-    await publisher.notifyTranslationFallback(manifest, "es-MX", "pt");
-
-    expect(send).toHaveBeenCalledWith({
-      allowedMentions: { parse: [] },
-      content:
-        "⚠️ Não foi possível traduzir o resumo para o idioma configurado (`es-MX`). O resumo foi publicado no idioma predominante da call (`pt`), e a transcrição original foi preservada. Revise o idioma e o modelo de tradução do perfil antes da próxima gravação.",
-    });
-  });
   it("publica títulos, seções e anexos em inglês com data MM/DD/YYYY", async () => {
     const context = await createContext();
     const send = vi

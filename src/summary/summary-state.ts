@@ -17,29 +17,29 @@ const processingSummaryStateSchema = baseSummaryStateSchema.extend({
   status: z.literal("processing"),
 });
 
+export const summaryLanguageValidationSchema = z.discriminatedUnion("status", [
+  z.object({
+    attempts: z.number().int().min(1).max(3),
+    detectedLanguage: z.string().min(2),
+    requestedLanguage: z.string().min(2),
+    status: z.literal("confirmed"),
+  }),
+  z.object({
+    attempts: z.literal(3),
+    detectedLanguage: z.string().min(2).optional(),
+    requestedLanguage: z.string().min(2),
+    status: z.literal("unconfirmed"),
+  }),
+]);
+export type SummaryLanguageValidationState = z.infer<typeof summaryLanguageValidationSchema>;
+
 const completedSummaryStateSchema = baseSummaryStateSchema.extend({
   attempts: z.number().int().positive(),
-  baseLanguage: z.string().min(2).max(3),
-  baseSummary: publicSummarySchema,
   completedAt: z.iso.datetime(),
   effectiveLanguage: z.string().min(2).max(32),
-  protectedTerms: z.array(z.string().trim().min(1)).default([]),
+  languageValidation: summaryLanguageValidationSchema,
   status: z.literal("completed"),
   summary: publicSummarySchema,
-  translation: z.discriminatedUnion("status", [
-    z.object({ status: z.literal("not_requested") }),
-    z.object({ attempts: z.literal(0), status: z.literal("pending"), targetLanguage: z.string() }),
-    z.object({
-      attempts: z.number().int().positive(),
-      status: z.literal("completed"),
-      targetLanguage: z.string(),
-    }),
-    z.object({
-      attempts: z.number().int().positive(),
-      status: z.literal("failed"),
-      targetLanguage: z.string(),
-    }),
-  ]),
 });
 export type CompletedSummaryState = z.infer<typeof completedSummaryStateSchema>;
 
@@ -74,70 +74,21 @@ export function markSummaryCompleted(
   summary: z.infer<typeof publicSummarySchema>,
   attempts: number,
   now: string,
-  baseLanguage = "und",
-  configuredLanguage = "auto",
-  protectedTerms: readonly string[] = [],
+  languageValidation: SummaryLanguageValidationState,
 ): CompletedSummaryState {
-  const translation =
-    configuredLanguage === "auto" || configuredLanguage === baseLanguage
-      ? { status: "not_requested" as const }
-      : { attempts: 0 as const, status: "pending" as const, targetLanguage: configuredLanguage };
   return completedSummaryStateSchema.parse({
     attempts,
-    baseLanguage,
-    baseSummary: summary,
     completedAt: now,
-    effectiveLanguage: baseLanguage,
+    effectiveLanguage:
+      languageValidation.status === "confirmed"
+        ? languageValidation.requestedLanguage
+        : (languageValidation.detectedLanguage ?? "und"),
+    languageValidation,
     meetingId: state.meetingId,
-    protectedTerms,
     schemaVersion: state.schemaVersion,
     startedAt: state.startedAt,
     status: "completed",
     summary,
-    translation,
-    updatedAt: now,
-  });
-}
-
-export function markTranslationCompleted(
-  state: CompletedSummaryState,
-  summary: z.infer<typeof publicSummarySchema>,
-  attempts: number,
-  now: string,
-): CompletedSummaryState {
-  if (state.translation.status !== "pending") {
-    throw new Error("Translation is not pending");
-  }
-  return completedSummaryStateSchema.parse({
-    ...state,
-    effectiveLanguage: state.translation.targetLanguage,
-    summary,
-    translation: {
-      attempts,
-      status: "completed",
-      targetLanguage: state.translation.targetLanguage,
-    },
-    updatedAt: now,
-  });
-}
-
-export function markTranslationFailed(
-  state: CompletedSummaryState,
-  attempts: number,
-  now: string,
-): CompletedSummaryState {
-  if (state.translation.status !== "pending") {
-    throw new Error("Translation is not pending");
-  }
-  return completedSummaryStateSchema.parse({
-    ...state,
-    effectiveLanguage: state.baseLanguage,
-    summary: state.baseSummary,
-    translation: {
-      attempts,
-      status: "failed",
-      targetLanguage: state.translation.targetLanguage,
-    },
     updatedAt: now,
   });
 }

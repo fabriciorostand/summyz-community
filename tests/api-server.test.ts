@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { z } from "zod";
 
 import { createInitialAiProfile } from "../src/ai-profile.js";
 import { type ApiServerDependencies, createApiServer } from "../src/api/server.js";
@@ -6,6 +7,142 @@ import { InstallationPasswordError } from "../src/auth/installation-password.js"
 import { createLogger } from "../src/logger.js";
 
 describe("Community dashboard API", () => {
+  it("treats stored summary validation failures as internal errors in detail and export", async () => {
+    const dependencies = createDependencies("local");
+    const error = vi.fn();
+    const sensitiveDetail = "private stored transcript";
+    dependencies.logger = { ...dependencies.logger, error };
+    dependencies.analytics = {
+      getDashboard: vi.fn(async () => {
+        throw new Error("unused");
+      }),
+      getGuildCallCount: vi.fn(async () => 0),
+      getMeeting: vi.fn(async () => {
+        z.object({
+          languageValidation: z.string().refine(() => false, sensitiveDetail),
+        }).parse({ languageValidation: "invalid" });
+        throw new Error("unreachable");
+      }),
+      listMeetings: vi.fn(async () => {
+        throw new Error("unused");
+      }),
+      updateDisplayNames: vi.fn(async () => undefined),
+      updateParticipantProfiles: vi.fn(async () => undefined),
+    };
+    const app = await createApiServer(dependencies);
+
+    for (const suffix of ["", "/export"]) {
+      const response = await app.inject({
+        method: "GET",
+        url: `/api/guilds/guild-1/meetings/meeting-1${suffix}`,
+      });
+      expect(response.statusCode).toBe(500);
+      expect(response.json()).toEqual({ error: "internal_error" });
+      expect(response.body).not.toContain("languageValidation");
+      expect(response.body).not.toContain(sensitiveDetail);
+    }
+    expect(error).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(error.mock.calls)).not.toContain("languageValidation");
+    expect(JSON.stringify(error.mock.calls)).not.toContain(sensitiveDetail);
+    await app.close();
+  });
+
+  it("keeps malformed request data as a 400 validation error", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+
+    const query = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/meetings?state=unknown",
+    });
+    expect(query.statusCode).toBe(400);
+    expect(query.json()).toMatchObject({ error: "invalid_request", issues: expect.any(Array) });
+
+    await app.close();
+
+    const publicDependencies = createDependencies("public");
+    const publicApp = await createApiServer(publicDependencies);
+    const password = await publicApp.inject({
+      cookies: { summyz_session: "session-token" },
+      headers: { origin: "https://summyz.example.com" },
+      method: "PUT",
+      payload: { currentPassword: "senha anterior bastante segura", newPassword: "curta" },
+      url: "/api/access/password",
+    });
+    expect(password.statusCode).toBe(400);
+    expect(publicDependencies.passwords.change).not.toHaveBeenCalled();
+
+    const recovery = await publicApp.inject({
+      headers: {
+        origin: "https://summyz.example.com",
+        "x-summyz-recovery-token": "valid-token",
+      },
+      method: "POST",
+      payload: { newPassword: "curta" },
+      url: "/api/access/recovery",
+    });
+    expect(recovery.statusCode).toBe(400);
+    expect(publicDependencies.recovery.recover).not.toHaveBeenCalled();
+
+    const emptySession = await publicApp.inject({
+      cookies: { summyz_session: "" },
+      method: "GET",
+      url: "/api/commands",
+    });
+    expect(emptySession.statusCode).toBe(401);
+    await publicApp.close();
+  });
+
+  it("clears an empty logout cookie without calling the session store", async () => {
+    const dependencies = createDependencies("public");
+    const app = await createApiServer(dependencies);
+
+    const emptySession = await app.inject({
+      cookies: { summyz_session: "" },
+      headers: { origin: "https://summyz.example.com" },
+      method: "POST",
+      url: "/api/access/logout",
+    });
+    expect(emptySession.statusCode).toBe(204);
+    expect(emptySession.headers["set-cookie"]).toContain("summyz_session=");
+    expect(dependencies.auth.logout).not.toHaveBeenCalled();
+
+    const activeSession = await app.inject({
+      cookies: { summyz_session: "active-session" },
+      headers: { origin: "https://summyz.example.com" },
+      method: "POST",
+      url: "/api/access/logout",
+    });
+    expect(activeSession.statusCode).toBe(204);
+    expect(dependencies.auth.logout).toHaveBeenCalledExactlyOnceWith("active-session");
+    await app.close();
+  });
+
+  it("accepts a transcription language and rejects the removed translation field", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+    const { profileId: _profileId, ...body } = createInitialAiProfile("external", "pt-BR");
+    const payload = {
+      ...body,
+      language: "en",
+      transcription: { ...body.transcription, language: "pt-BR" },
+    };
+
+    const accepted = await app.inject({ method: "POST", payload, url: "/api/profiles" });
+    const rejected = await app.inject({
+      method: "POST",
+      payload: { ...payload, translation: null },
+      url: "/api/profiles",
+    });
+
+    expect(accepted.statusCode).toBe(201);
+    expect(accepted.json().transcription.language).toBe("pt-BR");
+    expect(accepted.json()).not.toHaveProperty("translation");
+    expect(rejected.statusCode).toBe(400);
+    expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledTimes(1);
+    await app.close();
+  });
+
   it("completes local setup using only a validated Discord bot token", async () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.aiProfiles.listProfiles).mockResolvedValue([]);

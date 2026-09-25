@@ -41,7 +41,6 @@ function createDraft(): SummaryDraft {
     discussedTopics: ["Novo fluxo de aprovação", "Orçamento"],
     executiveSummary: "A equipe discutiu orçamento e um novo fluxo de aprovação.",
     observations: ["Ficou pendente decidir qual ferramenta será usada."],
-    protectedTerms: ["Bruno", "Projeto inexistente"],
     tasks: [
       {
         deadlineDate: "2026-08-21",
@@ -91,12 +90,6 @@ describe("resultado estruturado do resumo", () => {
       sourceEntryIds: ["entry-1"],
       text: "Revisar o orçamento.",
     });
-  });
-
-  it("aceita para proteção somente termos que aparecem literalmente na transcrição", () => {
-    const result = validateGroundedSummary(createDraft(), transcript);
-
-    expect(result.protectedTerms).toEqual(["Bruno"]);
   });
 
   it("remove as evidências do conteúdo público e mantém tarefas sem responsável ou prazo", () => {

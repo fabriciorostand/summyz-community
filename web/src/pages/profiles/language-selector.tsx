@@ -58,9 +58,11 @@ export function nextLocalizedProfileName(
 }
 
 export function LanguageSelector({
+  label,
   onChange,
   value,
 }: {
+  label: string;
   onChange: (value: ProfileLanguage) => void;
   value: ProfileLanguage;
 }) {
@@ -73,11 +75,11 @@ export function LanguageSelector({
       language.toLocaleLowerCase("pt-BR").includes(normalized),
   );
   return (
-    <label className="flex flex-col gap-1.5">
-      <Label>Idioma do resumo</Label>
+    <div className="flex flex-col gap-1.5">
+      <Label>{label}</Label>
       <div className="grid gap-2 sm:grid-cols-[1fr_1fr]">
         <input
-          aria-label="Pesquisar idioma"
+          aria-label={`Pesquisar ${label.toLocaleLowerCase("pt-BR")}`}
           autoComplete="off"
           className="w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-[13.5px] outline-none placeholder:text-ink-dim focus:border-action"
           onChange={(event) => setQuery(event.currentTarget.value)}
@@ -86,7 +88,7 @@ export function LanguageSelector({
           value={query}
         />
         <select
-          aria-label="Idioma"
+          aria-label={label}
           className="w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-[13.5px] outline-none focus:border-action"
           onChange={(event) => {
             const selected = profileLanguages.find(
@@ -98,7 +100,7 @@ export function LanguageSelector({
         >
           {visible.map((language) => (
             <option key={language} value={language}>
-              {language === "auto" ? "auto — usa o idioma predominante" : language}
+              {language}
             </option>
           ))}
         </select>
@@ -108,6 +110,6 @@ export function LanguageSelector({
           Nenhuma outra tag corresponde à pesquisa.
         </small>
       )}
-    </label>
+    </div>
   );
 }

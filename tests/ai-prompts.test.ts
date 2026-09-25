@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
-import { aiProfileSchema, createInitialAiProfile, resolveAiProfile } from "../src/ai-profile.js";
+import {
+  aiProfileSchema,
+  canonicalizeAiProfileDefaults,
+  createInitialAiProfile,
+  localizeAiProfileDefaults,
+  resolveAiProfile,
+} from "../src/ai-profile.js";
 import {
   canonicalizeDefaultPrompt,
   createDefaultAiPrompts,
@@ -103,6 +109,79 @@ describe("AI prompts", () => {
     expect(
       localizeDefaultPrompt(previous.summaryConsolidation, "summaryConsolidation", "pt-BR", "en"),
     ).toBe(createDefaultAiPrompts("pt-BR", "en").summaryConsolidation);
+  });
+
+  it("usa o idioma fixo da transcrição nos prompts padrão ao salvar o perfil", () => {
+    const base = createInitialAiProfile("external", "pt-BR");
+    const profile = aiProfileSchema.parse({
+      ...base,
+      transcription: { ...base.transcription, language: "es" },
+    });
+
+    const canonical = canonicalizeAiProfileDefaults(profile);
+
+    expect(canonical.summary.extractionPrompt).toBe(
+      createDefaultAiPrompts("en", "es").summaryExtraction,
+    );
+    expect(canonical.summary.consolidationPrompt).toBe(
+      createDefaultAiPrompts("en", "es").summaryConsolidation,
+    );
+    expect(canonical.refinement.prompt).toBe(createDefaultAiPrompts("en", "es").refinement);
+  });
+
+  it("exibe os prompts padrão no idioma efetivo ao carregar o perfil", () => {
+    const base = createInitialAiProfile("external", "en");
+    const profile = aiProfileSchema.parse({
+      ...base,
+      transcription: { ...base.transcription, language: "pt-BR" },
+    });
+
+    const localized = localizeAiProfileDefaults(profile, "pt-BR");
+
+    expect(localized.summary.extractionPrompt).toBe(
+      createDefaultAiPrompts("pt-BR", "pt-BR").summaryExtraction,
+    );
+    expect(localized.summary.consolidationPrompt).toBe(
+      createDefaultAiPrompts("pt-BR", "pt-BR").summaryConsolidation,
+    );
+  });
+
+  it("fixa no snapshot o idioma efetivo sem alterar prompts personalizados", () => {
+    const base = createInitialAiProfile("external", "pt-BR");
+    const profile = aiProfileSchema.parse({
+      ...base,
+      refinement: { ...base.refinement, model: "review" },
+      summary: {
+        ...base.summary,
+        consolidationPrompt: "Keep this custom instruction.",
+        model: "summary",
+      },
+      transcription: { ...base.transcription, language: "en", model: "audio" },
+    });
+
+    const resolved = resolveAiProfile(profile);
+
+    expect(resolved.language).toBe("auto");
+    expect(resolved.summary.extractionPrompt).toBe(
+      createDefaultAiPrompts("en", "en").summaryExtraction,
+    );
+    expect(resolved.summary.consolidationPrompt).toBe("Keep this custom instruction.");
+  });
+
+  it("prioriza o idioma explícito do resumo sobre o idioma da transcrição", () => {
+    const base = createInitialAiProfile("external", "pt-BR");
+    const profile = aiProfileSchema.parse({
+      ...base,
+      language: "en",
+      refinement: { ...base.refinement, model: "review" },
+      summary: { ...base.summary, model: "summary" },
+      transcription: { ...base.transcription, language: "es", model: "audio" },
+    });
+    const expected = createDefaultAiPrompts("en", "en").summaryExtraction;
+
+    expect(canonicalizeAiProfileDefaults(profile).summary.extractionPrompt).toBe(expected);
+    expect(localizeAiProfileDefaults(profile, "en").summary.extractionPrompt).toBe(expected);
+    expect(resolveAiProfile(profile).summary.extractionPrompt).toBe(expected);
   });
 
   it("rejeita perfis sem os prompts persistidos", () => {

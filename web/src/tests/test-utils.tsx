@@ -225,6 +225,7 @@ export function aProfile(overrides: Partial<Profile> = {}): Profile {
     },
     transcription: {
       interSpeechSilenceMs: 700,
+      language: "auto",
       mergeMaxGapMs: 400,
       model: "openai/whisper-1",
       prompt: null,
@@ -238,7 +239,6 @@ export function aProfile(overrides: Partial<Profile> = {}): Profile {
         threshold: 0.5,
       },
     },
-    translation: null,
     ...overrides,
   } as Profile;
 }

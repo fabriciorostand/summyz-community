@@ -27,6 +27,7 @@ import {
   getErrorStatusCode,
   getKnownApiError,
   logApiFailure,
+  parseRequestInput,
   runApiDependency,
   setSessionCookie,
   wasRequestAuthenticated,
@@ -170,9 +171,10 @@ export async function createApiServer(
   });
   app.put("/api/installation/bot", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
-    const { discordBotToken } = z
-      .object({ discordBotToken: z.string().min(1) })
-      .parse(request.body);
+    const { discordBotToken } = parseRequestInput(
+      z.object({ discordBotToken: z.string().min(1) }),
+      request.body,
+    );
     const application = await dependencies.guildDirectory.inspectBotToken(discordBotToken);
     await dependencies.settings.configureDiscordBot(application.id, discordBotToken);
     return reply.status(204).send();
@@ -234,7 +236,7 @@ export async function createApiServer(
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     await dependencies.guildConfig.setGuildSettings(
       guildId,
-      guildSettingsSchema.parse(request.body),
+      parseRequestInput(guildSettingsSchema, request.body),
     );
     return reply.status(204).send();
   });
@@ -246,7 +248,7 @@ export async function createApiServer(
   });
   app.get("/api/guilds/:guildId/members", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const query = memberDirectoryPageQuerySchema.parse(request.query);
+    const query = parseRequestInput(memberDirectoryPageQuerySchema, request.query);
     return runApiDependency("discord", "list_guild_members", () =>
       dependencies.guildDirectory.listMembers(guildId, {
         page: query.page,
@@ -258,12 +260,13 @@ export async function createApiServer(
   });
   app.put("/api/guilds/:guildId/recording-permissions", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const body = z
-      .object({
+    const body = parseRequestInput(
+      z.object({
         roleIds: z.array(z.string().min(1).max(128)).max(1_000),
         userIds: z.array(z.string().min(1).max(128)).max(1_000),
-      })
-      .parse(request.body);
+      }),
+      request.body,
+    );
     const roleIds = [...new Set(body.roleIds)];
     const userIds = [...new Set(body.userIds)];
     const members = await runApiDependency("discord", "validate_recording_members", () =>
@@ -287,9 +290,10 @@ export async function createApiServer(
   });
   app.put("/api/guilds/:guildId/forum", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const forum = z
-      .object({ forumId: z.string().min(1), tagId: z.string().min(1).optional() })
-      .parse(request.body);
+    const forum = parseRequestInput(
+      z.object({ forumId: z.string().min(1), tagId: z.string().min(1).optional() }),
+      request.body,
+    );
     await dependencies.guildConfig.setSummaryForum(guildId, forum);
     return reply.status(204).send();
   });
@@ -319,7 +323,7 @@ export async function createApiServer(
   app.post("/api/profiles", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
     const profile = aiProfileSchema.parse({
-      ...profileBodySchema.parse(request.body),
+      ...parseRequestInput(profileBodySchema, request.body),
       profileId: randomUUID(),
     });
     await dependencies.aiProfiles.createProfile(profile);
@@ -327,9 +331,9 @@ export async function createApiServer(
   });
   app.put("/api/profiles/:profileId", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
-    const parameters = profileParametersSchema.parse(request.params);
+    const parameters = parseRequestInput(profileParametersSchema, request.params);
     const profile = aiProfileSchema.parse({
-      ...profileBodySchema.parse(request.body),
+      ...parseRequestInput(profileBodySchema, request.body),
       profileId: parameters.profileId,
     });
     await dependencies.aiProfiles.updateProfile(profile);
@@ -337,13 +341,13 @@ export async function createApiServer(
   });
   app.delete("/api/profiles/:profileId", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
-    const parameters = profileParametersSchema.parse(request.params);
+    const parameters = parseRequestInput(profileParametersSchema, request.params);
     await dependencies.aiProfiles.deleteProfile(parameters.profileId);
     return reply.status(204).send();
   });
   app.put("/api/guilds/:guildId/profiles/:profileId/active", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const { profileId } = profileParametersSchema.parse(request.params);
+    const { profileId } = parseRequestInput(profileParametersSchema, request.params);
     await dependencies.aiProfiles.setActiveProfile(guildId, profileId);
     return reply.status(204).send();
   });
@@ -367,22 +371,20 @@ export async function createApiServer(
   });
   app.put("/api/installation/secrets/:secretName", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
-    const parameters = z
-      .object({
-        secretName: z.enum(["openrouter_api_key"]),
-      })
-      .parse(request.params);
-    const body = z.object({ value: z.string().min(1) }).parse(request.body);
+    const parameters = parseRequestInput(
+      z.object({ secretName: z.enum(["openrouter_api_key"]) }),
+      request.params,
+    );
+    const body = parseRequestInput(z.object({ value: z.string().min(1) }), request.body);
     await dependencies.settings.setSecret(parameters.secretName, body.value);
     return reply.status(204).send();
   });
   app.delete("/api/installation/secrets/:secretName", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
-    const parameters = z
-      .object({
-        secretName: z.enum(["openrouter_api_key"]),
-      })
-      .parse(request.params);
+    const parameters = parseRequestInput(
+      z.object({ secretName: z.enum(["openrouter_api_key"]) }),
+      request.params,
+    );
     await dependencies.settings.removeSecret(parameters.secretName);
     return reply.status(204).send();
   });

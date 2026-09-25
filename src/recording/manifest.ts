@@ -49,6 +49,7 @@ const currentSummaryBase = selectedModelSchema.and(
 const currentTranscriptionBase = selectedModelSchema.and(
   z.object({
     interSpeechSilenceMs: z.number().int().min(0).max(5_000).default(0),
+    language: profileLanguageSchema.default("auto"),
     mergeMaxGapMs: z.number().int().min(0).max(30_000).optional(),
     prompt: resolvedPromptSchema.default(null),
     providerOptions: z.record(z.string().min(1), z.record(z.string().min(1), z.json())).optional(),
@@ -56,59 +57,30 @@ const currentTranscriptionBase = selectedModelSchema.and(
   }),
 );
 
-const currentTranslationBase = selectedModelSchema.and(
+export const meetingAiConfigurationSchema = z.discriminatedUnion("profileType", [
   z.object({
-    generation: generationSchema,
-    prompt: resolvedPromptSchema.default(null),
+    language: profileLanguageSchema.default("auto"),
+    profileType: z.literal("external"),
+    refinement: currentRefinementBase.and(z.object({ provider: z.literal("openrouter") })),
+    summary: currentSummaryBase.and(z.object({ provider: z.literal("openrouter") })),
+    transcription: currentTranscriptionBase.and(
+      z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
+    ),
   }),
-);
-
-export const meetingAiConfigurationSchema = z
-  .discriminatedUnion("profileType", [
-    z.object({
-      language: profileLanguageSchema.default("auto"),
-      profileType: z.literal("external"),
-      refinement: currentRefinementBase.and(z.object({ provider: z.literal("openrouter") })),
-      summary: currentSummaryBase.and(z.object({ provider: z.literal("openrouter") })),
-      transcription: currentTranscriptionBase.and(
-        z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
-      ),
-      translation: currentTranslationBase
-        .and(z.object({ provider: z.literal("openrouter") }))
-        .nullable()
-        .default(null),
-    }),
-    z.object({
-      language: profileLanguageSchema.default("auto"),
-      profileType: z.literal("local"),
-      refinement: currentRefinementBase.and(z.object({ provider: z.literal("ollama") })),
-      summary: currentSummaryBase.and(z.object({ provider: z.literal("ollama") })),
-      transcription: currentTranscriptionBase.and(
-        z.object({
-          batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
-          provider: z.literal("faster-whisper"),
-          vad: localVadSchema,
-        }),
-      ),
-      translation: currentTranslationBase
-        .and(z.object({ provider: z.literal("ollama") }))
-        .nullable()
-        .default(null),
-    }),
-  ])
-  .superRefine((configuration, context) => {
-    const translationMatchesLanguage =
-      configuration.language === "auto"
-        ? configuration.translation === null
-        : configuration.translation !== null;
-    if (!translationMatchesLanguage) {
-      context.addIssue({
-        code: "custom",
-        message: "Translation configuration does not match the selected language",
-        path: ["translation"],
-      });
-    }
-  });
+  z.object({
+    language: profileLanguageSchema.default("auto"),
+    profileType: z.literal("local"),
+    refinement: currentRefinementBase.and(z.object({ provider: z.literal("ollama") })),
+    summary: currentSummaryBase.and(z.object({ provider: z.literal("ollama") })),
+    transcription: currentTranscriptionBase.and(
+      z.object({
+        batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
+        provider: z.literal("faster-whisper"),
+        vad: localVadSchema,
+      }),
+    ),
+  }),
+]);
 
 export const segmentSchema = z.object({
   durationMs: z.number().nonnegative(),

@@ -116,7 +116,7 @@ function firstSegment(manifest: RecordingManifest): RecordingSegment {
 }
 
 describe("MeetingTranscriptionService", () => {
-  it("detecta uma vez na transcrição, persiste só a tag primária e sempre envia auto", async () => {
+  it("usa o idioma fixo na transcrição e não exige detecção do provedor", async () => {
     const root = await mkdtemp(join(tmpdir(), "summyz-meeting-language-"));
     const context = await createMeeting(root);
     const configured = createManifest({
@@ -125,11 +125,7 @@ describe("MeetingTranscriptionService", () => {
         profileType: "external",
         refinement: { model: "review", provider: "openrouter" },
         summary: { model: "summary", provider: "openrouter" },
-        transcription: { model: "stt", provider: "openrouter", vad: {} },
-        translation: {
-          model: "translation",
-          provider: "openrouter",
-        },
+        transcription: { language: "pt-BR", model: "stt", provider: "openrouter", vad: {} },
       },
       guildId: context.manifest.guildId,
       meetingId: context.manifest.meetingId,
@@ -144,10 +140,9 @@ describe("MeetingTranscriptionService", () => {
     expect(requireCurrentMeetingAiConfiguration(manifest).language).toBe("es-MX");
     const provider: TranscriptionProvider = {
       transcribe: vi.fn(async (input) => {
-        expect(input.language).toBe("auto");
+        expect(input.language).toBe("pt-BR");
         return {
           attempts: 1,
-          detectedLanguage: { language: "Portuguese", probability: 0.6 },
           pieces: [{ endedAtMs: 1_000, startedAtMs: 0, text: "Olá." }],
         };
       }),
@@ -170,7 +165,6 @@ describe("MeetingTranscriptionService", () => {
         refinement: { model: "review", provider: "openrouter" },
         summary: { model: "summary", provider: "openrouter" },
         transcription: { model: "stt", provider: "openrouter", vad: {} },
-        translation: null,
       },
       guildId: context.manifest.guildId,
       meetingId: context.manifest.meetingId,

@@ -49,13 +49,11 @@ const phaseLabels = {
     transcription: "transcription",
     refinement: "refinement",
     summary: "summary",
-    translation: "translation",
   },
   "pt-BR": {
     transcription: "transcrição",
     refinement: "refinamento",
     summary: "resumo",
-    translation: "tradução",
   },
 } satisfies Record<AppConfig["botLanguage"], Record<OpenRouterModelPhase, string>>;
 

@@ -8,7 +8,7 @@ import type { LocalExecutionPlan, PhaseExecution } from "./local-execution-polic
 import { IncompatibleOllamaModelError, requestOllamaStructured } from "./ollama-client.js";
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
-type OllamaPhase = "refinement" | "summary" | "translation";
+type OllamaPhase = "refinement" | "summary";
 
 const refinementProbeSchema = z.object({
   blocks: z.tuple([z.object({ id: z.literal("probe-1"), text: z.string().min(1) })]),
@@ -138,9 +138,6 @@ export class LocalModelManager {
     this.#ollamaBaseUrl = options.ollamaBaseUrl ?? "http://ollama:11434";
     this.#trackOllamaUse("refinement", options.configuration.refinement);
     this.#trackOllamaUse("summary", options.configuration.summary);
-    if (options.configuration.translation?.provider === "ollama") {
-      this.#trackOllamaUse("translation", options.configuration.translation);
-    }
     this.#fasterWhisperPending = options.configuration.transcription.provider === "faster-whisper";
   }
 
@@ -210,7 +207,7 @@ export class LocalModelManager {
 
   #trackOllamaUse(
     phase: OllamaPhase,
-    selection: MeetingAiConfiguration["refinement" | "summary" | "translation"],
+    selection: MeetingAiConfiguration["refinement" | "summary"],
   ): void {
     if (selection == null) return;
     if (selection.provider !== "ollama") return;
@@ -340,7 +337,7 @@ export class LocalModelManager {
   }
 
   #executionFor(phase: OllamaPhase): PhaseExecution {
-    return this.#executionPlan?.[phase === "translation" ? "summary" : phase] ?? cpuExecution();
+    return this.#executionPlan?.[phase] ?? cpuExecution();
   }
 
   async #validateOllamaModel(model: string, phase: OllamaPhase): Promise<void> {

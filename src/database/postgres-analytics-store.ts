@@ -60,7 +60,7 @@ export interface CostAnalytics {
     attemptCounts: CostAttemptCounts;
     confirmed: { amount: string; currency: string }[];
     execution: "api" | "local";
-    phase: "transcription" | "refinement" | "summary" | "translation";
+    phase: "transcription" | "refinement" | "summary";
     provider: string;
   }[];
   confirmed: { amount: string; currency: string }[];

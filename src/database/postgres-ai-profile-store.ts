@@ -12,7 +12,6 @@ const rowSchema = z.object({
   refinement: z.unknown(),
   summary: z.unknown(),
   transcription: z.unknown(),
-  translation: z.unknown().nullable(),
 });
 
 export interface AiProfileStore {
@@ -54,8 +53,8 @@ export class PostgresAiProfileStore implements AiProfileStore {
     const profile = aiProfileSchema.parse(input);
     await this.#database.query(
       `INSERT INTO ai_profiles (
-         profile_id, profile_type, name, transcription, refinement, summary, language, translation
-       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::jsonb)`,
+         profile_id, profile_type, name, transcription, refinement, summary, language
+       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7)`,
       serializeProfile(profile),
     );
   }
@@ -83,7 +82,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
   public async getActiveProfile(guildId: string): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
       `SELECT profile.profile_id, profile.profile_type, profile.name, profile.transcription,
-              profile.refinement, profile.summary, profile.language, profile.translation
+              profile.refinement, profile.summary, profile.language
        FROM guild_configurations AS guild
        JOIN ai_profiles AS profile ON profile.profile_id = guild.active_ai_profile_id
        WHERE guild.guild_id = $1`,
@@ -95,7 +94,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
   public async listProfiles(): Promise<AiProfile[]> {
     const result = await this.#database.query(
       `SELECT profile_id, profile_type, name, transcription, refinement, summary,
-              language, translation
+              language
        FROM ai_profiles
        ORDER BY profile_type, created_at, profile_id`,
     );
@@ -156,7 +155,6 @@ export class PostgresAiProfileStore implements AiProfileStore {
            refinement = $5::jsonb,
            summary = $6::jsonb,
            language = $7,
-           translation = $8::jsonb,
            updated_at = now()
        WHERE profile_id = $1 AND profile_type = $2`,
       serializeProfile(profile),
@@ -180,7 +178,6 @@ function parseProfileRow(input: unknown): AiProfile {
       refinement: row.refinement,
       summary: row.summary,
       transcription: row.transcription,
-      translation: row.translation,
     });
   } catch (error) {
     if (error instanceof z.ZodError) throw new StoredAiProfileValidationError(error);
@@ -198,6 +195,5 @@ function serializeProfile(profile: AiProfile): readonly unknown[] {
     JSON.stringify(canonical.refinement),
     JSON.stringify(canonical.summary),
     canonical.language,
-    canonical.translation === null ? null : JSON.stringify(canonical.translation),
   ];
 }

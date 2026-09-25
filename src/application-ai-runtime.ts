@@ -104,11 +104,7 @@ export class ApplicationAiRuntime {
 
   async #writeLocalReadiness(configuration: ResolvedMeetingAiConfiguration): Promise<void> {
     if (this.#installationHealth === undefined || configuration.profileType !== "local") return;
-    const ollamaModels = [
-      configuration.refinement.model,
-      configuration.summary.model,
-      ...(configuration.translation === null ? [] : [configuration.translation.model]),
-    ];
+    const ollamaModels = [configuration.refinement.model, configuration.summary.model];
     await Promise.all([
       this.#installationHealth.writeHeartbeat({
         componentId: "faster-whisper-main",
@@ -177,9 +173,6 @@ export class ApplicationAiRuntime {
       generativeModels: [
         { model: configuration.refinement.model, phase: "refinement" },
         { model: configuration.summary.model, phase: "summary" },
-        ...(configuration.translation === null
-          ? []
-          : [{ model: configuration.translation.model, phase: "translation" as const }]),
       ],
       transcriptionModel: configuration.transcription.model,
     });
@@ -257,7 +250,7 @@ export class ApplicationAiRuntime {
       costRecorder: this.createCostRecorder(manifest, "transcription"),
       device: executionPlan.transcription.device,
       fallback: executionPlan.transcription.fallback,
-      language: "auto",
+      language: selection.language,
       model: selection.model,
       prompt: selection.prompt,
       timeoutMs: this.#config.transcriptionTimeoutMs,
@@ -282,7 +275,7 @@ export class ApplicationAiRuntime {
     return new OpenRouterTranscriptionProvider({
       apiKey,
       costRecorder: this.createCostRecorder(manifest, "transcription", apiKey),
-      language: "auto",
+      language: selection.language,
       logger: this.#logger,
       maxAttempts: this.#config.transcriptionMaxAttempts,
       model: selection.model,

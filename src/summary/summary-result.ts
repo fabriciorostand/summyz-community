@@ -88,13 +88,11 @@ export const summaryDraftSchema = z.object({
   executiveSummary: z.string().trim().min(1),
   labels: artifactLabelsSchema.optional(),
   observations: z.array(z.string().trim().min(1)),
-  protectedTerms: z.array(z.string().trim().min(1)).optional(),
   tasks: z.array(groundedTaskSchema),
 });
 export type SummaryDraft = z.infer<typeof summaryDraftSchema>;
 export const generatedSummaryDraftSchema = summaryDraftSchema.extend({
   labels: artifactLabelsSchema,
-  protectedTerms: z.array(z.string().trim().min(1)),
 });
 
 export const publicSummarySchema = z.object({
@@ -114,9 +112,6 @@ export const publicSummarySchema = z.object({
   ),
 });
 export type PublicSummary = z.infer<typeof publicSummarySchema>;
-export const translatedPublicSummarySchema = publicSummarySchema.extend({
-  labels: artifactLabelsSchema,
-});
 export type PublicSummaryTask = PublicSummary["tasks"][number];
 
 function groundTask(
@@ -177,17 +172,9 @@ export function validateGroundedSummary(
   });
   const tasks = draft.tasks.flatMap((task) => groundTask(task, entriesById));
 
-  const transcriptText = [...entriesById.values()].map((entry) => entry.text).join("\n");
-  const protectedTerms = [...new Set(draft.protectedTerms ?? [])].filter((term) =>
-    transcriptText.includes(term),
-  );
-
   return summaryDraftSchema.parse({
     ...draft,
     decisions,
-    ...(draft.protectedTerms === undefined && protectedTerms.length === 0
-      ? {}
-      : { protectedTerms }),
     tasks,
   });
 }

@@ -73,6 +73,5 @@ function toRow(profile: ReturnType<typeof createInitialAiProfile>) {
     refinement: profile.refinement,
     summary: profile.summary,
     transcription: profile.transcription,
-    translation: profile.translation,
   };
 }

@@ -8,16 +8,14 @@ describe("createMeetingHistorySummary", () => {
       createMeetingHistorySummary(
         {
           attempts: 2,
-          baseLanguage: "pt",
-          baseSummary: {
-            decisions: [],
-            discussedTopics: [],
-            executiveSummary: "Resumo.",
-            observations: [],
-            tasks: [],
-          },
           completedAt: "2026-08-28T01:27:14.888Z",
           effectiveLanguage: "es-MX",
+          languageValidation: {
+            attempts: 1,
+            detectedLanguage: "es",
+            requestedLanguage: "es-MX",
+            status: "confirmed",
+          },
           meetingId: "meeting-1",
           schemaVersion: 1,
           startedAt: "2026-08-28T01:27:05.529Z",
@@ -29,12 +27,44 @@ describe("createMeetingHistorySummary", () => {
             observations: [],
             tasks: [],
           },
-          translation: { attempts: 1, status: "completed", targetLanguage: "es-MX" },
           updatedAt: "2026-08-28T01:27:14.888Z",
         },
         { botLanguage: "pt-BR" },
       ),
     ).toMatchObject({ executiveSummary: "Resumen.", language: "es-MX", status: "completed" });
+  });
+
+  it("expõe aviso somente depois de três tentativas sem confirmação", () => {
+    expect(
+      createMeetingHistorySummary(
+        {
+          attempts: 3,
+          completedAt: "2026-08-28T01:27:14.888Z",
+          effectiveLanguage: "pt",
+          languageValidation: {
+            attempts: 3,
+            detectedLanguage: "pt",
+            requestedLanguage: "en",
+            status: "unconfirmed",
+          },
+          meetingId: "meeting-1",
+          schemaVersion: 1,
+          startedAt: "2026-08-28T01:27:05.529Z",
+          status: "completed",
+          summary: {
+            decisions: [],
+            discussedTopics: [],
+            executiveSummary: "Resumo.",
+            observations: [],
+            tasks: [],
+          },
+          updatedAt: "2026-08-28T01:27:14.888Z",
+        },
+        { botLanguage: "pt-BR" },
+      ),
+    ).toMatchObject({
+      languageWarning: { detectedLanguage: "pt", requestedLanguage: "en" },
+    });
   });
 
   it("rejeita estado de resumo ainda em processamento", () => {

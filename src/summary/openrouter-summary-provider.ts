@@ -48,7 +48,6 @@ const meetingSummaryJsonSchema = {
     executiveSummary: { minLength: 1, type: "string" },
     labels: artifactLabelsJsonSchema,
     observations: { items: { minLength: 1, type: "string" }, type: "array" },
-    protectedTerms: { items: { minLength: 1, type: "string" }, type: "array" },
     tasks: {
       items: {
         additionalProperties: false,
@@ -72,15 +71,7 @@ const meetingSummaryJsonSchema = {
       type: "array",
     },
   },
-  required: [
-    "decisions",
-    "discussedTopics",
-    "executiveSummary",
-    "labels",
-    "observations",
-    "protectedTerms",
-    "tasks",
-  ],
+  required: ["decisions", "discussedTopics", "executiveSummary", "labels", "observations", "tasks"],
   type: "object",
   $defs: {
     groundedItem: {

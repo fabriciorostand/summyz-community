@@ -1,4 +1,4 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -125,6 +125,50 @@ describe("CallDetailPage", () => {
     expect(
       await screen.findByText(/Não foi possível gerar o resumo após as tentativas/),
     ).toBeInTheDocument();
+  });
+
+  it("warns when no attempt confirmed the requested summary language", async () => {
+    const detail = aMeetingDetail();
+    if (detail.summary?.status !== "completed") throw new Error("fixture must be completed");
+    getMeeting.mockResolvedValue(
+      aMeetingDetail({
+        summary: {
+          ...detail.summary,
+          languageWarning: { detectedLanguage: "pt", requestedLanguage: "en" },
+        },
+      }),
+    );
+    renderDetail();
+    const warning = await screen.findByText(
+      /Não foi possível confirmar que o resumo foi gerado em/,
+    );
+    expect(warning).toHaveTextContent(
+      "Não foi possível confirmar que o resumo foi gerado em en. Idioma identificado: pt.",
+    );
+    expect(within(warning).getByText("en").tagName).toBe("STRONG");
+    expect(within(warning).getByText("pt").tagName).toBe("STRONG");
+  });
+
+  it("omits the identified language when the warning has none", async () => {
+    const detail = aMeetingDetail();
+    if (detail.summary?.status !== "completed") throw new Error("fixture must be completed");
+    getMeeting.mockResolvedValue(
+      aMeetingDetail({
+        summary: { ...detail.summary, languageWarning: { requestedLanguage: "en" } },
+      }),
+    );
+    renderDetail();
+    const warning = await screen.findByText(
+      /Não foi possível confirmar que o resumo foi gerado em/,
+    );
+    expect(warning).toHaveTextContent("Não foi possível confirmar que o resumo foi gerado em en.");
+    expect(screen.queryByText(/Idioma identificado/)).toBeNull();
+  });
+
+  it("shows no language warning when the summary language was confirmed", async () => {
+    renderDetail();
+    await screen.findByText("A Pixelforge trava a data de lançamento na sexta.");
+    expect(screen.queryByText(/Não foi possível confirmar que o resumo/)).toBeNull();
   });
 
   it("copies the meeting id", async () => {

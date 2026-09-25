@@ -81,8 +81,7 @@ be deleted.
 
 Each server has at most one active profile, regardless of type. New servers start without one;
 until transcription, refinement, and summary have explicit models, `/record` shows an ephemeral
-warning and does not start. Selecting an explicit language also makes the translation model
-mandatory, so the profile immediately becomes incomplete until it is filled. Changing a model
+warning and does not start. Changing a model
 preserves the profile's other parameters. If the bot leaves a server, that server disappears from
 the dashboard while its persisted data is retained. Reinstalling the same bot in that server makes
 the data available again.
@@ -90,36 +89,45 @@ the data available again.
 There is no model `auto` or `openrouter/auto`. Model selection is unrestricted and Summyz never
 replaces a selected model. Local evaluation uses `recommended`, `compatible`,
 `above_recommended`, `unknown`, and `incompatible`; only `incompatible` blocks recording, while
-`above_recommended` and `unknown` produce private warnings. Language is a primary profile setting
-with a searchable catalog of BCP 47 tags and defaults to `auto`. Each phase stores its own provider,
+`above_recommended` and `unknown` produce private warnings. The profile's summary `language` and
+`transcription.language` each use a searchable catalog of BCP 47 tags and default to `auto`.
+Each phase stores its own provider,
 model, and parameters, including STT batching/options, chunk sizing, and the generation
 options `temperature`, `seed`, and `think` where applicable. Unset values are not forced by Summyz,
 preserving provider defaults.
 
-The dashboard displays the editable transcription, refinement, summary extraction, consolidation,
-and translation prompts. **No prompt** removes only the customization: Summyz always sends an
+The dashboard displays the editable transcription, refinement, summary extraction, and
+consolidation prompts. **No prompt** removes only the customization: Summyz always sends an
 immutable base prompt that pins language, structure, evidence, literal-value preservation, and
 security rules. Transcripts and editable prompts are untrusted content. Transcription defaults to
-no editable prompt. The remaining
-defaults are created in English or Brazilian Portuguese according to the installation's dashboard
-language, while asking for the summary output language selected in the profile. Changing that
-language adapts prompts that still match the previous default and preserves customized text. The
+no editable prompt. The remaining defaults are created in English or Brazilian Portuguese according
+to the installation's dashboard language. The dashboard requests summary prompt defaults for the
+effective summary language: an explicit summary `language`, or `transcription.language` when the
+summary is `auto`. Changing either setting when it changes that effective language adapts unchanged
+summary prompts that still match the previous default; customized text is preserved. The
 **Restore default** action uses the current dashboard language. Effective prompts and models are
 pinned in the meeting manifest and cannot silently change on resume.
 
-With `auto`, transcription preserves language switching, every batch contributes once to a single
-predominant primary tag, and the summary is published in that language. With an explicit tag, the
-base summary is validated and stored in the predominant language before translation. Translation is
-skipped when both exact tags match. Transcription and refinement are never translated. After
-translation retries are exhausted, Summyz publishes the base summary and sends a private DM only to
-the `/record` author; there is no public notice or DM fallback.
+With `transcription.language: auto`, transcription detects speech language and preserves language
+switching; every batch contributes once to the predominant primary language. An explicit
+`transcription.language` is passed to the transcription provider. An explicit summary `language`
+takes precedence. If summary `language` is `auto`, Summyz uses the explicit transcription language
+when available, otherwise the predominant detected language. The summary model generates directly
+in that language; there is no separate translation phase.
+
+Summyz checks the generated summary's primary language. If it cannot confirm the requested
+language, it generates the full summary again, for up to three total generations. After the third
+unconfirmed result, it publishes the last summary in the forum unchanged and shows a warning only
+in the dashboard meeting detail. No language warning or private DM is sent through Discord.
+Language detection can be inconclusive for short text; regional variants of the same primary
+language are accepted.
 
 External profiles preflight transcription modality and structured-output contracts through the
 OpenRouter catalog before recording. Local profiles load the faster-whisper checkpoint and require
 the real checkpoint to report `multilingual=true`. `tiny.en`, `base.en`, `small.en`, `medium.en`,
 equivalent converted checkpoints, and checkpoints with an unknown capability are blocked before
-audio capture or provider processing. Summyz adds no auxiliary detector and maintains no generative
-model/language compatibility catalog.
+audio capture or provider processing. Summyz adds no auxiliary transcription detector and maintains
+no generative model/language compatibility catalog. Summary output language is checked separately.
 
 Database migrations normalize profiles created before prompt keys became mandatory. Existing prompt
 text is preserved, missing transcription prompts become `null`, and missing refinement or summary
@@ -147,16 +155,11 @@ Files are saved under
 - `TRANSCRIPTION_TIMEOUT_MS`: timeout for each attempt; default `90000` ms;
 - `TRANSCRIPTION_RETRY_BASE_MS`: initial delay between retries; default `1000` ms;
 - `TRANSCRIPTION_RETRY_MAX_MS`: maximum delay between retries; default `30000` ms.
-- `TRANSLATION_MAX_ATTEMPTS`: translation attempts; default `3`;
-- `TRANSLATION_TIMEOUT_MS`: timeout per translation attempt; default `120000` ms;
-- `TRANSLATION_RETRY_BASE_MS`: initial translation retry delay; default `1000` ms;
-- `TRANSLATION_RETRY_MAX_MS`: maximum translation retry delay; default `30000` ms.
 
 The transcription phase of each profile defines:
 
 - `provider` and `model`, both required for a complete profile;
-- transcription always uses automatic detection; the profile language controls only the effective
-  summary language;
+- `language`: `auto` to detect speech language or an explicit BCP 47 tag to guide transcription;
 - `temperature`: transcription temperature;
 - word timestamps are mandatory; an incompatible external API response fails transcription instead
   of approximating from segments or the complete batch duration;

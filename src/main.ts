@@ -49,6 +49,7 @@ import { MeetingSummaryService } from "./summary/meeting-summary-service.js";
 import { OllamaSummaryProvider } from "./summary/ollama-summary-provider.js";
 import { OpenRouterSummaryProvider } from "./summary/openrouter-summary-provider.js";
 import { PublicationStore } from "./summary/publication-store.js";
+import { resolveSummaryLanguage } from "./summary/summary-language.js";
 import { SummaryStore } from "./summary/summary-store.js";
 import { configureTerminalEncoding } from "./terminal-encoding.js";
 import { MeetingTranscriptionService } from "./transcription/meeting-transcription-service.js";
@@ -59,9 +60,6 @@ import {
 } from "./transcription/speech-analyzer.js";
 import { CURRENT_TRANSCRIPTION_RECOVERY_VERSION } from "./transcription/transcription-recovery-policy.js";
 import { TranscriptionStore } from "./transcription/transcription-store.js";
-import { OllamaSummaryTranslator } from "./translation/ollama-summary-translator.js";
-import { OpenRouterSummaryTranslator } from "./translation/openrouter-summary-translator.js";
-import { SummaryTranslationService } from "./translation/summary-translation.js";
 
 const terminalEncoding = configureTerminalEncoding();
 
@@ -186,7 +184,13 @@ const summaryService = new MeetingSummaryService({
   publisher: meetingPublisher,
   refinementStore,
   resolveGenerator: async (manifest) => {
-    const selection = aiRuntime.getMeetingConfiguration(manifest).summary;
+    const configuration = aiRuntime.getMeetingConfiguration(manifest);
+    const selection = configuration.summary;
+    const language = resolveSummaryLanguage({
+      detectedLanguage: manifest.predominantLanguage,
+      summaryLanguage: configuration.language,
+      transcriptionLanguage: configuration.transcription.language,
+    });
     const apiKey =
       selection.provider === "openrouter" ? await aiRuntime.requireOpenRouterApiKey() : undefined;
     const costRecorder = aiRuntime.createCostRecorder(manifest, "summary", apiKey);
@@ -197,7 +201,7 @@ const summaryService = new MeetingSummaryService({
             costRecorder,
             extractionPrompt: selection.extractionPrompt,
             generation: selection.generation,
-            language: manifest.predominantLanguage ?? "auto",
+            language,
             model: selection.model,
             timeoutMs: config.summaryTimeoutMs,
           })
@@ -207,7 +211,7 @@ const summaryService = new MeetingSummaryService({
             costRecorder,
             extractionPrompt: selection.extractionPrompt,
             generation: selection.generation,
-            language: manifest.predominantLanguage ?? "auto",
+            language,
             logger,
             maxAttempts: config.summaryMaxAttempts,
             model: selection.model,
@@ -220,37 +224,6 @@ const summaryService = new MeetingSummaryService({
       provider,
     });
     return generator;
-  },
-  resolveTranslator: async (manifest) => {
-    const configuration = aiRuntime.getMeetingConfiguration(manifest);
-    const selection = configuration.translation;
-    if (selection === null) throw new Error("The meeting does not have a translation phase");
-    const apiKey =
-      selection.provider === "openrouter" ? await aiRuntime.requireOpenRouterApiKey() : undefined;
-    const costRecorder = aiRuntime.createCostRecorder(manifest, "translation", apiKey);
-    const translator =
-      selection.provider === "ollama"
-        ? new OllamaSummaryTranslator({
-            costRecorder,
-            generation: selection.generation,
-            model: selection.model,
-            prompt: selection.prompt,
-            timeoutMs: config.translationTimeoutMs,
-          })
-        : new OpenRouterSummaryTranslator({
-            apiKey: requireConfigured(apiKey, "OpenRouter API key"),
-            costRecorder,
-            generation: selection.generation,
-            model: selection.model,
-            prompt: selection.prompt,
-            timeoutMs: config.translationTimeoutMs,
-          });
-    return new SummaryTranslationService({
-      maxAttempts: config.translationMaxAttempts,
-      retryBaseMs: config.translationRetryBaseMs,
-      retryMaxMs: config.translationRetryMaxMs,
-      translator,
-    });
   },
   summaryStore,
   timeZone: config.summaryTimeZone,

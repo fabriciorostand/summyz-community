@@ -4,8 +4,6 @@ import {
   createSummaryState,
   markSummaryCompleted,
   markSummaryFailed,
-  markTranslationCompleted,
-  markTranslationFailed,
 } from "../src/summary/summary-state.js";
 
 describe("estado do resumo", () => {
@@ -22,16 +20,14 @@ describe("estado do resumo", () => {
       },
       2,
       "2026-08-17T10:01:00.000Z",
-      "pt",
-      "auto",
-      ["Projeto Atlas"],
+      { attempts: 1, detectedLanguage: "pt", requestedLanguage: "pt-BR", status: "confirmed" },
     );
 
     expect(completed).toMatchObject({ attempts: 2, status: "completed" });
     expect(completed.summary.decisions).toEqual(["Adotar o fluxo."]);
     expect(JSON.stringify(completed)).not.toContain("sourceEntryIds");
-    expect(completed).toMatchObject({ baseLanguage: "pt", effectiveLanguage: "pt" });
-    expect(completed.protectedTerms).toEqual(["Projeto Atlas"]);
+    expect(completed).toMatchObject({ effectiveLanguage: "pt-BR" });
+    expect(completed).not.toHaveProperty("translation");
   });
 
   it("registra falha terminal sem armazenar resposta do provedor", () => {
@@ -50,7 +46,7 @@ describe("estado do resumo", () => {
     expect(failed).not.toHaveProperty("summary");
   });
 
-  it("impede concluir ou falhar tradução quando ela não está pendente", () => {
+  it("registra o idioma detectado quando três tentativas não confirmam o solicitado", () => {
     const completed = markSummaryCompleted(
       createSummaryState("meeting-1", "2026-08-17T10:00:00.000Z"),
       {
@@ -62,15 +58,17 @@ describe("estado do resumo", () => {
       },
       1,
       "2026-08-17T10:01:00.000Z",
-      "pt",
-      "auto",
+      {
+        attempts: 3,
+        detectedLanguage: "pt",
+        requestedLanguage: "en",
+        status: "unconfirmed",
+      },
     );
 
-    expect(() =>
-      markTranslationCompleted(completed, completed.summary, 1, "2026-08-17T10:02:00.000Z"),
-    ).toThrow(/pending/i);
-    expect(() => markTranslationFailed(completed, 1, "2026-08-17T10:02:00.000Z")).toThrow(
-      /pending/i,
-    );
+    expect(completed).toMatchObject({
+      effectiveLanguage: "pt",
+      languageValidation: { attempts: 3, requestedLanguage: "en", status: "unconfirmed" },
+    });
   });
 });

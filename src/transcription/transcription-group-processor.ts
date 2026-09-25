@@ -107,7 +107,7 @@ async function transcribeSpeechGroups(
       audio: batch.audio,
       audioDurationMs: batch.audioDurationMs,
       format: "wav",
-      language: "auto",
+      language: context.manifest.aiConfiguration?.transcription.language ?? "auto",
     });
     collectLanguageEvidence(context.languageEvidence, batch, result);
     await context.persistGroup(

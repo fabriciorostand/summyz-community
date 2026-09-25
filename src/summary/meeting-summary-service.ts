@@ -4,16 +4,22 @@ import type { MeetingPublisher } from "../discord/discord-meeting-publisher.js";
 import type { RecordingManifest } from "../recording/manifest.js";
 import type { RefinementStore } from "../refinement/refinement-store.js";
 import type { TranscriptionStore } from "../transcription/transcription-store.js";
-import type { SummaryTranslationService } from "../translation/summary-translation.js";
 import type { MeetingSummaryGenerationResult } from "./meeting-summary-generator.js";
-import { createPublicSummary, type SummaryTranscriptEntry } from "./summary-result.js";
+import { resolveSummaryLanguage } from "./summary-language.js";
 import {
-  type CompletedSummaryState,
+  type SummaryLanguageValidation,
+  validateSummaryLanguage,
+} from "./summary-language-validator.js";
+import {
+  createPublicSummary,
+  type PublicSummary,
+  type SummaryTranscriptEntry,
+} from "./summary-result.js";
+import {
   createSummaryState,
   markSummaryCompleted,
   markSummaryFailed,
-  markTranslationCompleted,
-  markTranslationFailed,
+  type SummaryLanguageValidationState,
 } from "./summary-state.js";
 import type { SummaryStore } from "./summary-store.js";
 
@@ -28,16 +34,24 @@ interface MeetingSummaryServiceOptions {
   publisher: MeetingPublisher;
   refinementStore: RefinementStore;
   resolveGenerator?: (manifest: RecordingManifest) => SummaryGenerator | Promise<SummaryGenerator>;
-  resolveTranslator?: (
-    manifest: RecordingManifest,
-  ) => SummaryTranslationService | Promise<SummaryTranslationService>;
   summaryStore: SummaryStore;
   timeZone?: string;
   transcriptionStore: TranscriptionStore;
+  validateLanguage?: (
+    summary: PublicSummary,
+    expectedLanguage: string,
+  ) => SummaryLanguageValidation;
 }
 
 interface SummaryProcessingOptions {
   fallbackOnProviderFailure?: boolean;
+}
+
+interface ValidatedGeneration {
+  generationAttempts: number;
+  languageAttempts: number;
+  summary: PublicSummary;
+  validation: SummaryLanguageValidation;
 }
 
 export class MeetingSummaryService {
@@ -52,11 +66,10 @@ export class MeetingSummaryService {
   readonly #summaryStore: SummaryStore;
   readonly #transcriptionStore: TranscriptionStore;
   readonly #timeZone: string;
-  readonly #resolveTranslator:
-    | ((
-        manifest: RecordingManifest,
-      ) => SummaryTranslationService | Promise<SummaryTranslationService>)
-    | undefined;
+  readonly #validateLanguage: (
+    summary: PublicSummary,
+    expectedLanguage: string,
+  ) => SummaryLanguageValidation;
 
   public constructor(options: MeetingSummaryServiceOptions) {
     this.#generator = options.generator;
@@ -68,7 +81,7 @@ export class MeetingSummaryService {
     this.#summaryStore = options.summaryStore;
     this.#transcriptionStore = options.transcriptionStore;
     this.#timeZone = options.timeZone ?? "UTC";
-    this.#resolveTranslator = options.resolveTranslator;
+    this.#validateLanguage = options.validateLanguage ?? validateSummaryLanguage;
     if (this.#generator === undefined && this.#resolveGenerator === undefined) {
       throw new Error("A summary generator or resolver is required");
     }
@@ -89,8 +102,7 @@ export class MeetingSummaryService {
     const transcriptPath = this.#transcriptionStore.transcriptPath(manifest.meetingId);
     let state = await this.#summaryStore.tryLoad(manifest.meetingId);
     if (state?.status === "completed") {
-      const completed = await this.#translateIfPending(manifest, state);
-      await this.#publisher.publishSummary(manifest, completed.summary, transcriptPath);
+      await this.#publisher.publishSummary(manifest, state.summary, transcriptPath);
       return;
     }
     if (state?.status === "failed") {
@@ -106,24 +118,29 @@ export class MeetingSummaryService {
     await this.#summaryStore.save(state);
     this.#logger.info({ meetingId: manifest.meetingId }, "Meeting summary processing started");
 
-    let generated: MeetingSummaryGenerationResult;
+    let result: ValidatedGeneration;
+    let requestedLanguage: string;
     try {
+      requestedLanguage = resolveSummaryLanguage({
+        detectedLanguage: manifest.predominantLanguage,
+        summaryLanguage: manifest.aiConfiguration?.language ?? "auto",
+        transcriptionLanguage: manifest.aiConfiguration?.transcription.language ?? "auto",
+      });
       const generator =
         this.#resolveGenerator === undefined
           ? this.#generator
           : await this.#resolveGenerator(manifest);
       if (generator === undefined) throw new Error("The summary generator is unavailable");
-      generated = await generator.generate(
-        refinement.entries.map((entry) => ({
-          ...entry,
-          spokenAt: {
-            instant: new Date(
-              new Date(manifest.startedAt).getTime() + entry.startedAtMs,
-            ).toISOString(),
-            timeZone: this.#timeZone,
-          },
-        })),
-      );
+      const entries = refinement.entries.map((entry) => ({
+        ...entry,
+        spokenAt: {
+          instant: new Date(
+            new Date(manifest.startedAt).getTime() + entry.startedAtMs,
+          ).toISOString(),
+          timeZone: this.#timeZone,
+        },
+      }));
+      result = await this.#generateValidated(generator, entries, requestedLanguage);
     } catch (error) {
       if (!(options.fallbackOnProviderFailure ?? true)) {
         throw error;
@@ -143,86 +160,49 @@ export class MeetingSummaryService {
       return;
     }
 
+    const languageValidation = createLanguageValidationState(result, requestedLanguage);
     const completed = markSummaryCompleted(
       state,
-      createPublicSummary(generated.summary),
-      generated.attempts,
+      result.summary,
+      result.generationAttempts,
       this.#now().toISOString(),
-      manifest.predominantLanguage ?? "und",
-      manifest.aiConfiguration?.language ?? "auto",
-      generated.summary.protectedTerms ?? [],
+      languageValidation,
     );
     await this.#summaryStore.save(completed);
     this.#logger.info(
-      { attempts: generated.attempts, meetingId: manifest.meetingId },
+      { attempts: result.generationAttempts, meetingId: manifest.meetingId },
       "Meeting summary completed",
     );
-    const translated = await this.#translateIfPending(manifest, completed);
-    await this.#publisher.publishSummary(manifest, translated.summary, transcriptPath);
+    if (languageValidation.status === "unconfirmed") {
+      this.#logger.warn(
+        {
+          attempts: languageValidation.attempts,
+          meetingId: manifest.meetingId,
+          requestedLanguage,
+          validationStatus: result.validation.status,
+        },
+        "Meeting summary language could not be confirmed",
+      );
+    }
+    await this.#publisher.publishSummary(manifest, completed.summary, transcriptPath);
   }
 
-  async #translateIfPending(
-    manifest: RecordingManifest,
-    state: CompletedSummaryState,
-  ): Promise<CompletedSummaryState> {
-    if (state.translation.status !== "pending") return state;
-    try {
-      if (this.#resolveTranslator === undefined) {
-        throw new Error("The translation provider is unavailable");
+  async #generateValidated(
+    generator: SummaryGenerator,
+    entries: readonly SummaryTranscriptEntry[],
+    requestedLanguage: string,
+  ): Promise<ValidatedGeneration> {
+    let generationAttempts = 0;
+    for (let languageAttempts = 1; languageAttempts <= 3; languageAttempts += 1) {
+      const generated = await generator.generate(entries);
+      generationAttempts += generated.attempts;
+      const summary = createPublicSummary(generated.summary);
+      const validation = this.#validateLanguage(summary, requestedLanguage);
+      if (validation.status === "confirmed" || languageAttempts === 3) {
+        return { generationAttempts, languageAttempts, summary, validation };
       }
-      const translator = await this.#resolveTranslator(manifest);
-      const protectedTerms = [
-        ...manifest.participants.map((participant) => participant.displayName),
-        ...state.protectedTerms,
-        ...state.baseSummary.tasks.flatMap((task) => [
-          ...(task.ownerName === undefined ? [] : [task.ownerName]),
-          ...(task.deadlineText === undefined ? [] : [task.deadlineText]),
-        ]),
-      ];
-      const result = await translator.translate(
-        state.baseSummary,
-        state.translation.targetLanguage,
-        protectedTerms,
-      );
-      const completed = markTranslationCompleted(
-        state,
-        result.summary,
-        result.attempts,
-        this.#now().toISOString(),
-      );
-      await this.#summaryStore.save(completed);
-      this.#logger.info(
-        {
-          attempts: result.attempts,
-          meetingId: manifest.meetingId,
-          targetLanguage: state.translation.targetLanguage,
-        },
-        "Meeting summary translation completed",
-      );
-      return completed;
-    } catch (error) {
-      const failed = markTranslationFailed(
-        state,
-        Math.max(1, getAttemptCount(error)),
-        this.#now().toISOString(),
-      );
-      await this.#summaryStore.save(failed);
-      this.#logger.error(
-        {
-          attempts: failed.translation.status === "failed" ? failed.translation.attempts : 0,
-          errorType: getErrorType(error),
-          meetingId: manifest.meetingId,
-          targetLanguage: state.translation.targetLanguage,
-        },
-        "Meeting summary translation failed",
-      );
-      await this.#publisher.notifyTranslationFallback?.(
-        manifest,
-        state.translation.targetLanguage,
-        state.baseLanguage,
-      );
-      return failed;
     }
+    throw new Error("The summary generator did not produce a result");
   }
 }
 
@@ -230,6 +210,28 @@ function getAttemptCount(error: unknown): number {
   return error instanceof Error && "attempts" in error && typeof error.attempts === "number"
     ? error.attempts
     : 0;
+}
+
+function createLanguageValidationState(
+  result: ValidatedGeneration,
+  requestedLanguage: string,
+): SummaryLanguageValidationState {
+  if (result.validation.status === "confirmed") {
+    return {
+      attempts: result.languageAttempts,
+      detectedLanguage: result.validation.detectedLanguage,
+      requestedLanguage,
+      status: "confirmed",
+    };
+  }
+  return {
+    attempts: 3,
+    ...(result.validation.status === "wrong"
+      ? { detectedLanguage: result.validation.detectedLanguage }
+      : {}),
+    requestedLanguage,
+    status: "unconfirmed",
+  };
 }
 
 function getErrorType(error: unknown): string {

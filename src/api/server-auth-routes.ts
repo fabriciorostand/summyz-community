@@ -4,15 +4,21 @@ import { z } from "zod";
 import { createDefaultAiPrompts } from "../ai-prompts.js";
 import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { InstallationLoginThrottle } from "../auth/installation-login-throttle.js";
+import { installationPasswordSchema } from "../auth/installation-password.js";
 import type { ApiServerDependencies } from "./server-contracts.js";
-import { authorizeDashboard, clearSessionCookie, setSessionCookie } from "./server-support.js";
+import {
+  authorizeDashboard,
+  clearSessionCookie,
+  parseRequestInput,
+  setSessionCookie,
+} from "./server-support.js";
 
 const loginSchema = z.object({ password: z.string() });
 const changePasswordSchema = z.object({
   currentPassword: z.string(),
-  newPassword: z.string(),
+  newPassword: installationPasswordSchema,
 });
-const recoverySchema = z.object({ newPassword: z.string() });
+const recoverySchema = z.object({ newPassword: installationPasswordSchema });
 
 export function registerAuthRoutes(
   app: FastifyInstance,
@@ -47,7 +53,7 @@ export function registerAuthRoutes(
         return reply.status(404).send({ error: "not_found" });
       }
       throttle.check(request.ip);
-      const { password } = loginSchema.parse(request.body);
+      const { password } = parseRequestInput(loginSchema, request.body);
       try {
         await dependencies.passwords.authenticate(password);
       } catch (error) {
@@ -62,7 +68,9 @@ export function registerAuthRoutes(
 
   app.post("/api/access/logout", async (request, reply) => {
     const sessionToken = request.cookies.summyz_session;
-    if (sessionToken !== undefined) await dependencies.auth.logout(sessionToken);
+    if (sessionToken !== undefined && sessionToken.length > 0) {
+      await dependencies.auth.logout(sessionToken);
+    }
     clearSessionCookie(reply);
     return reply.status(204).send();
   });
@@ -72,7 +80,7 @@ export function registerAuthRoutes(
       return reply.status(404).send({ error: "not_found" });
     }
     await authorizeDashboard(request, dependencies);
-    const body = changePasswordSchema.parse(request.body);
+    const body = parseRequestInput(changePasswordSchema, request.body);
     await dependencies.passwords.change(body.currentPassword, body.newPassword);
     setSessionCookie(reply, await dependencies.auth.create());
     return reply.status(204).send();
@@ -89,8 +97,11 @@ export function registerAuthRoutes(
       if (typeof token !== "string") {
         return reply.status(403).send({ error: "invalid_recovery_token" });
       }
-      const { newPassword } = recoverySchema.parse(request.body);
-      await dependencies.recovery.recover(token, newPassword);
+      const { newPassword } = parseRequestInput(recoverySchema, request.body);
+      await dependencies.recovery.recover(
+        parseRequestInput(z.string().min(1).max(512), token),
+        newPassword,
+      );
       setSessionCookie(reply, await dependencies.auth.create());
       return reply.status(204).send();
     },
@@ -110,21 +121,23 @@ export function registerAuthRoutes(
 
   app.put("/api/settings/preferences", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
-    const preferences = z
-      .object({
+    const preferences = parseRequestInput(
+      z.object({
         dashboardLanguage: z.enum(["en", "pt-BR"]),
         dashboardTheme: z.enum(["system", "light", "dark"]),
-      })
-      .parse(request.body);
+      }),
+      request.body,
+    );
     await dependencies.settings.updatePreferences(preferences);
     return reply.status(204).send();
   });
 
   app.get("/api/ai/prompts/defaults", async (request) => {
     const access = await authorizeDashboard(request, dependencies);
-    const { summaryLanguage } = z
-      .object({ summaryLanguage: z.string().min(1).max(32) })
-      .parse(request.query);
+    const { summaryLanguage } = parseRequestInput(
+      z.object({ summaryLanguage: z.string().min(1).max(32) }),
+      request.query,
+    );
     return createDefaultAiPrompts(access.dashboardLanguage, summaryLanguage);
   });
 }
