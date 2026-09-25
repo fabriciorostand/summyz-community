@@ -90,7 +90,7 @@ There is no model `auto` or `openrouter/auto`. Model selection is unrestricted a
 replaces a selected model. Local evaluation uses `recommended`, `compatible`,
 `above_recommended`, `unknown`, and `incompatible`; only `incompatible` blocks recording, while
 `above_recommended` and `unknown` produce private warnings. The profile's summary `language` and
-`transcription.language` each use a searchable catalog of BCP 47 tags and default to `auto`.
+`transcription.language` each use a catalog of BCP 47 tags and default to `auto`.
 Each phase stores its own provider,
 model, and parameters, including STT batching/options, chunk sizing, and the generation
 options `temperature`, `seed`, and `think` where applicable. Unset values are not forced by Summyz,
