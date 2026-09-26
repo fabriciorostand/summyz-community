@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type Profile } from "../../lib/api";
-import { aProfile, renderScreen } from "../../tests/test-utils";
+import { aProfile, chooseOption, openOptions, renderScreen } from "../../tests/test-utils";
 import { profileLanguages } from "./language-selector";
 import { ProfilesPage } from "./profiles-page";
 
@@ -92,8 +92,10 @@ describe("ProfilesPage", () => {
   it("keeps only five fields in the essentials card", async () => {
     renderScreen(<ProfilesPage />);
     expect(await screen.findByLabelText("Nome do perfil")).toHaveValue("Padrão OpenRouter");
-    expect(screen.getByLabelText("Idioma da transcrição")).toHaveValue("auto");
-    expect(screen.getByLabelText("Idioma do resumo")).toHaveValue("pt-BR");
+    expect(screen.getByRole("combobox", { name: "Idioma da transcrição" })).toHaveTextContent(
+      "auto",
+    );
+    expect(screen.getByRole("combobox", { name: "Idioma do resumo" })).toHaveTextContent("pt-BR");
     expect(screen.getByLabelText("Modelo de transcrição")).toHaveValue("openai/whisper-1");
     expect(screen.getByLabelText("Modelo de resumo")).toHaveValue("anthropic/claude-sonnet-4");
   });
@@ -227,16 +229,19 @@ describe("ProfilesPage", () => {
 
   it("names the automatic option only auto in both selectors", async () => {
     renderScreen(<ProfilesPage />);
+    await screen.findByLabelText("Idioma do resumo");
     for (const label of ["Idioma da transcrição", "Idioma do resumo"]) {
-      const select = await screen.findByLabelText(label);
-      expect(within(select).getByRole("option", { name: "auto" })).toBeInTheDocument();
+      const list = await openOptions(label);
+      expect(within(list).getByRole("option", { name: "auto" })).toBeInTheDocument();
+      await userEvent.keyboard("{Escape}");
     }
     expect(screen.queryByRole("option", { name: /auto —/ })).toBeNull();
   });
 
   it("saves the transcription language independently of the summary language", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.selectOptions(await screen.findByLabelText("Idioma da transcrição"), "en");
+    await screen.findByLabelText("Idioma da transcrição");
+    await chooseOption("Idioma da transcrição", "en");
     vi.spyOn(window, "confirm").mockReturnValue(true);
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
     await waitFor(() =>
@@ -302,7 +307,7 @@ describe("ProfilesPage", () => {
     ]);
     renderScreen(<ProfilesPage />);
     await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("auto"));
-    await userEvent.selectOptions(screen.getByLabelText("Idioma da transcrição"), "en");
+    await chooseOption("Idioma da transcrição", "en");
     await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("en"));
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
     await waitFor(() =>
@@ -326,10 +331,11 @@ describe("ProfilesPage", () => {
 
   it("offers every language tag without a search box", async () => {
     renderScreen(<ProfilesPage />);
-    const summary = await screen.findByLabelText("Idioma do resumo");
-    const transcription = screen.getByLabelText("Idioma da transcrição");
-    for (const select of [summary, transcription]) {
-      expect(within(select).getAllByRole("option")).toHaveLength(profileLanguages.length);
+    await screen.findByLabelText("Idioma do resumo");
+    for (const label of ["Idioma do resumo", "Idioma da transcrição"]) {
+      const list = await openOptions(label);
+      expect(within(list).getAllByRole("option")).toHaveLength(profileLanguages.length);
+      await userEvent.keyboard("{Escape}");
     }
     expect(screen.queryByRole("searchbox")).toBeNull();
     expect(screen.queryByPlaceholderText("Pesquisar uma tag BCP 47")).toBeNull();

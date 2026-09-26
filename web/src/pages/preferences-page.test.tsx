@@ -1,8 +1,7 @@
 import { screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { aSettings, dashboardContext, renderScreen } from "../tests/test-utils";
+import { aSettings, chooseOption, dashboardContext, renderScreen } from "../tests/test-utils";
 import { PreferencesPage } from "./preferences-page";
 
 describe("PreferencesPage", () => {
@@ -17,7 +16,7 @@ describe("PreferencesPage", () => {
   it("saves the dashboard language", async () => {
     const setPreferences = vi.fn();
     renderScreen(<PreferencesPage />, { context: dashboardContext({ setPreferences }) });
-    await userEvent.selectOptions(screen.getByLabelText("Idioma do dashboard"), "en");
+    await chooseOption("Idioma do dashboard", "English");
     expect(setPreferences).toHaveBeenCalledWith({
       dashboardLanguage: "en",
       dashboardTheme: "dark",
@@ -33,7 +32,7 @@ describe("PreferencesPage", () => {
         theme: "light",
       }),
     });
-    await userEvent.selectOptions(screen.getByLabelText("Tema"), "system");
+    await chooseOption("Tema", "Seguir o sistema");
     expect(setPreferences).toHaveBeenCalledWith({
       dashboardLanguage: "en",
       dashboardTheme: "system",

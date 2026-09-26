@@ -270,16 +270,13 @@ function GuildBody({
           />
           <SelectField
             label="Canal de fórum"
-            onChange={(event) => void updateForum(event.currentTarget.value)}
+            onChange={(forumId) => void updateForum(forumId)}
+            options={[
+              { label: "Não configurado", value: "" },
+              ...resources.forums.map((item) => ({ label: item.name, value: item.id })),
+            ]}
             value={configuration.summaryForum?.forumId ?? ""}
-          >
-            <option value="">Não configurado</option>
-            {resources.forums.map((item) => (
-              <option key={item.id} value={item.id}>
-                {item.name}
-              </option>
-            ))}
-          </SelectField>
+          />
         </Card>
 
         <Card>
@@ -360,31 +357,26 @@ function GuildBody({
           <div className="grid gap-3 sm:grid-cols-2">
             <SelectField
               label="Idioma do bot"
-              onChange={(event) =>
-                void saveSettings({
-                  ...configuration.settings,
-                  botLanguage: event.currentTarget.value === "pt-BR" ? "pt-BR" : "en",
-                })
+              onChange={(botLanguage) =>
+                void saveSettings({ ...configuration.settings, botLanguage })
               }
+              options={[
+                { label: "Português (Brasil)", value: "pt-BR" },
+                { label: "English", value: "en" },
+              ]}
               value={configuration.settings.botLanguage}
-            >
-              <option value="pt-BR">Português (Brasil)</option>
-              <option value="en">English</option>
-            </SelectField>
+            />
             <SelectField
               disabled={forum === undefined}
               hint="Aplicada aos posts publicados no fórum de resumos."
               label="Tag de publicação"
-              onChange={(event) => void updateTag(event.currentTarget.value)}
+              onChange={(tagId) => void updateTag(tagId)}
+              options={[
+                { label: "Sem tag", value: "" },
+                ...(forum?.tags ?? []).map((tag) => ({ label: tag.name, value: tag.id })),
+              ]}
               value={configuration.summaryForum?.tagId ?? ""}
-            >
-              <option value="">Sem tag</option>
-              {forum?.tags.map((tag) => (
-                <option key={tag.id} value={tag.id}>
-                  {tag.name}
-                </option>
-              ))}
-            </SelectField>
+            />
           </div>
         </Disclosure>
       </div>

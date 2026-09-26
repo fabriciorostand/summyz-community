@@ -55,17 +55,27 @@ describe("Field", () => {
 });
 
 describe("SelectField", () => {
-  it("labels the select and renders its options", async () => {
+  it("labels the combobox, describes it with the hint and reports the picked value", async () => {
     const onChange = vi.fn();
     render(
-      <SelectField hint="Escolha um" label="Idioma" onChange={onChange} value="pt-BR">
-        <option value="pt-BR">Português</option>
-        <option value="en">English</option>
-      </SelectField>,
+      <SelectField
+        hint="Escolha um"
+        label="Idioma"
+        onChange={onChange}
+        options={[
+          { label: "Português", value: "pt-BR" },
+          { label: "English", value: "en" },
+        ]}
+        value="pt-BR"
+      />,
     );
-    await userEvent.selectOptions(screen.getByLabelText("Idioma"), "en");
-    expect(onChange).toHaveBeenCalled();
-    expect(screen.getByText("Escolha um")).toBeInTheDocument();
+    const combobox = screen.getByRole("combobox", { name: "Idioma" });
+    expect(combobox).toHaveAccessibleDescription("Escolha um");
+    expect(screen.getByLabelText("Idioma")).toBe(combobox);
+    await userEvent.click(combobox);
+    expect(screen.getByRole("listbox", { name: "Idioma" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("option", { name: "English" }));
+    expect(onChange).toHaveBeenCalledWith("en");
   });
 });
 
@@ -123,6 +133,23 @@ describe("Avatar", () => {
   it("falls back to initials", () => {
     render(<Avatar name="Marcela Torres" />);
     expect(screen.getByText("MT")).toBeInTheDocument();
+  });
+
+  it("keeps the neutral fallback by default", () => {
+    render(<Avatar name="Marcela Torres" />);
+    expect(screen.getByText("MT")).toHaveClass("bg-surface-inset", "text-ink-secondary");
+    expect(screen.getByText("MT")).not.toHaveClass("border");
+  });
+
+  it("outlines the fallback in the action tone so it reads on raised surfaces", () => {
+    render(<Avatar fallbackTone="action" name="Isabunda" />);
+    expect(screen.getByText("IS")).toHaveClass(
+      "border",
+      "border-action/40",
+      "bg-action-soft",
+      "text-accent",
+    );
+    expect(screen.getByText("IS")).not.toHaveClass("bg-surface-inset");
   });
 });
 

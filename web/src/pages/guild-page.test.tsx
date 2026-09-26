@@ -7,6 +7,7 @@ import {
   aGuildConfiguration,
   aGuildResources,
   aProfile,
+  chooseOption,
   dashboardContext,
   renderScreen,
 } from "../tests/test-utils";
@@ -118,8 +119,8 @@ describe("GuildPage", () => {
 
   it("changes the summary forum", async () => {
     renderGuild();
-    await screen.findByLabelText("Canal de fórum");
-    await userEvent.selectOptions(screen.getByLabelText("Canal de fórum"), "");
+    await screen.findByRole("combobox", { name: "Canal de fórum" });
+    await chooseOption("Canal de fórum", "Não configurado");
     await waitFor(() => expect(api.updateForum).toHaveBeenCalledWith("g1", null));
   });
 
@@ -128,7 +129,7 @@ describe("GuildPage", () => {
     const toggle = await screen.findByRole("button", { name: /Idioma do bot e tag de publicação/ });
     expect(toggle).toHaveTextContent("Português (Brasil) · sem tag");
     await userEvent.click(toggle);
-    await userEvent.selectOptions(screen.getByLabelText("Tag de publicação"), "t1");
+    await chooseOption("Tag de publicação", "sprint");
     await waitFor(() =>
       expect(api.updateForum).toHaveBeenCalledWith("g1", { forumId: "f1", tagId: "t1" }),
     );
@@ -152,7 +153,7 @@ describe("GuildPage", () => {
   it("changes the bot language", async () => {
     renderGuild();
     await userEvent.click(await screen.findByRole("button", { name: /Idioma do bot/ }));
-    await userEvent.selectOptions(screen.getByLabelText("Idioma do bot"), "en");
+    await chooseOption("Idioma do bot", "English");
     await waitFor(() =>
       expect(api.updateGuildSettings).toHaveBeenCalledWith("g1", {
         botLanguage: "en",
@@ -180,7 +181,7 @@ describe("GuildPage", () => {
   it("confirms a save in the header", async () => {
     renderGuild();
     await userEvent.click(await screen.findByRole("button", { name: /Idioma do bot/ }));
-    await userEvent.selectOptions(screen.getByLabelText("Idioma do bot"), "en");
+    await chooseOption("Idioma do bot", "English");
     expect(await screen.findByText("Alterações salvas")).toBeInTheDocument();
   });
 

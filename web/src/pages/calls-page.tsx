@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 
 import { Tabs } from "../components/disclosure";
 import { EmptyState, ErrorState, LoadingPanel } from "../components/states";
-import { Badge, Button, Field, SelectField } from "../components/ui";
+import { Avatar, Badge, Button, Field, SelectField } from "../components/ui";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import {
@@ -168,15 +168,14 @@ export function CallsPage() {
                 />
                 <SelectField
                   label="Conteúdo retido"
-                  onChange={(event) =>
-                    resetToFirstPage(setContentRetained)(event.currentTarget.value)
-                  }
+                  onChange={resetToFirstPage(setContentRetained)}
+                  options={[
+                    { label: "Qualquer", value: "" },
+                    { label: "Somente com conteúdo", value: "true" },
+                    { label: "Somente sem conteúdo", value: "false" },
+                  ]}
                   value={contentRetained}
-                >
-                  <option value="">Qualquer</option>
-                  <option value="true">Somente com conteúdo</option>
-                  <option value="false">Somente sem conteúdo</option>
-                </SelectField>
+                />
                 <ParticipantFilter
                   guildId={guildId}
                   onChange={resetToFirstPage(setParticipantUserId)}
@@ -281,16 +280,24 @@ function ParticipantFilter({
   return (
     <SelectField
       label="Participante"
-      onChange={(event) => onChange(event.currentTarget.value)}
+      onChange={onChange}
+      options={[
+        { label: "Qualquer", value: "" },
+        ...(participants?.items ?? []).map((participant) => ({
+          label: participant.displayName,
+          leading: (
+            <Avatar
+              avatarUrl={participant.avatarUrl}
+              fallbackTone="action"
+              name={participant.displayName}
+              size={20}
+            />
+          ),
+          value: participant.userId,
+        })),
+      ]}
       value={value}
-    >
-      <option value="">Qualquer</option>
-      {participants?.items.map((participant) => (
-        <option key={participant.userId} value={participant.userId}>
-          {participant.displayName}
-        </option>
-      ))}
-    </SelectField>
+    />
   );
 }
 

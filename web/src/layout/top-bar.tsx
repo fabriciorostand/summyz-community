@@ -1,6 +1,7 @@
-import { ChevronDown, Globe, Moon, Sun } from "lucide-react";
+import { Globe, Moon, Sun } from "lucide-react";
 import type { ReactNode } from "react";
 
+import { Select } from "../components/select";
 import { Avatar } from "../components/ui";
 import type { Guild } from "../lib/api";
 import type { ThemePreference } from "../lib/theme";
@@ -14,26 +15,21 @@ export function GuildPicker({
   onChange: (value: string) => void;
   value: string;
 }) {
-  const selected = guilds.find((guild) => guild.id === value);
-  if (selected === undefined) return null;
+  if (!guilds.some((guild) => guild.id === value)) return null;
   return (
-    <div className="relative flex items-center gap-2 rounded-lg border border-line bg-surface-raised py-1.5 pr-2 pl-2">
-      <Avatar avatarUrl={selected.iconUrl} name={selected.name} size={20} />
-      <span className="text-[12.5px] font-medium text-ink">{selected.name}</span>
-      <ChevronDown className="size-3.5 text-ink-muted" />
-      <select
-        aria-label="Servidor"
-        className="absolute inset-0 cursor-pointer opacity-0"
-        onChange={(event) => onChange(event.currentTarget.value)}
-        value={value}
-      >
-        {guilds.map((guild) => (
-          <option key={guild.id} value={guild.id}>
-            {guild.name}
-          </option>
-        ))}
-      </select>
-    </div>
+    <Select
+      aria-label="Servidor"
+      onChange={onChange}
+      options={guilds.map((guild) => ({
+        label: guild.name,
+        leading: (
+          <Avatar avatarUrl={guild.iconUrl} fallbackTone="action" name={guild.name} size={20} />
+        ),
+        value: guild.id,
+      }))}
+      value={value}
+      variant="toolbar"
+    />
   );
 }
 
@@ -45,22 +41,24 @@ export function LanguagePicker({
   value: "en" | "pt-BR";
 }) {
   return (
-    <div className="relative flex items-center gap-1.5 rounded-lg border border-line bg-surface-raised px-2 py-1.5">
-      <Globe className="size-3.5 text-ink-muted" />
-      <span className="font-mono text-[11px] text-ink-secondary">
-        {value === "pt-BR" ? "PT-BR" : "EN"}
-      </span>
-      <ChevronDown className="size-3.5 text-ink-muted" />
-      <select
-        aria-label="Idioma do dashboard"
-        className="absolute inset-0 cursor-pointer opacity-0"
-        onChange={(event) => onChange(event.currentTarget.value === "en" ? "en" : "pt-BR")}
-        value={value}
-      >
-        <option value="pt-BR">Português (Brasil)</option>
-        <option value="en">English</option>
-      </select>
-    </div>
+    <Select
+      aria-label="Idioma do dashboard"
+      onChange={onChange}
+      options={[
+        { label: "Português (Brasil)", value: "pt-BR" },
+        { label: "English", value: "en" },
+      ]}
+      renderValue={() => (
+        <>
+          <Globe className="size-3.5 text-ink-muted" />
+          <span className="font-mono text-[11px] font-normal text-ink-secondary">
+            {value === "pt-BR" ? "PT-BR" : "EN"}
+          </span>
+        </>
+      )}
+      value={value}
+      variant="toolbar"
+    />
   );
 }
 

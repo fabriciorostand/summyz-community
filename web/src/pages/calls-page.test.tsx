@@ -3,7 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api";
-import { aMeetingPage, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
+import {
+  aMeetingPage,
+  chooseOption,
+  dashboardContext,
+  guildSelection,
+  openOptions,
+  renderScreen,
+} from "../tests/test-utils";
 import { CallsPage } from "./calls-page";
 
 vi.mock("../lib/api", () => ({
@@ -103,7 +110,7 @@ describe("CallsPage", () => {
     renderScreen(<CallsPage />);
     await screen.findByText("Launch Week Sync");
     await userEvent.click(screen.getByRole("button", { name: /Avançado/ }));
-    await userEvent.selectOptions(screen.getByLabelText("Conteúdo retido"), "true");
+    await chooseOption("Conteúdo retido", "Somente com conteúdo");
     await waitFor(() =>
       expect(listMeetings).toHaveBeenLastCalledWith("g1", { contentRetained: true, page: 1 }),
     );
@@ -113,11 +120,20 @@ describe("CallsPage", () => {
     renderScreen(<CallsPage />);
     await screen.findByText("Launch Week Sync");
     await userEvent.click(screen.getByRole("button", { name: /Avançado/ }));
-    await screen.findByRole("option", { name: "PixelPaladin" });
-    await userEvent.selectOptions(screen.getByLabelText("Participante"), "u1");
+    await openOptions("Participante");
+    await userEvent.click(await screen.findByRole("option", { name: "PixelPaladin" }));
     await waitFor(() =>
       expect(listMeetings).toHaveBeenLastCalledWith("g1", { page: 1, participantUserId: "u1" }),
     );
+  });
+
+  it("outlines the initials of a participant without a photo", async () => {
+    renderScreen(<CallsPage />);
+    await screen.findByText("Launch Week Sync");
+    await userEvent.click(screen.getByRole("button", { name: /Avançado/ }));
+    await openOptions("Participante");
+    const option = await screen.findByRole("option", { name: "PixelPaladin" });
+    expect(within(option).getByText("PI")).toHaveClass("bg-action-soft", "border");
   });
 
   it("filters by date range", async () => {

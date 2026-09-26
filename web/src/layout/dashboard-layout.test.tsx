@@ -1,10 +1,10 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api";
-import { aDashboard, aGuild, aSettings } from "../tests/test-utils";
+import { aDashboard, aGuild, aSettings, chooseOption } from "../tests/test-utils";
 import { DashboardLayout, useDashboard } from "./dashboard-layout";
 
 vi.mock("../lib/api", () => ({
@@ -109,10 +109,19 @@ describe("DashboardLayout", () => {
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
+  it("outlines the initials of a server without an icon, closed and in the list", async () => {
+    renderLayout();
+    const picker = await screen.findByRole("combobox", { name: "Servidor" });
+    expect(within(picker).getByText("PI")).toHaveClass("bg-action-soft", "border");
+    await userEvent.click(picker);
+    const option = screen.getByRole("option", { name: "Pixelforge" });
+    expect(within(option).getByText("PI")).toHaveClass("bg-action-soft", "border");
+  });
+
   it("persists a language change", async () => {
     renderLayout();
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
-    await userEvent.selectOptions(screen.getByLabelText("Idioma do dashboard"), "en");
+    await chooseOption("Idioma do dashboard", "English");
     await waitFor(() => expect(api.updatePreferences).toHaveBeenCalledWith("en", "dark"));
   });
 

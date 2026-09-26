@@ -1,15 +1,16 @@
 import {
   type ButtonHTMLAttributes,
+  type ComponentProps,
   type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useId,
   useState,
 } from "react";
 
 import { initialsOf } from "../lib/format";
+import { Select } from "./select";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -85,26 +86,26 @@ export function Field({
   );
 }
 
-export function SelectField({
-  children,
+export function SelectField<T extends string>({
+  className = "",
   hint,
   label,
-  className = "",
   ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & {
-  children: ReactNode;
+}: Omit<ComponentProps<typeof Select<T>>, "aria-describedby" | "aria-labelledby" | "id"> & {
+  className?: string;
   hint?: string;
   label: string;
 }) {
   const { controlId, describedBy, hintId } = useFieldIds(hint);
+  const labelId = `${controlId}-label`;
+  // A <label for> would forward its click to the trigger and open the list, unlike a native
+  // select, so the name comes from aria-labelledby instead.
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
-      <label htmlFor={controlId}>
+      <span id={labelId}>
         <Label>{label}</Label>
-      </label>
-      <select aria-describedby={describedBy} className={controlClass} id={controlId} {...props}>
-        {children}
-      </select>
+      </span>
+      <Select aria-describedby={describedBy} aria-labelledby={labelId} id={controlId} {...props} />
       {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
     </div>
   );
@@ -240,12 +241,25 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
   );
 }
 
+type AvatarFallbackTone = "neutral" | "action";
+
+/**
+ * The neutral fallback nearly matches raised surfaces, so pickers drawn on them use the outlined
+ * action tone to keep the initials box as visible as a guild icon or user photo.
+ */
+const avatarFallbackTones: Record<AvatarFallbackTone, string> = {
+  action: "border border-action/40 bg-action-soft text-accent",
+  neutral: "bg-surface-inset text-ink-secondary",
+};
+
 export function Avatar({
   avatarUrl,
+  fallbackTone = "neutral",
   name,
   size = 28,
 }: {
   avatarUrl?: string | null;
+  fallbackTone?: AvatarFallbackTone;
   name: string;
   size?: number;
 }) {
@@ -264,7 +278,7 @@ export function Avatar({
   return (
     <span
       aria-hidden="true"
-      className="grid shrink-0 place-items-center rounded-lg bg-surface-inset text-[10.5px] font-semibold text-ink-secondary"
+      className={`grid shrink-0 place-items-center rounded-lg text-[10.5px] font-semibold ${avatarFallbackTones[fallbackTone]}`}
       style={dimension}
     >
       {initialsOf(name)}
