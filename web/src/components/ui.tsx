@@ -1,15 +1,19 @@
 import {
   type ButtonHTMLAttributes,
+  type ComponentProps,
+  type CSSProperties,
   type HTMLAttributes,
   type InputHTMLAttributes,
   type ReactNode,
-  type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
   useId,
+  useLayoutEffect,
+  useRef,
   useState,
 } from "react";
 
 import { initialsOf } from "../lib/format";
+import { Select } from "./select";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
@@ -38,7 +42,13 @@ export function Label({ children }: { children: ReactNode }) {
 }
 
 const controlClass =
-  "w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-[13.5px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action disabled:cursor-not-allowed disabled:opacity-50";
+
+/**
+ * iOS Safari zooms into any field under 16px when it gains focus, so touch screens keep 16px
+ * and the compact design size applies only with a precise pointer.
+ */
+const fieldTextClass = "text-base pointer-fine:text-[13.5px]";
 
 interface FieldIds {
   controlId: string;
@@ -79,32 +89,37 @@ export function Field({
       <label htmlFor={controlId}>
         <Label>{label}</Label>
       </label>
-      <input aria-describedby={describedBy} className={controlClass} id={controlId} {...props} />
+      <input
+        aria-describedby={describedBy}
+        className={`${controlClass} ${fieldTextClass}`}
+        id={controlId}
+        {...props}
+      />
       {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
     </div>
   );
 }
 
-export function SelectField({
-  children,
+export function SelectField<T extends string>({
+  className = "",
   hint,
   label,
-  className = "",
   ...props
-}: SelectHTMLAttributes<HTMLSelectElement> & {
-  children: ReactNode;
+}: Omit<ComponentProps<typeof Select<T>>, "aria-describedby" | "aria-labelledby" | "id"> & {
+  className?: string;
   hint?: string;
   label: string;
 }) {
   const { controlId, describedBy, hintId } = useFieldIds(hint);
+  const labelId = `${controlId}-label`;
+  // A <label for> would forward its click to the trigger and open the list, unlike a native
+  // select, so the name comes from aria-labelledby instead.
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
-      <label htmlFor={controlId}>
+      <span id={labelId}>
         <Label>{label}</Label>
-      </label>
-      <select aria-describedby={describedBy} className={controlClass} id={controlId} {...props}>
-        {children}
-      </select>
+      </span>
+      <Select aria-describedby={describedBy} aria-labelledby={labelId} id={controlId} {...props} />
       {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
     </div>
   );
@@ -124,7 +139,7 @@ export function TextAreaField({
       </label>
       <textarea
         aria-describedby={describedBy}
-        className={`${controlClass} font-mono text-[12.5px] leading-relaxed`}
+        className={`${controlClass} font-mono text-base leading-relaxed pointer-fine:text-[12.5px]`}
         id={controlId}
         {...props}
       />
@@ -240,12 +255,25 @@ export function Badge({ children, tone = "neutral" }: { children: ReactNode; ton
   );
 }
 
+type AvatarFallbackTone = "neutral" | "action";
+
+/**
+ * The neutral fallback nearly matches raised surfaces, so pickers drawn on them use the outlined
+ * action tone to keep the initials box as visible as a guild icon or user photo.
+ */
+const avatarFallbackTones: Record<AvatarFallbackTone, string> = {
+  action: "border border-action/40 bg-action-soft text-accent",
+  neutral: "bg-surface-inset text-ink-secondary",
+};
+
 export function Avatar({
   avatarUrl,
+  fallbackTone = "neutral",
   name,
   size = 28,
 }: {
   avatarUrl?: string | null;
+  fallbackTone?: AvatarFallbackTone;
   name: string;
   size?: number;
 }) {
@@ -264,7 +292,7 @@ export function Avatar({
   return (
     <span
       aria-hidden="true"
-      className="grid shrink-0 place-items-center rounded-lg bg-surface-inset text-[10.5px] font-semibold text-ink-secondary"
+      className={`grid shrink-0 place-items-center rounded-lg text-[10.5px] font-semibold ${avatarFallbackTones[fallbackTone]}`}
       style={dimension}
     >
       {initialsOf(name)}
@@ -359,6 +387,8 @@ export function InlineLink({
   );
 }
 
+const tipViewportGutter = 16;
+
 /**
  * The "?" affordance from the design: a short explanation that shows on hover or focus and
  * is wired through aria-describedby so keyboard and screen-reader users get it too.
@@ -371,15 +401,36 @@ export function HelpTip({
   placement?: "below" | "left";
 }) {
   const [open, setOpen] = useState(false);
+  const [placementStyle, setPlacementStyle] = useState<CSSProperties | undefined>(undefined);
+  const tipRef = useRef<HTMLSpanElement>(null);
   const id = useId();
+
+  // Keep the open tip at least one gutter inside the viewport, whatever side it opens to. It
+  // moves in its own box (not with a transform) so its original spot cannot widen the page.
+  useLayoutEffect(() => {
+    const tip = tipRef.current;
+    const anchor = tip?.parentElement;
+    if (!open || tip === null || anchor == null) return;
+    const rect = tip.getBoundingClientRect();
+    const limit = document.documentElement.clientWidth - tipViewportGutter;
+    let shift = rect.right > limit ? limit - rect.right : 0;
+    if (rect.left + shift < tipViewportGutter) shift = tipViewportGutter - rect.left;
+    if (shift === 0) return;
+    const left = rect.left + shift - anchor.getBoundingClientRect().left;
+    setPlacementStyle({ left: `${String(left)}px`, right: "auto" });
+    return () => setPlacementStyle(undefined);
+  }, [open]);
+  // Phones have no room beside the "?", so a left tip opens below it and grows inwards.
   const position =
-    placement === "left" ? "top-[-6px] right-[calc(100%+10px)]" : "top-[26px] left-[-8px]";
+    placement === "left"
+      ? "top-[26px] right-[-8px] sm:top-[-6px] sm:right-[calc(100%+10px)]"
+      : "top-[26px] left-[-8px]";
   return (
     <span className="relative inline-flex">
       <button
         aria-describedby={open ? id : undefined}
         aria-label="Ajuda"
-        className="grid size-[17px] cursor-help place-items-center rounded-full border border-line-strong font-mono text-[10px] font-bold text-ink-dim transition-colors hover:border-action hover:text-accent-hover focus:border-action focus:text-accent-hover focus:outline-none"
+        className="touch-target grid size-[17px] cursor-help place-items-center rounded-full border border-line-strong font-mono text-[10px] font-bold text-ink-dim transition-colors hover:border-action hover:text-accent-hover focus:border-action focus:text-accent-hover focus:outline-none"
         onBlur={() => setOpen(false)}
         onFocus={() => setOpen(true)}
         onMouseEnter={() => setOpen(true)}
@@ -390,9 +441,11 @@ export function HelpTip({
       </button>
       {open && (
         <span
-          className={`absolute z-10 w-[260px] rounded-lg border border-line-strong bg-surface-inset px-3.5 py-2.5 text-left text-[11.5px] leading-relaxed font-normal tracking-normal normal-case text-ink-secondary shadow-xl ${position}`}
+          className={`absolute z-10 w-[min(260px,calc(100vw-2rem))] rounded-lg border border-line-strong bg-surface-inset px-3.5 py-2.5 text-left text-[11.5px] leading-relaxed font-normal tracking-normal normal-case text-ink-secondary shadow-xl ${position}`}
           id={id}
+          ref={tipRef}
           role="tooltip"
+          style={placementStyle}
         >
           {children}
         </span>

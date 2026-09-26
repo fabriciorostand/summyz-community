@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   Avatar,
@@ -9,6 +9,7 @@ import {
   Card,
   Field,
   FormError,
+  HelpTip,
   Label,
   Meter,
   Notice,
@@ -55,17 +56,27 @@ describe("Field", () => {
 });
 
 describe("SelectField", () => {
-  it("labels the select and renders its options", async () => {
+  it("labels the combobox, describes it with the hint and reports the picked value", async () => {
     const onChange = vi.fn();
     render(
-      <SelectField hint="Escolha um" label="Idioma" onChange={onChange} value="pt-BR">
-        <option value="pt-BR">Português</option>
-        <option value="en">English</option>
-      </SelectField>,
+      <SelectField
+        hint="Escolha um"
+        label="Idioma"
+        onChange={onChange}
+        options={[
+          { label: "Português", value: "pt-BR" },
+          { label: "English", value: "en" },
+        ]}
+        value="pt-BR"
+      />,
     );
-    await userEvent.selectOptions(screen.getByLabelText("Idioma"), "en");
-    expect(onChange).toHaveBeenCalled();
-    expect(screen.getByText("Escolha um")).toBeInTheDocument();
+    const combobox = screen.getByRole("combobox", { name: "Idioma" });
+    expect(combobox).toHaveAccessibleDescription("Escolha um");
+    expect(screen.getByLabelText("Idioma")).toBe(combobox);
+    await userEvent.click(combobox);
+    expect(screen.getByRole("listbox", { name: "Idioma" })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("option", { name: "English" }));
+    expect(onChange).toHaveBeenCalledWith("en");
   });
 });
 
@@ -124,6 +135,23 @@ describe("Avatar", () => {
     render(<Avatar name="Marcela Torres" />);
     expect(screen.getByText("MT")).toBeInTheDocument();
   });
+
+  it("keeps the neutral fallback by default", () => {
+    render(<Avatar name="Marcela Torres" />);
+    expect(screen.getByText("MT")).toHaveClass("bg-surface-inset", "text-ink-secondary");
+    expect(screen.getByText("MT")).not.toHaveClass("border");
+  });
+
+  it("outlines the fallback in the action tone so it reads on raised surfaces", () => {
+    render(<Avatar fallbackTone="action" name="Isabunda" />);
+    expect(screen.getByText("IS")).toHaveClass(
+      "border",
+      "border-action/40",
+      "bg-action-soft",
+      "text-accent",
+    );
+    expect(screen.getByText("IS")).not.toHaveClass("bg-surface-inset");
+  });
 });
 
 describe("Meter", () => {
@@ -179,5 +207,51 @@ describe("layout primitives", () => {
     );
     expect(screen.getByText("Avançado")).toBeInTheDocument();
     expect(screen.getByText("Nome")).toBeInTheDocument();
+  });
+});
+
+describe("HelpTip", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("explains on focus and describes the trigger for screen readers", async () => {
+    render(<HelpTip>Perfis são globais.</HelpTip>);
+    const trigger = screen.getByRole("button", { name: "Ajuda" });
+    await userEvent.tab();
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Perfis são globais.");
+    expect(trigger).toHaveAccessibleDescription("Perfis são globais.");
+    await userEvent.tab();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("shifts the tip back inside a narrow viewport", async () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(320);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.getAttribute("role") === "tooltip"
+        ? new DOMRect(157, 350, 260, 80)
+        : new DOMRect(0, 0, 0, 0);
+    });
+    render(<HelpTip>Senha definida na configuração inicial.</HelpTip>);
+    await userEvent.tab();
+    // The tip ends at 417px; moved in its own box, it must end 16px before the 320px edge.
+    expect(screen.getByRole("tooltip")).toHaveStyle({ left: "44px", right: "auto" });
+  });
+
+  it("leaves a tip that already fits where it is", async () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1280);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.getAttribute("role") === "tooltip"
+        ? new DOMRect(157, 350, 260, 80)
+        : new DOMRect(0, 0, 0, 0);
+    });
+    render(<HelpTip>Cabe na tela.</HelpTip>);
+    await userEvent.tab();
+    expect(screen.getByRole("tooltip").style.left).toBe("");
   });
 });

@@ -1,4 +1,5 @@
-import { type RenderResult, render } from "@testing-library/react";
+import { type RenderResult, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 
@@ -324,4 +325,16 @@ export function renderScreen(
 
 export function renderWithRouter(children: ReactNode): RenderResult {
   return render(<MemoryRouter>{children}</MemoryRouter>);
+}
+
+/** Opens a combobox by its accessible name and returns the list it controls. */
+export async function openOptions(combobox: string): Promise<HTMLElement> {
+  await userEvent.click(screen.getByRole("combobox", { name: combobox }));
+  return screen.getByRole("listbox", { name: combobox });
+}
+
+/** Picks an option the way an operator does: open the combobox, then click the option. */
+export async function chooseOption(combobox: string, option: string): Promise<void> {
+  await openOptions(combobox);
+  await userEvent.click(screen.getByRole("option", { name: option }));
 }

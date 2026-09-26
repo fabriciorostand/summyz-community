@@ -40,12 +40,14 @@ function NavItem({
   count,
   icon,
   label,
+  onNavigate,
   to,
   tone = "neutral",
 }: {
   count?: number | undefined;
   icon: ReactNode;
   label: string;
+  onNavigate: (() => void) | undefined;
   to: string;
   tone?: "neutral" | "alert";
 }) {
@@ -59,6 +61,7 @@ function NavItem({
         }`
       }
       end={to === "/"}
+      onClick={onNavigate}
       to={to}
     >
       {({ isActive }) => (
@@ -78,29 +81,49 @@ function NavItem({
   );
 }
 
+const sidebarVariants = {
+  // The fixed rail only fits next to the content from the desktop breakpoint up.
+  drawer: "flex min-h-full w-full",
+  rail: "hidden w-[236px] shrink-0 border-r border-line-soft lg:flex",
+} as const;
+
 /** No account footer: the design has no user identity, only the installation itself. */
 export function Sidebar({
+  action,
   callCount,
+  onNavigate,
   openTaskCount,
+  variant = "rail",
 }: {
+  action?: ReactNode;
   callCount: number | undefined;
+  onNavigate?: () => void;
   openTaskCount: number | undefined;
+  variant?: keyof typeof sidebarVariants;
 }) {
   const iconClass = "size-[15px]";
   return (
-    <aside className="flex w-[236px] shrink-0 flex-col border-r border-line-soft bg-surface-rail px-3 py-4.5">
-      <div className="px-2 pt-1.5 pb-5">
+    <aside className={`flex-col bg-surface-rail px-3 py-4.5 ${sidebarVariants[variant]}`}>
+      <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-5">
         <Brand />
+        {action}
       </div>
       <NavGroup label="Reuniões">
-        <NavItem icon={<Gauge className={iconClass} />} label="Visão geral" to="/" />
         <NavItem
+          onNavigate={onNavigate}
+          icon={<Gauge className={iconClass} />}
+          label="Visão geral"
+          to="/"
+        />
+        <NavItem
+          onNavigate={onNavigate}
           count={callCount}
           icon={<PhoneCall className={iconClass} />}
           label="Calls"
           to="/history"
         />
         <NavItem
+          onNavigate={onNavigate}
           count={openTaskCount}
           icon={<SquareCheckBig className={iconClass} />}
           label="Tarefas"
@@ -109,21 +132,38 @@ export function Sidebar({
         />
       </NavGroup>
       <NavGroup label="Configuração">
-        <NavItem icon={<Server className={iconClass} />} label="Servidores" to="/servers" />
         <NavItem
+          onNavigate={onNavigate}
+          icon={<Server className={iconClass} />}
+          label="Servidores"
+          to="/servers"
+        />
+        <NavItem
+          onNavigate={onNavigate}
           icon={<SlidersHorizontal className={iconClass} />}
           label="Perfis de IA"
           to="/profiles"
         />
-        <NavItem icon={<Command className={iconClass} />} label="Comandos" to="/commands" />
+        <NavItem
+          onNavigate={onNavigate}
+          icon={<Command className={iconClass} />}
+          label="Comandos"
+          to="/commands"
+        />
       </NavGroup>
       <NavGroup label="Sistema">
         <NavItem
+          onNavigate={onNavigate}
           icon={<SlidersVertical className={iconClass} />}
           label="Preferências"
           to="/settings"
         />
-        <NavItem icon={<Settings className={iconClass} />} label="Instalação" to="/installation" />
+        <NavItem
+          onNavigate={onNavigate}
+          icon={<Settings className={iconClass} />}
+          label="Instalação"
+          to="/installation"
+        />
       </NavGroup>
     </aside>
   );

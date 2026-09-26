@@ -92,8 +92,38 @@ export function SetupPage({
   }
 
   return (
-    <main className="grid min-h-screen bg-canvas lg:grid-cols-[340px_minmax(0,1fr)]">
-      <aside className="flex flex-col border-r border-line-soft bg-surface-rail p-6">
+    <main className="grid min-h-screen grid-cols-1 bg-canvas lg:grid-cols-[340px_minmax(0,1fr)]">
+      {/* The current step comes first so phones, keyboards and screen readers reach the task
+          before the progress rail; from lg the grid puts the rail back on the left. */}
+      <section className="grid place-items-center p-7 lg:col-start-2 lg:row-start-1">
+        {step === "token" && (
+          <TokenStep
+            busy={busy}
+            failure={failure}
+            isPublic={isPublic}
+            onChange={(value) => {
+              setToken(value);
+              setFailure(undefined);
+            }}
+            onSubmit={submitToken}
+            token={token}
+          />
+        )}
+        {step === "password" && (
+          <PasswordStep
+            busy={busy}
+            failure={failure}
+            onBack={() => setStep("token")}
+            onChange={setPassword}
+            onSubmit={submitPassword}
+            password={password}
+            ready={passwordReady}
+          />
+        )}
+        {step === "done" && <DoneStep installUrl={installUrl} onComplete={onComplete} />}
+      </section>
+
+      <aside className="flex flex-col border-t border-line-soft bg-surface-rail p-6 lg:col-start-1 lg:row-start-1 lg:border-t-0 lg:border-r">
         <div className="mb-7">
           <Brand label="Summyz Community" />
         </div>
@@ -138,34 +168,6 @@ export function SetupPage({
           </div>
         </dl>
       </aside>
-
-      <section className="grid place-items-center p-7">
-        {step === "token" && (
-          <TokenStep
-            busy={busy}
-            failure={failure}
-            isPublic={isPublic}
-            onChange={(value) => {
-              setToken(value);
-              setFailure(undefined);
-            }}
-            onSubmit={submitToken}
-            token={token}
-          />
-        )}
-        {step === "password" && (
-          <PasswordStep
-            busy={busy}
-            failure={failure}
-            onBack={() => setStep("token")}
-            onChange={setPassword}
-            onSubmit={submitPassword}
-            password={password}
-            ready={passwordReady}
-          />
-        )}
-        {step === "done" && <DoneStep installUrl={installUrl} onComplete={onComplete} />}
-      </section>
     </main>
   );
 }
@@ -198,7 +200,7 @@ function TokenStep({
       <input
         aria-label="Token do bot"
         autoComplete="off"
-        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-[15px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action ${
+        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-base text-ink pointer-fine:text-[15px] outline-none transition-colors placeholder:text-ink-dim focus:border-action ${
           failure === "invalid_discord_bot_token" ? "border-fail/60" : "border-line-strong"
         }`}
         onChange={(event) => onChange(event.currentTarget.value)}
@@ -249,7 +251,7 @@ function PasswordStep({
       <input
         aria-label="Senha da instalação"
         autoComplete="new-password"
-        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-[15px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action ${border}`}
+        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-base text-ink pointer-fine:text-[15px] outline-none transition-colors placeholder:text-ink-dim focus:border-action ${border}`}
         maxLength={128}
         onChange={(event) => onChange(event.currentTarget.value)}
         placeholder="uma frase que você lembre"

@@ -58,7 +58,7 @@ export function CallDetailPage() {
         }
         breadcrumb={
           <Link
-            className="flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
+            className="touch-target flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
             to="/history"
           >
             <ArrowLeft className="size-3.5" />
@@ -66,10 +66,14 @@ export function CallDetailPage() {
           </Link>
         }
         title={
-          <span className="flex items-center gap-3">
-            {meeting?.voiceChannelName ?? "Detalhes da call"}
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="min-w-0 truncate">
+              {meeting?.voiceChannelName ?? "Detalhes da call"}
+            </span>
             {status !== undefined && (
-              <Badge tone={status.tone === "live" ? "live" : status.tone}>{status.label}</Badge>
+              <span className="shrink-0">
+                <Badge tone={status.tone === "live" ? "live" : status.tone}>{status.label}</Badge>
+              </span>
             )}
           </span>
         }
@@ -141,7 +145,7 @@ function DetailBody({
   }
   if (meeting === undefined) return <LoadingPanel label="Carregando a call…" />;
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="flex min-w-0 flex-col gap-6">
         <SummaryCard summary={meeting.summary} />
         <TranscriptCard transcript={meeting.transcript} />
@@ -333,14 +337,14 @@ function TranscriptCard({ transcript }: { transcript: string | null }) {
         <div className="flex flex-col">
           {turns.map((turn, index) => (
             <div
-              className="grid grid-cols-[72px_120px_minmax(0,1fr)] gap-3 border-b border-line-soft py-2.5 last:border-0"
+              className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 border-b border-line-soft py-2.5 last:border-0 sm:grid-cols-[72px_120px_minmax(0,1fr)] sm:gap-y-3"
               key={`${String(index)}:${turn.startedAt}`}
             >
               <span className="font-mono text-[11px] text-ink-dim">{turn.startedAt}</span>
               <span className="truncate text-[12px] font-medium text-ink-secondary">
                 {turn.speaker}
               </span>
-              <span className="text-[12.5px] leading-relaxed whitespace-pre-line text-ink">
+              <span className="col-span-2 text-[12.5px] leading-relaxed whitespace-pre-line text-ink sm:col-span-1">
                 {turn.text}
               </span>
             </div>

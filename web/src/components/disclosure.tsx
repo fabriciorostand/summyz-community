@@ -33,12 +33,15 @@ export function Disclosure({
       >
         {icon !== undefined && <span className="shrink-0 text-accent">{icon}</span>}
         <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span className="text-[13.5px] font-medium text-ink">{title}</span>
+          {/* The badge drops under the title when both do not fit side by side. */}
+          <span className="flex flex-wrap items-center gap-x-3 gap-y-1">
+            <span className="text-[13.5px] font-medium text-ink">{title}</span>
+            {badge !== undefined && <span className="sm:ml-auto">{badge}</span>}
+          </span>
           {summary !== undefined && (
             <span className="truncate text-[11.5px] text-ink-muted">{summary}</span>
           )}
         </span>
-        {badge}
         <ChevronDown
           className={`size-4 shrink-0 text-ink-muted transition-transform ${open ? "rotate-180" : ""}`}
         />
@@ -70,7 +73,7 @@ export function Tabs<T extends string>({
   return (
     <div
       aria-label={ariaLabel}
-      className="inline-flex gap-1 rounded-lg border border-line bg-surface p-1"
+      className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-surface p-1 [scrollbar-color:color-mix(in_oklab,var(--color-ink-dim)_45%,transparent)_transparent] [scrollbar-width:thin] sm:gap-1"
       role="tablist"
     >
       {options.map((option) => {
@@ -78,7 +81,7 @@ export function Tabs<T extends string>({
         return (
           <button
             aria-selected={selected}
-            className={`inline-flex items-center gap-2 rounded-md px-3 py-1.5 text-[12.5px] font-medium transition-colors ${
+            className={`inline-flex shrink-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium whitespace-nowrap transition-colors sm:px-3 ${
               selected
                 ? "bg-action text-white"
                 : "text-ink-secondary hover:bg-surface-inset hover:text-ink"

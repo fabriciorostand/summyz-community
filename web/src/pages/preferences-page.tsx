@@ -14,35 +14,30 @@ export function PreferencesPage() {
           <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">
             Idioma e tema
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelectField
               label="Idioma do dashboard"
-              onChange={(event) =>
-                setPreferences({
-                  dashboardLanguage: event.currentTarget.value === "en" ? "en" : "pt-BR",
-                  dashboardTheme: theme,
-                })
+              onChange={(dashboardLanguage) =>
+                setPreferences({ dashboardLanguage, dashboardTheme: theme })
               }
+              options={[
+                { label: "Português (Brasil)", value: "pt-BR" },
+                { label: "English", value: "en" },
+              ]}
               value={settings.dashboardLanguage}
-            >
-              <option value="pt-BR">Português (Brasil)</option>
-              <option value="en">English</option>
-            </SelectField>
+            />
             <SelectField
               label="Tema"
-              onChange={(event) => {
-                const value = event.currentTarget.value;
-                setPreferences({
-                  dashboardLanguage: settings.dashboardLanguage,
-                  dashboardTheme: value === "light" || value === "dark" ? value : "system",
-                });
-              }}
+              onChange={(dashboardTheme) =>
+                setPreferences({ dashboardLanguage: settings.dashboardLanguage, dashboardTheme })
+              }
+              options={[
+                { label: "Escuro", value: "dark" },
+                { label: "Claro", value: "light" },
+                { label: "Seguir o sistema", value: "system" },
+              ]}
               value={theme}
-            >
-              <option value="dark">Escuro</option>
-              <option value="light">Claro</option>
-              <option value="system">Seguir o sistema</option>
-            </SelectField>
+            />
           </div>
         </Card>
       </Screen>

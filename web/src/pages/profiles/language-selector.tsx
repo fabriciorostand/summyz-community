@@ -1,4 +1,5 @@
-import { Label } from "../../components/ui";
+import type { SelectOption } from "../../components/select";
+import { SelectField } from "../../components/ui";
 
 export const profileLanguages = [
   "auto",
@@ -43,6 +44,10 @@ export const profileLanguages = [
 
 export type ProfileLanguage = (typeof profileLanguages)[number];
 
+const languageOptions: readonly SelectOption<ProfileLanguage>[] = profileLanguages.map(
+  (language) => ({ label: language, value: language }),
+);
+
 /** Picks the next unused "Perfil N" so a new profile never collides with an existing name. */
 export function nextLocalizedProfileName(
   items: ReadonlyArray<{ profile: { name: string } }>,
@@ -64,28 +69,5 @@ export function LanguageSelector({
   onChange: (value: ProfileLanguage) => void;
   value: ProfileLanguage;
 }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <Label>{label}</Label>
-      <div className="grid gap-3 sm:grid-cols-2">
-        <select
-          aria-label={label}
-          className="w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-[13.5px] outline-none focus:border-action"
-          onChange={(event) => {
-            const selected = profileLanguages.find(
-              (language) => language === event.currentTarget.value,
-            );
-            if (selected !== undefined) onChange(selected);
-          }}
-          value={value}
-        >
-          {profileLanguages.map((language) => (
-            <option key={language} value={language}>
-              {language}
-            </option>
-          ))}
-        </select>
-      </div>
-    </div>
-  );
+  return <SelectField label={label} onChange={onChange} options={languageOptions} value={value} />;
 }

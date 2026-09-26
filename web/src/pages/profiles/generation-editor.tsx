@@ -20,7 +20,7 @@ export function PhaseSettings({
       phase === "refinement" ? { ...profile, refinement: next } : { ...profile, summary: next },
     );
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <Field
         label="Modelo"
         onChange={(event) => replace({ ...value, model: event.currentTarget.value || null })}
@@ -76,7 +76,7 @@ export function TranscriptionSettings({
   const value = profile.transcription;
   const replace = (next: unknown) => onChange({ ...profile, transcription: next });
   return (
-    <div className="grid gap-3 sm:grid-cols-2">
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <NumberField
         label="Intervalo máximo de união (ms)"
         min={0}

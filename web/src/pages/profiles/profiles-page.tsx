@@ -139,7 +139,7 @@ function ProfilesBody(props: ProfilesBodyProps) {
   }
   if (props.items === undefined) return <LoadingPanel label="Carregando perfis…" />;
   return (
-    <div className="grid gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
       <div className="flex flex-col gap-3">
         <Tabs
           ariaLabel="Tipo de execução"
@@ -391,7 +391,7 @@ function ProfileEditor({
             onChange={(language) => change({ ...draft, language })}
             value={draft.language}
           />
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
               label="Modelo de transcrição"
               onChange={(event) =>

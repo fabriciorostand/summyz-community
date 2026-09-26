@@ -80,6 +80,21 @@ describe("TasksPage", () => {
     expect(reloadDashboard).toHaveBeenCalled();
   });
 
+  it("completes a task from the enlarged touch area around its checkbox", async () => {
+    renderScreen(<TasksPage />);
+    const checkbox = await screen.findByRole("checkbox", { name: "Marcar a branch de release" });
+    const touchArea = checkbox.closest("label");
+    expect(touchArea).not.toBeNull();
+    if (touchArea !== null) await userEvent.click(touchArea);
+    await waitFor(() =>
+      expect(setTaskCompleted).toHaveBeenCalledWith(
+        "g1",
+        "22222222-2222-4222-8222-222222222222",
+        true,
+      ),
+    );
+  });
+
   it("rolls the checkbox back when the update fails", async () => {
     setTaskCompleted.mockRejectedValue(new Error("offline"));
     renderScreen(<TasksPage />);

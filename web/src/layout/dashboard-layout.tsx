@@ -1,10 +1,12 @@
-import { type ReactNode, useCallback, useEffect, useState } from "react";
+import { X } from "lucide-react";
+import { type ReactNode, useCallback, useEffect, useId, useMemo, useState } from "react";
 import { Outlet, useOutletContext } from "react-router-dom";
 
 import { type GuildSelection, useGuildSelection } from "../hooks/use-guild-selection";
 import { useTheme } from "../hooks/use-theme";
 import { api, type DashboardAnalytics, type DashboardSettings } from "../lib/api";
 import type { ThemePreference } from "../lib/theme";
+import { NavigationContext, type NavigationControl, NavigationDrawer } from "./navigation";
 import { Sidebar } from "./sidebar";
 import { GuildPicker, LanguagePicker, ThemeToggle } from "./top-bar";
 
@@ -48,6 +50,12 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
   const [dashboard, setDashboard] = useState<DashboardAnalytics>();
   const [dashboardError, setDashboardError] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
+  const [navigationOpen, setNavigationOpen] = useState(false);
+  const drawerId = useId();
+  const navigation = useMemo<NavigationControl>(
+    () => ({ drawerId, open: navigationOpen, show: () => setNavigationOpen(true) }),
+    [drawerId, navigationOpen],
+  );
   const { selectedGuildId } = guilds;
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is the explicit refetch trigger.
@@ -106,18 +114,21 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
             value={guilds.selectedGuildId}
           />
         )}
-        <LanguagePicker
-          onChange={(dashboardLanguage) =>
-            savePreferences({ dashboardLanguage, dashboardTheme: theme.preference })
-          }
-          value={settings.dashboardLanguage}
-        />
-        <ThemeToggle
-          onChange={(dashboardTheme) =>
-            savePreferences({ dashboardLanguage: settings.dashboardLanguage, dashboardTheme })
-          }
-          value={theme.preference}
-        />
+        {/* Phones keep only the guild context; language and theme stay in Preferências. */}
+        <div className="hidden items-center gap-2 sm:flex">
+          <LanguagePicker
+            onChange={(dashboardLanguage) =>
+              savePreferences({ dashboardLanguage, dashboardTheme: theme.preference })
+            }
+            value={settings.dashboardLanguage}
+          />
+          <ThemeToggle
+            onChange={(dashboardTheme) =>
+              savePreferences({ dashboardLanguage: settings.dashboardLanguage, dashboardTheme })
+            }
+            value={theme.preference}
+          />
+        </div>
       </>
     ),
     dashboard,
@@ -134,11 +145,37 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
   };
 
   return (
-    <div className="flex min-h-screen bg-canvas text-ink">
-      <Sidebar callCount={dashboard?.totalCalls} openTaskCount={dashboard?.openTaskCount} />
-      <div className="flex min-w-0 flex-1 flex-col">
-        <Outlet context={context} />
+    <NavigationContext.Provider value={navigation}>
+      <div className="flex min-h-screen bg-canvas text-ink">
+        <Sidebar callCount={dashboard?.totalCalls} openTaskCount={dashboard?.openTaskCount} />
+        <div className="flex min-w-0 flex-1 flex-col">
+          <Outlet context={context} />
+        </div>
       </div>
-    </div>
+      <NavigationDrawer
+        id={drawerId}
+        onClose={() => setNavigationOpen(false)}
+        open={navigationOpen}
+      >
+        {(close) => (
+          <Sidebar
+            action={
+              <button
+                aria-label="Fechar menu"
+                className="grid size-10 shrink-0 place-items-center rounded-lg text-ink-muted transition-colors hover:bg-surface-inset hover:text-ink"
+                onClick={close}
+                type="button"
+              >
+                <X className="size-4" />
+              </button>
+            }
+            callCount={dashboard?.totalCalls}
+            onNavigate={close}
+            openTaskCount={dashboard?.openTaskCount}
+            variant="drawer"
+          />
+        )}
+      </NavigationDrawer>
+    </NavigationContext.Provider>
   );
 }
