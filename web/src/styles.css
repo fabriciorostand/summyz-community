@@ -62,7 +62,8 @@
   --color-ink: #14161f;
   --color-ink-secondary: #565b6e;
   --color-ink-muted: #5f6478;
-  --color-ink-dim: #9297ab;
+  /* Darkened from #9297ab so hints and placeholders reach 4.5:1 on every light surface. */
+  --color-ink-dim: #62677b;
 
   --color-ok: #177049;
   --color-ok-soft: #e3f3ea;
@@ -106,6 +107,24 @@ body {
   letter-spacing: 0.18em;
   line-height: 1;
   text-transform: uppercase;
+}
+
+/*
+ * Small links and icon buttons keep their look but get an invisible hit area of at least
+ * 44x44px, the ergonomic touch target, centred on the control.
+ */
+@utility touch-target {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, 2.75rem);
+    height: max(100%, 2.75rem);
+    transform: translate(-50%, -50%);
+  }
 }
 
 @keyframes summyz-pulse {

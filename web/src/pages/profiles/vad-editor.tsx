@@ -20,7 +20,7 @@ export function VadEditor({
         label="Detectar presença de voz"
         onChange={(enabled) => replace({ ...vad, enabled })}
       />
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <NumberField
           hint="Probabilidade mínima para iniciar uma região de fala."
           label="Limiar de fala"

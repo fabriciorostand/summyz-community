@@ -45,7 +45,7 @@ export function InstallationPage() {
     <>
       <TopBar title="Instalação" />
       <Screen>
-        <div className="grid items-start gap-4 xl:grid-cols-2">
+        <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
             <DiscordApplicationCard
               applicationId={settings.discordApplicationId}
@@ -175,7 +175,7 @@ function ApplicationId({ value }: { value: string | null }) {
       <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{value}</span>
       <button
         aria-label="Copiar Application ID"
-        className="grid size-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-inset hover:text-ink"
+        className="touch-target grid size-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-inset hover:text-ink"
         onClick={() => {
           void navigator.clipboard.writeText(value).then(
             () => setCopied(true),

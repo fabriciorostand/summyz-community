@@ -213,7 +213,7 @@ function OwnerChip({
   return (
     <button
       aria-pressed={active}
-      className={`inline-flex items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12.5px] transition-colors ${
+      className={`inline-flex max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12.5px] transition-colors ${
         active
           ? "border-action bg-action-soft text-accent"
           : "border-line bg-surface-raised text-ink-secondary hover:text-ink"
@@ -222,7 +222,7 @@ function OwnerChip({
       type="button"
     >
       {avatarUrl !== undefined && <Avatar avatarUrl={avatarUrl} name={label} size={18} />}
-      {label}
+      <span className="min-w-0 truncate">{label}</span>
       <span className="font-mono text-[10px] text-ink-dim">{count}</span>
     </button>
   );
@@ -237,9 +237,9 @@ function OwnerSection({
 }) {
   return (
     <Card>
-      <div className="mb-3 flex items-center gap-2.5">
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
         <Avatar avatarUrl={group.avatarUrl} name={group.name} size={24} />
-        <span className="text-[13.5px] font-medium text-ink">{group.name}</span>
+        <span className="min-w-0 truncate text-[13.5px] font-medium text-ink">{group.name}</span>
         <span className="label-mono text-ink-muted">{group.openCount} abertas</span>
         {group.overdueCount > 0 && <Badge tone="fail">{group.overdueCount} atrasada</Badge>}
       </div>
@@ -261,32 +261,37 @@ function TaskRow({
 }) {
   const completed = task.completedAt !== null;
   return (
-    <div className="flex items-center gap-3 border-b border-line-soft py-2.5 last:border-0">
-      <input
-        aria-label={task.text}
-        checked={completed}
-        className="size-4 shrink-0 accent-action"
-        onChange={() => void onToggle(task)}
-        type="checkbox"
-      />
+    // Phones put the call link and the deadline under the task text; wider screens keep one row.
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 border-b border-line-soft py-2.5 last:border-0 sm:flex sm:items-center">
+      <label className="touch-target flex shrink-0 cursor-pointer pt-0.5 sm:pt-0">
+        <input
+          aria-label={task.text}
+          checked={completed}
+          className="size-4 accent-action"
+          onChange={() => void onToggle(task)}
+          type="checkbox"
+        />
+      </label>
       <span
-        className={`min-w-0 flex-1 text-[12.5px] ${completed ? "text-ink-dim line-through" : "text-ink"}`}
+        className={`min-w-0 text-[12.5px] sm:flex-1 ${completed ? "text-ink-dim line-through" : "text-ink"}`}
       >
         {task.text}
       </span>
-      <Link
-        className="shrink-0 truncate text-[11.5px] text-accent hover:text-accent-hover"
-        to={`/history/${task.meetingId}`}
-      >
-        {task.voiceChannelName ?? task.meetingId}
-      </Link>
-      <span
-        className={`label-mono w-32 shrink-0 text-right ${
-          task.overdue && !completed ? "text-fail" : "text-ink-dim"
-        }`}
-      >
-        {formatDeadline(task, task.deadlineTimeZone ?? "America/Sao_Paulo")}
-      </span>
+      <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:contents">
+        <Link
+          className="touch-target min-w-0 truncate text-[11.5px] text-accent hover:text-accent-hover sm:shrink-0"
+          to={`/history/${task.meetingId}`}
+        >
+          {task.voiceChannelName ?? task.meetingId}
+        </Link>
+        <span
+          className={`label-mono shrink-0 sm:w-32 sm:text-right ${
+            task.overdue && !completed ? "text-fail" : "text-ink-dim"
+          }`}
+        >
+          {formatDeadline(task, task.deadlineTimeZone ?? "America/Sao_Paulo")}
+        </span>
+      </div>
     </div>
   );
 }

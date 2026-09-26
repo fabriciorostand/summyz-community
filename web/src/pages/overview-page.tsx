@@ -94,23 +94,26 @@ function OverviewBody({
   }
   if (dashboard === undefined) return null;
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-w-0 flex-col gap-6">
         {dashboard.liveMeeting != null && <LiveCard liveMeeting={dashboard.liveMeeting} />}
         <div>
           <div className="mb-3 flex items-center gap-3">
             <span className="label-mono text-ink-muted">Período · {periodLabels[period]}</span>
             <span className="h-px flex-1 bg-line-soft" />
-            <Tabs
-              ariaLabel="Período"
-              onChange={setPeriod}
-              options={[
-                { label: "30d", value: "30d" },
-                { label: "90d", value: "90d" },
-                { label: "Tudo", value: "all" },
-              ]}
-              value={period}
-            />
+            {/* The period tabs keep their width; the label wraps instead. */}
+            <div className="shrink-0">
+              <Tabs
+                ariaLabel="Período"
+                onChange={setPeriod}
+                options={[
+                  { label: "30d", value: "30d" },
+                  { label: "90d", value: "90d" },
+                  { label: "Tudo", value: "all" },
+                ]}
+                value={period}
+              />
+            </div>
           </div>
           <MetricsCard dashboard={dashboard} />
         </div>
@@ -214,7 +217,7 @@ function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-4">
-        <div className="grid flex-1 grid-cols-3 gap-6">
+        <div className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-6">
           <Metric
             delta={dashboard.calls.deltaPercentage}
             label="Calls"
@@ -295,7 +298,7 @@ function Metric({
   return (
     <div>
       <div className="label-mono text-ink-muted">{label}</div>
-      <div className="mt-2 flex items-baseline gap-2">
+      <div className="mt-2 flex flex-wrap items-baseline gap-x-2 gap-y-1">
         <strong className="font-mono text-[26px] leading-none font-medium tracking-tight whitespace-nowrap text-ink">
           {value}
         </strong>
@@ -486,7 +489,7 @@ function TaskPreview({ guildId, timeZone }: { guildId: string; timeZone: string 
   if (tasks === undefined) return <LoadingPanel label="Carregando tarefas…" />;
   const groups = groupByOwner(tasks).slice(0, 3);
   return (
-    <div className="grid gap-3 md:grid-cols-3">
+    <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       {groups.map((group) => (
         <div className="rounded-lg border border-line bg-surface-raised p-3" key={group.key}>
           <div className="mb-2.5 flex items-center gap-2">
@@ -541,7 +544,10 @@ function RecentCallsCard({ guildId }: { guildId: string }) {
     <Card>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">Últimas calls</h2>
-        <Link className="text-[12.5px] text-accent hover:text-accent-hover" to="/history">
+        <Link
+          className="touch-target text-[12.5px] text-accent hover:text-accent-hover"
+          to="/history"
+        >
           Histórico
         </Link>
       </div>

@@ -14,7 +14,7 @@ export function PreferencesPage() {
           <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">
             Idioma e tema
           </h2>
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelectField
               label="Idioma do dashboard"
               onChange={(dashboardLanguage) =>

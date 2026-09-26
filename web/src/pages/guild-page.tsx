@@ -86,7 +86,7 @@ export function GuildPage() {
         breadcrumb={
           <>
             <Link
-              className="flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
+              className="touch-target flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
               to="/servers"
             >
               <ArrowLeft className="size-3.5" />
@@ -210,14 +210,14 @@ function GuildBody({
   const memberCountsUnavailable = resources.memberCounts?.status === "unavailable";
 
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="flex min-w-0 flex-col gap-4">
         <RailLabel>O essencial</RailLabel>
         <Card>
           <SectionHeading
             action={
               <Link
-                className="flex shrink-0 items-center gap-1 text-[12.5px] text-accent hover:text-accent-hover"
+                className="touch-target flex shrink-0 items-center gap-1 text-[12.5px] text-accent hover:text-accent-hover"
                 to="/profiles"
               >
                 Gerenciar perfis
@@ -354,7 +354,7 @@ function GuildBody({
           } · ${selectedTag === undefined ? "sem tag" : `tag ${selectedTag.name}`}`}
           title="Idioma do bot e tag de publicação"
         >
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelectField
               label="Idioma do bot"
               onChange={(botLanguage) =>

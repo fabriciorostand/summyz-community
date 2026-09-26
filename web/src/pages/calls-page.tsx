@@ -153,7 +153,7 @@ export function CallsPage() {
               </Button>
             </div>
             {advancedOpen && (
-              <div className="grid gap-3 rounded-xl border border-line bg-surface p-4 sm:grid-cols-2 xl:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 rounded-xl border border-line bg-surface p-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Field
                   label="De"
                   onChange={(event) => resetToFirstPage(setDateFrom)(event.currentTarget.value)}
@@ -339,8 +339,8 @@ function CallsBody({
     );
   }
   return (
-    <div className="overflow-hidden rounded-xl border border-line bg-surface">
-      <div className="label-mono grid grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_90px_28px] gap-4 border-b border-line-soft px-4 py-3 text-ink-muted">
+    <div className="flex flex-col gap-3 md:gap-0 md:overflow-hidden md:rounded-xl md:border md:border-line md:bg-surface">
+      <div className="label-mono hidden grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_90px_28px] gap-4 border-b border-line-soft px-4 py-3 text-ink-muted md:grid">
         <span>Quando</span>
         <span>Canal</span>
         <span>Participantes · tempo de fala</span>
@@ -366,16 +366,16 @@ function CallRow({
   const withTalkTime = participants.filter((participant) => participant.percentage !== null);
   return (
     <Link
-      className="grid grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_90px_28px] items-center gap-4 border-b border-line-soft px-4 py-3.5 transition-colors last:border-0 hover:bg-surface-raised"
+      className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 rounded-xl border border-line bg-surface p-4 transition-colors [grid-template-areas:'when_duration'_'channel_channel'_'people_people'] hover:bg-surface-raised md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_90px_28px] md:gap-y-4 md:rounded-none md:border-0 md:border-b md:border-line-soft md:bg-transparent md:px-4 md:py-3.5 md:[grid-template-areas:'when_channel_people_duration_chevron'] md:last:border-0"
       to={`/history/${meeting.meetingId}`}
     >
-      <div className="flex flex-col gap-1.5">
+      <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 [grid-area:when] md:flex-col md:items-start">
         <Badge tone={status.tone === "live" ? "live" : status.tone}>{status.label}</Badge>
         <span className="font-mono text-[10.5px] text-ink-dim">
           {formatDate(meeting.startedAt, timeZone)}
         </span>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 [grid-area:channel]">
         <div className="truncate text-[13.5px] font-medium text-ink">
           {meeting.voiceChannelName ?? "Informação indisponível"}
         </div>
@@ -385,7 +385,7 @@ function CallRow({
             : `perfil ${meeting.aiProfile.name}`}
         </div>
       </div>
-      <div className="min-w-0">
+      <div className="min-w-0 [grid-area:people]">
         {withTalkTime.length === 0 ? (
           <span className="text-[11.5px] text-ink-dim">
             {participants.length === 0 ? "Informação indisponível" : "tempo de fala indisponível"}
@@ -416,10 +416,10 @@ function CallRow({
           </>
         )}
       </div>
-      <span className="text-right font-mono text-[12px] text-ink-secondary">
+      <span className="text-right font-mono text-[12px] text-ink-secondary [grid-area:duration]">
         {meeting.durationMs === null ? "—" : formatDuration(meeting.durationMs)}
       </span>
-      <ChevronRight className="size-4 text-ink-dim" />
+      <ChevronRight className="hidden size-4 text-ink-dim [grid-area:chevron] md:block" />
     </Link>
   );
 }

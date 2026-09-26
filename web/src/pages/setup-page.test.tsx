@@ -77,6 +77,18 @@ describe("SetupPage in local mode", () => {
   });
 });
 
+describe("SetupPage reading order", () => {
+  it("puts the current step before the progress rail", () => {
+    renderSetup("local");
+    const form = screen.getByRole("button", { name: "Concluir" }).closest("form");
+    const rail = screen.getByRole("complementary");
+    expect(form).not.toBeNull();
+    if (form !== null) {
+      expect(form.compareDocumentPosition(rail) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    }
+  });
+});
+
 describe("SetupPage in public mode", () => {
   it("keeps the claim in memory and strips it from the address bar", async () => {
     const replaceState = vi.spyOn(window.history, "replaceState");

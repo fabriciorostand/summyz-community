@@ -1,6 +1,6 @@
 import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   Avatar,
@@ -9,6 +9,7 @@ import {
   Card,
   Field,
   FormError,
+  HelpTip,
   Label,
   Meter,
   Notice,
@@ -206,5 +207,51 @@ describe("layout primitives", () => {
     );
     expect(screen.getByText("Avançado")).toBeInTheDocument();
     expect(screen.getByText("Nome")).toBeInTheDocument();
+  });
+});
+
+describe("HelpTip", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("explains on focus and describes the trigger for screen readers", async () => {
+    render(<HelpTip>Perfis são globais.</HelpTip>);
+    const trigger = screen.getByRole("button", { name: "Ajuda" });
+    await userEvent.tab();
+    expect(trigger).toHaveFocus();
+    expect(screen.getByRole("tooltip")).toHaveTextContent("Perfis são globais.");
+    expect(trigger).toHaveAccessibleDescription("Perfis são globais.");
+    await userEvent.tab();
+    expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
+  });
+
+  it("shifts the tip back inside a narrow viewport", async () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(320);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.getAttribute("role") === "tooltip"
+        ? new DOMRect(157, 350, 260, 80)
+        : new DOMRect(0, 0, 0, 0);
+    });
+    render(<HelpTip>Senha definida na configuração inicial.</HelpTip>);
+    await userEvent.tab();
+    // The tip ends at 417px; moved in its own box, it must end 16px before the 320px edge.
+    expect(screen.getByRole("tooltip")).toHaveStyle({ left: "44px", right: "auto" });
+  });
+
+  it("leaves a tip that already fits where it is", async () => {
+    vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(1280);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return this.getAttribute("role") === "tooltip"
+        ? new DOMRect(157, 350, 260, 80)
+        : new DOMRect(0, 0, 0, 0);
+    });
+    render(<HelpTip>Cabe na tela.</HelpTip>);
+    await userEvent.tab();
+    expect(screen.getByRole("tooltip").style.left).toBe("");
   });
 });
