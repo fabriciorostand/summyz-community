@@ -130,6 +130,12 @@ describe("OverviewPage", () => {
     expect(screen.getByText("58%")).toBeInTheDocument();
   });
 
+  it("labels the period section without repeating the range the tabs already show", async () => {
+    renderScreen(<OverviewPage />);
+    expect(await screen.findByText("Período")).toBeInTheDocument();
+    expect(screen.queryByText(/Últimos|Todo o histórico/)).toBeNull();
+  });
+
   it("changes the period when another range is picked", async () => {
     const setPeriod = vi.fn();
     renderScreen(<OverviewPage />, { context: dashboardContext({ setPeriod }) });

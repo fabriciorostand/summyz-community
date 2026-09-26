@@ -65,6 +65,12 @@ describe("ServersPage", () => {
     expect(reload).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps the refresh button at the start when the header wraps", () => {
+    renderScreen(<ServersPage />);
+    const button = screen.getByRole("button", { name: /Atualizar lista/ });
+    expect(button.parentElement).not.toHaveClass("ml-auto");
+  });
+
   it("explains that the bot decides the list when it is in no server", async () => {
     renderScreen(<ServersPage />, {
       context: dashboardContext({ guilds: guildSelection({ guilds: [] }) }),

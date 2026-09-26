@@ -77,7 +77,7 @@ export function ThemeToggle({
   return (
     <button
       aria-label={isDark ? "Usar tema claro" : "Usar tema escuro"}
-      className="grid size-[30px] place-items-center rounded-lg border border-line bg-surface-raised text-ink-muted transition-colors hover:text-ink"
+      className="grid size-[34px] place-items-center rounded-lg border border-line bg-surface-raised text-ink-muted transition-colors hover:text-ink"
       onClick={() => onChange(isDark ? "light" : "dark")}
       type="button"
     >
@@ -96,14 +96,19 @@ export function TopBar({
   breadcrumb,
   meta,
   title,
+  wrappedActionsAlign = "end",
 }: {
   actions?: ReactNode;
   breadcrumb?: ReactNode;
   meta?: ReactNode;
   title: ReactNode;
+  /** Side the actions take once they wrap onto their own row. */
+  wrappedActionsAlign?: "end" | "start";
 }) {
   // The title group shrinks first (the title truncates); when the actions still do not fit,
-  // they wrap onto a second row instead of leaving the screen.
+  // they wrap onto a second row instead of leaving the screen. While they share the row, the
+  // growing title group keeps them at the right edge either way.
+  const actionsAlignment = wrappedActionsAlign === "end" ? "ml-auto justify-end" : "justify-start";
   return (
     <header className="flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-line-soft bg-surface-rail px-4 py-2.5 sm:px-6">
       <div className="flex min-w-0 flex-auto flex-wrap items-center gap-x-3.5 gap-y-1">
@@ -114,7 +119,9 @@ export function TopBar({
         </h1>
         {meta !== undefined && <span className="label-mono text-ink-muted">{meta}</span>}
       </div>
-      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">{actions}</div>
+      <div className={`flex min-w-0 flex-wrap items-center gap-2 ${actionsAlignment}`}>
+        {actions}
+      </div>
     </header>
   );
 }

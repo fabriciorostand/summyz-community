@@ -136,6 +136,13 @@ describe("DashboardLayout", () => {
     expect(within(option).getByText("PI")).toHaveClass("bg-action-soft", "border");
   });
 
+  it("gives the server, language and theme controls the same height", async () => {
+    renderLayout();
+    expect(await screen.findByRole("combobox", { name: "Servidor" })).toHaveClass("h-[34px]");
+    expect(screen.getByRole("combobox", { name: "Idioma do dashboard" })).toHaveClass("h-[34px]");
+    expect(screen.getByRole("button", { name: /tema/i })).toHaveClass("size-[34px]");
+  });
+
   it("persists a language change", async () => {
     renderLayout();
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
@@ -272,5 +279,26 @@ describe("TopBar outside the dashboard layout", () => {
   it("has no menu button when there is no navigation to open", () => {
     render(<TopBar title="Configuração inicial" />);
     expect(screen.queryByRole("button", { name: "Abrir menu de navegação" })).toBeNull();
+  });
+
+  it("pushes wrapped actions to the end by default", () => {
+    render(<TopBar actions={<button type="button">Ação</button>} title="Tela" />);
+    expect(screen.getByRole("button", { name: "Ação" }).parentElement).toHaveClass(
+      "ml-auto",
+      "justify-end",
+    );
+  });
+
+  it("can keep wrapped actions at the start", () => {
+    render(
+      <TopBar
+        actions={<button type="button">Ação</button>}
+        title="Tela"
+        wrappedActionsAlign="start"
+      />,
+    );
+    const actions = screen.getByRole("button", { name: "Ação" }).parentElement;
+    expect(actions).toHaveClass("justify-start");
+    expect(actions).not.toHaveClass("ml-auto");
   });
 });

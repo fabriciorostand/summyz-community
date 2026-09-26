@@ -130,20 +130,23 @@ export function CallsPage() {
               )}
             </form>
             <div className="flex flex-wrap items-center gap-2">
-              <Tabs
-                ariaLabel="Estado da call"
-                onChange={resetToFirstPage(setState)}
-                options={[
-                  { label: "Todas", value: "" },
-                  { label: "Concluídas", value: "completed" },
-                  { label: "Em andamento", value: "in_progress" },
-                  { label: "Falhas", value: "failed" },
-                ]}
-                value={state}
-              />
+              {/* The tabs grow to fill the row, so the button sits at the right edge while it
+                  fits beside them and at the start once it wraps below. */}
+              <div className="min-w-0 flex-auto">
+                <Tabs
+                  ariaLabel="Estado da call"
+                  onChange={resetToFirstPage(setState)}
+                  options={[
+                    { label: "Todas", value: "" },
+                    { label: "Concluídas", value: "completed" },
+                    { label: "Em andamento", value: "in_progress" },
+                    { label: "Falhas", value: "failed" },
+                  ]}
+                  value={state}
+                />
+              </div>
               <Button
                 aria-expanded={advancedOpen}
-                className="ml-auto"
                 onClick={() => setAdvancedOpen((open) => !open)}
                 type="button"
                 variant="secondary"

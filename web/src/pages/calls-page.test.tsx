@@ -106,6 +106,16 @@ describe("CallsPage", () => {
     );
   });
 
+  it("keeps the advanced button at the start when it wraps below the tabs", async () => {
+    renderScreen(<CallsPage />);
+    await screen.findByText("Launch Week Sync");
+    // The tabs fill the row, so the button only reaches the right edge when both fit.
+    expect(screen.getByRole("tablist", { name: "Estado da call" }).parentElement).toHaveClass(
+      "flex-auto",
+    );
+    expect(screen.getByRole("button", { name: /Avançado/ })).not.toHaveClass("ml-auto");
+  });
+
   it("exposes the advanced filters on demand", async () => {
     renderScreen(<CallsPage />);
     await screen.findByText("Launch Week Sync");

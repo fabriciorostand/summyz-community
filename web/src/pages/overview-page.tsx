@@ -28,12 +28,6 @@ import {
 import { groupByOwner } from "../lib/task-groups";
 import { Screen } from "./screen";
 
-const periodLabels: Record<DashboardPeriod, string> = {
-  "30d": "Últimos 30 dias",
-  "90d": "Últimos 90 dias",
-  all: "Todo o histórico",
-};
-
 export function OverviewPage() {
   const { controls, dashboard, dashboardError, guilds, period, setPeriod } = useDashboard();
   return (
@@ -99,9 +93,9 @@ function OverviewBody({
         {dashboard.liveMeeting != null && <LiveCard liveMeeting={dashboard.liveMeeting} />}
         <div>
           <div className="mb-3 flex items-center gap-3">
-            <span className="label-mono text-ink-muted">Período · {periodLabels[period]}</span>
+            <span className="label-mono text-ink-muted">Período</span>
             <span className="h-px flex-1 bg-line-soft" />
-            {/* The period tabs keep their width; the label wraps instead. */}
+            {/* The period tabs keep their width. */}
             <div className="shrink-0">
               <Tabs
                 ariaLabel="Período"
