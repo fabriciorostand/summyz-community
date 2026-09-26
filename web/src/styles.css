@@ -8,7 +8,8 @@
  */
 @theme {
   --font-sans: "Sora", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", monospace;
+  /* index.html loads only the semi-condensed (87.5%) width, so every mono text renders at it. */
+  --font-mono: "Martian Mono", ui-monospace, "SFMono-Regular", monospace;
 
   --color-action: #5865f2;
   --color-action-hover: #4752c4;
@@ -36,10 +37,6 @@
   --color-warn: #d9a23b;
   --color-fail: #e2607f;
   --color-fail-soft: #2a1720;
-
-  --text-label: 0.594rem;
-  --text-label--line-height: 1;
-  --text-label--letter-spacing: 0.18em;
 }
 
 :root[data-theme="light"] {
@@ -112,9 +109,9 @@ body {
 /* The design leans on uppercase monospace micro-labels throughout. */
 @utility label-mono {
   font-family: var(--font-mono);
-  font-size: 0.594rem;
-  font-weight: 500;
-  letter-spacing: 0.18em;
+  font-size: 0.5625rem;
+  font-weight: 400;
+  letter-spacing: 0.1em;
   line-height: 1;
   text-transform: uppercase;
 }

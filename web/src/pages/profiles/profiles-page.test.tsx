@@ -100,6 +100,20 @@ describe("ProfilesPage", () => {
     expect(screen.getByLabelText("Modelo de resumo")).toHaveValue("anthropic/claude-sonnet-4");
   });
 
+  it("opens the editor without a section label above the essentials", async () => {
+    renderScreen(<ProfilesPage />);
+    await screen.findByLabelText("Nome do perfil");
+    expect(screen.queryByText("O essencial")).toBeNull();
+    expect(screen.getByText("Avançado")).toBeInTheDocument();
+  });
+
+  it("has no help tip next to the title", async () => {
+    renderScreen(<ProfilesPage />);
+    await screen.findByLabelText("Nome do perfil");
+    expect(screen.queryByRole("button", { name: "Ajuda" })).toBeNull();
+    expect(screen.queryByText(/Perfis são globais/)).toBeNull();
+  });
+
   it("marks the profile that a server is using", async () => {
     renderScreen(<ProfilesPage />);
     expect(await screen.findByText("Em uso")).toBeInTheDocument();

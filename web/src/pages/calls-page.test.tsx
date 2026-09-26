@@ -56,9 +56,10 @@ describe("CallsPage", () => {
     expect(row.closest("a")).toHaveAttribute("href", "/history/m1");
   });
 
-  it("shows the total in the header", async () => {
+  it("leaves the record count out of the header", async () => {
     renderScreen(<CallsPage />);
-    expect(await screen.findByText("2 registros")).toBeInTheDocument();
+    await screen.findByText("Launch Week Sync");
+    expect(screen.queryByText(/registros/)).toBeNull();
   });
 
   it("treats a single-token search as a meeting id", async () => {

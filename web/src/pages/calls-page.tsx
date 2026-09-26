@@ -90,11 +90,7 @@ export function CallsPage() {
 
   return (
     <>
-      <TopBar
-        actions={controls}
-        meta={history === undefined ? undefined : `${formatInteger(history.total)} registros`}
-        title="Calls"
-      />
+      <TopBar actions={controls} title="Calls" />
       <Screen>
         {guilds.guilds !== undefined && guilds.guilds.length > 0 && (
           <div className="flex flex-col gap-3">

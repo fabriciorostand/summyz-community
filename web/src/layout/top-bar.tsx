@@ -94,13 +94,11 @@ function prefersLight(): boolean {
 export function TopBar({
   actions,
   breadcrumb,
-  meta,
   title,
   wrappedActionsAlign = "end",
 }: {
   actions?: ReactNode;
   breadcrumb?: ReactNode;
-  meta?: ReactNode;
   title: ReactNode;
   /** Side the actions take once they wrap onto their own row. */
   wrappedActionsAlign?: "end" | "start";
@@ -117,7 +115,6 @@ export function TopBar({
         <h1 className="m-0 min-w-0 truncate text-[17px] font-semibold tracking-tight text-ink">
           {title}
         </h1>
-        {meta !== undefined && <span className="label-mono text-ink-muted">{meta}</span>}
       </div>
       <div className={`flex min-w-0 flex-wrap items-center gap-2 ${actionsAlignment}`}>
         {actions}

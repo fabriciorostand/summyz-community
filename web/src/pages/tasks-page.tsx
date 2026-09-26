@@ -68,20 +68,10 @@ export function TasksPage() {
   const groups = tasks === undefined ? undefined : groupByOwner(tasks);
   const visibleGroups = groups?.filter((group) => ownerFilter === "" || group.key === ownerFilter);
   const openCount = tasks?.filter((task) => task.completedAt === null).length ?? 0;
-  const overdueCount =
-    tasks?.filter((task) => task.completedAt === null && task.overdue).length ?? 0;
 
   return (
     <>
-      <TopBar
-        actions={controls}
-        meta={
-          tasks === undefined
-            ? undefined
-            : `${String(openCount)} abertas · ${String(overdueCount)} atrasadas`
-        }
-        title="Tarefas"
-      />
+      <TopBar actions={controls} title="Tarefas" />
       <Screen>
         <OwnerFilters
           groups={groups}
