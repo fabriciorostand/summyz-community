@@ -94,7 +94,7 @@ describe("Tabs", () => {
     expect(screen.getByRole("tablist", { name: "Período" })).toBeInTheDocument();
   });
 
-  it("shows the pointer only on the tabs that can still be picked", () => {
+  it("keeps the arrow on the selected tab, which has nothing left to do", () => {
     render(
       <Tabs
         ariaLabel="Período"
@@ -106,8 +106,9 @@ describe("Tabs", () => {
         value="30d"
       />,
     );
-    expect(screen.getByRole("tab", { name: "30d" })).not.toHaveClass("cursor-pointer");
-    expect(screen.getByRole("tab", { name: "90d" })).toHaveClass("cursor-pointer");
+    // The other tabs inherit the pointer every enabled button gets from the base layer.
+    expect(screen.getByRole("tab", { name: "30d" })).toHaveClass("cursor-default");
+    expect(screen.getByRole("tab", { name: "90d" })).not.toHaveClass("cursor-default");
   });
 
   it("keeps each tab as wide as its label by default", () => {

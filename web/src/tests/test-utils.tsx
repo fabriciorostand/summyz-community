@@ -327,6 +327,11 @@ export function renderWithRouter(children: ReactNode): RenderResult {
   return render(<MemoryRouter>{children}</MemoryRouter>);
 }
 
+/** Hover classes that would still apply while the element is disabled. */
+export function unguardedHoverClasses(element: Element): string[] {
+  return [...element.classList].filter((name) => name.startsWith("hover:"));
+}
+
 /** Opens a combobox by its accessible name and returns the list it controls. */
 export async function openOptions(combobox: string): Promise<HTMLElement> {
   await userEvent.click(screen.getByRole("combobox", { name: combobox }));

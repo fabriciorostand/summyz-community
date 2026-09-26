@@ -242,7 +242,7 @@ export function Select<T extends string>({
         aria-haspopup="listbox"
         aria-label={ariaLabel}
         aria-labelledby={labelledBy}
-        className={`group flex items-center gap-2 rounded-lg border bg-surface-raised text-left text-ink outline-none transition-[border-color,box-shadow] hover:border-line-strong focus-visible:border-action focus-visible:ring-2 focus-visible:ring-action/25 disabled:cursor-not-allowed disabled:opacity-50 ${
+        className={`group flex items-center gap-2 rounded-lg border bg-surface-raised text-left text-ink outline-none transition-[border-color,box-shadow] enabled:hover:border-line-strong focus-visible:border-action focus-visible:ring-2 focus-visible:ring-action/25 disabled:cursor-not-allowed disabled:opacity-50 ${
           open ? "border-action" : "border-line"
         } ${triggerVariants[variant]}`}
         disabled={disabled}

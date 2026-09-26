@@ -2,6 +2,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { unguardedHoverClasses } from "../tests/test-utils";
 import {
   Avatar,
   Badge,
@@ -32,6 +33,20 @@ describe("Button", () => {
     );
     expect(screen.getByRole("button", { name: "Salvar" }).className).toContain("bg-action");
     expect(screen.getByRole("button", { name: "Excluir" }).className).toContain("text-fail");
+  });
+
+  it("reacts to hover only while enabled, whatever the variant", () => {
+    render(
+      <>
+        <Button variant="primary">Salvar</Button>
+        <Button variant="secondary">Cancelar</Button>
+        <Button variant="ghost">Limpar</Button>
+        <Button variant="danger">Excluir</Button>
+      </>,
+    );
+    for (const button of screen.getAllByRole("button")) {
+      expect(unguardedHoverClasses(button)).toEqual([]);
+    }
   });
 
   it("calls the handler when clicked", async () => {

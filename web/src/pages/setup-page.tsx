@@ -361,7 +361,7 @@ function PrimaryButton({
 }) {
   return (
     <button
-      className="flex items-center justify-center gap-2 rounded-[10px] bg-action px-6 py-3 text-[14px] font-medium text-white transition-colors hover:bg-action-hover disabled:cursor-not-allowed disabled:bg-surface-inset disabled:text-ink-dim"
+      className="flex items-center justify-center gap-2 rounded-[10px] bg-action px-6 py-3 text-[14px] font-medium text-white transition-colors enabled:hover:bg-action-hover disabled:cursor-not-allowed disabled:bg-surface-inset disabled:text-ink-dim"
       disabled={busy || disabled}
       type="submit"
     >

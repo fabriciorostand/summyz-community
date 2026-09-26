@@ -88,8 +88,8 @@ export function Tabs<T extends string>({
               fill ? "flex-1 basis-0 justify-center" : "shrink-0"
             } ${
               selected
-                ? "bg-action text-white"
-                : "cursor-pointer text-ink-secondary hover:bg-surface-inset hover:text-ink"
+                ? "cursor-default bg-action text-white"
+                : "text-ink-secondary hover:bg-surface-inset hover:text-ink"
             }`}
             key={option.value}
             onClick={() => onChange(option.value)}
