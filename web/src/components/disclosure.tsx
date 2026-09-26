@@ -61,11 +61,14 @@ export interface TabOption<T extends string> {
 
 export function Tabs<T extends string>({
   ariaLabel,
+  fill = false,
   onChange,
   options,
   value,
 }: {
   ariaLabel: string;
+  /** Stretch the tablist to its container and give every tab the same share of it. */
+  fill?: boolean;
   onChange: (value: T) => void;
   options: readonly TabOption<T>[];
   value: T;
@@ -73,7 +76,7 @@ export function Tabs<T extends string>({
   return (
     <div
       aria-label={ariaLabel}
-      className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-surface p-1 [scrollbar-color:color-mix(in_oklab,var(--color-ink-dim)_45%,transparent)_transparent] [scrollbar-width:thin] sm:gap-1"
+      className={`${fill ? "flex w-full" : "inline-flex"} max-w-full gap-0.5 overflow-x-auto rounded-lg border border-line bg-surface p-1 [scrollbar-color:color-mix(in_oklab,var(--color-ink-dim)_45%,transparent)_transparent] [scrollbar-width:thin] sm:gap-1`}
       role="tablist"
     >
       {options.map((option) => {
@@ -81,10 +84,12 @@ export function Tabs<T extends string>({
         return (
           <button
             aria-selected={selected}
-            className={`inline-flex shrink-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium whitespace-nowrap transition-colors sm:px-3 ${
+            className={`inline-flex items-center gap-2 rounded-md px-2.5 py-1.5 text-[12.5px] font-medium whitespace-nowrap transition-colors sm:px-3 ${
+              fill ? "flex-1 basis-0 justify-center" : "shrink-0"
+            } ${
               selected
                 ? "bg-action text-white"
-                : "text-ink-secondary hover:bg-surface-inset hover:text-ink"
+                : "cursor-pointer text-ink-secondary hover:bg-surface-inset hover:text-ink"
             }`}
             key={option.value}
             onClick={() => onChange(option.value)}

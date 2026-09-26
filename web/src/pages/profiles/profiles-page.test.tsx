@@ -115,6 +115,14 @@ describe("ProfilesPage", () => {
     );
   });
 
+  it("gives both execution types half of the selector", async () => {
+    renderScreen(<ProfilesPage />);
+    await screen.findByLabelText("Nome do perfil");
+    expect(screen.getByRole("tablist", { name: "Tipo de execução" })).toHaveClass("w-full");
+    expect(screen.getByRole("tab", { name: "API externa" })).toHaveClass("flex-1");
+    expect(screen.getByRole("tab", { name: "Local" })).toHaveClass("flex-1");
+  });
+
   it("hides the advanced settings behind disclosures", async () => {
     renderScreen(<ProfilesPage />);
     const vad = await screen.findByRole("button", { name: /Detecção de voz/ });
