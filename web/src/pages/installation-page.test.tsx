@@ -105,6 +105,7 @@ describe("InstallationPage", () => {
     const access = screen.getByRole("region", { name: "Acesso ao dashboard" });
     expect(within(access).queryByText(/Definido pelo script usado/)).not.toBeInTheDocument();
     expect(within(access).queryByText(/Para publicar: defina o domínio/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/O backend descobre o ID/)).not.toBeInTheDocument();
   });
 
   it("shows the read-only Application ID with a copy action", async () => {
@@ -240,7 +241,7 @@ describe("InstallationPage", () => {
 
   it("hides the password block entirely in local mode", () => {
     renderScreen(<InstallationPage />);
-    expect(screen.getByRole("banner")).toHaveTextContent("Modo local");
+    expect(screen.getByRole("banner")).not.toHaveTextContent("Modo local");
     const access = screen.getByRole("region", { name: "Acesso ao dashboard" });
     const local = within(access).getByRole("listitem", { name: "Modo local" });
     expect(local).toHaveTextContent("Ativo");
@@ -267,7 +268,7 @@ describe("InstallationPage", () => {
     renderScreen(<InstallationPage />, {
       context: dashboardContext({ settings: aSettings({ accessMode: "public" }) }),
     });
-    expect(screen.getByRole("banner")).toHaveTextContent("Modo público");
+    expect(screen.getByRole("banner")).not.toHaveTextContent("Modo público");
     await userEvent.type(screen.getByLabelText("Senha atual"), "senha antiga bem longa");
     await userEvent.type(screen.getByLabelText("Nova senha"), "senha nova ainda mais longa");
     await userEvent.click(screen.getByRole("button", { name: "Trocar senha" }));

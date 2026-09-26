@@ -43,7 +43,7 @@ export function InstallationPage() {
 
   return (
     <>
-      <TopBar actions={<AccessModeChip accessMode={settings.accessMode} />} title="Instalação" />
+      <TopBar title="Instalação" />
       <Screen>
         <div className="grid items-start gap-4 xl:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
@@ -69,15 +69,6 @@ export function InstallationPage() {
         </div>
       </Screen>
     </>
-  );
-}
-
-function AccessModeChip({ accessMode }: { accessMode: AccessMode }) {
-  return (
-    <span className="label-mono inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 py-1.5 text-ink-secondary">
-      {accessMode === "public" ? <Cloud className="size-3" /> : <Monitor className="size-3" />}
-      {accessMode === "public" ? "Modo público" : "Modo local"}
-    </span>
   );
 }
 
@@ -122,10 +113,6 @@ function DiscordApplicationCard({
         <div className="flex flex-col gap-1.5">
           <Label>Application ID</Label>
           <ApplicationId value={applicationId} />
-          <small className="text-[11px] text-ink-dim">
-            Somente leitura. O backend descobre o ID pelo próprio token do bot, então ele nunca fica
-            divergente.
-          </small>
         </div>
         <div className="flex items-end gap-2">
           <Field

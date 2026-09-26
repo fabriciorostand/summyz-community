@@ -92,7 +92,7 @@ Não existe modelo `auto` nem `openrouter/auto`. A escolha é livre e o Summyz n
 modelo selecionado. A avaliação local usa os estados `recommended`, `compatible`,
 `above_recommended`, `unknown` e `incompatible`: somente `incompatible` bloqueia a gravação;
 `above_recommended` e `unknown` geram avisos privados. O `language` do resumo e o
-`transcription.language` do perfil usam um catálogo pesquisável de tags BCP 47 e têm `auto` como
+`transcription.language` do perfil usam um catálogo de tags BCP 47 e têm `auto` como
 padrão. Cada fase guarda o provedor, modelo e parâmetros próprios. Isso inclui batching e opções de
 STT, tamanho de chunks e as opções de geração `temperature`, `seed` e `think` quando aplicáveis.
 Valores não definidos não são

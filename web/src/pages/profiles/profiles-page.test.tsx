@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api, type Profile } from "../../lib/api";
 import { aProfile, renderScreen } from "../../tests/test-utils";
+import { profileLanguages } from "./language-selector";
 import { ProfilesPage } from "./profiles-page";
 
 vi.mock("../../lib/api", async () => {
@@ -323,13 +324,14 @@ describe("ProfilesPage", () => {
     await waitFor(() => expect(listProfiles).toHaveBeenCalledTimes(2));
   });
 
-  it("filters the language list as the operator searches", async () => {
+  it("offers every language tag without a search box", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.type(await screen.findByLabelText("Pesquisar idioma do resumo"), "zh");
-    const summary = screen.getByLabelText("Idioma do resumo");
-    expect(within(summary).getByRole("option", { name: "zh-TW" })).toBeInTheDocument();
-    expect(within(summary).queryByRole("option", { name: "auto" })).toBeNull();
+    const summary = await screen.findByLabelText("Idioma do resumo");
     const transcription = screen.getByLabelText("Idioma da transcrição");
-    expect(within(transcription).getByRole("option", { name: "pt-BR" })).toBeInTheDocument();
+    for (const select of [summary, transcription]) {
+      expect(within(select).getAllByRole("option")).toHaveLength(profileLanguages.length);
+    }
+    expect(screen.queryByRole("searchbox")).toBeNull();
+    expect(screen.queryByPlaceholderText("Pesquisar uma tag BCP 47")).toBeNull();
   });
 });
