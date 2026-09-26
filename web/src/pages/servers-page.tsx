@@ -30,11 +30,6 @@ export function ServersPage() {
             Atualizar lista
           </Button>
         }
-        meta={
-          list === undefined
-            ? undefined
-            : `${formatInteger(list.length)} ${list.length === 1 ? "servidor" : "servidores"} com o bot`
-        }
         title="Servidores"
         wrappedActionsAlign="start"
       />

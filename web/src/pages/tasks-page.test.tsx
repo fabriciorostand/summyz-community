@@ -43,9 +43,10 @@ describe("TasksPage", () => {
     expect(screen.getAllByText("2 abertas")).toHaveLength(1);
   });
 
-  it("summarises open and overdue counts in the header", async () => {
+  it("leaves the open and overdue counts out of the header", async () => {
     renderScreen(<TasksPage />);
-    expect(await screen.findByText("3 abertas · 1 atrasadas")).toBeInTheDocument();
+    await screen.findByText("Marcar a branch de release");
+    expect(screen.queryByText(/abertas ·/)).toBeNull();
   });
 
   it("marks a task as overdue", async () => {

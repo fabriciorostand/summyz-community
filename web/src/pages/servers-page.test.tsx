@@ -25,7 +25,6 @@ afterEach(() => {
 describe("ServersPage", () => {
   it("lists the servers the bot is in with their essentials", async () => {
     renderScreen(<ServersPage />);
-    expect(screen.getByText("1 servidor com o bot")).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Pixelforge" })).toBeInTheDocument();
     expect(screen.getByText("Instalado e configurado")).toBeInTheDocument();
     expect(screen.getByText("Padrão OpenRouter")).toBeInTheDocument();
@@ -37,12 +36,13 @@ describe("ServersPage", () => {
     for (const link of links) expect(link).toHaveAttribute("href", installUrl);
   });
 
-  it("pluralizes the counter", () => {
+  it("leaves the server count out of the header", () => {
     const guilds = [aGuild(), aGuild({ id: "g2", name: "Engine Guild" })];
     renderScreen(<ServersPage />, {
       context: dashboardContext({ guilds: guildSelection({ guilds }) }),
     });
-    expect(screen.getByText("2 servidores com o bot")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Engine Guild" })).toBeInTheDocument();
+    expect(screen.queryByText(/com o bot/)).toBeNull();
   });
 
   it("shows what is missing on a server without profile or forum", () => {

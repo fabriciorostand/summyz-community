@@ -3,7 +3,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 
 import { Disclosure, Tabs } from "../../components/disclosure";
 import { ErrorState, LoadingPanel } from "../../components/states";
-import { Badge, Button, Card, Field, HelpTip, RailLabel } from "../../components/ui";
+import { Badge, Button, Card, Field, RailLabel } from "../../components/ui";
 import { useDashboard } from "../../layout/dashboard-layout";
 import { TopBar } from "../../layout/top-bar";
 import {
@@ -90,11 +90,6 @@ export function ProfilesPage() {
               template={selected.profile}
             />
           )
-        }
-        meta={
-          <HelpTip>
-            Perfis são globais da instalação: qualquer servidor pode ativar qualquer perfil.
-          </HelpTip>
         }
         title="Perfis de IA"
       />
