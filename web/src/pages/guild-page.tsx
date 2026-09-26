@@ -212,7 +212,6 @@ function GuildBody({
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="flex min-w-0 flex-col gap-4">
-        <RailLabel>O essencial</RailLabel>
         <Card>
           <SectionHeading
             action={
@@ -224,7 +223,6 @@ function GuildBody({
                 <ArrowUpRight className="size-3.5" />
               </Link>
             }
-            description="Sem um perfil ativo aqui, o /record responde que falta configurar — o resto do bot continua no ar."
             icon={<Bot className="size-4" />}
             title="Perfil de IA usado neste servidor"
           />
@@ -264,7 +262,6 @@ function GuildBody({
 
         <Card>
           <SectionHeading
-            description="Cada call concluída gera um post no fórum escolhido."
             icon={<Megaphone className="size-4" />}
             title="Onde publicar os resumos"
           />
@@ -425,24 +422,6 @@ function GuildBody({
                   : "Nenhum cargo extra autorizado"
               }
             />
-          </div>
-        </Card>
-        <Card>
-          <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
-            Comandos rápidos
-          </h2>
-          <p className="m-0 mt-1 mb-3 text-[11.5px] text-ink-muted">
-            O mesmo que o dashboard faz, direto no Discord.
-          </p>
-          <div className="flex flex-wrap gap-2">
-            {["/record start", "/record status"].map((command) => (
-              <code
-                className="rounded bg-surface-inset px-2 py-1 font-mono text-[11px] text-ink-secondary"
-                key={command}
-              >
-                {command}
-              </code>
-            ))}
           </div>
         </Card>
       </div>

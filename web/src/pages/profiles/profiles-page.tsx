@@ -3,7 +3,7 @@ import { type FormEvent, useCallback, useEffect, useRef, useState } from "react"
 
 import { Disclosure, Tabs } from "../../components/disclosure";
 import { ErrorState, LoadingPanel } from "../../components/states";
-import { Badge, Button, Card, Field, RailLabel } from "../../components/ui";
+import { Badge, Button, Card, Field } from "../../components/ui";
 import { useDashboard } from "../../layout/dashboard-layout";
 import { TopBar } from "../../layout/top-bar";
 import {
@@ -367,7 +367,6 @@ function ProfileEditor({
 
   return (
     <form className="flex min-w-0 flex-col gap-4" onSubmit={(event) => void save(event)}>
-      <RailLabel>O essencial</RailLabel>
       <Card>
         <div className="flex flex-col gap-3">
           <Field

@@ -63,6 +63,23 @@ describe("GuildPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("shows the essential cards without a section label or helper texts", async () => {
+    renderGuild();
+    await screen.findByRole("heading", { name: "Perfil de IA usado neste servidor" });
+    expect(screen.queryByText("O essencial")).toBeNull();
+    expect(screen.queryByText(/Sem um perfil ativo aqui/)).toBeNull();
+    expect(screen.queryByText(/Cada call concluída gera um post/)).toBeNull();
+    expect(screen.getByText("Avançado")).toBeInTheDocument();
+  });
+
+  it("has no quick commands card", async () => {
+    renderGuild();
+    await screen.findByRole("heading", { name: "Perfil de IA usado neste servidor" });
+    expect(screen.queryByRole("heading", { name: "Comandos rápidos" })).toBeNull();
+    expect(screen.queryByText("/record start")).toBeNull();
+    expect(screen.queryByText("/record status")).toBeNull();
+  });
+
   it("marks the active profile", async () => {
     renderGuild();
     expect(await screen.findByText("Em uso")).toBeInTheDocument();
