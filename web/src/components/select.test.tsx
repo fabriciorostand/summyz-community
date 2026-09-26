@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 
+import { unguardedHoverClasses } from "../tests/test-utils";
 import { Select, type SelectOption } from "./select";
 
 const languages: readonly SelectOption<string>[] = [
@@ -218,6 +219,11 @@ describe("Select", () => {
     );
     await userEvent.click(screen.getByRole("combobox", { name: "Tag" }));
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+  });
+
+  it("does not react to hover while disabled", () => {
+    render(<Harness />);
+    expect(unguardedHoverClasses(screen.getByRole("combobox", { name: "Idioma" }))).toEqual([]);
   });
 
   it("renders leading content next to each option and the selected value", async () => {

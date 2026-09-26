@@ -99,6 +99,16 @@ body {
   box-sizing: border-box;
 }
 
+/*
+ * Tailwind 4 preflight leaves buttons with the default arrow. Inside the base layer the pointer
+ * still yields to utilities such as cursor-help, cursor-default and disabled:cursor-not-allowed.
+ */
+@layer base {
+  button:not(:disabled) {
+    cursor: pointer;
+  }
+}
+
 /* The design leans on uppercase monospace micro-labels throughout. */
 @utility label-mono {
   font-family: var(--font-mono);

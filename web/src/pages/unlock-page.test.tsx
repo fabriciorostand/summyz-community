@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api } from "../lib/api";
+import { unguardedHoverClasses } from "../tests/test-utils";
 import { UnlockPage } from "./unlock-page";
 
 vi.mock("../lib/api", async () => {
@@ -42,6 +43,11 @@ describe("UnlockPage", () => {
     await userEvent.hover(screen.getByRole("button", { name: "Ajuda" }));
     expect(screen.getByRole("tooltip")).toHaveTextContent("Senha da instalação, não de usuário");
     expect(screen.getByRole("tooltip")).toHaveTextContent("recover-access");
+  });
+
+  it("does not react to hover while the password is being checked", () => {
+    renderPage();
+    expect(unguardedHoverClasses(screen.getByRole("button", { name: "Entrar" }))).toEqual([]);
   });
 
   it("ignores an empty submission", async () => {

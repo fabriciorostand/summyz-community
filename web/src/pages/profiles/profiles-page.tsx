@@ -143,6 +143,7 @@ function ProfilesBody(props: ProfilesBodyProps) {
       <div className="flex flex-col gap-3">
         <Tabs
           ariaLabel="Tipo de execução"
+          fill
           onChange={props.onTypeChange}
           options={[
             { label: "API externa", value: "external" },

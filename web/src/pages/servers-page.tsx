@@ -36,6 +36,7 @@ export function ServersPage() {
             : `${formatInteger(list.length)} ${list.length === 1 ? "servidor" : "servidores"} com o bot`
         }
         title="Servidores"
+        wrappedActionsAlign="start"
       />
       <Screen>
         {guilds.error ? (

@@ -17,11 +17,13 @@ import { Select } from "./select";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
+// Hover styles are guarded by `enabled:` so a disabled button does not react to the pointer.
 const buttonVariants: Record<ButtonVariant, string> = {
-  danger: "border border-fail/40 bg-fail-soft text-fail hover:bg-fail/20",
-  ghost: "border border-transparent text-ink-secondary hover:bg-surface-inset hover:text-ink",
-  primary: "bg-action text-white hover:bg-action-hover",
-  secondary: "border border-line bg-surface-raised text-ink hover:border-line-strong",
+  danger: "border border-fail/40 bg-fail-soft text-fail enabled:hover:bg-fail/20",
+  ghost:
+    "border border-transparent text-ink-secondary enabled:hover:bg-surface-inset enabled:hover:text-ink",
+  primary: "bg-action text-white enabled:hover:bg-action-hover",
+  secondary: "border border-line bg-surface-raised text-ink enabled:hover:border-line-strong",
 };
 
 export function Button({

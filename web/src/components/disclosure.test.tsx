@@ -93,4 +93,51 @@ describe("Tabs", () => {
     );
     expect(screen.getByRole("tablist", { name: "Período" })).toBeInTheDocument();
   });
+
+  it("keeps the arrow on the selected tab, which has nothing left to do", () => {
+    render(
+      <Tabs
+        ariaLabel="Período"
+        onChange={() => undefined}
+        options={[
+          { label: "30d", value: "30d" },
+          { label: "90d", value: "90d" },
+        ]}
+        value="30d"
+      />,
+    );
+    // The other tabs inherit the pointer every enabled button gets from the base layer.
+    expect(screen.getByRole("tab", { name: "30d" })).toHaveClass("cursor-default");
+    expect(screen.getByRole("tab", { name: "90d" })).not.toHaveClass("cursor-default");
+  });
+
+  it("keeps each tab as wide as its label by default", () => {
+    render(
+      <Tabs
+        ariaLabel="Período"
+        onChange={() => undefined}
+        options={[{ label: "30d", value: "30d" }]}
+        value="30d"
+      />,
+    );
+    expect(screen.getByRole("tablist", { name: "Período" })).not.toHaveClass("w-full");
+    expect(screen.getByRole("tab", { name: "30d" })).not.toHaveClass("flex-1");
+  });
+
+  it("splits the whole width evenly between the tabs when asked to fill", () => {
+    render(
+      <Tabs
+        ariaLabel="Tipo"
+        fill
+        onChange={() => undefined}
+        options={[
+          { label: "API externa", value: "external" },
+          { label: "Local", value: "local" },
+        ]}
+        value="external"
+      />,
+    );
+    expect(screen.getByRole("tablist", { name: "Tipo" })).toHaveClass("w-full");
+    for (const tab of screen.getAllByRole("tab")) expect(tab).toHaveClass("flex-1", "basis-0");
+  });
 });

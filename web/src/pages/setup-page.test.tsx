@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api } from "../lib/api";
+import { unguardedHoverClasses } from "../tests/test-utils";
 import { SetupPage } from "./setup-page";
 
 vi.mock("../lib/api", async () => {
@@ -46,6 +47,11 @@ describe("SetupPage in local mode", () => {
     expect(screen.queryByText("Senha da instalação")).toBeNull();
     expect(screen.getByText("Modo")).toBeInTheDocument();
     expect(screen.getByText("Local")).toBeInTheDocument();
+  });
+
+  it("does not react to hover while the primary action is unavailable", () => {
+    renderSetup("local");
+    expect(unguardedHoverClasses(screen.getByRole("button", { name: "Concluir" }))).toEqual([]);
   });
 
   it("finishes with the token alone and offers the Discord authorization", async () => {
