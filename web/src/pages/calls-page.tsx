@@ -109,7 +109,7 @@ export function CallsPage() {
               <Search className="size-4 shrink-0 text-ink-muted" />
               <input
                 aria-label="Buscar por canal ou ID da reunião"
-                className="min-w-0 flex-1 bg-transparent text-[13.5px] outline-none placeholder:text-ink-dim"
+                className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-ink-dim pointer-fine:text-[13.5px]"
                 maxLength={128}
                 onChange={(event) => setSearch(event.currentTarget.value)}
                 placeholder="Buscar por canal ou ID da reunião"

@@ -29,7 +29,7 @@ const TYPEAHEAD_RESET_MS = 700;
 
 const triggerVariants: Record<SelectVariant, string> = {
   field: "w-full px-3 py-2 text-[13.5px]",
-  toolbar: "py-1.5 pr-2 pl-2 text-[12.5px] font-medium",
+  toolbar: "max-w-full py-1.5 pr-2 pl-2 text-[12.5px] font-medium",
 };
 
 interface Placement {

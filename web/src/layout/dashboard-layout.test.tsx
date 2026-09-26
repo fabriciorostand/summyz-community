@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { api } from "../lib/api";
 import { aDashboard, aGuild, aSettings, chooseOption } from "../tests/test-utils";
 import { DashboardLayout, useDashboard } from "./dashboard-layout";
+import { TopBar } from "./top-bar";
 
 vi.mock("../lib/api", () => ({
   api: {
@@ -38,6 +39,23 @@ function Probe() {
       </button>
       {controls}
     </div>
+  );
+}
+
+function Page({ title }: { title: string }) {
+  return <TopBar title={title} />;
+}
+
+function renderWithTopBar() {
+  return render(
+    <MemoryRouter initialEntries={["/"]}>
+      <Routes>
+        <Route element={<DashboardLayout settings={aSettings()} />}>
+          <Route element={<Page title="Visão geral" />} index />
+          <Route element={<Page title="Tarefas abertas" />} path="tasks" />
+        </Route>
+      </Routes>
+    </MemoryRouter>,
   );
 }
 
@@ -171,5 +189,88 @@ describe("DashboardLayout", () => {
     renderLayout();
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
     expect(screen.getByTestId("calls")).toHaveTextContent("…");
+  });
+});
+
+describe("Navigation drawer", () => {
+  it("opens the navigation from the menu button in the top bar", async () => {
+    renderWithTopBar();
+    const menu = screen.getByRole("button", { name: "Abrir menu de navegação" });
+    expect(menu).toHaveAttribute("aria-expanded", "false");
+    await userEvent.click(menu);
+    const drawer = screen.getByRole("dialog", { name: "Navegação" });
+    expect(within(drawer).getByRole("link", { name: "Preferências" })).toBeInTheDocument();
+    expect(menu).toHaveAttribute("aria-expanded", "true");
+    await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
+  });
+
+  it("closes with its close button", async () => {
+    renderWithTopBar();
+    await userEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+    await userEvent.click(screen.getByRole("button", { name: "Fechar menu" }));
+    expect(screen.queryByRole("dialog", { name: "Navegação" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Abrir menu de navegação" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("closes when the backdrop around the panel is pressed", async () => {
+    renderWithTopBar();
+    await userEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+    await userEvent.click(screen.getByRole("dialog", { name: "Navegação" }));
+    expect(screen.queryByRole("dialog", { name: "Navegação" })).not.toBeInTheDocument();
+  });
+
+  it("stays open when the panel itself is pressed", async () => {
+    renderWithTopBar();
+    await userEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+    await userEvent.click(within(screen.getByRole("dialog")).getByText("Reuniões"));
+    expect(screen.getByRole("dialog", { name: "Navegação" })).toBeInTheDocument();
+  });
+
+  it("closes after a destination is chosen", async () => {
+    renderWithTopBar();
+    await userEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+    await userEvent.click(
+      within(screen.getByRole("dialog", { name: "Navegação" })).getByRole("link", {
+        name: /Tarefas/,
+      }),
+    );
+    expect(await screen.findByRole("heading", { name: "Tarefas abertas" })).toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Navegação" })).not.toBeInTheDocument();
+  });
+
+  it("locks the page scroll behind the open drawer and releases it on close", async () => {
+    renderWithTopBar();
+    expect(document.documentElement.style.overflow).toBe("");
+    await userEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+    expect(document.documentElement.style.overflow).toBe("hidden");
+    await userEvent.click(screen.getByRole("button", { name: "Fechar menu" }));
+    expect(document.documentElement.style.overflow).toBe("");
+  });
+
+  it("releases the page scroll when the layout unmounts with the drawer open", async () => {
+    const { unmount } = renderWithTopBar();
+    await userEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+    unmount();
+    expect(document.documentElement.style.overflow).toBe("");
+  });
+
+  it("follows the browser when it closes the dialog, as on Escape", async () => {
+    renderWithTopBar();
+    await userEvent.click(screen.getByRole("button", { name: "Abrir menu de navegação" }));
+    const drawer = screen.getByRole("dialog", { name: "Navegação" });
+    act(() => {
+      if (drawer instanceof HTMLDialogElement) drawer.close();
+    });
+    expect(screen.queryByRole("dialog", { name: "Navegação" })).not.toBeInTheDocument();
+  });
+});
+
+describe("TopBar outside the dashboard layout", () => {
+  it("has no menu button when there is no navigation to open", () => {
+    render(<TopBar title="Configuração inicial" />);
+    expect(screen.queryByRole("button", { name: "Abrir menu de navegação" })).toBeNull();
   });
 });

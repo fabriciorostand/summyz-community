@@ -9,7 +9,7 @@ export function Screen({
   width?: "wide" | "narrow";
 }) {
   return (
-    <main className="min-w-0 flex-1 overflow-y-auto p-6">
+    <main className="min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
       <div className={`mx-auto flex flex-col gap-6 ${width === "narrow" ? "max-w-3xl" : ""}`}>
         {children}
       </div>

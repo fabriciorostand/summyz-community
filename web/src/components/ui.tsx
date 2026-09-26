@@ -39,7 +39,13 @@ export function Label({ children }: { children: ReactNode }) {
 }
 
 const controlClass =
-  "w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-[13.5px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action disabled:cursor-not-allowed disabled:opacity-50";
+  "w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action disabled:cursor-not-allowed disabled:opacity-50";
+
+/**
+ * iOS Safari zooms into any field under 16px when it gains focus, so touch screens keep 16px
+ * and the compact design size applies only with a precise pointer.
+ */
+const fieldTextClass = "text-base pointer-fine:text-[13.5px]";
 
 interface FieldIds {
   controlId: string;
@@ -80,7 +86,12 @@ export function Field({
       <label htmlFor={controlId}>
         <Label>{label}</Label>
       </label>
-      <input aria-describedby={describedBy} className={controlClass} id={controlId} {...props} />
+      <input
+        aria-describedby={describedBy}
+        className={`${controlClass} ${fieldTextClass}`}
+        id={controlId}
+        {...props}
+      />
       {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
     </div>
   );
@@ -125,7 +136,7 @@ export function TextAreaField({
       </label>
       <textarea
         aria-describedby={describedBy}
-        className={`${controlClass} font-mono text-[12.5px] leading-relaxed`}
+        className={`${controlClass} font-mono text-base leading-relaxed pointer-fine:text-[12.5px]`}
         id={controlId}
         {...props}
       />

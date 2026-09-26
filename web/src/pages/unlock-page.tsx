@@ -99,7 +99,7 @@ export function UnlockPage({ onUnlocked }: { onUnlocked: () => void }) {
           <input
             aria-label="Senha da instalação"
             autoComplete="current-password"
-            className={`mt-5 w-full rounded-[10px] border bg-surface px-4 py-3.5 text-[14px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action ${
+            className={`mt-5 w-full rounded-[10px] border bg-surface px-4 py-3.5 text-base text-ink pointer-fine:text-[14px] outline-none transition-colors placeholder:text-ink-dim focus:border-action ${
               state.kind === "form" && state.error === "invalid_password"
                 ? "border-fail/60"
                 : "border-line-strong"

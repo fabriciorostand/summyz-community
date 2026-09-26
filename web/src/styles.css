@@ -98,14 +98,6 @@ body {
   box-sizing: border-box;
 }
 
-button,
-input,
-select,
-textarea {
-  font: inherit;
-  color: inherit;
-}
-
 /* The design leans on uppercase monospace micro-labels throughout. */
 @utility label-mono {
   font-family: var(--font-mono);

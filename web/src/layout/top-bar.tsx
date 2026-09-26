@@ -1,10 +1,11 @@
-import { Globe, Moon, Sun } from "lucide-react";
-import type { ReactNode } from "react";
+import { Globe, Menu, Moon, Sun } from "lucide-react";
+import { type ReactNode, useContext } from "react";
 
 import { Select } from "../components/select";
 import { Avatar } from "../components/ui";
 import type { Guild } from "../lib/api";
 import type { ThemePreference } from "../lib/theme";
+import { NavigationContext } from "./navigation";
 
 export function GuildPicker({
   guilds,
@@ -16,20 +17,23 @@ export function GuildPicker({
   value: string;
 }) {
   if (!guilds.some((guild) => guild.id === value)) return null;
+  // Long guild names shorten with an ellipsis instead of pushing the header past the screen.
   return (
-    <Select
-      aria-label="Servidor"
-      onChange={onChange}
-      options={guilds.map((guild) => ({
-        label: guild.name,
-        leading: (
-          <Avatar avatarUrl={guild.iconUrl} fallbackTone="action" name={guild.name} size={20} />
-        ),
-        value: guild.id,
-      }))}
-      value={value}
-      variant="toolbar"
-    />
+    <div className="flex min-w-0 max-w-44 sm:max-w-xs">
+      <Select
+        aria-label="Servidor"
+        onChange={onChange}
+        options={guilds.map((guild) => ({
+          label: guild.name,
+          leading: (
+            <Avatar avatarUrl={guild.iconUrl} fallbackTone="action" name={guild.name} size={20} />
+          ),
+          value: guild.id,
+        }))}
+        value={value}
+        variant="toolbar"
+      />
+    </div>
   );
 }
 
@@ -98,12 +102,36 @@ export function TopBar({
   meta?: ReactNode;
   title: ReactNode;
 }) {
+  // The title group shrinks first (the title truncates); when the actions still do not fit,
+  // they wrap onto a second row instead of leaving the screen.
   return (
-    <header className="flex h-[58px] shrink-0 items-center gap-3.5 border-b border-line-soft bg-surface-rail px-6">
-      {breadcrumb}
-      <h1 className="m-0 text-[17px] font-semibold tracking-tight text-ink">{title}</h1>
-      {meta !== undefined && <span className="label-mono text-ink-muted">{meta}</span>}
-      <div className="ml-auto flex items-center gap-2">{actions}</div>
+    <header className="flex min-h-[58px] shrink-0 flex-wrap items-center gap-x-3.5 gap-y-2 border-b border-line-soft bg-surface-rail px-4 py-2.5 sm:px-6">
+      <div className="flex min-w-0 flex-auto flex-wrap items-center gap-x-3.5 gap-y-1">
+        <MenuButton />
+        {breadcrumb}
+        <h1 className="m-0 min-w-0 truncate text-[17px] font-semibold tracking-tight text-ink">
+          {title}
+        </h1>
+        {meta !== undefined && <span className="label-mono text-ink-muted">{meta}</span>}
+      </div>
+      <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2">{actions}</div>
     </header>
+  );
+}
+
+function MenuButton() {
+  const navigation = useContext(NavigationContext);
+  if (navigation === undefined) return null;
+  return (
+    <button
+      aria-controls={navigation.drawerId}
+      aria-expanded={navigation.open}
+      aria-label="Abrir menu de navegação"
+      className="grid size-10 shrink-0 place-items-center rounded-lg border border-line bg-surface-raised text-ink-muted transition-colors hover:text-ink lg:hidden"
+      onClick={navigation.show}
+      type="button"
+    >
+      <Menu className="size-4" />
+    </button>
   );
 }

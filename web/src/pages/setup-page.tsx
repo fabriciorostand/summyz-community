@@ -198,7 +198,7 @@ function TokenStep({
       <input
         aria-label="Token do bot"
         autoComplete="off"
-        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-[15px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action ${
+        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-base text-ink pointer-fine:text-[15px] outline-none transition-colors placeholder:text-ink-dim focus:border-action ${
           failure === "invalid_discord_bot_token" ? "border-fail/60" : "border-line-strong"
         }`}
         onChange={(event) => onChange(event.currentTarget.value)}
@@ -249,7 +249,7 @@ function PasswordStep({
       <input
         aria-label="Senha da instalação"
         autoComplete="new-password"
-        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-[15px] text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action ${border}`}
+        className={`mt-6 w-full rounded-[11px] border bg-surface px-4.5 py-4 text-base text-ink pointer-fine:text-[15px] outline-none transition-colors placeholder:text-ink-dim focus:border-action ${border}`}
         maxLength={128}
         onChange={(event) => onChange(event.currentTarget.value)}
         placeholder="uma frase que você lembre"
