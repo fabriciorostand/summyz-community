@@ -15,10 +15,19 @@ import { PostgresInstallationAccessStore } from "../database/postgres-installati
 import { PostgresInstallationHealthStore } from "../database/postgres-installation-health-store.js";
 import { PostgresInstallationSettingsStore } from "../database/postgres-installation-settings-store.js";
 import { PostgresLiveMeetingStore } from "../database/postgres-live-meeting-store.js";
+import { PostgresModelCatalogStore } from "../database/postgres-model-catalog-store.js";
+import { PostgresModelDownloadStore } from "../database/postgres-model-download-store.js";
 import { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";
 import { PostgresTaskStore } from "../database/postgres-task-store.js";
 import { DiscordRestGuildDirectory } from "../discord/discord-rest-guild-directory.js";
+import { detectLocalHardware } from "../local-ai/hardware-detection.js";
 import { createLogger } from "../logger.js";
+import { LocalModelInventory } from "../models/local-model-inventory.js";
+import { CachedModelCatalog } from "../models/model-catalog.js";
+import { ModelCatalogService } from "../models/model-catalog-service.js";
+import { ModelDownloadManager } from "../models/model-download-manager.js";
+import { ModelManagement } from "../models/model-management.js";
+import { ProviderModelTransfer } from "../models/model-transfer.js";
 import { SecretBox } from "../security/secret-box.js";
 import { createApiServer } from "./server.js";
 import { loadWebConfig } from "./web-config.js";
@@ -52,9 +61,29 @@ const guildDirectory = new DiscordRestGuildDirectory({
   fetch: globalThis.fetch,
   getBotToken: () => settings.getSecret("discord_bot_token"),
 });
+const inventory = new LocalModelInventory();
+const catalog = new ModelCatalogService(
+  new CachedModelCatalog(new PostgresModelCatalogStore(database)),
+  inventory,
+  await detectLocalHardware(),
+  () => settings.getSecret("openrouter_api_key"),
+  globalThis.fetch,
+  { device: config.localAiDevice, fallback: config.localAiFallback },
+);
+const downloads = new ModelDownloadManager(
+  new PostgresModelDownloadStore(database),
+  new ProviderModelTransfer(),
+  logger,
+);
+const models = {
+  inventory,
+  catalog,
+  management: new ModelManagement(database, catalog, downloads),
+};
 const app = await createApiServer(
   {
     accessMode: config.accessMode,
+    models,
     analytics: new PostgresAnalyticsStore(database),
     aiProfiles: new PostgresAiProfileStore(database),
     auth,
@@ -76,6 +105,7 @@ const app = await createApiServer(
 );
 
 await app.listen({ host: config.host, port: config.port });
+downloads.start();
 logger.info({ host: config.host, port: config.port }, "Summyz dashboard started");
 
 let stopping = false;
@@ -84,6 +114,7 @@ async function shutdown(signal: NodeJS.Signals): Promise<void> {
   stopping = true;
   logger.info({ signal }, "Summyz dashboard shutdown requested");
   await app.close();
+  await downloads.shutdown();
   await database.close();
   logger.info("Summyz dashboard stopped");
 }

@@ -14,6 +14,7 @@ export interface PostgresQueryResult {
 
 export interface PostgresExecutor {
   query(text: string, values?: readonly unknown[]): Promise<PostgresQueryResult>;
+  transaction?<T>(action: (executor: PostgresExecutor) => Promise<T>): Promise<T>;
 }
 
 export interface PostgresClient extends PostgresExecutor {
@@ -103,6 +104,25 @@ CREATE TABLE IF NOT EXISTS schema_migrations (
 
   public async close(): Promise<void> {
     await this.#pool.end();
+  }
+
+  public async transaction<T>(action: (executor: PostgresExecutor) => Promise<T>): Promise<T> {
+    const client = await this.#pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await action(client);
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch (rollbackError) {
+        throw new AggregateError([error, rollbackError], "Database transaction rollback failed");
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async #connectSafely(): Promise<PostgresClient> {

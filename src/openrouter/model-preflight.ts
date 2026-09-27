@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CachedModelCatalog, CatalogResult } from "../models/model-catalog.js";
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -42,15 +43,18 @@ export class OpenRouterModelPreflightError extends Error {
 interface OpenRouterModelPreflightOptions {
   apiKey: string;
   fetch?: Fetch;
+  cache?: CachedModelCatalog;
 }
 
 export class OpenRouterModelPreflight {
   readonly #apiKey: string;
   readonly #fetch: Fetch;
+  readonly #cache: CachedModelCatalog | undefined;
 
   public constructor(options: OpenRouterModelPreflightOptions) {
     this.#apiKey = z.string().min(1).parse(options.apiKey);
     this.#fetch = options.fetch ?? fetch;
+    this.#cache = options.cache;
   }
 
   public async validate(input: {
@@ -58,19 +62,68 @@ export class OpenRouterModelPreflight {
       model: string;
       phase: Exclude<OpenRouterModelPhase, "transcription">;
     }[];
-    transcriptionModel: string;
+    transcriptionModel?: string;
   }): Promise<void> {
     const [models, transcriptionModels] = await Promise.all([
-      this.#loadModels(OPENROUTER_MODELS_URL),
-      this.#loadModels(OPENROUTER_STT_MODELS_URL),
+      input.generativeModels.length > 0
+        ? this.#loadModels(OPENROUTER_MODELS_URL)
+        : new Map<string, CatalogModel>(),
+      input.transcriptionModel !== undefined
+        ? this.#loadModels(OPENROUTER_STT_MODELS_URL)
+        : new Map<string, CatalogModel>(),
     ]);
-    requireTranscriptionModel(transcriptionModels.get(input.transcriptionModel));
+    if (input.transcriptionModel !== undefined)
+      requireTranscriptionModel(transcriptionModels.get(input.transcriptionModel));
     for (const selection of input.generativeModels) {
       requireGenerativeModel(models.get(selection.model), selection.phase);
     }
   }
 
   async #loadModels(url: string): Promise<Map<string, z.infer<typeof modelSchema>>> {
+    if (this.#cache !== undefined) {
+      const result = await this.list(url === OPENROUTER_STT_MODELS_URL);
+      if (result.status === "unavailable")
+        throw new OpenRouterModelPreflightError("catalog_unavailable");
+      return new Map(
+        result.items.map((item) => [
+          item.model,
+          {
+            id: item.model,
+            architecture: {
+              input_modalities: item.inputModalities ?? [],
+              output_modalities: item.outputModalities ?? [],
+            },
+            supported_parameters: item.supportedParameters ?? [],
+          },
+        ]),
+      );
+    }
+    return this.#fetchModels(url);
+  }
+
+  public async list(transcription: boolean): Promise<CatalogResult> {
+    const source = async () =>
+      [
+        ...(
+          await this.#fetchModels(transcription ? OPENROUTER_STT_MODELS_URL : OPENROUTER_MODELS_URL)
+        ).values(),
+      ].map((model) => ({
+        model: model.id,
+        name: model.id,
+        sizeBytes: null,
+        inputModalities: model.architecture.input_modalities,
+        outputModalities: model.architecture.output_modalities,
+        supportedParameters: model.supported_parameters,
+      }));
+    if (this.#cache !== undefined)
+      return this.#cache.get(
+        transcription ? "openrouter:transcription" : "openrouter:text",
+        source,
+      );
+    return { items: await source(), fetchedAt: Date.now(), status: "fresh" };
+  }
+
+  async #fetchModels(url: string): Promise<Map<string, z.infer<typeof modelSchema>>> {
     let response: Response;
     try {
       response = await this.#fetch(url, {

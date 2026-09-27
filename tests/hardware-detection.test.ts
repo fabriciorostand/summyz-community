@@ -6,6 +6,16 @@ const mebibyte = 1_024 ** 2;
 const gibibyte = 1_024 ** 3;
 
 describe("detectLocalHardware", () => {
+  it("preserva a GPU quando o Compose injeta memória desconhecida como string vazia", async () => {
+    const hardware = await detectLocalHardware({
+      environment: { SUMMYZ_DETECTED_GPU_VENDOR: "nvidia", SUMMYZ_DETECTED_GPU_MEMORY_BYTES: "" },
+      platform: "linux",
+      runCommand: async () => "",
+    });
+    expect(hardware.accelerators).toEqual([
+      { id: "injected-0", name: "nvidia GPU", vendor: "nvidia" },
+    ]);
+  });
   it("usa o hardware validado injetado pelo inicializador do Compose", async () => {
     const profile = await detectLocalHardware({
       environment: {

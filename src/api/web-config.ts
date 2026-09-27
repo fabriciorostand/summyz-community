@@ -1,6 +1,8 @@
 import { z } from "zod";
 
 const environmentSchema = z.object({
+  LOCAL_AI_DEVICE: z.enum(["auto", "cpu", "gpu"]).default("auto"),
+  LOCAL_AI_FALLBACK: z.enum(["cpu", "none"]).default("none"),
   DASHBOARD_ACCESS_MODE: z.enum(["local", "public"]).default("local"),
   DATABASE_URL: z
     .url()
@@ -27,6 +29,8 @@ const environmentSchema = z.object({
 });
 
 export interface WebConfig {
+  localAiDevice: "auto" | "cpu" | "gpu";
+  localAiFallback: "cpu" | "none";
   accessMode: "local" | "public";
   databaseUrl: string;
   host: string;
@@ -50,6 +54,8 @@ export function loadWebConfig(environment: NodeJS.ProcessEnv): WebConfig {
     }
   }
   return {
+    localAiDevice: parsed.LOCAL_AI_DEVICE,
+    localAiFallback: parsed.LOCAL_AI_FALLBACK,
     accessMode: parsed.DASHBOARD_ACCESS_MODE,
     databaseUrl: parsed.DATABASE_URL,
     host: parsed.WEB_HOST,

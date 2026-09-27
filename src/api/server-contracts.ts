@@ -1,7 +1,7 @@
 import type { Logger } from "pino";
 import { z } from "zod";
 
-import { externalAiProfileSchema, localAiProfileSchema } from "../ai-profile.js";
+import { aiProfileInputSchema, calculateProfileType } from "../ai-profile.js";
 import type { DashboardAccess } from "../auth/auth-domain.js";
 import { installationPasswordSchema } from "../auth/installation-password.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
@@ -21,6 +21,10 @@ import type { LiveMeetingState } from "../database/postgres-live-meeting-store.j
 import type { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";
 import type { DashboardTask } from "../database/postgres-task-store.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
+import type { LocalModelInventory } from "../models/local-model-inventory.js";
+import type { ModelCatalogService } from "../models/model-catalog-service.js";
+import type { ModelDownloadManager } from "../models/model-download-manager.js";
+import type { ModelManagement } from "../models/model-management.js";
 
 export const setupSchema = z.object({
   discordBotToken: z.string().min(1),
@@ -33,10 +37,21 @@ export const guildSettingsSchema = z.object({
 });
 export const guildParametersSchema = z.object({ guildId: z.string().min(1).max(128) });
 export const profileParametersSchema = z.object({ profileId: z.string().min(1).max(256) });
-export const profileBodySchema = z.discriminatedUnion("profileType", [
-  externalAiProfileSchema.omit({ profileId: true }),
-  localAiProfileSchema.omit({ profileId: true }),
-]);
+export const profileBodySchema = aiProfileInputSchema
+  .omit({ profileId: true })
+  .superRefine((profile, context) => {
+    for (const phase of ["transcription", "refinement", "summary"] as const) {
+      for (const field of ["provider", "model"] as const) {
+        if (profile[phase][field] === null)
+          context.addIssue({
+            code: "custom",
+            path: [phase, field],
+            message: "A selection is required",
+          });
+      }
+    }
+  })
+  .transform((profile) => ({ ...profile, profileType: calculateProfileType(profile) }));
 
 export interface ApiAuthService {
   authenticate(sessionToken: string): Promise<DashboardAccess>;
@@ -140,6 +155,13 @@ export interface ApiAnalyticsStore {
 }
 
 export interface ApiServerDependencies {
+  models?: {
+    catalog: Pick<ModelCatalogService, "list" | "validateProfile">;
+    inventory: Pick<LocalModelInventory, "assess">;
+    management: Pick<ModelManagement, "download" | "remove"> & {
+      downloads: Pick<ModelDownloadManager, "cancel" | "store">;
+    };
+  };
   accessMode: "local" | "public";
   analytics?: ApiAnalyticsStore;
   aiProfiles: AiProfileStore;

@@ -16,6 +16,8 @@ import { resolveFasterWhisperBatchSize } from "./local-ai/faster-whisper-batch-s
 import type { LocalHardwareProfile } from "./local-ai/hardware-profile.js";
 import { type LocalAiPhase, resolveLocalExecutionPlan } from "./local-ai/local-execution-policy.js";
 import { LocalModelManager } from "./local-ai/local-model-manager.js";
+import { LocalModelInventory } from "./models/local-model-inventory.js";
+import type { CachedModelCatalog } from "./models/model-catalog.js";
 import { OpenRouterModelPreflight } from "./openrouter/model-preflight.js";
 import {
   meetingAiConfigurationSchema,
@@ -37,6 +39,7 @@ interface ApplicationAiRuntimeOptions {
   installationSettings: Pick<PostgresInstallationSettingsStore, "getSecret">;
   installationHealth?: Pick<PostgresInstallationHealthStore, "writeHeartbeat">;
   logger: Logger;
+  modelCatalogCache?: CachedModelCatalog;
 }
 
 export class ApplicationAiRuntime {
@@ -48,6 +51,7 @@ export class ApplicationAiRuntime {
   readonly #installationSettings: Pick<PostgresInstallationSettingsStore, "getSecret">;
   readonly #installationHealth: Pick<PostgresInstallationHealthStore, "writeHeartbeat"> | undefined;
   readonly #logger: Logger;
+  readonly #modelCatalogCache: CachedModelCatalog | undefined;
 
   public constructor(options: ApplicationAiRuntimeOptions) {
     this.#aiProfileStore = options.aiProfileStore;
@@ -58,6 +62,7 @@ export class ApplicationAiRuntime {
     this.#installationSettings = options.installationSettings;
     this.#installationHealth = options.installationHealth;
     this.#logger = options.logger;
+    this.#modelCatalogCache = options.modelCatalogCache;
   }
 
   public getMeetingConfiguration(manifest: RecordingManifest): ResolvedMeetingAiConfiguration {
@@ -80,6 +85,7 @@ export class ApplicationAiRuntime {
       throw new Error("The server does not have an active AI profile");
     }
     let configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
+    await new LocalModelInventory().requireInstalled(configuration);
     await this.#validateExternalConfiguration(configuration);
     const phases = localPhases(configuration);
     const executionPlan = resolveLocalExecutionPlan({
@@ -103,21 +109,31 @@ export class ApplicationAiRuntime {
   }
 
   async #writeLocalReadiness(configuration: ResolvedMeetingAiConfiguration): Promise<void> {
-    if (this.#installationHealth === undefined || configuration.profileType !== "local") return;
-    const ollamaModels = [configuration.refinement.model, configuration.summary.model];
+    if (this.#installationHealth === undefined) return;
+    const ollamaModels = [configuration.refinement, configuration.summary]
+      .filter((phase) => phase.provider === "ollama")
+      .map((phase) => phase.model);
     await Promise.all([
-      this.#installationHealth.writeHeartbeat({
-        componentId: "faster-whisper-main",
-        componentType: "faster_whisper",
-        details: { models: [configuration.transcription.model] },
-        status: "ready",
-      }),
-      this.#installationHealth.writeHeartbeat({
-        componentId: "ollama-main",
-        componentType: "ollama",
-        details: { models: [...new Set(ollamaModels)] },
-        status: "ready",
-      }),
+      ...(configuration.transcription.provider === "faster-whisper"
+        ? [
+            this.#installationHealth.writeHeartbeat({
+              componentId: "faster-whisper-main",
+              componentType: "faster_whisper",
+              details: { models: [configuration.transcription.model] },
+              status: "ready",
+            }),
+          ]
+        : []),
+      ...(ollamaModels.length > 0
+        ? [
+            this.#installationHealth.writeHeartbeat({
+              componentId: "ollama-main",
+              componentType: "ollama",
+              details: { models: [...new Set(ollamaModels)] },
+              status: "ready",
+            }),
+          ]
+        : []),
     ]);
   }
 
@@ -167,14 +183,28 @@ export class ApplicationAiRuntime {
   async #validateExternalConfiguration(
     configuration: ResolvedMeetingAiConfiguration,
   ): Promise<void> {
-    if (configuration.profileType !== "external") return;
+    if (
+      ![configuration.transcription, configuration.refinement, configuration.summary].some(
+        (phase) => phase.provider === "openrouter",
+      )
+    )
+      return;
     const apiKey = await this.requireOpenRouterApiKey();
-    await new OpenRouterModelPreflight({ apiKey }).validate({
+    await new OpenRouterModelPreflight({
+      apiKey,
+      ...(this.#modelCatalogCache === undefined ? {} : { cache: this.#modelCatalogCache }),
+    }).validate({
       generativeModels: [
-        { model: configuration.refinement.model, phase: "refinement" },
-        { model: configuration.summary.model, phase: "summary" },
+        ...(configuration.refinement.provider === "openrouter"
+          ? [{ model: configuration.refinement.model, phase: "refinement" as const }]
+          : []),
+        ...(configuration.summary.provider === "openrouter"
+          ? [{ model: configuration.summary.model, phase: "summary" as const }]
+          : []),
       ],
-      transcriptionModel: configuration.transcription.model,
+      ...(configuration.transcription.provider === "openrouter"
+        ? { transcriptionModel: configuration.transcription.model }
+        : {}),
     });
   }
 
@@ -328,7 +358,12 @@ function assessLocalModels(
       ? [
           assessModelCompatibility({
             device: executionPlan.transcription.device,
-            hardware,
+            hardware: {
+              ...hardware,
+              ...(executionPlan.transcription.gpuMemoryBytes === undefined
+                ? {}
+                : { gpuMemoryBytes: executionPlan.transcription.gpuMemoryBytes }),
+            },
             model: configuration.transcription.model,
             phase: "transcription",
             provider: "faster-whisper",
@@ -339,7 +374,12 @@ function assessLocalModels(
       ? [
           assessModelCompatibility({
             device: executionPlan.refinement.device,
-            hardware,
+            hardware: {
+              ...hardware,
+              ...(executionPlan.refinement.gpuMemoryBytes === undefined
+                ? {}
+                : { gpuMemoryBytes: executionPlan.refinement.gpuMemoryBytes }),
+            },
             model: configuration.refinement.model,
             phase: "refinement",
             provider: "ollama",
@@ -350,7 +390,12 @@ function assessLocalModels(
       ? [
           assessModelCompatibility({
             device: executionPlan.summary.device,
-            hardware,
+            hardware: {
+              ...hardware,
+              ...(executionPlan.summary.gpuMemoryBytes === undefined
+                ? {}
+                : { gpuMemoryBytes: executionPlan.summary.gpuMemoryBytes }),
+            },
             model: configuration.summary.model,
             phase: "summary",
             provider: "ollama",

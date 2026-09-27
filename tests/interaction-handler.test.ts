@@ -13,6 +13,8 @@ import { CostReportError } from "../src/cost/cost-report.js";
 import { installInteractionHandler } from "../src/discord/interaction-handler.js";
 import { MultilingualCheckpointRequiredError } from "../src/local-ai/local-model-manager.js";
 import { createLogger } from "../src/logger.js";
+import { LocalModelsUnavailableError } from "../src/models/local-model-inventory.js";
+import { ModelOperationError } from "../src/models/model-catalog.js";
 import { OpenRouterModelPreflightError } from "../src/openrouter/model-preflight.js";
 import type { RecordingCoordinator } from "../src/recording/recording-coordinator.js";
 import { RecordingAlreadyActiveError } from "../src/recording/recording-coordinator.js";
@@ -697,6 +699,32 @@ describe("fluxo de comandos do Discord", () => {
       expect.stringMatching(/modelo de transcrição.*não foi encontrado.*OpenRouter/i),
     );
   });
+
+  it.each(["pt-BR", "en"] as const)(
+    "avisa sobre modelos faltantes e operações concorrentes em %s",
+    async (botLanguage) => {
+      const context = await createHarness({
+        administrator: true,
+        botLanguage,
+        voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+      });
+      await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+      for (const status of ["missing_models", "unavailable"] as const) {
+        context.start.mockRejectedValueOnce(
+          new LocalModelsUnavailableError({ status, missingModels: [], unavailableProviders: [] }),
+        );
+        await context.listener(context.interaction);
+        expect(context.editReply).toHaveBeenLastCalledWith(
+          expect.stringMatching(/painel|dashboard/),
+        );
+      }
+      context.start.mockRejectedValueOnce(new ModelOperationError("model_lifecycle_busy"));
+      await context.listener(context.interaction);
+      expect(context.editReply).toHaveBeenLastCalledWith(
+        expect.stringMatching(/instantes|shortly/),
+      );
+    },
+  );
 
   it("informa catálogo inválido e capacidade ausente na fase correta", async () => {
     const invalid = await createHarness({

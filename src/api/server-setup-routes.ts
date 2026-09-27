@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
-import { createInitialAiProfile } from "../ai-profile.js";
+import { createEmptyInitialAiProfile } from "../ai-profile.js";
 import { InstallationPasswordError } from "../auth/installation-password.js";
 import type { ApiServerDependencies } from "./server-contracts.js";
 import { setupSchema } from "./server-contracts.js";
@@ -83,11 +83,7 @@ async function createMissingInitialProfiles(
   dashboardLanguage: "en" | "pt-BR",
 ): Promise<void> {
   const existingProfiles = await dependencies.aiProfiles.listProfiles();
-  for (const profileType of ["external", "local"] as const) {
-    if (!existingProfiles.some((profile) => profile.profileType === profileType)) {
-      await dependencies.aiProfiles.createProfile(
-        createInitialAiProfile(profileType, dashboardLanguage),
-      );
-    }
+  if (existingProfiles.length === 0) {
+    await dependencies.aiProfiles.createProfile(createEmptyInitialAiProfile(dashboardLanguage));
   }
 }

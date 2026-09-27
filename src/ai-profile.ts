@@ -168,16 +168,68 @@ export const localAiProfileSchema = z
     transcription: localTranscriptionAiProfileSchema,
   })
   .strict();
-export const aiProfileSchema = z.discriminatedUnion("profileType", [
-  externalAiProfileSchema,
-  localAiProfileSchema,
-]);
+export const profileSelectionShape = {
+  refinement: z.discriminatedUnion("provider", [
+    externalRefinementAiProfileSchema,
+    localRefinementAiProfileSchema,
+    refinementBaseSchema.extend({ provider: z.null() }),
+  ]),
+  summary: z.discriminatedUnion("provider", [
+    externalSummaryAiProfileSchema,
+    localSummaryAiProfileSchema,
+    summaryBaseSchema.extend({ provider: z.null() }),
+  ]),
+  transcription: z.discriminatedUnion("provider", [
+    externalTranscriptionAiProfileSchema,
+    localTranscriptionAiProfileSchema,
+    transcriptionBaseSchema.extend({ provider: z.null(), vad: externalVadSchema }),
+  ]),
+};
+
+export function calculateProfileType(profile: {
+  transcription: { provider: string | null };
+  refinement: { provider: string | null };
+  summary: { provider: string | null };
+}): "external" | "local" | "hybrid" | null {
+  const providers = [
+    profile.transcription.provider,
+    profile.refinement.provider,
+    profile.summary.provider,
+  ];
+  if (providers.includes(null)) return null;
+  if (providers.every((provider) => provider === "openrouter")) return "external";
+  if (providers.every((provider) => provider !== "openrouter")) return "local";
+  return "hybrid";
+}
+
+export const aiProfileInputSchema = z
+  .object({
+    ...profileBaseShape,
+    ...profileSelectionShape,
+    profileType: z.unknown().optional(),
+  })
+  .strict();
+export const aiProfileSchema = aiProfileInputSchema.transform((profile) => ({
+  ...profile,
+  profileType: calculateProfileType(profile),
+}));
+
+export function createEmptyInitialAiProfile(dashboardLanguage: "en" | "pt-BR"): AiProfile {
+  const base = createInitialAiProfile("external", dashboardLanguage);
+  return aiProfileSchema.parse({
+    ...base,
+    profileId: "default-profile-1",
+    transcription: { ...base.transcription, provider: null },
+    refinement: { ...base.refinement, provider: null },
+    summary: { ...base.summary, provider: null },
+  });
+}
 
 export type AiProfile = z.infer<typeof aiProfileSchema>;
 export type AiProfileType = AiProfile["profileType"];
 
 export function createInitialAiProfile(
-  profileType: AiProfileType,
+  profileType: "external" | "local",
   dashboardLanguage: "en" | "pt-BR",
 ): AiProfile {
   const localizedName = dashboardLanguage === "pt-BR" ? "Perfil 1" : "Profile 1";
@@ -280,7 +332,7 @@ export function canonicalizeAiProfileDefaults(profile: AiProfile): AiProfile {
 
 export function isAiProfileComplete(profile: AiProfile): boolean {
   return [profile.transcription, profile.refinement, profile.summary].every(
-    (phase) => phase.model !== null,
+    (phase) => phase.model !== null && phase.provider !== null,
   );
 }
 
@@ -343,11 +395,11 @@ function getSummaryPromptLanguage(profile: AiProfile): ProfileLanguage {
   return profile.language === "auto" ? profile.transcription.language : profile.language;
 }
 
-function requireCompletePhase<T extends { model: string | null; provider: string }>(
+function requireCompletePhase<T extends { model: string | null; provider: string | null }>(
   phase: T,
-): T & { model: string } {
-  if (phase.model === null) {
+): T & { model: string; provider: string } {
+  if (phase.model === null || phase.provider === null) {
     throw new Error("The active AI profile is incomplete");
   }
-  return { ...phase, model: phase.model };
+  return { ...phase, model: phase.model, provider: phase.provider };
 }

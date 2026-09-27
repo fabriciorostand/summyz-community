@@ -20,6 +20,7 @@ import { PostgresLiveMeetingStore } from "./database/postgres-live-meeting-store
 import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
 import { PostgresMeetingContentStore } from "./database/postgres-meeting-content-store.js";
 import { PostgresMeetingStore } from "./database/postgres-meeting-store.js";
+import { PostgresModelCatalogStore } from "./database/postgres-model-catalog-store.js";
 import { DiscordMeetingPublisher } from "./discord/discord-meeting-publisher.js";
 import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
@@ -28,6 +29,9 @@ import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
 import { detectLocalHardware } from "./local-ai/hardware-detection.js";
 import { createLogger } from "./logger.js";
 import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
+import { LocalModelInventory } from "./models/local-model-inventory.js";
+import { CachedModelCatalog } from "./models/model-catalog.js";
+import { lockModelLifecycle } from "./models/model-lifecycle-lock.js";
 import { DurableJobQueue } from "./processing/durable-job-queue.js";
 import { DurableJobWorker } from "./processing/durable-job-worker.js";
 import { MeetingArtifactMaintenance } from "./processing/meeting-artifact-maintenance.js";
@@ -149,6 +153,7 @@ const guildConfigStore = new PostgresGuildConfigStore(database);
 const aiProfileStore = new PostgresAiProfileStore(database);
 const liveMeetingStore = new PostgresLiveMeetingStore(database);
 const aiRuntime = new ApplicationAiRuntime({
+  modelCatalogCache: new CachedModelCatalog(new PostgresModelCatalogStore(database)),
   aiProfileStore,
   client,
   config,
@@ -287,7 +292,10 @@ const transcriptionService = new MeetingTranscriptionService({
   },
   resolveSpeechAnalyzer: (manifest) => {
     const configuration = aiRuntime.getMeetingConfiguration(manifest);
-    if (configuration.profileType === "external" && configuration.transcription.vad.enabled) {
+    if (
+      configuration.transcription.provider === "openrouter" &&
+      configuration.transcription.vad.enabled
+    ) {
       const vad = configuration.transcription.vad;
       return new SileroSpeechAnalyzer({
         decodeAudio: decodeMeetingAudio,
@@ -320,6 +328,8 @@ const postgresFinalizer = new MeetingFinalizer({
   transcriptionStore,
 });
 const processingHandler = new MeetingProcessingHandler({
+  requireModels: (manifest) =>
+    new LocalModelInventory().requireInstalled(aiRuntime.getMeetingConfiguration(manifest)),
   audioCatalog: new PostgresMeetingAudioCatalog(database),
   finalizer: postgresFinalizer,
   meetingStore: postgresMeetingStore,
@@ -356,7 +366,14 @@ const recordingFactory = new DiscordRecordingFactory(
   (guildId) => guildConfigStore.getGuildSettings(guildId),
   liveMeetingStore,
 );
-const coordinator = new RecordingCoordinator(recordingFactory);
+const coordinator = new RecordingCoordinator({
+  create: (input, onEnded) =>
+    database.transaction(async (executor) => {
+      await lockModelLifecycle(executor);
+      return recordingFactory.create(input, onEnded);
+    }),
+  resume: (manifest, onEnded) => recordingFactory.resume(manifest, onEnded),
+});
 
 installInteractionHandler(
   client,

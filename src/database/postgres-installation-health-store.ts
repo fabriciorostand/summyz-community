@@ -107,7 +107,9 @@ export class PostgresInstallationHealthStore {
         `SELECT EXISTS(
            SELECT 1 FROM guild_configurations guild
            JOIN ai_profiles profile ON profile.profile_id = guild.active_ai_profile_id
-           WHERE profile.profile_type = 'local'
+           WHERE profile.transcription->>'provider' = 'faster-whisper'
+             OR profile.refinement->>'provider' = 'ollama'
+             OR profile.summary->>'provider' = 'ollama'
          ) AS local_profiles_active`,
       ),
     ]);

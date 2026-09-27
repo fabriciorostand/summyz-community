@@ -179,6 +179,19 @@ WHERE job_id = $1 AND status = 'active' AND lease_owner = $2
     terminal = false,
     transcriptionRecoveryReason?: TranscriptionRecoveryReason,
   ): Promise<"failed" | "retained" | "scheduled"> {
+    if (failureCode === "local_models_missing" || failureCode === "local_models_unavailable") {
+      await this.#database.query(
+        `WITH waiting AS (
+        UPDATE processing_jobs SET status = 'scheduled', attempt_count = greatest(0, attempt_count - 1),
+          available_at = now() + interval '30 seconds', last_failure_code = $3,
+          lease_owner = NULL, lease_expires_at = NULL, updated_at = now()
+        WHERE job_id = $1 AND status = 'active' AND lease_owner = $2 RETURNING meeting_id
+      ) UPDATE meetings SET failure_code = $3, updated_at = now()
+        WHERE meeting_id IN (SELECT meeting_id FROM waiting)`,
+        [job.jobId, workerId, failureCode],
+      );
+      return "scheduled";
+    }
     const validatedFailureCode = z
       .string()
       .min(1)

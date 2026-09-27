@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { Logger } from "pino";
 import { z } from "zod";
+import { LocalModelsUnavailableError } from "../models/local-model-inventory.js";
 import {
   type TranscriptionRecoveryReason,
   transcriptionRecoveryReasonSchema,
@@ -156,7 +157,11 @@ export class DurableJobWorker {
       await this.#queue.complete(job, this.#workerId);
     } catch (error) {
       const failureCode =
-        error instanceof ProcessingJobError ? error.failureCode : "unexpected_error";
+        error instanceof ProcessingJobError
+          ? error.failureCode
+          : error instanceof LocalModelsUnavailableError
+            ? error.code
+            : "unexpected_error";
       const terminal = error instanceof ProcessingJobError && error.terminal;
       const transcriptionRecoveryReason =
         error instanceof ProcessingJobError ? error.transcriptionRecoveryReason : undefined;
