@@ -40,27 +40,29 @@ export const handleRecordingStartError = async (
       },
       "OpenRouter model preflight failed",
     );
-    let message: string;
-    switch (error.reason) {
-      case "catalog_unavailable":
-        message = text.modelCatalogUnavailable(error.httpStatus);
-        break;
-      case "catalog_invalid":
-        message = text.modelCatalogInvalid;
-        break;
-      case "model_missing":
-        message = error.phase === undefined ? text.commandFailed : text.modelMissing(error.phase);
-        break;
-      case "capability_missing":
-        message =
-          error.phase === undefined ? text.commandFailed : text.modelCapabilityMissing(error.phase);
-        break;
-    }
-    await interaction.editReply(message);
+    await interaction.editReply(preflightFailureMessage(error, text));
     return true;
   }
   return false;
 };
+
+function preflightFailureMessage(
+  error: OpenRouterModelPreflightError,
+  text: InteractionText,
+): string {
+  switch (error.reason) {
+    case "catalog_unavailable":
+      return text.modelCatalogUnavailable(error.httpStatus);
+    case "catalog_invalid":
+      return text.modelCatalogInvalid;
+    case "model_missing":
+      return error.phase === undefined ? text.commandFailed : text.modelMissing(error.phase);
+    case "capability_missing":
+      return error.phase === undefined
+        ? text.commandFailed
+        : text.modelCapabilityMissing(error.phase);
+  }
+}
 
 function lifecycleBusyMessage(locale: string): string {
   return locale === "pt-BR"

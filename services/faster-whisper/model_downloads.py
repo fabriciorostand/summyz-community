@@ -4,10 +4,12 @@ import hashlib
 import json
 import logging
 import shutil
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from threading import Event, Lock, Thread
+
+from huggingface_hub.hf_api import RepoSibling
 
 logger = logging.getLogger("summyz.model_downloads")
 MAX_MODEL_BYTES = 32 * 1024**3
@@ -38,34 +40,34 @@ def is_installed(directory: Path) -> bool:
 def installed_models(root: Path) -> list[dict[str, object]]:
     result = []
     for directory in root.iterdir():
-        metadata = directory / "summyz-model-inventory.json"
-        if (
-            directory.is_symlink()
-            or directory.suffix == ".download"
-            or not is_installed(directory)
-            or not metadata.is_file()
-        ):
-            continue
-        try:
-            inventory = json.loads(metadata.read_text(encoding="utf-8"))
-            model = inventory["model"]
-            if (
-                not isinstance(model, str)
-                or len(model) > 200
-                or directory != model_path(root, model)
-            ):
-                continue
-            result.append(
-                {
-                    "model": model,
-                    "size": sum(
-                        file.stat().st_size for file in directory.iterdir() if file.is_file()
-                    ),
-                }
-            )
-        except (OSError, ValueError, KeyError, TypeError) as error:
-            logger.warning("Model inventory is invalid", extra={"error_type": type(error).__name__})
+        inventory = read_installed_model(root, directory)
+        if inventory is not None:
+            result.append(inventory)
     return result
+
+
+def read_installed_model(root: Path, directory: Path) -> dict[str, object] | None:
+    metadata = directory / "summyz-model-inventory.json"
+    if (
+        directory.is_symlink()
+        or directory.suffix == ".download"
+        or not is_installed(directory)
+        or not metadata.is_file()
+    ):
+        return None
+    try:
+        inventory = json.loads(metadata.read_text(encoding="utf-8"))
+        model = inventory["model"]
+        if not isinstance(model, str) or len(model) > 200 or directory != model_path(root, model):
+            return None
+        return {"model": model, "size": directory_file_size(directory)}
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        logger.warning("Model inventory is invalid", extra={"error_type": type(error).__name__})
+        return None
+
+
+def directory_file_size(directory: Path) -> int:
+    return sum(file.stat().st_size for file in directory.iterdir() if file.is_file())
 
 
 def known_models() -> dict[str, str]:
@@ -85,16 +87,20 @@ def model_files(model: str, revision: str | None = None) -> tuple[str, str, list
     if repository is None:
         raise ValueError("Unknown model")
     info = model_info(repository, revision=revision, files_metadata=True, token=False, timeout=10)
-    files = [
-        (file.rfilename, file.size)
-        for file in (info.siblings or [])
-        if file.rfilename in FILES and isinstance(file.size, int) and file.size > 0
-    ]
+    files = select_model_files(info.siblings or [])
     if not isinstance(info.sha, str) or sum(size for _, size in files) > MAX_MODEL_BYTES:
         raise ValueError("Invalid model metadata")
     if not {"model.bin", "config.json", "tokenizer.json"}.issubset({name for name, _ in files}):
         raise ValueError("Incomplete model metadata")
     return repository, info.sha, files
+
+
+def select_model_files(siblings: Iterable[RepoSibling]) -> list[tuple[str, int]]:
+    return [
+        (file.rfilename, file.size)
+        for file in siblings
+        if file.rfilename in FILES and isinstance(file.size, int) and file.size > 0
+    ]
 
 
 def catalog() -> list[dict[str, object]]:
@@ -134,35 +140,64 @@ def transfer_file(
     if path.is_file() and path.stat().st_size == size:
         progress(size)
         return
-    offset = partial.stat().st_size if partial.exists() else 0
-    if offset > size:
-        partial.unlink()
-        offset = 0
+    offset = partial_offset(partial, size)
     if cancelled():
         raise DownloadCancelled()
     if offset != size:
         headers = {"Range": f"bytes={offset}-"} if offset else {}
         with request(url, headers=headers, stream=True, timeout=(10, 30)) as response:
             response.raise_for_status()
-            if response.status_code == 200:
-                offset = 0
-            elif response.status_code != 206 or not response.headers.get(
-                "Content-Range", ""
-            ).startswith(f"bytes {offset}-"):
-                raise ValueError("Invalid download range")
-            with partial.open("ab" if offset else "wb") as output:
-                progress(offset)
-                for chunk in response.iter_content(chunk_size=1024 * 1024):
-                    if cancelled():
-                        raise DownloadCancelled()
-                    offset += len(chunk)
-                    if offset > size:
-                        raise ValueError("Model exceeds declared size")
-                    output.write(chunk)
-                    progress(offset)
+            offset = response_offset(
+                response.status_code, response.headers.get("Content-Range", ""), offset
+            )
+            offset = write_download_chunks(
+                partial,
+                response.iter_content(chunk_size=1024 * 1024),
+                offset,
+                size,
+                cancelled,
+                progress,
+            )
     if offset != size:
         raise ValueError("Incomplete download")
     partial.replace(path)
+
+
+def partial_offset(partial: Path, size: int) -> int:
+    offset = partial.stat().st_size if partial.exists() else 0
+    if offset > size:
+        partial.unlink()
+        return 0
+    return offset
+
+
+def response_offset(status_code: int, content_range: str, offset: int) -> int:
+    if status_code == 200:
+        return 0
+    if status_code != 206 or not content_range.startswith(f"bytes {offset}-"):
+        raise ValueError("Invalid download range")
+    return offset
+
+
+def write_download_chunks(
+    partial: Path,
+    chunks: Iterable[bytes],
+    offset: int,
+    size: int,
+    cancelled: Callable[[], bool],
+    progress: Callable[[int], None],
+) -> int:
+    with partial.open("ab" if offset else "wb") as output:
+        progress(offset)
+        for chunk in chunks:
+            if cancelled():
+                raise DownloadCancelled()
+            offset += len(chunk)
+            if offset > size:
+                raise ValueError("Model exceeds declared size")
+            output.write(chunk)
+            progress(offset)
+    return offset
 
 
 class ModelDownloads:
@@ -254,19 +289,7 @@ class ModelDownloads:
                 completed += size
             if event.is_set():
                 raise DownloadCancelled()
-            from model_inventory import create_model_inventory, write_model_inventory
-
-            write_model_inventory(
-                staging, create_model_inventory(model, requested_revision=resolved_revision)
-            )
-            if directory.exists():
-                # An installed model is never overwritten by a download.
-                if is_installed(directory):
-                    self._clean_staging(model, revision)
-                else:
-                    raise ValueError("Incomplete legacy model requires removal")
-            else:
-                staging.rename(directory)
+            self._install_staged_model(model, revision, resolved_revision)
             with self.lock:
                 self.jobs[key] = {
                     "status": "completed",
@@ -291,3 +314,21 @@ class ModelDownloads:
             logger.warning(
                 "Model download stopped", extra={"model": model, "error_type": type(error).__name__}
             )
+
+    def _install_staged_model(
+        self, model: str, revision: str | None, resolved_revision: str
+    ) -> None:
+        from model_inventory import create_model_inventory, write_model_inventory
+
+        directory = model_path(self.root, model, revision)
+        staging = directory.with_suffix(".download")
+        write_model_inventory(
+            staging, create_model_inventory(model, requested_revision=resolved_revision)
+        )
+        if not directory.exists():
+            staging.rename(directory)
+            return
+        # An installed model is never overwritten by a download.
+        if not is_installed(directory):
+            raise ValueError("Incomplete legacy model requires removal")
+        self._clean_staging(model, revision)

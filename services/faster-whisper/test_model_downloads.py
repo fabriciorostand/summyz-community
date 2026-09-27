@@ -33,6 +33,56 @@ class Response:
 
 
 class ModelDownloadsTests(unittest.TestCase):
+    def test_transfer_rejects_invalid_ranges_and_closes_response(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "model.bin"
+            partial = path.with_suffix(".bin.partial")
+            partial.write_bytes(b"abc")
+            for status, content_range in ((206, "bytes 1-5/6"), (201, "bytes 3-5/6")):
+                response = Response()
+                response.status_code = status
+                response.headers = {"Content-Range": content_range}
+                with patch.object(Response, "__exit__", return_value=None) as close:
+                    with self.assertRaisesRegex(ValueError, "Invalid download range"):
+                        transfer_file(
+                            path,
+                            "url",
+                            6,
+                            lambda: False,
+                            lambda _: None,
+                            lambda *args, response=response, **kwargs: response,
+                        )
+                    close.assert_called_once()
+                self.assertFalse(path.exists())
+                self.assertEqual(partial.read_bytes(), b"abc")
+
+    def test_transfer_resets_oversized_partial_and_preserves_it_on_cancellation(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            path = Path(temporary) / "model.bin"
+            partial = path.with_suffix(".bin.partial")
+            partial.write_bytes(b"oversized")
+            response = Response()
+            response.status_code = 200
+            calls = []
+
+            def request(url, **kwargs):
+                calls.append(kwargs)
+                return response
+
+            transfer_file(path, "url", 3, lambda: False, lambda _: None, request)
+            self.assertEqual(calls[0]["headers"], {})
+            self.assertEqual(path.read_bytes(), b"def")
+            path.unlink()
+            partial.write_bytes(b"abc")
+            response.status_code = 206
+            cancelled = iter((False, True))
+            with patch.object(Response, "__exit__", return_value=None) as close:
+                with self.assertRaises(DownloadCancelled):
+                    transfer_file(path, "url", 6, lambda: next(cancelled), lambda _: None, request)
+                close.assert_called_once()
+            self.assertFalse(path.exists())
+            self.assertEqual(partial.read_bytes(), b"abc")
+
     def test_explicit_download_completes_inventory_and_preserves_existing_files(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
