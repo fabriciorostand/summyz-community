@@ -5,14 +5,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { Profile } from "../../lib/api";
 import { aProfile } from "../../tests/test-utils";
-import { PhaseSettings, TranscriptionSettings } from "./generation-editor";
+import { MergeSettings, PhaseSettings, TranscriptionTuning } from "./generation-editor";
 import { VadEditor } from "./vad-editor";
 
-/** Narrows the fixture so a spread keeps the external branch of the discriminated union. */
-function externalProfile(): Extract<Profile, { profileType: "external" }> {
+/** Narrows the fixture so a spread keeps the external transcription branch. */
+function externalProfile() {
   const profile = aProfile();
-  if (profile.profileType !== "external") throw new Error("fixture must be an external profile");
-  return profile;
+  if (profile.transcription.provider !== "openrouter") throw new Error("fixture must be external");
+  return { ...profile, transcription: profile.transcription };
 }
 
 const localProfile = aProfile({
@@ -103,13 +103,13 @@ describe("VadEditor", () => {
     );
   });
 
-  it("uses a numeric silence field for an external profile", () => {
+  it("uses a numeric silence field when transcription uses the external API", () => {
     render(<VadEditor onChange={vi.fn()} profile={aProfile()} />);
     expect(screen.getByLabelText("Silêncio para encerrar (ms)")).toHaveAttribute("type", "number");
     expect(screen.queryByLabelText("Duração máxima da fala (s)")).toBeNull();
   });
 
-  it("accepts auto for a local profile", async () => {
+  it("accepts auto when transcription runs locally", async () => {
     const onChange = vi.fn();
     render(
       <Controlled
@@ -130,6 +130,30 @@ describe("VadEditor", () => {
         }),
       }),
     );
+  });
+
+  it("lists the values adjusted for the external API and lets the person keep them", async () => {
+    const onAcknowledge = vi.fn();
+    render(
+      <VadEditor
+        onAcknowledge={onAcknowledge}
+        onChange={vi.fn()}
+        profile={aProfile()}
+        review={
+          new Map([
+            ["transcription.vad.minSpeechDurationMs", "A API externa exige pelo menos 32 ms."],
+          ])
+        }
+      />,
+    );
+
+    expect(screen.getByText("Fala mínima (ms)", { selector: "strong" })).toBeInTheDocument();
+    expect(screen.getByText("A API externa exige pelo menos 32 ms.")).toBeInTheDocument();
+    await userEvent.click(
+      screen.getByRole("button", { name: "Manter o valor de Fala mínima (ms)" }),
+    );
+
+    expect(onAcknowledge).toHaveBeenCalledWith("transcription.vad.minSpeechDurationMs");
   });
 
   it("keeps auto for the negative threshold", async () => {
@@ -155,30 +179,10 @@ describe("VadEditor", () => {
 });
 
 describe("PhaseSettings", () => {
-  it("edits the model of a phase", async () => {
-    const onChange = vi.fn();
-    render(<PhaseSettings onChange={onChange} phase="summary" profile={aProfile()} />);
-    await userEvent.type(screen.getByLabelText("Modelo"), "x");
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({
-        summary: expect.objectContaining({ model: "anthropic/claude-sonnet-4x" }),
-      }),
-    );
-  });
-
-  it("clears the model back to the provider default", async () => {
-    const onChange = vi.fn();
-    render(<PhaseSettings onChange={onChange} phase="refinement" profile={aProfile()} />);
-    await userEvent.clear(screen.getByLabelText("Modelo"));
-    expect(onChange).toHaveBeenCalledWith(
-      expect.objectContaining({ refinement: expect.objectContaining({ model: null }) }),
-    );
-  });
-
   it("edits the chunk size", async () => {
     const onChange = vi.fn();
     render(<PhaseSettings onChange={onChange} phase="summary" profile={aProfile()} />);
-    await userEvent.type(screen.getByLabelText("Máximo por trecho"), "1");
+    await userEvent.type(screen.getByLabelText("Tamanho máximo do chunk (caracteres)"), "1");
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
         summary: expect.objectContaining({ maxChunkCharacters: 80_001 }),
@@ -212,10 +216,10 @@ describe("PhaseSettings", () => {
   });
 });
 
-describe("TranscriptionSettings", () => {
+describe("MergeSettings", () => {
   it("edits the merge gap", async () => {
     const onChange = vi.fn();
-    render(<TranscriptionSettings onChange={onChange} profile={aProfile()} />);
+    render(<MergeSettings onChange={onChange} profile={aProfile()} />);
     await userEvent.type(screen.getByLabelText("Intervalo máximo de união (ms)"), "0");
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -223,7 +227,9 @@ describe("TranscriptionSettings", () => {
       }),
     );
   });
+});
 
+describe("TranscriptionTuning", () => {
   it("drops the temperature when the field is emptied", async () => {
     const onChange = vi.fn();
     const base = externalProfile();
@@ -231,7 +237,7 @@ describe("TranscriptionSettings", () => {
       ...base,
       transcription: { ...base.transcription, temperature: 0.3 },
     };
-    render(<TranscriptionSettings onChange={onChange} profile={profile} />);
+    render(<TranscriptionTuning onChange={onChange} profile={profile} />);
     await userEvent.clear(screen.getByLabelText("Temperatura"));
     const [call] = onChange.mock.calls.at(-1) ?? [];
     expect(call).toBeDefined();
@@ -240,11 +246,11 @@ describe("TranscriptionSettings", () => {
     );
   });
 
-  it("offers the batch size only for a local profile", () => {
-    const { unmount } = render(<TranscriptionSettings onChange={vi.fn()} profile={aProfile()} />);
+  it("offers the batch size only when transcription runs locally", () => {
+    const { unmount } = render(<TranscriptionTuning onChange={vi.fn()} profile={aProfile()} />);
     expect(screen.queryByLabelText("Tamanho do lote")).toBeNull();
     unmount();
-    render(<TranscriptionSettings onChange={vi.fn()} profile={localProfile} />);
+    render(<TranscriptionTuning onChange={vi.fn()} profile={localProfile} />);
     expect(screen.getByLabelText("Tamanho do lote")).toHaveValue("auto");
   });
 
@@ -254,7 +260,7 @@ describe("TranscriptionSettings", () => {
       <Controlled
         initial={localProfile}
         onChange={onChange}
-        render={(profile, change) => <TranscriptionSettings onChange={change} profile={profile} />}
+        render={(profile, change) => <TranscriptionTuning onChange={change} profile={profile} />}
       />,
     );
     const field = screen.getByLabelText("Tamanho do lote");

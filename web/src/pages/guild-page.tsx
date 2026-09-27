@@ -31,6 +31,8 @@ import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import { ApiError, api, type GuildConfiguration, type GuildResources } from "../lib/api";
 import { formatCost, formatInteger } from "../lib/format";
+import { availabilityLine, missingSummary } from "./profiles/profile-availability";
+import { profileTypeLabels } from "./profiles/profile-header";
 import { Screen } from "./screen";
 
 export function GuildPage() {
@@ -226,6 +228,7 @@ function GuildBody({
             icon={<Bot className="size-4" />}
             title="Perfil de IA usado neste servidor"
           />
+          <ActiveProfileWarning configuration={configuration} />
           <div className="flex flex-col gap-2">
             {configuration.profiles.map((profile) => {
               const active = profile.profileId === configuration.activeProfileId;
@@ -248,10 +251,13 @@ function GuildBody({
                       {profile.name}
                     </strong>
                     <small className="label-mono text-ink-muted">
-                      {profile.profileType === "external" ? "API externa" : "Local"} ·{" "}
-                      {profile.transcription.model ?? "modelo padrão"} ·{" "}
-                      {profile.summary.model ?? "modelo padrão"} · {profile.language}
+                      {profile.profileType === null
+                        ? "Incompleto"
+                        : profileTypeLabels[profile.profileType]}{" "}
+                      · {profile.transcription.model ?? "sem modelo"} ·{" "}
+                      {profile.summary.model ?? "sem modelo"} · {profile.language}
                     </small>
+                    <ProfileAvailabilityLine availability={profile.availability} />
                   </span>
                   {active && <Badge tone="action">Em uso</Badge>}
                 </label>
@@ -447,6 +453,49 @@ function CheckItem({ done, label }: { done: boolean; label: string }) {
         <CircleAlert className="size-3.5 shrink-0 text-warn" />
       )}
       <span className={done ? "text-ink-secondary" : "text-ink-muted"}>{label}</span>
+    </div>
+  );
+}
+
+function ProfileAvailabilityLine({
+  availability,
+}: {
+  availability: GuildConfiguration["profiles"][number]["availability"];
+}) {
+  // Downloads are followed on the profiles screen; here the saved state is enough.
+  const line = availabilityLine(availability, () => undefined);
+  if (line === null) return null;
+  return (
+    <small className={`text-[11px] ${line.tone === "warn" ? "text-warn" : "text-ink-muted"}`}>
+      {line.text}
+    </small>
+  );
+}
+
+/** The bot refuses to record while the active profile misses a local model; say so here. */
+function ActiveProfileWarning({ configuration }: { configuration: GuildConfiguration }) {
+  const active = configuration.profiles.find(
+    (profile) => profile.profileId === configuration.activeProfileId,
+  );
+  if (active === undefined || active.availability.status === "ready") return null;
+  const { availability } = active;
+  const reason =
+    availability.status === "missing_models"
+      ? `O perfil ativo “${active.name}” ainda não tem ${missingSummary(availability.missingModels)} instalado. O bot recusa gravações até o download terminar.`
+      : availability.status === "incomplete"
+        ? `O perfil ativo “${active.name}” ainda não tem a execução e o modelo de todas as etapas.`
+        : `Não foi possível verificar os modelos locais do perfil ativo “${active.name}”.`;
+  return (
+    <div className="mb-3">
+      <Notice icon={<TriangleAlert className="mt-0.5 size-4 shrink-0" />} tone="warn">
+        <strong className="block text-[12.5px] text-ink">
+          Este servidor não consegue gravar agora.
+        </strong>
+        <span className="text-ink-secondary">{reason} </span>
+        <Link className="text-accent hover:text-accent-hover" to="/profiles">
+          Abrir perfis de IA
+        </Link>
+      </Notice>
     </div>
   );
 }

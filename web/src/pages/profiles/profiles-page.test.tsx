@@ -1,20 +1,33 @@
-import { screen, waitFor, within } from "@testing-library/react";
+import { cleanup, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { api, type Profile } from "../../lib/api";
+import { invalidateModelCatalogs } from "../../hooks/use-model-catalog";
+import {
+  ApiError,
+  api,
+  type ModelCatalog,
+  type Profile,
+  type ProfileAvailability,
+  type ProfileListItem,
+} from "../../lib/api";
 import { aProfile, chooseOption, openOptions, renderScreen } from "../../tests/test-utils";
-import { profileLanguages } from "./language-selector";
 import { ProfilesPage } from "./profiles-page";
 
 vi.mock("../../lib/api", async () => {
   const actual = await vi.importActual<typeof import("../../lib/api")>("../../lib/api");
   return {
+    ApiError: actual.ApiError,
     api: {
+      cancelModelDownload: vi.fn(),
       createProfile: vi.fn(),
       deleteProfile: vi.fn(),
       getPromptDefaults: vi.fn(),
+      listModelDownloads: vi.fn(),
+      listModels: vi.fn(),
       listProfiles: vi.fn(),
+      startModelDownload: vi.fn(),
+      uninstallModel: vi.fn(),
       updateProfile: vi.fn(),
     },
     profileSchema: actual.profileSchema,
@@ -23,21 +36,23 @@ vi.mock("../../lib/api", async () => {
 
 const listProfiles = vi.mocked(api.listProfiles);
 
-/** Narrows the fixture so a spread keeps the external branch of the discriminated union. */
-function externalProfile(): Extract<Profile, { profileType: "external" }> {
-  const profile = aProfile();
-  if (profile.profileType !== "external") throw new Error("fixture must be an external profile");
-  return profile;
+const ready: ProfileAvailability = { missingModels: [], status: "ready", unavailableProviders: [] };
+
+/** The fixture runs every stage on OpenRouter; narrow its transcription for spreads. */
+function apiTranscription() {
+  const { transcription } = aProfile();
+  if (transcription.provider !== "openrouter") throw new Error("fixture must be external");
+  return transcription;
 }
 
-const localProfile = aProfile({
+const localProfile: Profile = aProfile({
   name: "Local sem custo",
   profileId: "p2",
   profileType: "local",
   refinement: {
     generation: {},
     maxChunkCharacters: 8_000,
-    model: "qwen3:4b",
+    model: "qwen3:8b",
     prompt: null,
     provider: "ollama",
   },
@@ -46,7 +61,7 @@ const localProfile = aProfile({
     extractionPrompt: null,
     generation: {},
     maxChunkCharacters: 8_000,
-    model: "qwen3:4b",
+    model: "qwen3:8b",
     provider: "ollama",
   },
   transcription: {
@@ -69,10 +84,94 @@ const localProfile = aProfile({
   },
 });
 
+function item(profile: Profile, overrides: Partial<ProfileListItem> = {}): ProfileListItem {
+  return { active: false, activeServerCount: 0, availability: ready, profile, ...overrides };
+}
+
+function catalogFor(
+  phase: ModelCatalog["phase"],
+  provider: ModelCatalog["provider"],
+  family?: string,
+): ModelCatalog {
+  const base = {
+    fetchedAt: Date.now(),
+    installedModels: [],
+    inventoryStatus:
+      provider === "openrouter" ? ("not_applicable" as const) : ("available" as const),
+    phase,
+    provider,
+    status: "fresh" as const,
+  };
+  if (provider === "openrouter") {
+    return {
+      ...base,
+      items: ["anthropic/claude-sonnet-4", "vendor/refine", "openai/whisper-1"].map((model) => ({
+        compatibility: "unknown" as const,
+        installed: null,
+        model,
+        name: model,
+        sizeBytes: null,
+      })),
+    };
+  }
+  if (provider === "faster-whisper") {
+    return {
+      ...base,
+      items: [
+        {
+          compatibility: "recommended",
+          installed: true,
+          model: "large-v3",
+          name: "large-v3",
+          sizeBytes: 3_090_835_702,
+        },
+      ],
+    };
+  }
+  if (family === undefined) {
+    return {
+      ...base,
+      installedModels: [{ model: "qwen3:8b", sizeBytes: 5_200_000_000 }],
+      items: [
+        {
+          compatibility: "unknown",
+          family: "qwen3",
+          installed: false,
+          model: "qwen3:latest",
+          name: "qwen3",
+          sizeBytes: null,
+          variantsAvailable: true,
+        },
+      ],
+    };
+  }
+  return {
+    ...base,
+    items: [
+      {
+        compatibility: "compatible",
+        family: "qwen3",
+        installed: true,
+        model: "qwen3:8b",
+        name: "qwen3:8b",
+        sizeBytes: 5_200_000_000,
+      },
+      {
+        compatibility: "compatible",
+        family: "qwen3",
+        installed: false,
+        model: "qwen3:4b",
+        name: "qwen3:4b",
+        sizeBytes: 2_500_000_000,
+      },
+    ],
+  };
+}
+
 beforeEach(() => {
   listProfiles.mockResolvedValue([
-    { active: true, activeServerCount: 1, profile: aProfile() },
-    { active: false, activeServerCount: 0, profile: localProfile },
+    item(aProfile(), { active: true, activeServerCount: 1 }),
+    item(localProfile),
   ]);
   vi.mocked(api.getPromptDefaults).mockResolvedValue({
     refinement: "prompt de refino",
@@ -80,231 +179,366 @@ beforeEach(() => {
     summaryExtraction: "prompt de extração",
     transcription: null,
   });
+  vi.mocked(api.listModels).mockImplementation((phase, provider, family) =>
+    Promise.resolve(catalogFor(phase, provider, family)),
+  );
+  vi.mocked(api.listModelDownloads).mockResolvedValue([]);
   vi.mocked(api.updateProfile).mockResolvedValue(undefined);
   vi.mocked(api.deleteProfile).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
+  cleanup();
+  invalidateModelCatalogs();
   vi.clearAllMocks();
 });
 
+async function openStage(title: "Transcrição" | "Refinamento" | "Resumo") {
+  await userEvent.click(await screen.findByRole("tab", { name: new RegExp(title) }));
+}
+
+async function pickModel(model: RegExp) {
+  await userEvent.click(screen.getByRole("button", { name: /^Modelo/ }));
+  await userEvent.click(await screen.findByRole("option", { name: model }));
+}
+
 describe("ProfilesPage", () => {
-  it("keeps only five fields in the essentials card", async () => {
+  it("lists every profile once, with its type and where it is used", async () => {
     renderScreen(<ProfilesPage />);
-    expect(await screen.findByLabelText("Nome do perfil")).toHaveValue("Padrão OpenRouter");
-    expect(screen.getByRole("combobox", { name: "Idioma da transcrição" })).toHaveTextContent(
-      "auto",
-    );
-    expect(screen.getByRole("combobox", { name: "Idioma do resumo" })).toHaveTextContent("pt-BR");
-    expect(screen.getByLabelText("Modelo de transcrição")).toHaveValue("openai/whisper-1");
-    expect(screen.getByLabelText("Modelo de resumo")).toHaveValue("anthropic/claude-sonnet-4");
-  });
 
-  it("opens the editor without a section label above the essentials", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Nome do perfil");
-    expect(screen.queryByText("O essencial")).toBeNull();
-    expect(screen.getByText("Avançado")).toBeInTheDocument();
-  });
-
-  it("has no help tip next to the title", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Nome do perfil");
-    expect(screen.queryByRole("button", { name: "Ajuda" })).toBeNull();
-    expect(screen.queryByText(/Perfis são globais/)).toBeNull();
-  });
-
-  it("marks the profile that a server is using", async () => {
-    renderScreen(<ProfilesPage />);
-    expect(await screen.findByText("Em uso")).toBeInTheDocument();
-    expect(screen.getByText(/Este perfil está ativo em 1 servidor/)).toBeInTheDocument();
-  });
-
-  it("switches between external and local profiles", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Nome do perfil");
-    await userEvent.click(screen.getByRole("tab", { name: "Local" }));
-    await waitFor(() =>
-      expect(screen.getByLabelText("Nome do perfil")).toHaveValue("Local sem custo"),
+    const list = await screen.findByRole("navigation", { name: "Perfis" });
+    const first = within(list).getByRole("button", { name: /Padrão OpenRouter/ });
+    expect(first).toHaveTextContent("API");
+    expect(first).toHaveTextContent("Em uso em 1 servidor");
+    expect(within(list).getByRole("button", { name: /Local sem custo/ })).toHaveTextContent(
+      "Local",
     );
   });
 
-  it("gives both execution types half of the selector", async () => {
+  it("shows the three stages with the model and where each one runs", async () => {
     renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Nome do perfil");
-    expect(screen.getByRole("tablist", { name: "Tipo de execução" })).toHaveClass("w-full");
-    expect(screen.getByRole("tab", { name: "API externa" })).toHaveClass("flex-1");
-    expect(screen.getByRole("tab", { name: "Local" })).toHaveClass("flex-1");
-  });
 
-  it("hides the advanced settings behind disclosures", async () => {
-    renderScreen(<ProfilesPage />);
-    const vad = await screen.findByRole("button", { name: /Detecção de voz/ });
-    expect(vad).toHaveAttribute("aria-expanded", "false");
-    expect(screen.getByRole("button", { name: /Prompts do pipeline/ })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Geração e fatiamento/ })).toBeInTheDocument();
-    expect(screen.getByText("Avançado")).toBeInTheDocument();
-    expect(screen.queryByText("Mexa só se precisar")).toBeNull();
-  });
-
-  it("summarises the VAD configuration on the closed panel", async () => {
-    renderScreen(<ProfilesPage />);
-    expect(await screen.findByRole("button", { name: /Detecção de voz/ })).toHaveAccessibleName(
-      expect.stringContaining("Ativada · limiar 0.5 · margem 300 ms"),
+    const trail = await screen.findByRole("tablist", { name: "Etapas do processamento" });
+    const transcription = within(trail).getByRole("tab", { name: /Transcrição/ });
+    expect(transcription).toHaveAttribute("aria-selected", "true");
+    expect(transcription).toHaveTextContent("openai/whisper-1");
+    expect(transcription).toHaveTextContent("API externa");
+    expect(within(trail).getByRole("tab", { name: /Resumo/ })).toHaveTextContent(
+      "anthropic/claude-sonnet-4",
     );
   });
 
-  it("edits a VAD threshold", async () => {
+  it("moves between the stages with the arrow keys", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Detecção de voz/ }));
-    const threshold = screen.getByLabelText("Limiar de fala");
-    await userEvent.clear(threshold);
-    await userEvent.type(threshold, "0.7");
-    expect(threshold).toHaveValue(0.7);
+    const transcription = await screen.findByRole("tab", { name: /Transcrição/ });
+    transcription.focus();
+
+    await userEvent.keyboard("{ArrowRight}");
+    expect(screen.getByRole("tab", { name: /Refinamento/ })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("tab", { name: /Refinamento/ })).toHaveFocus();
+
+    await userEvent.keyboard("{ArrowLeft}{ArrowLeft}");
+    expect(screen.getByRole("tab", { name: /Resumo/ })).toHaveAttribute("aria-selected", "true");
   });
 
-  it("lets a numeric field sit empty mid-edit without pushing NaN into the profile", async () => {
+  it("edits the refinement prompt and its model settings", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Detecção de voz/ }));
-    const threshold = screen.getByLabelText("Limiar de fala");
-    await userEvent.clear(threshold);
-    expect(threshold).toHaveValue(null);
-    // The editor must survive the empty state: the profile keeps its last valid value.
-    await userEvent.type(threshold, "0.42");
-    expect(threshold).toHaveValue(0.42);
-  });
-
-  it("marks prompts as default until they are customised", async () => {
-    renderScreen(<ProfilesPage />);
-    expect(await screen.findByText("Padrão")).toBeInTheDocument();
-  });
-
-  it("saves the profile", async () => {
-    renderScreen(<ProfilesPage />);
-    const name = await screen.findByLabelText("Nome do perfil");
-    await userEvent.clear(name);
-    await userEvent.type(name, "Novo nome");
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+    await openStage("Refinamento");
+    await userEvent.click(screen.getByRole("button", { name: "Usar prompt padrão" }));
+    await userEvent.click(screen.getByRole("button", { name: /Ajustes do modelo/ }));
+    await userEvent.type(screen.getByLabelText("Seed"), "7");
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    await userEvent.click(screen.getByRole("button", { name: "Salvar mesmo assim" }));
+
     await waitFor(() =>
       expect(api.updateProfile).toHaveBeenCalledWith(
-        expect.objectContaining({ name: "Novo nome" }),
+        expect.objectContaining({
+          refinement: expect.objectContaining({
+            generation: expect.objectContaining({ seed: 7 }),
+            prompt: "prompt de refino",
+          }),
+        }),
       ),
     );
   });
 
-  it("asks before saving a profile a server is using", async () => {
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  it("changes the summary language and prompts on the summary stage", async () => {
     renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Nome do perfil");
+    await openStage("Resumo");
+    await chooseOption("Idioma do resumo", "Mesmo idioma da reunião");
+    await userEvent.click(
+      screen.getAllByRole("button", { name: "Usar prompt padrão" })[1] as HTMLElement,
+    );
+
+    expect(screen.getByRole("tab", { name: /Resumo/ })).toHaveTextContent(
+      "Mesmo idioma da reunião",
+    );
+    expect(screen.getByText(/Alterações não salvas/).parentElement).toHaveTextContent(
+      "Alterações não salvas em Resumo",
+    );
+  });
+
+  it("edits voice detection and how speech is merged on the transcription stage", async () => {
+    renderScreen(<ProfilesPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /Detecção de voz/ }));
+    await userEvent.click(screen.getByRole("checkbox", { name: /Detectar presença de voz/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Junção de falas/ }));
+    await userEvent.type(screen.getByLabelText("Silêncio entre falas (ms)"), "0");
+
+    expect(screen.getByRole("button", { name: /Detecção de voz/ })).toHaveTextContent("Desativada");
+    expect(screen.getByRole("tab", { name: /Transcrição/ })).toHaveTextContent("alterada");
+  });
+
+  it("explains a stage from its help button", async () => {
+    renderScreen(<ProfilesPage />);
+    await userEvent.hover(await screen.findByRole("button", { name: "Sobre a etapa Refinamento" }));
+
+    expect(screen.getByRole("tooltip")).toHaveTextContent(
+      "Revisa a transcrição e corrige erros evidentes, sem resumir nem traduzir.",
+    );
+  });
+
+  it("warns that a stage on the external API has a cost", async () => {
+    renderScreen(<ProfilesPage />);
+    expect(
+      await screen.findByText(
+        "Esta etapa usa o OpenRouter e gera custo por uso, cobrado na sua conta do OpenRouter.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("asks for a model after a stage moves to another execution", async () => {
+    renderScreen(<ProfilesPage />);
+    await openStage("Resumo");
+    await userEvent.click(screen.getByRole("radio", { name: "Local" }));
+
+    expect(screen.getByRole("button", { name: /^Modelo/ })).toHaveTextContent("Escolha um modelo");
+    expect(screen.getAllByText("Híbrido")).toHaveLength(2);
+    expect(screen.getByText(/Escolha o modelo de Resumo/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Salvar perfil" })).toBeDisabled();
+  });
+
+  it("restores the saved model when the stage goes back to its saved execution", async () => {
+    renderScreen(<ProfilesPage />);
+    await openStage("Resumo");
+    await userEvent.click(screen.getByRole("radio", { name: "Local" }));
+    await userEvent.click(screen.getByRole("radio", { name: "API externa" }));
+
+    expect(screen.getByRole("button", { name: /^Modelo/ })).toHaveTextContent(
+      "anthropic/claude-sonnet-4",
+    );
+    expect(screen.queryByRole("button", { name: "Salvar perfil" })).toBeNull();
+  });
+
+  it("saves a stage moved to a local model after the in-use confirmation", async () => {
+    renderScreen(<ProfilesPage />);
+    await openStage("Resumo");
+    await userEvent.click(screen.getByRole("radio", { name: "Local" }));
+    await pickModel(/qwen3:8b/);
+
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
-    expect(confirm).toHaveBeenCalledTimes(1);
+    expect(screen.getByText(/Este perfil está em uso em 1 servidor/)).toBeInTheDocument();
+    expect(api.updateProfile).not.toHaveBeenCalled();
+    await userEvent.click(screen.getByRole("button", { name: "Salvar mesmo assim" }));
+
+    await waitFor(() =>
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          summary: expect.objectContaining({ model: "qwen3:8b", provider: "ollama" }),
+        }),
+      ),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent("Perfil salvo");
+  });
+
+  it("goes back from the in-use confirmation without saving", async () => {
+    renderScreen(<ProfilesPage />);
+    const name = await screen.findByLabelText("Nome do perfil");
+    await userEvent.type(name, "!");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+    await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
+
+    expect(screen.getByRole("button", { name: "Salvar perfil" })).toBeEnabled();
     expect(api.updateProfile).not.toHaveBeenCalled();
   });
 
-  it("refuses to delete a profile that is in use", async () => {
+  it("shows a name conflict next to the name", async () => {
+    vi.mocked(api.updateProfile).mockRejectedValue(new ApiError(409, "profile_name_conflict"));
     renderScreen(<ProfilesPage />);
-    expect(await screen.findByRole("button", { name: "Excluir" })).toBeDisabled();
+    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
+    const name = screen.getByLabelText("Nome do perfil");
+    await userEvent.clear(name);
+    await userEvent.type(name, "Padrão OpenRouter");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+
+    expect(
+      await screen.findByText(
+        "Já existe um perfil chamado “Padrão OpenRouter”. Escolha outro nome.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("Nome do perfil")).toHaveAttribute("aria-invalid", "true");
   });
 
-  it("deletes an unused profile", async () => {
-    listProfiles.mockResolvedValue([
-      { active: false, activeServerCount: 0, profile: aProfile() },
-      {
-        active: false,
-        activeServerCount: 0,
-        profile: aProfile({ name: "Outro", profileId: "p3" }),
-      },
-    ]);
+  it("explains a save the server refuses", async () => {
+    vi.mocked(api.updateProfile).mockRejectedValue(new ApiError(503, "catalog_unavailable"));
+    renderScreen(<ProfilesPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
+    await userEvent.type(screen.getByLabelText("Nome do perfil"), "!");
+    await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Não foi possível validar os modelos agora porque o catálogo está indisponível.",
+    );
+  });
+
+  it("asks before leaving a profile with unsaved changes", async () => {
+    renderScreen(<ProfilesPage />);
+    await userEvent.type(await screen.findByLabelText("Nome do perfil"), "!");
+    await userEvent.click(screen.getByRole("button", { name: /Local sem custo/ }));
+
+    const dialog = screen.getByRole("dialog", { name: "Descartar alterações?" });
+    await userEvent.click(within(dialog).getByRole("button", { name: "Continuar editando" }));
+    expect(screen.getByLabelText("Nome do perfil")).toHaveValue("Padrão OpenRouter!");
+
+    await userEvent.click(screen.getByRole("button", { name: /Local sem custo/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Descartar alterações" }));
+    expect(screen.getByLabelText("Nome do perfil")).toHaveValue("Local sem custo");
+  });
+
+  it("discards the changes from the save bar", async () => {
+    renderScreen(<ProfilesPage />);
+    await userEvent.type(await screen.findByLabelText("Nome do perfil"), "!");
+    await userEvent.click(screen.getByRole("button", { name: "Descartar" }));
+
+    expect(screen.getByLabelText("Nome do perfil")).toHaveValue("Padrão OpenRouter");
+    expect(screen.queryByRole("button", { name: "Salvar perfil" })).toBeNull();
+  });
+
+  it("explains why a profile in use cannot be deleted", async () => {
     renderScreen(<ProfilesPage />);
     await userEvent.click(await screen.findByRole("button", { name: "Excluir" }));
-    await waitFor(() => expect(api.deleteProfile).toHaveBeenCalledWith("p1"));
+
+    expect(
+      screen.getByText("Escolha outro perfil no servidor que usa este antes de excluir."),
+    ).toBeInTheDocument();
+    expect(api.deleteProfile).not.toHaveBeenCalled();
+  });
+
+  it("deletes an unused profile after confirmation", async () => {
+    renderScreen(<ProfilesPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Excluir" }));
+    await userEvent.click(screen.getByRole("button", { name: "Excluir perfil" }));
+
+    await waitFor(() => expect(api.deleteProfile).toHaveBeenCalledWith("p2"));
+    expect(screen.queryByRole("button", { name: /Local sem custo/ })).toBeNull();
   });
 
   it("creates a profile from the selected one", async () => {
     vi.mocked(api.createProfile).mockResolvedValue(aProfile({ name: "Perfil 1", profileId: "p9" }));
     renderScreen(<ProfilesPage />);
     await userEvent.click(await screen.findByRole("button", { name: /Novo perfil/ }));
+
     await waitFor(() =>
       expect(api.createProfile).toHaveBeenCalledWith(expect.objectContaining({ name: "Perfil 1" })),
     );
+    expect(vi.mocked(api.createProfile).mock.calls[0]?.[0]).not.toHaveProperty("profileType");
+    expect(await screen.findByLabelText("Nome do perfil")).toHaveValue("Perfil 1");
   });
 
-  it("omits the model licence notice", async () => {
+  it("guides the setup profile, which has no execution chosen yet", async () => {
+    const setup = aProfile({
+      name: "Perfil 1",
+      profileType: null,
+      refinement: { ...aProfile().refinement, model: null, provider: null },
+      summary: { ...aProfile().summary, model: null, provider: null },
+      transcription: { ...apiTranscription(), model: null, provider: null },
+    });
+    listProfiles.mockResolvedValue([
+      item(setup, {
+        availability: { missingModels: [], status: "incomplete", unavailableProviders: [] },
+      }),
+    ]);
     renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma do resumo");
-    expect(screen.queryByText("Licenças dos modelos")).not.toBeInTheDocument();
-  });
 
-  it("has no translation controls even with a fixed summary language", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma do resumo");
-    expect(screen.queryByRole("button", { name: /Tradução/ })).toBeNull();
-    expect(screen.queryByText(/tradução/i)).toBeNull();
-  });
-
-  it("drops the note about the automatic language", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma do resumo");
-    expect(screen.queryByText(/idioma predominante da call/)).toBeNull();
-  });
-
-  it("names the automatic option only auto in both selectors", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma do resumo");
-    for (const label of ["Idioma da transcrição", "Idioma do resumo"]) {
-      const list = await openOptions(label);
-      expect(within(list).getByRole("option", { name: "auto" })).toBeInTheDocument();
-      await userEvent.keyboard("{Escape}");
-    }
-    expect(screen.queryByRole("option", { name: /auto —/ })).toBeNull();
-  });
-
-  it("saves the transcription language independently of the summary language", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma da transcrição");
-    await chooseOption("Idioma da transcrição", "en");
-    vi.spyOn(window, "confirm").mockReturnValue(true);
-    await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
-    await waitFor(() =>
-      expect(api.updateProfile).toHaveBeenCalledWith(
-        expect.objectContaining({
-          language: "pt-BR",
-          transcription: expect.objectContaining({ language: "en" }),
-        }),
-      ),
+    expect(await screen.findByText("Este perfil ainda não está completo.")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: /Transcrição/ })).toHaveTextContent(
+      "Escolha a execução",
     );
-    expect(vi.mocked(api.updateProfile).mock.calls[0]?.[0]).not.toHaveProperty("translation");
+    expect(screen.queryByRole("button", { name: /^Modelo/ })).toBeNull();
+
+    await userEvent.click(screen.getByRole("radio", { name: "Local" }));
+    expect(screen.getByRole("button", { name: /^Modelo/ })).toHaveTextContent("Escolha um modelo");
+  });
+
+  it("says a profile cannot record while a local model is missing and offers the download", async () => {
+    listProfiles.mockResolvedValue([
+      item(localProfile, {
+        availability: {
+          missingModels: [{ model: "qwen3:8b", phase: "summary", provider: "ollama" }],
+          status: "missing_models",
+          unavailableProviders: [],
+        },
+      }),
+    ]);
+    vi.mocked(api.startModelDownload).mockResolvedValue({
+      completedBytes: 0,
+      downloadId: "d1",
+      failureCode: null,
+      model: "qwen3:8b",
+      provider: "ollama",
+      status: "queued",
+      totalBytes: null,
+    });
+    renderScreen(<ProfilesPage />);
+
+    const banner = await screen.findByRole("region", {
+      name: "Este perfil ainda não pode gravar.",
+    });
+    expect(banner).toHaveTextContent("Falta instalar qwen3:8b (Resumo).");
+    expect(
+      within(screen.getByRole("navigation", { name: "Perfis" })).getByText(/Indisponível/),
+    ).toBeInTheDocument();
+    await userEvent.click(within(banner).getByRole("button", { name: "Baixar qwen3:8b" }));
+
+    expect(api.startModelDownload).toHaveBeenCalledWith("summary", "ollama", "qwen3:8b");
+  });
+
+  it("lists voice detection values adjusted for the external API before saving", async () => {
+    renderScreen(<ProfilesPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
+    await userEvent.click(screen.getByRole("radio", { name: "API externa" }));
+    await pickModel(/openai\/whisper-1/);
+
+    expect(screen.getByText(/Revise 1 campo em Transcrição/)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Salvar perfil" })).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: /Detecção de voz/ }));
+    await userEvent.click(
+      screen.getByRole("button", { name: "Manter o valor de Silêncio para encerrar (ms)" }),
+    );
+
+    expect(screen.getByRole("button", { name: "Salvar perfil" })).toBeEnabled();
+  });
+
+  it("names the languages and keeps the automatic choice first", async () => {
+    renderScreen(<ProfilesPage />);
+    await screen.findByRole("combobox", { name: "Idioma falado na reunião" });
+    const list = await openOptions("Idioma falado na reunião");
+
+    expect(within(list).getAllByRole("option")[0]).toHaveTextContent("Detectar automaticamente");
+    expect(within(list).getByRole("option", { name: "Português (Brasil)" })).toBeInTheDocument();
   });
 
   it("loads the default prompts in the fixed summary language", async () => {
     listProfiles.mockResolvedValue([
-      {
-        active: false,
-        activeServerCount: 0,
-        profile: aProfile({
-          transcription: { ...externalProfile().transcription, language: "en" },
-        }),
-      },
+      item(aProfile({ transcription: { ...apiTranscription(), language: "en" } })),
     ]);
     renderScreen(<ProfilesPage />);
     await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("pt-BR"));
     expect(api.getPromptDefaults).not.toHaveBeenCalledWith("en");
-  });
-
-  it("loads the default prompts in the transcription language when the summary is auto", async () => {
-    listProfiles.mockResolvedValue([
-      {
-        active: false,
-        activeServerCount: 0,
-        profile: aProfile({
-          language: "auto",
-          transcription: { ...externalProfile().transcription, language: "es" },
-        }),
-      },
-    ]);
-    renderScreen(<ProfilesPage />);
-    await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("es"));
   });
 
   it("retargets untouched prompts when the transcription language drives the summary", async () => {
@@ -316,22 +550,20 @@ describe("ProfilesPage", () => {
         transcription: null,
       }),
     );
-    const base = externalProfile();
     listProfiles.mockResolvedValue([
-      {
-        active: false,
-        activeServerCount: 0,
-        profile: aProfile({
+      item(
+        aProfile({
           language: "auto",
-          summary: { ...base.summary, extractionPrompt: "extração auto" },
+          summary: { ...aProfile().summary, extractionPrompt: "extração auto" },
         }),
-      },
+      ),
     ]);
     renderScreen(<ProfilesPage />);
     await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("auto"));
-    await chooseOption("Idioma da transcrição", "en");
+    await chooseOption("Idioma falado na reunião", "Inglês");
     await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("en"));
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+
     await waitFor(() =>
       expect(api.updateProfile).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -349,17 +581,5 @@ describe("ProfilesPage", () => {
     ).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: /Tentar novamente/ }));
     await waitFor(() => expect(listProfiles).toHaveBeenCalledTimes(2));
-  });
-
-  it("offers every language tag without a search box", async () => {
-    renderScreen(<ProfilesPage />);
-    await screen.findByLabelText("Idioma do resumo");
-    for (const label of ["Idioma do resumo", "Idioma da transcrição"]) {
-      const list = await openOptions(label);
-      expect(within(list).getAllByRole("option")).toHaveLength(profileLanguages.length);
-      await userEvent.keyboard("{Escape}");
-    }
-    expect(screen.queryByRole("searchbox")).toBeNull();
-    expect(screen.queryByPlaceholderText("Pesquisar uma tag BCP 47")).toBeNull();
   });
 });

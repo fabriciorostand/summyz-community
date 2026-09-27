@@ -39,7 +39,7 @@ export const guildSchema = z.object({
     .object({
       name: z.string(),
       profileId: z.string(),
-      profileType: z.enum(["external", "local"]),
+      profileType: z.enum(["external", "local", "hybrid"]).nullable(),
     })
     .nullable()
     .optional(),
@@ -120,34 +120,92 @@ const transcriptionBaseShape = {
   providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
   temperature: z.number().optional(),
 };
-export const profileSchema = z.discriminatedUnion("profileType", [
+/* Each stage picks its own provider; the setup profile starts with none chosen. */
+const transcriptionStageSchema = z.discriminatedUnion("provider", [
   z.object({
-    ...profileBaseShape,
-    profileType: z.literal("external"),
-    refinement: z.object({ ...refinementBaseShape, provider: z.literal("openrouter") }),
-    summary: z.object({ ...summaryBaseShape, provider: z.literal("openrouter") }),
-    transcription: z.object({
-      ...transcriptionBaseShape,
-      provider: z.literal("openrouter"),
-      vad: externalVadSchema,
-    }),
+    ...transcriptionBaseShape,
+    provider: z.literal("openrouter"),
+    vad: externalVadSchema,
   }),
   z.object({
-    ...profileBaseShape,
-    profileType: z.literal("local"),
-    refinement: z.object({ ...refinementBaseShape, provider: z.literal("ollama") }),
-    summary: z.object({ ...summaryBaseShape, provider: z.literal("ollama") }),
-    transcription: z.object({
-      ...transcriptionBaseShape,
-      batchSize: z.union([z.literal("auto"), z.number().int()]),
-      provider: z.literal("faster-whisper"),
-      vad: localVadSchema,
-    }),
+    ...transcriptionBaseShape,
+    batchSize: z.union([z.literal("auto"), z.number().int()]),
+    provider: z.literal("faster-whisper"),
+    vad: localVadSchema,
   }),
+  z.object({ ...transcriptionBaseShape, provider: z.null(), vad: externalVadSchema }),
 ]);
+const refinementStageSchema = z.discriminatedUnion("provider", [
+  z.object({ ...refinementBaseShape, provider: z.literal("openrouter") }),
+  z.object({ ...refinementBaseShape, provider: z.literal("ollama") }),
+  z.object({ ...refinementBaseShape, provider: z.null() }),
+]);
+const summaryStageSchema = z.discriminatedUnion("provider", [
+  z.object({ ...summaryBaseShape, provider: z.literal("openrouter") }),
+  z.object({ ...summaryBaseShape, provider: z.literal("ollama") }),
+  z.object({ ...summaryBaseShape, provider: z.null() }),
+]);
+/** Calculated by the server from the stage providers; it is never sent back. */
+export const profileTypeSchema = z.enum(["external", "local", "hybrid"]).nullable();
+export const profileSchema = z.object({
+  ...profileBaseShape,
+  profileType: profileTypeSchema,
+  refinement: refinementStageSchema,
+  summary: summaryStageSchema,
+  transcription: transcriptionStageSchema,
+});
+const localProviderSchema = z.enum(["ollama", "faster-whisper"]);
+const modelPhaseSchema = z.enum(["transcription", "refinement", "summary"]);
+export const profileAvailabilitySchema = z.object({
+  missingModels: z.array(
+    z.object({ model: z.string(), phase: modelPhaseSchema, provider: localProviderSchema }),
+  ),
+  status: z.enum(["ready", "incomplete", "missing_models", "unavailable"]),
+  unavailableProviders: z.array(localProviderSchema),
+});
+export const profileListItemSchema = z.object({
+  active: z.boolean(),
+  activeServerCount: z.number().int().nonnegative(),
+  availability: profileAvailabilitySchema,
+  profile: profileSchema,
+});
+export const modelCatalogSchema = z.object({
+  fetchedAt: z.number().nonnegative(),
+  installedModels: z.array(z.object({ model: z.string(), sizeBytes: z.number().nullable() })),
+  inventoryStatus: z.enum(["available", "unavailable", "not_applicable"]),
+  items: z.array(
+    z.object({
+      compatibility: z.enum([
+        "recommended",
+        "compatible",
+        "above_recommended",
+        "unknown",
+        "incompatible",
+      ]),
+      family: z.string().optional(),
+      installed: z.boolean().nullable(),
+      model: z.string(),
+      name: z.string(),
+      sizeBytes: z.number().nullable(),
+      variantsAvailable: z.boolean().optional(),
+    }),
+  ),
+  phase: modelPhaseSchema,
+  provider: z.enum(["openrouter", "ollama", "faster-whisper"]),
+  status: z.enum(["fresh", "stale", "unavailable"]),
+});
+export const modelDownloadSchema = z.object({
+  completedBytes: z.number().nonnegative(),
+  downloadId: z.string(),
+  failureCode: z.string().nullable(),
+  model: z.string(),
+  provider: localProviderSchema,
+  status: z.enum(["queued", "downloading", "completed", "cancelling", "cancelled", "failed"]),
+  totalBytes: z.number().nonnegative().nullable(),
+});
 export const guildConfigurationSchema = z.object({
   activeProfileId: z.string().nullable(),
-  profiles: z.array(profileSchema),
+  profiles: z.array(profileSchema.extend({ availability: profileAvailabilitySchema })),
   recordingRoleIds: z.array(z.string()),
   recordingUserIds: z.array(z.string()),
   settings: z.object({
@@ -441,14 +499,13 @@ export type DashboardSettings = z.infer<typeof dashboardSettingsSchema>;
 export type BotInstallation = z.infer<typeof botInstallationSchema>;
 export type Guild = z.infer<typeof guildSchema>;
 export type Profile = z.infer<typeof profileSchema>;
-export type ProfileInput =
-  | Omit<Extract<Profile, { profileType: "external" }>, "profileId">
-  | Omit<Extract<Profile, { profileType: "local" }>, "profileId">;
-export interface ProfileListItem {
-  active: boolean;
-  activeServerCount?: number | undefined;
-  profile: Profile;
-}
+export type ProfileType = z.infer<typeof profileTypeSchema>;
+export type ProfileInput = Omit<Profile, "profileId" | "profileType">;
+export type ProfileAvailability = z.infer<typeof profileAvailabilitySchema>;
+export type ProfileListItem = z.infer<typeof profileListItemSchema>;
+export type ModelCatalog = z.infer<typeof modelCatalogSchema>;
+export type ModelCatalogItem = ModelCatalog["items"][number];
+export type ModelDownload = z.infer<typeof modelDownloadSchema>;
 export type PromptDefaults = z.infer<typeof promptDefaultsSchema>;
 export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;

@@ -391,6 +391,227 @@ describe("dashboard API client", () => {
   });
 });
 
+describe("per-stage profiles and local models", () => {
+  it("accepts a hybrid profile whose stages pick their own providers", () => {
+    const profile = validProfile();
+    const hybrid = profileSchema.parse({
+      ...profile,
+      profileType: "hybrid",
+      summary: { ...profile.summary, model: "google/gemini-3.7-flash", provider: "openrouter" },
+    });
+
+    expect(hybrid.profileType).toBe("hybrid");
+    expect(hybrid.summary.provider).toBe("openrouter");
+    expect(hybrid.transcription.provider).toBe("faster-whisper");
+  });
+
+  it("accepts the setup profile, whose stages have no provider or model yet", () => {
+    const profile = validProfile();
+    const empty = profileSchema.parse({
+      ...profile,
+      profileType: null,
+      refinement: { ...profile.refinement, model: null, provider: null },
+      summary: { ...profile.summary, model: null, provider: null },
+      transcription: {
+        interSpeechSilenceMs: 0,
+        language: "auto",
+        mergeMaxGapMs: 2_000,
+        model: null,
+        prompt: null,
+        provider: null,
+        vad: {
+          enabled: true,
+          minSilenceDurationMs: 768,
+          minSpeechDurationMs: 96,
+          negativeSpeechThreshold: "auto",
+          speechPadMs: 96,
+          threshold: 0.5,
+        },
+      },
+    });
+
+    expect(empty.profileType).toBeNull();
+    expect(empty.transcription.provider).toBeNull();
+  });
+
+  it("rejects a provider that does not run the stage", () => {
+    const profile = validProfile();
+
+    expect(
+      profileSchema.safeParse({
+        ...profile,
+        summary: { ...profile.summary, provider: "faster-whisper" },
+      }).success,
+    ).toBe(false);
+  });
+
+  it("lists profiles with their local model availability", async () => {
+    const availability = {
+      missingModels: [{ model: "qwen3:4b", phase: "summary", provider: "ollama" }],
+      status: "missing_models",
+      unavailableProviders: [],
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(
+          Response.json([
+            { active: true, activeServerCount: 2, availability, profile: validProfile() },
+          ]),
+        ),
+    );
+
+    const [item] = await api.listProfiles();
+
+    expect(item?.availability).toEqual(availability);
+    expect(item?.activeServerCount).toBe(2);
+  });
+
+  it("reads each profile's availability in the guild configuration", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          activeProfileId: "profile-1",
+          profiles: [
+            {
+              ...validProfile(),
+              availability: { missingModels: [], status: "ready", unavailableProviders: [] },
+            },
+          ],
+          recordingRoleIds: [],
+          recordingUserIds: [],
+          settings: {
+            botLanguage: "pt-BR",
+            persistMeetingAudio: false,
+            persistMeetingContent: true,
+          },
+        }),
+      ),
+    );
+
+    const configuration = await api.getGuildConfiguration("guild-1");
+
+    expect(configuration.profiles[0]?.availability.status).toBe("ready");
+  });
+
+  it("reads a hybrid active profile in the guild list", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json([
+          {
+            activeProfile: { name: "Misto", profileId: "p1", profileType: "hybrid" },
+            iconUrl: null,
+            id: "guild-1",
+            name: "Pixelforge",
+          },
+        ]),
+      ),
+    );
+
+    const [guild] = await api.listGuilds();
+
+    expect(guild?.activeProfile?.profileType).toBe("hybrid");
+  });
+
+  it("never sends the calculated profile type when creating or updating", async () => {
+    const created = { ...validProfile(), profileId: "new-id" };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(created, { status: 201 }))
+      .mockResolvedValueOnce(new Response(undefined, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const { profileId: _profileId, profileType: _profileType, ...input } = validProfile();
+
+    await expect(api.createProfile(input)).resolves.toEqual(created);
+    await api.updateProfile(validProfile());
+
+    expect(JSON.parse(findRequest(fetchMock, "/api/profiles", 0).body)).not.toHaveProperty(
+      "profileType",
+    );
+    expect(
+      JSON.parse(findRequest(fetchMock, "/api/profiles/profile-1", 0).body),
+    ).not.toHaveProperty("profileType");
+  });
+
+  it("lists a model catalog for a stage, provider and optional Ollama family", async () => {
+    const catalog = {
+      fetchedAt: 1_790_482_294_102,
+      installedModels: [{ model: "qwen3:8b", sizeBytes: 5_200_000_000 }],
+      inventoryStatus: "available",
+      items: [
+        {
+          compatibility: "above_recommended",
+          family: "qwen3",
+          installed: true,
+          model: "qwen3:8b",
+          name: "qwen3:8b",
+          sizeBytes: 5_200_000_000,
+        },
+      ],
+      phase: "summary",
+      provider: "ollama",
+      status: "fresh",
+    };
+    const fetchMock = vi.fn<typeof fetch>(() => Promise.resolve(Response.json(catalog)));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.listModels("summary", "ollama", "qwen3")).resolves.toEqual(catalog);
+    await api.listModels("transcription", "openrouter");
+
+    expect(fetchMock.mock.calls.map(([input]) => String(input))).toEqual([
+      "/api/models?phase=summary&provider=ollama&family=qwen3",
+      "/api/models?phase=transcription&provider=openrouter",
+    ]);
+  });
+
+  it("starts, lists and cancels local model downloads", async () => {
+    const job = {
+      completedBytes: 0,
+      downloadId: "11111111-1111-4111-8111-111111111111",
+      failureCode: null,
+      model: "qwen3:8b",
+      provider: "ollama",
+      status: "queued",
+      totalBytes: null,
+    };
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json(job, { status: 202 }))
+      .mockResolvedValueOnce(Response.json([job]))
+      .mockResolvedValueOnce(Response.json({ status: "cancelling" }, { status: 202 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.startModelDownload("summary", "ollama", "qwen3:8b")).resolves.toEqual(job);
+    await expect(api.listModelDownloads()).resolves.toEqual([job]);
+    await api.cancelModelDownload(job.downloadId);
+
+    expect(JSON.parse(findRequest(fetchMock, "/api/models/downloads", 0).body)).toEqual({
+      model: "qwen3:8b",
+      phase: "summary",
+      provider: "ollama",
+    });
+    expect(findRequest(fetchMock, `/api/models/downloads/${job.downloadId}/cancel`, 0).method).toBe(
+      "POST",
+    );
+  });
+
+  it("uninstalls a local model", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response(undefined, { status: 204 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.uninstallModel("faster-whisper", "large-v3");
+
+    const request = findRequest(fetchMock, "/api/models", 0);
+    expect(request.method).toBe("DELETE");
+    expect(JSON.parse(request.body)).toEqual({ model: "large-v3", provider: "faster-whisper" });
+  });
+});
+
 function findRequest(
   fetchMock: ReturnType<typeof vi.fn<typeof fetch>>,
   path: string,

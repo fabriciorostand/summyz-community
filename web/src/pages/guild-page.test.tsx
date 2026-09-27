@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api } from "../lib/api";
 import {
+  aConfigurationProfile,
   aGuildConfiguration,
   aGuildResources,
   aProfile,
@@ -89,7 +90,10 @@ describe("GuildPage", () => {
   it("activates another profile", async () => {
     vi.mocked(api.getGuildConfiguration).mockResolvedValue(
       aGuildConfiguration({
-        profiles: [aProfile(), aProfile({ name: "Local sem custo", profileId: "p2" })],
+        profiles: [
+          aConfigurationProfile(aProfile()),
+          aConfigurationProfile(aProfile({ name: "Local sem custo", profileId: "p2" })),
+        ],
       }),
     );
     renderGuild();
@@ -98,6 +102,69 @@ describe("GuildPage", () => {
     expect(second).toBeDefined();
     await userEvent.click(second as HTMLElement);
     await waitFor(() => expect(api.setActiveProfile).toHaveBeenCalledWith("g1", "p2"));
+  });
+
+  it("says which profiles cannot record yet", async () => {
+    vi.mocked(api.getGuildConfiguration).mockResolvedValue(
+      aGuildConfiguration({
+        profiles: [
+          aConfigurationProfile(aProfile()),
+          aConfigurationProfile(aProfile({ name: "Local sem custo", profileId: "p2" }), {
+            missingModels: [{ model: "qwen3:8b", phase: "summary", provider: "ollama" }],
+            status: "missing_models",
+            unavailableProviders: [],
+          }),
+        ],
+      }),
+    );
+    renderGuild();
+
+    expect(await screen.findByText("Indisponível: falta instalar qwen3:8b")).toBeInTheDocument();
+    expect(screen.queryByText("Este servidor não consegue gravar agora.")).toBeNull();
+  });
+
+  it("warns when the active profile cannot record and points to the profiles", async () => {
+    vi.mocked(api.getGuildConfiguration).mockResolvedValue(
+      aGuildConfiguration({
+        profiles: [
+          aConfigurationProfile(aProfile(), {
+            missingModels: [
+              { model: "large-v3", phase: "transcription", provider: "faster-whisper" },
+            ],
+            status: "missing_models",
+            unavailableProviders: [],
+          }),
+        ],
+      }),
+    );
+    renderGuild();
+
+    expect(await screen.findByText("Este servidor não consegue gravar agora.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/ainda não tem large-v3 \(Transcrição\) instalado/),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Abrir perfis de IA" })).toHaveAttribute(
+      "href",
+      "/profiles",
+    );
+  });
+
+  it("names a profile that mixes local and external stages", async () => {
+    const base = aProfile();
+    vi.mocked(api.getGuildConfiguration).mockResolvedValue(
+      aGuildConfiguration({
+        profiles: [
+          aConfigurationProfile({
+            ...base,
+            profileType: "hybrid",
+            summary: { ...base.summary, model: "qwen3:8b", provider: "ollama" },
+          }),
+        ],
+      }),
+    );
+    renderGuild();
+
+    expect(await screen.findByText(/Híbrido · openai\/whisper-1 · qwen3:8b/)).toBeInTheDocument();
   });
 
   it("shows the member count of each role", async () => {

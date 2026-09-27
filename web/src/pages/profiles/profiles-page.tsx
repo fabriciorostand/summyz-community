@@ -1,265 +1,98 @@
-import { AudioLines, Bot, MessageSquareQuote, Plus, Settings2 } from "lucide-react";
-import { type FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { Plus } from "lucide-react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 
-import { Disclosure, Tabs } from "../../components/disclosure";
 import { ErrorState, LoadingPanel } from "../../components/states";
-import { Badge, Button, Card, Field } from "../../components/ui";
+import { Button } from "../../components/ui";
+import { invalidateModelCatalogs } from "../../hooks/use-model-catalog";
+import { type ModelDownloads, useModelDownloads } from "../../hooks/use-model-downloads";
 import { useDashboard } from "../../layout/dashboard-layout";
 import { TopBar } from "../../layout/top-bar";
 import {
+  ApiError,
   api,
+  type ModelDownload,
   type Profile,
   type ProfileListItem,
   type PromptDefaults,
   profileSchema,
 } from "../../lib/api";
 import { Screen } from "../screen";
-import { PhaseSettings, TranscriptionSettings } from "./generation-editor";
-import { LanguageSelector, nextLocalizedProfileName } from "./language-selector";
-import { PromptEditor } from "./prompt-editor";
-import { VadEditor } from "./vad-editor";
+import { DiscardDialog } from "./discard-dialog";
+import { type Feedback, FeedbackToast } from "./feedback-toast";
+import { languageLabel, nextLocalizedProfileName } from "./language-selector";
+import { downloadProgress } from "./model-labels";
+import { AvailabilityBanner, useMissingModels } from "./profile-availability";
+import { ProfileHeader } from "./profile-header";
+import { ProfileList } from "./profile-list";
+import {
+  acknowledgeReview,
+  changeExecution,
+  type Execution,
+  executionOf,
+  incompleteStages,
+  profileTypeOf,
+  resolveReview,
+  type Stage,
+  type StageReview,
+  stages,
+  stageTitles,
+} from "./profile-stages";
+import { SaveBar, type SaveBlocker } from "./save-bar";
+import { StagePanel } from "./stage-panel";
+import { type StageNote, StageTrail } from "./stage-trail";
 
-function firstProfileId(
-  items: readonly ProfileListItem[],
-  profileType: Profile["profileType"],
-): string | null {
-  return items.find((item) => item.profile.profileType === profileType)?.profile.profileId ?? null;
-}
-
-export function ProfilesPage() {
-  const { settings } = useDashboard();
-  const [items, setItems] = useState<ProfileListItem[]>();
-  const [profileType, setProfileType] = useState<Profile["profileType"]>("external");
-  const [selectedProfileId, setSelectedProfileId] = useState<string | null>(null);
-  const [loadError, setLoadError] = useState(false);
-
-  const load = useCallback(async () => {
-    setLoadError(false);
-    setItems(undefined);
-    try {
-      const next = await api.listProfiles();
-      setItems(next);
-      setSelectedProfileId(firstProfileId(next, "external"));
-    } catch {
-      setLoadError(true);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
-
-  const visible = items?.filter((item) => item.profile.profileType === profileType) ?? [];
-  const selected =
-    visible.find((item) => item.profile.profileId === selectedProfileId) ?? visible[0];
-
-  function selectType(next: Profile["profileType"]) {
-    setProfileType(next);
-    setSelectedProfileId(firstProfileId(items ?? [], next));
+/** Structural equality that ignores key order, since edits rebuild objects in other orders. */
+function sameValue(left: unknown, right: unknown): boolean {
+  if (Object.is(left, right)) return true;
+  if (typeof left !== "object" || typeof right !== "object" || left === null || right === null) {
+    return false;
   }
-
-  function replaceProfile(profile: Profile) {
-    setItems(
-      (items ?? []).map((item) =>
-        item.profile.profileId === profile.profileId ? { ...item, profile } : item,
-      ),
-    );
-  }
-
-  function addProfile(profile: Profile) {
-    setItems([...(items ?? []), { active: false, profile }]);
-    setSelectedProfileId(profile.profileId);
-  }
-
-  function dropProfile(profileId: string) {
-    const remaining = (items ?? []).filter((item) => item.profile.profileId !== profileId);
-    setItems(remaining);
-    setSelectedProfileId(firstProfileId(remaining, profileType));
-  }
-
-  return (
-    <>
-      <TopBar
-        actions={
-          items !== undefined &&
-          selected !== undefined && (
-            <CreateProfileButton
-              items={items}
-              locale={settings.dashboardLanguage}
-              onCreated={addProfile}
-              template={selected.profile}
-            />
-          )
-        }
-        title="Perfis de IA"
-      />
-      <Screen>
-        <ProfilesBody
-          items={items}
-          loadError={loadError}
-          onDeleted={dropProfile}
-          onRetry={() => void load()}
-          onSaved={replaceProfile}
-          onSelect={setSelectedProfileId}
-          onTypeChange={selectType}
-          profileType={profileType}
-          selected={selected}
-          visible={visible}
-        />
-      </Screen>
-    </>
+  if (Array.isArray(left) !== Array.isArray(right)) return false;
+  const leftEntries = Object.entries(left).filter(([, value]) => value !== undefined);
+  const rightEntries = Object.entries(right).filter(([, value]) => value !== undefined);
+  if (leftEntries.length !== rightEntries.length) return false;
+  const rightMap = new Map(rightEntries);
+  return leftEntries.every(
+    ([key, value]) => rightMap.has(key) && sameValue(value, rightMap.get(key)),
   );
 }
 
-interface ProfilesBodyProps {
-  items: ProfileListItem[] | undefined;
-  loadError: boolean;
-  onDeleted: (profileId: string) => void;
-  onRetry: () => void;
-  onSaved: (profile: Profile) => void;
-  onSelect: (profileId: string) => void;
-  onTypeChange: (value: Profile["profileType"]) => void;
-  profileType: Profile["profileType"];
-  selected: ProfileListItem | undefined;
-  visible: ProfileListItem[];
-}
-
-function ProfilesBody(props: ProfilesBodyProps) {
-  if (props.loadError) {
-    return (
-      <ErrorState code="request_failed" onRetry={props.onRetry} title="Perfis indisponíveis">
-        Não foi possível carregar seus perfis.
-      </ErrorState>
-    );
+function readPath(source: unknown, path: string): unknown {
+  let current: unknown = source;
+  for (const key of path.split(".")) {
+    if (typeof current !== "object" || current === null) return undefined;
+    current = Object.entries(current).find(([name]) => name === key)?.[1];
   }
-  if (props.items === undefined) return <LoadingPanel label="Carregando perfis…" />;
-  return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[260px_minmax(0,1fr)]">
-      <div className="flex flex-col gap-3">
-        <Tabs
-          ariaLabel="Tipo de execução"
-          fill
-          onChange={props.onTypeChange}
-          options={[
-            { label: "API externa", value: "external" },
-            { label: "Local", value: "local" },
-          ]}
-          value={props.profileType}
-        />
-        <ProfileList
-          onSelect={props.onSelect}
-          selectedProfileId={props.selected?.profile.profileId}
-          visible={props.visible}
-        />
-      </div>
-      {props.selected !== undefined && (
-        <ProfileEditor
-          item={props.selected}
-          items={props.visible}
-          key={props.selected.profile.profileId}
-          onDeleted={props.onDeleted}
-          onSaved={props.onSaved}
-        />
-      )}
-    </div>
-  );
+  return current;
 }
 
-function ProfileList({
-  onSelect,
-  selectedProfileId,
-  visible,
-}: {
-  onSelect: (profileId: string) => void;
-  selectedProfileId: string | undefined;
-  visible: readonly ProfileListItem[];
-}) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      {visible.map(({ active, profile }) => (
-        <ProfileListButton
-          active={active}
-          key={profile.profileId}
-          onSelect={onSelect}
-          profile={profile}
-          selected={profile.profileId === selectedProfileId}
-        />
-      ))}
-    </div>
-  );
-}
+const saveErrors: Record<string, string> = {
+  catalog_unavailable:
+    "Não foi possível validar os modelos agora porque o catálogo está indisponível. Tente de novo em instantes.",
+  invalid_request: "Escolha a execução e o modelo de todas as etapas antes de salvar.",
+  model_not_in_catalog: "Um dos modelos escolhidos não está no catálogo. Escolha outro modelo.",
+  openrouter_api_key_missing:
+    "Configure a chave do OpenRouter em Instalação para salvar etapas com API externa.",
+  profile_incomplete: "Escolha a execução e o modelo de todas as etapas antes de salvar.",
+};
 
-function ProfileListButton({
-  active,
-  onSelect,
-  profile,
-  selected,
-}: {
-  active: boolean;
-  onSelect: (profileId: string) => void;
-  profile: Profile;
-  selected: boolean;
-}) {
+function saveErrorMessage(error: unknown): string {
   return (
-    <button
-      className={`flex items-center gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors ${
-        selected
-          ? "border-action bg-action-soft"
-          : "border-line bg-surface-raised hover:border-line-strong"
-      }`}
-      onClick={() => onSelect(profile.profileId)}
-      type="button"
-    >
-      <Bot className="size-4 shrink-0 text-accent" />
-      <span className="flex min-w-0 flex-1 flex-col gap-0.5">
-        <strong className="truncate text-[12.5px] font-medium text-ink">{profile.name}</strong>
-        <small className="label-mono truncate text-ink-muted">
-          {profile.summary.model ?? "padrão"} · {profile.language}
-        </small>
-      </span>
-      {active && <Badge tone="action">Em uso</Badge>}
-    </button>
-  );
-}
-
-function CreateProfileButton({
-  items,
-  locale,
-  onCreated,
-  template,
-}: {
-  items: readonly ProfileListItem[];
-  locale: "en" | "pt-BR";
-  onCreated: (profile: Profile) => void;
-  template: Profile;
-}) {
-  const [busy, setBusy] = useState(false);
-  async function create() {
-    const { profileId: _profileId, ...base } = template;
-    setBusy(true);
-    try {
-      onCreated(
-        await api.createProfile({ ...base, name: nextLocalizedProfileName(items, locale) }),
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-  return (
-    <Button disabled={busy} onClick={() => void create()} type="button">
-      <Plus className="size-3.5" />
-      Novo perfil
-    </Button>
+    (error instanceof ApiError ? saveErrors[error.code] : undefined) ??
+    "Não foi possível salvar o perfil. Tente de novo."
   );
 }
 
 /** Keeps a prompt only while the operator customised it; untouched defaults follow the language. */
-function keepCustom(
-  current: string | null,
-  previousDefault: string,
-  nextDefault: string,
-): string | null {
-  return current === previousDefault ? nextDefault : current;
+function keepCustom(current: string | null, previous: string, next: string): string | null {
+  return current === previous ? next : current;
 }
 
 /** The summary follows the transcription language while its own language is auto. */
@@ -267,243 +100,500 @@ function summaryPromptLanguage(profile: Profile): string {
   return profile.language === "auto" ? profile.transcription.language : profile.language;
 }
 
-function retargetPrompts(
+/**
+ * Loads the default prompts in the summary language. Switching that language rewrites the
+ * prompts that still hold the previous defaults.
+ */
+function usePromptDefaults(
   profile: Profile,
-  previous: PromptDefaults,
-  next: PromptDefaults,
-): Profile {
-  return profileSchema.parse({
-    ...profile,
-    summary: {
-      ...profile.summary,
-      consolidationPrompt: keepCustom(
-        profile.summary.consolidationPrompt,
-        previous.summaryConsolidation,
-        next.summaryConsolidation,
-      ),
-      extractionPrompt: keepCustom(
-        profile.summary.extractionPrompt,
-        previous.summaryExtraction,
-        next.summaryExtraction,
-      ),
-    },
-  });
+  setDraft: Dispatch<SetStateAction<Profile | null>>,
+): PromptDefaults | undefined {
+  const [defaults, setDefaults] = useState<PromptDefaults>();
+  const previous = useRef<PromptDefaults | undefined>(undefined);
+  const language = summaryPromptLanguage(profile);
+  const { profileId } = profile;
+
+  useEffect(() => {
+    let current = true;
+    api.getPromptDefaults(language).then(
+      (next) => {
+        if (!current) return;
+        const before = previous.current;
+        if (before !== undefined) {
+          setDraft((draft) =>
+            draft !== null &&
+            draft.profileId === profileId &&
+            summaryPromptLanguage(draft) === language
+              ? {
+                  ...draft,
+                  summary: {
+                    ...draft.summary,
+                    consolidationPrompt: keepCustom(
+                      draft.summary.consolidationPrompt,
+                      before.summaryConsolidation,
+                      next.summaryConsolidation,
+                    ),
+                    extractionPrompt: keepCustom(
+                      draft.summary.extractionPrompt,
+                      before.summaryExtraction,
+                      next.summaryExtraction,
+                    ),
+                  },
+                }
+              : draft,
+          );
+        }
+        previous.current = next;
+        setDefaults(next);
+      },
+      () => {
+        // Without defaults the prompt editors hide "restore"; editing keeps working.
+        if (current) setDefaults(undefined);
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [language, profileId, setDraft]);
+
+  return defaults;
 }
 
-function ProfileEditor({
-  item,
-  items,
-  onDeleted,
-  onSaved,
-}: {
-  item: ProfileListItem;
-  items: readonly ProfileListItem[];
-  onDeleted: (profileId: string) => void;
-  onSaved: (profile: Profile) => void;
-}) {
-  const [draft, setDraft] = useState<Profile>(item.profile);
-  const [promptDefaults, setPromptDefaults] = useState<PromptDefaults>();
-  const [busy, setBusy] = useState(false);
-  const previousDefaults = useRef<PromptDefaults | undefined>(undefined);
-  const { profileId } = draft;
-  const promptLanguage = summaryPromptLanguage(draft);
+export function ProfilesPage() {
+  const { settings } = useDashboard();
+  const [items, setItems] = useState<ProfileListItem[]>();
+  const [loadError, setLoadError] = useState(false);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Profile | null>(null);
+  const [stage, setStage] = useState<Stage>("transcription");
+  const [review, setReview] = useState<StageReview>(new Map());
+  const [needsModel, setNeedsModel] = useState<ReadonlySet<Stage>>(new Set());
+  const [confirming, setConfirming] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [nameError, setNameError] = useState<string | null>(null);
+  const [pending, setPending] = useState<{ run: () => void } | null>(null);
+  const [feedback, setFeedback] = useState<Feedback | null>(null);
+  const feedbackId = useRef(0);
 
-  // Switching the summary output language rewrites the prompts that still hold the previous defaults.
+  const notify = useCallback((text: string, tone: Feedback["tone"] = "ok") => {
+    feedbackId.current += 1;
+    setFeedback({ id: feedbackId.current, text, tone });
+  }, []);
+
+  const open = useCallback((profileId: string, list: readonly ProfileListItem[]) => {
+    const target = list.find((item) => item.profile.profileId === profileId) ?? list[0];
+    setSelectedId(target?.profile.profileId ?? null);
+    setDraft(target?.profile ?? null);
+    setStage("transcription");
+    setReview(new Map());
+    setNeedsModel(new Set());
+    setConfirming(false);
+    setSaveError(null);
+    setNameError(null);
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoadError(false);
+    setItems(undefined);
+    try {
+      const next = await api.listProfiles();
+      setItems(next);
+      open(next[0]?.profile.profileId ?? "", next);
+    } catch {
+      setLoadError(true);
+    }
+  }, [open]);
+
+  /** Reads availability and usage again without touching the edit in progress. */
+  const refresh = useCallback(async () => {
+    try {
+      const next = await api.listProfiles();
+      setItems(next);
+      return next;
+    } catch {
+      notify("Não foi possível atualizar a lista de perfis.", "fail");
+      return undefined;
+    }
+  }, [notify]);
+
   useEffect(() => {
-    let active = true;
-    void api.getPromptDefaults(promptLanguage).then((next) => {
-      if (!active) return;
-      const previous = previousDefaults.current;
-      if (previous !== undefined) {
-        setDraft((current) =>
-          current.profileId === profileId && summaryPromptLanguage(current) === promptLanguage
-            ? retargetPrompts(current, previous, next)
-            : current,
-        );
-      }
-      previousDefaults.current = next;
-      setPromptDefaults(next);
-    });
-    return () => {
-      active = false;
-    };
-  }, [promptLanguage, profileId]);
+    void load();
+  }, [load]);
 
-  const change = (next: unknown) => setDraft(profileSchema.parse(next));
+  const onSettled = useCallback(
+    (job: ModelDownload) => {
+      invalidateModelCatalogs();
+      void refresh();
+      if (job.status === "completed") notify(`${job.model} instalado.`);
+      if (job.status === "failed") notify(`Não foi possível baixar ${job.model}.`, "fail");
+    },
+    [notify, refresh],
+  );
+  const downloads = useModelDownloads(onSettled);
 
-  async function save(event: FormEvent) {
-    event.preventDefault();
-    if (
-      item.active &&
-      !window.confirm(
-        "Este perfil está ativo em um ou mais servidores. As alterações valerão nas próximas reuniões. Deseja salvar?",
-      )
-    ) {
+  const selected = items?.find((item) => item.profile.profileId === selectedId);
+  const dirty =
+    draft !== null &&
+    selected !== undefined &&
+    (needsModel.size > 0 || !sameValue(draft, selected.profile));
+
+  function guard(action: () => void) {
+    if (dirty) setPending({ run: action });
+    else action();
+  }
+
+  async function create() {
+    if (items === undefined || selected === undefined) return;
+    if (incompleteStages(selected.profile).length > 0) {
+      notify("Complete e salve o perfil selecionado antes de criar uma cópia.", "fail");
       return;
     }
-    setBusy(true);
+    const { profileId: _profileId, profileType: _profileType, ...base } = selected.profile;
     try {
-      await api.updateProfile(draft);
-      onSaved(draft);
-    } finally {
-      setBusy(false);
+      const created = await api.createProfile({
+        ...base,
+        name: nextLocalizedProfileName(items, settings.dashboardLanguage),
+      });
+      const refreshed = (await refresh()) ?? items;
+      // The copy shows up even when the refreshed list does not carry it yet.
+      const next = refreshed.some((item) => item.profile.profileId === created.profileId)
+        ? refreshed
+        : [...refreshed, { ...selected, active: false, activeServerCount: 0, profile: created }];
+      if (next !== refreshed) setItems(next);
+      open(created.profileId, next);
+      notify(`“${created.name}” criado.`);
+    } catch (error) {
+      notify(saveErrorMessage(error), "fail");
     }
   }
 
-  async function remove() {
-    setBusy(true);
+  async function remove(profileId: string) {
     try {
-      await api.deleteProfile(draft.profileId);
-      onDeleted(draft.profileId);
-    } finally {
-      setBusy(false);
+      await api.deleteProfile(profileId);
+      const next = (items ?? []).filter((item) => item.profile.profileId !== profileId);
+      setItems(next);
+      open(next[0]?.profile.profileId ?? "", next);
+      notify("Perfil excluído.");
+    } catch {
+      notify("Não foi possível excluir o perfil. Tente de novo.", "fail");
     }
   }
-
-  const promptsCustomised =
-    draft.refinement.prompt !== null ||
-    draft.summary.extractionPrompt !== null ||
-    draft.summary.consolidationPrompt !== null;
 
   return (
-    <form className="flex min-w-0 flex-col gap-4" onSubmit={(event) => void save(event)}>
-      <Card>
-        <div className="flex flex-col gap-3">
-          <Field
-            label="Nome do perfil"
-            onChange={(event) => setDraft({ ...draft, name: event.currentTarget.value })}
-            value={draft.name}
-          />
-          <LanguageSelector
-            label="Idioma da transcrição"
-            onChange={(language) =>
-              change({ ...draft, transcription: { ...draft.transcription, language } })
-            }
-            value={draft.transcription.language}
-          />
-          <LanguageSelector
-            label="Idioma do resumo"
-            onChange={(language) => change({ ...draft, language })}
-            value={draft.language}
-          />
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field
-              label="Modelo de transcrição"
-              onChange={(event) =>
-                change({
-                  ...draft,
-                  transcription: {
-                    ...draft.transcription,
-                    model: event.currentTarget.value || null,
-                  },
-                })
+    <>
+      <TopBar
+        actions={
+          <Button
+            disabled={items === undefined || selected === undefined}
+            onClick={() => guard(() => void create())}
+            type="button"
+          >
+            <Plus className="size-3.5" />
+            Novo perfil
+          </Button>
+        }
+        title="Perfis de IA"
+      />
+      <Screen>
+        {loadError ? (
+          <ErrorState
+            code="request_failed"
+            onRetry={() => void load()}
+            title="Perfis indisponíveis"
+          >
+            Não foi possível carregar seus perfis.
+          </ErrorState>
+        ) : items === undefined ? (
+          <LoadingPanel label="Carregando perfis…" />
+        ) : draft === null || selected === undefined ? (
+          <p className="m-0 text-[13px] text-ink-muted">Nenhum perfil cadastrado.</p>
+        ) : (
+          <ProfileEditor
+            confirming={confirming}
+            dirty={dirty}
+            downloads={downloads}
+            draft={draft}
+            items={items}
+            nameError={nameError}
+            needsModel={needsModel}
+            onChange={(next) => {
+              const parsed = profileSchema.parse(next);
+              // Only a field the person actually edited can clear its own review.
+              setReview((current) =>
+                [...current.keys()]
+                  .filter((path) => !Object.is(readPath(draft, path), readPath(parsed, path)))
+                  .reduce(
+                    (result, path) => resolveReview(result, path, readPath(parsed, path)),
+                    current,
+                  ),
+              );
+              setDraft(parsed);
+              setSaveError(null);
+            }}
+            onConfirmingChange={setConfirming}
+            onDelete={() => void remove(selected.profile.profileId)}
+            onDiscard={() => open(selected.profile.profileId, items)}
+            onModelsChanged={() => void refresh()}
+            onNameChange={(name) => {
+              setDraft({ ...draft, name });
+              setNameError(null);
+            }}
+            onReviewChange={setReview}
+            onNeedsModelChange={setNeedsModel}
+            onSaved={async (saved, missing) => {
+              setItems((current) =>
+                current?.map((item) =>
+                  item.profile.profileId === saved.profileId ? { ...item, profile: saved } : item,
+                ),
+              );
+              setDraft(saved);
+              setNeedsModel(new Set());
+              setReview(new Map());
+              setConfirming(false);
+              notify(
+                missing.length > 0
+                  ? `Perfil salvo. Ele só vai gravar depois que ${new Intl.ListFormat("pt-BR").format(missing)} for instalado.`
+                  : "Perfil salvo.",
+              );
+              await refresh();
+            }}
+            onSaveError={(error) => {
+              if (error instanceof ApiError && error.code === "profile_name_conflict") {
+                setNameError(`Já existe um perfil chamado “${draft.name}”. Escolha outro nome.`);
+                setSaveError("Troque o nome do perfil: ele já é usado por outro perfil.");
+              } else {
+                setSaveError(saveErrorMessage(error));
               }
-              placeholder={draft.profileType === "local" ? "large-v3" : "openai/whisper-1"}
-              value={draft.transcription.model ?? ""}
-            />
-            <Field
-              label="Modelo de resumo"
-              onChange={(event) =>
-                change({
-                  ...draft,
-                  summary: { ...draft.summary, model: event.currentTarget.value || null },
-                })
-              }
-              placeholder={draft.profileType === "local" ? "qwen3:4b" : "vendor/model"}
-              value={draft.summary.model ?? ""}
-            />
-          </div>
-        </div>
-      </Card>
-
-      <div className="mt-2 flex items-center gap-3">
-        <span className="label-mono text-ink-muted">Avançado</span>
-        <span className="h-px flex-1 bg-line-soft" />
-      </div>
-
-      <Disclosure
-        icon={<AudioLines className="size-4" />}
-        summary={`${draft.transcription.vad.enabled ? "Ativada" : "Desativada"} · limiar ${String(draft.transcription.vad.threshold)} · margem ${String(draft.transcription.vad.speechPadMs)} ms`}
-        title="Detecção de voz (VAD)"
-      >
-        <VadEditor onChange={change} profile={draft} />
-      </Disclosure>
-
-      <Disclosure
-        badge={promptsCustomised ? undefined : <Badge>Padrão</Badge>}
-        icon={<MessageSquareQuote className="size-4" />}
-        summary="Refino, extração e consolidação"
-        title="Prompts do pipeline"
-      >
-        <div className="flex flex-col gap-5">
-          <PromptEditor
-            defaultPrompt={promptDefaults?.refinement}
-            label="Prompt de refinamento"
-            onChange={(prompt) => change({ ...draft, refinement: { ...draft.refinement, prompt } })}
-            toggleLabel="Enviar prompt de refinamento"
-            value={draft.refinement.prompt}
-          />
-          <PromptEditor
-            defaultPrompt={promptDefaults?.summaryExtraction}
-            label="Prompt do resumo — extração"
-            onChange={(extractionPrompt) =>
-              change({ ...draft, summary: { ...draft.summary, extractionPrompt } })
+              setConfirming(false);
+            }}
+            onSelect={(profileId) =>
+              profileId !== selected.profile.profileId && guard(() => open(profileId, items))
             }
-            toggleLabel="Enviar prompt de extração"
-            value={draft.summary.extractionPrompt}
+            onStageChange={setStage}
+            review={review}
+            saveError={saveError}
+            saving={saving}
+            selected={selected}
+            setDraft={setDraft}
+            setSaving={setSaving}
+            stage={stage}
           />
-          <PromptEditor
-            defaultPrompt={promptDefaults?.summaryConsolidation}
-            label="Prompt do resumo — consolidação"
-            onChange={(consolidationPrompt) =>
-              change({ ...draft, summary: { ...draft.summary, consolidationPrompt } })
-            }
-            toggleLabel="Enviar prompt de consolidação"
-            value={draft.summary.consolidationPrompt}
-          />
-        </div>
-      </Disclosure>
-
-      <Disclosure
-        icon={<Settings2 className="size-4" />}
-        summary="Temperatura, seed, think, tamanho de chunk, junção de falas"
-        title="Geração e fatiamento"
-      >
-        <div className="flex flex-col gap-5">
-          <div>
-            <div className="label-mono mb-2 text-ink-muted">Transcrição</div>
-            <TranscriptionSettings onChange={change} profile={draft} />
-          </div>
-          <div>
-            <div className="label-mono mb-2 text-ink-muted">Refinamento</div>
-            <PhaseSettings onChange={change} phase="refinement" profile={draft} />
-          </div>
-          <div>
-            <div className="label-mono mb-2 text-ink-muted">Resumo</div>
-            <PhaseSettings onChange={change} phase="summary" profile={draft} />
-          </div>
-        </div>
-      </Disclosure>
-
-      <div className="flex flex-wrap items-center gap-3">
-        <Button disabled={busy} type="submit">
-          {busy ? "Salvando…" : "Salvar perfil"}
-        </Button>
-        <Button
-          disabled={busy || items.length === 1 || item.active}
-          onClick={() => void remove()}
-          type="button"
-          variant="danger"
-        >
-          Excluir
-        </Button>
-        {item.active && (
-          <span className="text-[11.5px] text-ink-muted">
-            Este perfil está ativo em {String(item.activeServerCount ?? 1)} servidor(es). As
-            alterações valem nas próximas reuniões.
-          </span>
         )}
-      </div>
-    </form>
+      </Screen>
+      <DiscardDialog
+        name={draft?.name ?? ""}
+        onDiscard={() => {
+          const action = pending;
+          setPending(null);
+          action?.run();
+        }}
+        onKeep={() => setPending(null)}
+        open={pending !== null}
+      />
+      <FeedbackToast feedback={feedback} onDone={() => setFeedback(null)} />
+    </>
   );
+}
+
+interface ProfileEditorProps {
+  confirming: boolean;
+  dirty: boolean;
+  downloads: ModelDownloads;
+  draft: Profile;
+  items: readonly ProfileListItem[];
+  nameError: string | null;
+  needsModel: ReadonlySet<Stage>;
+  onChange: (profile: unknown) => void;
+  onConfirmingChange: (confirming: boolean) => void;
+  onDelete: () => void;
+  onDiscard: () => void;
+  onModelsChanged: () => void;
+  onNameChange: (name: string) => void;
+  onNeedsModelChange: (stages: ReadonlySet<Stage>) => void;
+  onReviewChange: (review: StageReview) => void;
+  onSaved: (profile: Profile, missingModels: string[]) => Promise<void>;
+  onSaveError: (error: unknown) => void;
+  onSelect: (profileId: string) => void;
+  onStageChange: (stage: Stage) => void;
+  review: StageReview;
+  saveError: string | null;
+  saving: boolean;
+  selected: ProfileListItem;
+  setDraft: Dispatch<SetStateAction<Profile | null>>;
+  setSaving: (saving: boolean) => void;
+  stage: Stage;
+}
+
+function ProfileEditor(props: ProfileEditorProps) {
+  const { draft, needsModel, review, selected, stage } = props;
+  const promptDefaults = usePromptDefaults(draft, props.setDraft);
+  const draftMissing = useMissingModels(draft);
+  const missing = props.dirty ? draftMissing : selected.availability.missingModels;
+
+  const stageDirty = (item: Stage) =>
+    needsModel.has(item) ||
+    !sameValue(draft[item], selected.profile[item]) ||
+    (item === "summary" && draft.language !== selected.profile.language);
+  const dirtyStages: Record<Stage, boolean> = {
+    refinement: stageDirty("refinement"),
+    summary: stageDirty("summary"),
+    transcription: stageDirty("transcription"),
+  };
+  const notes: Record<Stage, StageNote> = {
+    refinement: stageNote("refinement", props, missing),
+    summary: stageNote("summary", props, missing),
+    transcription: stageNote("transcription", props, missing),
+  };
+
+  const incomplete = incompleteStages(draft);
+  const reviewStages = stages.filter((item) =>
+    [...review.keys()].some((path) => path.startsWith(`${item}.`)),
+  );
+  const blocker: SaveBlocker | null =
+    incomplete.length > 0
+      ? { kind: "incomplete", stages: incomplete }
+      : review.size > 0
+        ? { count: review.size, kind: "review", stages: reviewStages }
+        : null;
+
+  function changeStageExecution(execution: Execution) {
+    const change = changeExecution(draft, selected.profile, review, stage, execution);
+    props.setDraft(change.profile);
+    props.onReviewChange(change.review);
+    const next = new Set(needsModel);
+    if (change.needsModel) next.add(stage);
+    else next.delete(stage);
+    props.onNeedsModelChange(next);
+  }
+
+  async function save(confirmed: boolean) {
+    if (blocker !== null) return;
+    if (selected.activeServerCount > 0 && !confirmed) {
+      props.onConfirmingChange(true);
+      return;
+    }
+    props.setSaving(true);
+    try {
+      await api.updateProfile(draft);
+      await props.onSaved(
+        { ...draft, profileType: profileTypeOf(draft) },
+        missing.map((entry) => entry.model),
+      );
+    } catch (error) {
+      props.onSaveError(error);
+    } finally {
+      props.setSaving(false);
+    }
+  }
+
+  return (
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[250px_minmax(0,1fr)] xl:gap-6">
+      <ProfileList
+        draft={draft}
+        items={props.items}
+        jobFor={props.downloads.jobFor}
+        onSelect={props.onSelect}
+        selectedId={selected.profile.profileId}
+      />
+      <div className="flex min-w-0 flex-col gap-4">
+        <ProfileHeader
+          activeServerCount={selected.activeServerCount}
+          busy={props.saving}
+          name={draft.name}
+          nameError={props.nameError}
+          onDelete={props.onDelete}
+          onlyProfile={props.items.length === 1}
+          onNameChange={props.onNameChange}
+          savedName={selected.profile.name}
+          type={profileTypeOf(draft)}
+        />
+        <AvailabilityBanner
+          activeServerCount={selected.activeServerCount}
+          availability={selected.availability}
+          changed={props.dirty}
+          downloads={props.downloads}
+          draftMissing={draftMissing}
+        />
+        <StageTrail
+          dirty={dirtyStages}
+          notes={notes}
+          onSelect={props.onStageChange}
+          profile={draft}
+          selected={stage}
+        />
+        <StagePanel
+          downloads={props.downloads}
+          needsModel={needsModel.has(stage)}
+          onAcknowledge={(path) => props.onReviewChange(acknowledgeReview(review, path))}
+          onChange={props.onChange}
+          onExecution={changeStageExecution}
+          onModel={(model) => {
+            props.onChange({ ...draft, [stage]: { ...draft[stage], model } });
+            const next = new Set(needsModel);
+            next.delete(stage);
+            props.onNeedsModelChange(next);
+          }}
+          onModelsChanged={props.onModelsChanged}
+          profile={draft}
+          promptDefaults={promptDefaults}
+          review={review}
+          stage={stage}
+        />
+      </div>
+      {props.dirty && (
+        // Leaves room at the end of the page so the fixed bar never covers the last settings.
+        <div className="h-28 xl:col-span-2">
+          <SaveBar
+            activeServerCount={selected.activeServerCount}
+            blocker={blocker}
+            busy={props.saving}
+            changes={[
+              ...(draft.name === selected.profile.name ? [] : ["Nome"]),
+              ...stages.filter((item) => dirtyStages[item]).map((item) => stageTitles[item]),
+            ]}
+            confirming={props.confirming}
+            error={props.saveError}
+            missingModels={missing.map((entry) => entry.model)}
+            onBack={() => props.onConfirmingChange(false)}
+            onConfirm={() => void save(true)}
+            onDiscard={props.onDiscard}
+            onGoTo={props.onStageChange}
+            onSave={() => void save(false)}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function stageNote(
+  stage: Stage,
+  { downloads, draft, needsModel, review }: ProfileEditorProps,
+  missing: readonly { model: string; phase: Stage; provider: ModelDownload["provider"] }[],
+): StageNote {
+  if (executionOf(draft, stage) === null) return { text: "Escolha a execução", tone: "warn" };
+  if (needsModel.has(stage) || draft[stage].model === null) {
+    return { text: "Escolha o modelo", tone: "warn" };
+  }
+  const reviewCount = [...review.keys()].filter((path) => path.startsWith(`${stage}.`)).length;
+  if (reviewCount > 0) {
+    return {
+      text: `Revisar ${String(reviewCount)} ${reviewCount === 1 ? "campo" : "campos"}`,
+      tone: "warn",
+    };
+  }
+  const absent = missing.find((entry) => entry.phase === stage);
+  if (absent !== undefined) {
+    const job = downloads.jobFor(absent.provider, absent.model);
+    if (job !== undefined && job.status !== "failed") return { text: downloadProgress(job).label };
+    return { text: "Não instalado", tone: "warn" };
+  }
+  if (stage === "transcription") {
+    return { text: languageLabel(draft.transcription.language, "Idioma detectado") };
+  }
+  if (stage === "refinement") {
+    return { text: draft.refinement.prompt === null ? "Sem prompt" : "Com prompt de refinamento" };
+  }
+  return { text: languageLabel(draft.language, "Mesmo idioma da reunião") };
 }
