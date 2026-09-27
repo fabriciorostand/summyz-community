@@ -21,7 +21,7 @@ const buttonVariants: Record<ButtonVariant, string> = {
   danger: "border border-fail/40 bg-fail-soft text-fail enabled:hover:bg-fail/20",
   ghost:
     "border border-transparent text-ink-secondary enabled:hover:bg-surface-inset enabled:hover:text-ink",
-  primary: "bg-action text-white enabled:hover:bg-action-hover",
+  primary: "bg-action-gradient text-white enabled:hover:bg-action-gradient-hover",
   secondary: "border border-line bg-surface-raised text-ink enabled:hover:border-line-strong",
 };
 

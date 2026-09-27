@@ -106,7 +106,7 @@ function GuildCard({ guild }: { guild: Guild }) {
         />
       </div>
       <Link
-        className="inline-flex items-center justify-center gap-2 rounded-lg bg-action px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-action-hover"
+        className="inline-flex items-center justify-center gap-2 rounded-lg bg-action-gradient px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-action-gradient-hover"
         to={`/guilds/${guild.id}`}
       >
         Configurar

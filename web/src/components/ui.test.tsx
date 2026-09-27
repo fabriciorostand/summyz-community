@@ -35,6 +35,14 @@ describe("Button", () => {
     expect(screen.getByRole("button", { name: "Excluir" }).className).toContain("text-fail");
   });
 
+  it("paints the primary variant with the action gradient", () => {
+    render(<Button variant="primary">Salvar</Button>);
+    expect(screen.getByRole("button", { name: "Salvar" })).toHaveClass(
+      "bg-action-gradient",
+      "enabled:hover:bg-action-gradient-hover",
+    );
+  });
+
   it("reacts to hover only while enabled, whatever the variant", () => {
     render(
       <>

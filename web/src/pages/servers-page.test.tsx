@@ -31,6 +31,10 @@ describe("ServersPage", () => {
     expect(screen.getByText("#atas-de-reuniao")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: /Configurar/ })).toHaveAttribute("href", "/guilds/g1");
+    expect(screen.getByRole("link", { name: /Configurar/ })).toHaveClass(
+      "bg-action-gradient",
+      "hover:bg-action-gradient-hover",
+    );
     const links = await screen.findAllByRole("link", { name: /Adicionar o bot/ });
     expect(links).toHaveLength(2);
     for (const link of links) expect(link).toHaveAttribute("href", installUrl);

@@ -354,7 +354,7 @@ const phaseLabels = {
   transcription: "Transcrição",
 } as const;
 
-const costSegmentColors = ["bg-action", "bg-accent", "bg-[#4ea8e0]", "bg-ok", "bg-warn"] as const;
+const costSegmentColors = ["bg-action", "bg-accent", "bg-chart-sky", "bg-ok", "bg-warn"] as const;
 
 type CostEntry = DashboardAnalytics["cost"]["breakdown"][number];
 

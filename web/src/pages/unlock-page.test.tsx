@@ -45,6 +45,14 @@ describe("UnlockPage", () => {
     expect(screen.getByRole("tooltip")).toHaveTextContent("recover-access");
   });
 
+  it("paints the unlock action with the action gradient", () => {
+    renderPage();
+    expect(screen.getByRole("button", { name: "Entrar" })).toHaveClass(
+      "bg-action-gradient",
+      "enabled:hover:bg-action-gradient-hover",
+    );
+  });
+
   it("does not react to hover while the password is being checked", () => {
     renderPage();
     expect(unguardedHoverClasses(screen.getByRole("button", { name: "Entrar" }))).toEqual([]);
@@ -66,6 +74,10 @@ describe("UnlockPage", () => {
       await screen.findByRole("heading", { name: "Instalação desbloqueada" }),
     ).toBeInTheDocument();
     expect(api.login).toHaveBeenCalledWith("uma frase bem longa");
+    expect(screen.getByRole("button", { name: "Ir para o dashboard" })).toHaveClass(
+      "bg-action-gradient",
+      "hover:bg-action-gradient-hover",
+    );
     await userEvent.click(screen.getByRole("button", { name: "Ir para o dashboard" }));
     expect(onUnlocked).toHaveBeenCalledTimes(1);
   });

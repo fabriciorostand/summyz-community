@@ -108,7 +108,7 @@ export function ErrorState({
 }
 
 const primaryLinkClass =
-  "inline-flex items-center gap-2 rounded-lg bg-action px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-action-hover";
+  "inline-flex items-center gap-2 rounded-lg bg-action-gradient px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-action-gradient-hover";
 export const secondaryLinkClass =
   "inline-flex items-center gap-2 rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink transition-colors hover:border-line-strong";
 

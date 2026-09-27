@@ -14,6 +14,42 @@ function utility(name: string): string {
   return styles.match(new RegExp(`@utility ${name} \\{([^}]*)\\}`))?.[1] ?? "";
 }
 
+/** The dark default tokens and the first light override block, which holds the light tokens. */
+const darkTokens = styles.match(/@theme \{([^}]*)\}/)?.[1] ?? "";
+const lightTokens = styles.match(/:root\[data-theme="light"\] \{([^}]*)\}/)?.[1] ?? "";
+
+describe("action palette", () => {
+  // Violet-to-blue from the Summyz logo; the light theme uses a darker gradient, like the old
+  // blurple mapping, and keeps action and accent on the same hue.
+  it.each([
+    ["action", "#5a2df0", "#4a22d0"],
+    ["action-soft", "#1a1639", "#eeeafc"],
+    ["accent", "#9b8cff", "#4a22d0"],
+    ["accent-hover", "#b9afff", "#3d1bb0"],
+    ["action-from", "#7017e6", "#5c10c2"],
+    ["action-to", "#2a41fa", "#1f33d6"],
+    ["action-hover-from", "#5c10c2", "#4a0ca0"],
+    ["action-hover-to", "#1f33d6", "#1828b0"],
+    ["chart-sky", "#4a99fc", "#3080e0"],
+  ])("sets --color-%s to %s in dark and %s in light", (token, dark, light) => {
+    expect(darkTokens).toContain(`--color-${token}: ${dark};`);
+    expect(lightTokens).toContain(`--color-${token}: ${light};`);
+  });
+
+  it("keeps no solid action hover token now that primary actions hover through the gradient", () => {
+    expect(styles).not.toMatch(/--color-action-hover:/);
+  });
+
+  it("paints primary actions with the gradient and darkens its stops on hover", () => {
+    expect(utility("bg-action-gradient")).toContain(
+      "@apply bg-linear-120 from-action-from to-action-to;",
+    );
+    expect(utility("bg-action-gradient-hover")).toContain(
+      "@apply from-action-hover-from to-action-hover-to;",
+    );
+  });
+});
+
 describe("global styles", () => {
   // Tailwind 4 preflight leaves buttons with the default arrow; the base layer brings the pointer
   // back so utilities such as cursor-help and disabled:cursor-not-allowed still win.

@@ -86,6 +86,35 @@ describe("OverviewPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("paints the third paid cost segment with the chart sky token", async () => {
+    const paid = (phase: "refinement" | "summary" | "transcription") => ({
+      attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 0 },
+      confirmed: [{ amount: "1.00", currency: "USD" }],
+      execution: "api" as const,
+      phase,
+      provider: "openrouter",
+    });
+    const dashboard = aDashboard();
+    renderScreen(<OverviewPage />, {
+      context: dashboardContext({
+        dashboard: {
+          ...dashboard,
+          cost: {
+            ...dashboard.cost,
+            breakdown: [paid("transcription"), paid("refinement"), paid("summary")],
+          },
+        },
+      }),
+    });
+    const bar = await screen.findByRole("img", { name: "Distribuição do custo confirmado" });
+    const segments = [...bar.children];
+    expect(segments.map((segment) => segment.className)).toEqual([
+      "bg-action",
+      "bg-accent",
+      "bg-chart-sky",
+    ]);
+  });
+
   it("labels refinement costs as Refinamento", async () => {
     const dashboard = aDashboard();
     renderScreen(<OverviewPage />, {
