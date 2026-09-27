@@ -1,5 +1,4 @@
 import {
-  type ButtonHTMLAttributes,
   type ComponentProps,
   type CSSProperties,
   type HTMLAttributes,
@@ -30,7 +29,7 @@ export function Button({
   className = "",
   variant = "primary",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant }) {
+}: ComponentProps<"button"> & { variant?: ButtonVariant }) {
   return (
     <button
       className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${buttonVariants[variant]} ${className}`}
@@ -397,9 +396,12 @@ const tipViewportGutter = 16;
  */
 export function HelpTip({
   children,
+  label = "Ajuda",
   placement = "below",
 }: {
   children: ReactNode;
+  /** Accessible name of the "?" button, for pages that show several tips side by side. */
+  label?: string;
   placement?: "below" | "left";
 }) {
   const [open, setOpen] = useState(false);
@@ -431,7 +433,7 @@ export function HelpTip({
     <span className="relative inline-flex">
       <button
         aria-describedby={open ? id : undefined}
-        aria-label="Ajuda"
+        aria-label={label}
         className="touch-target grid size-[17px] cursor-help place-items-center rounded-full border border-line-strong font-mono text-[10px] font-bold text-ink-dim transition-colors hover:border-action hover:text-accent-hover focus:border-action focus:text-accent-hover focus:outline-none"
         onBlur={() => setOpen(false)}
         onFocus={() => setOpen(true)}

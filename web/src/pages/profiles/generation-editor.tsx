@@ -1,10 +1,10 @@
 import { AutoNumberField, NumberField, OptionalNumberField } from "../../components/number-field";
-import { Field, Toggle } from "../../components/ui";
+import { Toggle } from "../../components/ui";
 import type { Profile } from "../../lib/api";
 
 type Phase = "refinement" | "summary";
 
-/** Model, chunking and sampling knobs shared by the refinement and summary phases. */
+/** Chunking and sampling knobs shared by the refinement and summary phases. */
 export function PhaseSettings({
   onChange,
   phase,
@@ -21,19 +21,8 @@ export function PhaseSettings({
     );
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <Field
-        label="Modelo"
-        onChange={(event) => replace({ ...value, model: event.currentTarget.value || null })}
-        placeholder={profile.profileType === "local" ? "qwen3:4b" : "vendor/model"}
-        value={value.model ?? ""}
-      />
-      <NumberField
-        label="Máximo por trecho"
-        min={1_000}
-        onCommit={(maxChunkCharacters) => replace({ ...value, maxChunkCharacters })}
-        value={value.maxChunkCharacters}
-      />
       <OptionalNumberField
+        hint="Vazio usa o padrão do provedor. 0 deixa o texto mais previsível."
         label="Temperatura"
         max={2}
         min={0}
@@ -44,6 +33,7 @@ export function PhaseSettings({
         value={value.generation.temperature}
       />
       <OptionalNumberField
+        hint="Com o mesmo seed, o modelo tende a repetir a mesma resposta."
         label="Seed"
         onCommit={(seed) => {
           const { seed: _seed, ...withoutSeed } = value.generation;
@@ -54,6 +44,15 @@ export function PhaseSettings({
         }}
         value={value.generation.seed}
       />
+      <div className="sm:col-span-2">
+        <NumberField
+          hint="Reuniões maiores são divididas em chunks deste tamanho."
+          label="Tamanho máximo do chunk (caracteres)"
+          min={1_000}
+          onCommit={(maxChunkCharacters) => replace({ ...value, maxChunkCharacters })}
+          value={value.maxChunkCharacters}
+        />
+      </div>
       <div className="sm:col-span-2">
         <Toggle
           checked={value.generation.think ?? false}
@@ -66,7 +65,8 @@ export function PhaseSettings({
   );
 }
 
-export function TranscriptionSettings({
+/** How the speech of one person is stitched together after transcription. */
+export function MergeSettings({
   onChange,
   profile,
 }: {
@@ -78,6 +78,7 @@ export function TranscriptionSettings({
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <NumberField
+        hint="Falas da mesma pessoa separadas por pausas menores viram um só trecho."
         label="Intervalo máximo de união (ms)"
         min={0}
         onCommit={(mergeMaxGapMs) => replace({ ...value, mergeMaxGapMs })}
@@ -89,7 +90,23 @@ export function TranscriptionSettings({
         onCommit={(interSpeechSilenceMs) => replace({ ...value, interSpeechSilenceMs })}
         value={value.interSpeechSilenceMs}
       />
+    </div>
+  );
+}
+
+export function TranscriptionTuning({
+  onChange,
+  profile,
+}: {
+  onChange: (profile: unknown) => void;
+  profile: Profile;
+}) {
+  const value = profile.transcription;
+  const replace = (next: unknown) => onChange({ ...profile, transcription: next });
+  return (
+    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
       <OptionalNumberField
+        hint="Vazio usa o padrão do provedor. 0 deixa o texto mais previsível."
         label="Temperatura"
         max={1}
         min={0}
@@ -100,12 +117,12 @@ export function TranscriptionSettings({
         step={0.1}
         value={value.temperature}
       />
-      {profile.profileType === "local" && (
+      {value.provider === "faster-whisper" && (
         <AutoNumberField
           hint={'Use "auto" para deixar o runtime decidir.'}
           label="Tamanho do lote"
           onCommit={(batchSize) => replace({ ...value, batchSize })}
-          value={profile.transcription.batchSize}
+          value={value.batchSize}
         />
       )}
     </div>

@@ -15,8 +15,11 @@ import {
   installationHealthSchema,
   meetingHistoryDetailSchema,
   meetingHistoryPageSchema,
+  modelCatalogSchema,
+  modelDownloadSchema,
   type Profile,
   type ProfileInput,
+  profileListItemSchema,
   profileSchema,
   promptDefaultsSchema,
   resourcesSchema,
@@ -40,9 +43,14 @@ export type {
   MeetingHistoryDetail,
   MeetingHistoryPage,
   MeetingHistorySummary,
+  ModelCatalog,
+  ModelCatalogItem,
+  ModelDownload,
   Profile,
+  ProfileAvailability,
   ProfileInput,
   ProfileListItem,
+  ProfileType,
   PromptDefaults,
   SetupStatus,
 } from "./api-contracts";
@@ -112,6 +120,8 @@ async function throwIfFailed(response: Response): Promise<void> {
 }
 
 const emptySchema = z.undefined();
+type ModelPhase = "transcription" | "refinement" | "summary";
+type LocalModelProvider = "ollama" | "faster-whisper";
 const json = (value: unknown) => JSON.stringify(value);
 
 export const api = {
@@ -119,6 +129,10 @@ export const api = {
     request("/api/access/password", emptySchema, {
       body: json({ currentPassword, newPassword }),
       method: "PUT",
+    }),
+  cancelModelDownload: (downloadId: string) =>
+    request(`/api/models/downloads/${downloadId}/cancel`, z.object({ status: z.string() }), {
+      method: "POST",
     }),
   createProfile: (profile: ProfileInput) =>
     request("/api/profiles", profileSchema, {
@@ -196,17 +210,13 @@ export const api = {
     if (filters.state !== undefined) parameters.set("state", filters.state);
     return request(`/api/guilds/${guildId}/meetings?${parameters}`, meetingHistoryPageSchema);
   },
-  listProfiles: () =>
-    request(
-      "/api/profiles",
-      z.array(
-        z.object({
-          active: z.boolean(),
-          activeServerCount: z.number().int().optional(),
-          profile: profileSchema,
-        }),
-      ),
-    ),
+  listModelDownloads: () => request("/api/models/downloads", z.array(modelDownloadSchema)),
+  listModels: (phase: ModelPhase, provider: LocalModelProvider | "openrouter", family?: string) => {
+    const parameters = new URLSearchParams({ phase, provider });
+    if (family !== undefined) parameters.set("family", family);
+    return request(`/api/models?${parameters}`, modelCatalogSchema);
+  },
+  listProfiles: () => request("/api/profiles", z.array(profileListItemSchema)),
   listTasks: (guildId: string, filters: { completed?: boolean; meetingId?: string } = {}) => {
     const parameters = new URLSearchParams();
     if (filters.completed !== undefined) parameters.set("completed", String(filters.completed));
@@ -225,6 +235,11 @@ export const api = {
     }),
   setActiveProfile: (guildId: string, profileId: string) =>
     request(`/api/guilds/${guildId}/profiles/${profileId}/active`, emptySchema, { method: "PUT" }),
+  startModelDownload: (phase: ModelPhase, provider: LocalModelProvider, model: string) =>
+    request("/api/models/downloads", modelDownloadSchema, {
+      body: json({ model, phase, provider }),
+      method: "POST",
+    }),
   setTaskCompleted: (guildId: string, taskId: string, completed: boolean) =>
     request(`/api/guilds/${guildId}/tasks/${taskId}/completion`, emptySchema, {
       body: json({ completed }),
@@ -258,8 +273,10 @@ export const api = {
       body: json({ dashboardLanguage, dashboardTheme }),
       method: "PUT",
     }),
+  uninstallModel: (provider: LocalModelProvider, model: string) =>
+    request("/api/models", emptySchema, { body: json({ model, provider }), method: "DELETE" }),
   updateProfile: (profile: Profile) => {
-    const { profileId, ...body } = profile;
+    const { profileId, profileType: _profileType, ...body } = profile;
     return request(`/api/profiles/${profileId}`, emptySchema, {
       body: json(body),
       method: "PUT",

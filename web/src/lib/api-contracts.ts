@@ -1,5 +1,10 @@
 import { z } from "zod";
 
+import { profileAvailabilitySchema, profileSchema } from "./profile-contracts";
+
+// Profile and model contracts live in their own module; the API client imports both from here.
+export * from "./profile-contracts";
+
 const accessModeSchema = z.enum(["local", "public"]);
 const dashboardLanguageSchema = z.enum(["en", "pt-BR"]);
 const dashboardThemeSchema = z.enum(["system", "light", "dark"]);
@@ -39,7 +44,7 @@ export const guildSchema = z.object({
     .object({
       name: z.string(),
       profileId: z.string(),
-      profileType: z.enum(["external", "local"]),
+      profileType: z.enum(["external", "local", "hybrid"]).nullable(),
     })
     .nullable()
     .optional(),
@@ -57,97 +62,9 @@ export const guildSchema = z.object({
     .nullable()
     .optional(),
 });
-const generationSchema = z.object({
-  seed: z.number().int().optional(),
-  temperature: z.number().optional(),
-  think: z.boolean().optional(),
-});
-const promptSchema = z.string().nullable();
-export const promptDefaultsSchema = z.object({
-  refinement: z.string(),
-  summaryConsolidation: z.string(),
-  summaryExtraction: z.string(),
-  transcription: z.null(),
-});
-const automaticNumberSchema = z.union([z.literal("auto"), z.number()]);
-const externalVadSchema = z.object({
-  enabled: z.boolean(),
-  minSilenceDurationMs: z.number().int(),
-  minSpeechDurationMs: z.number().int(),
-  negativeSpeechThreshold: automaticNumberSchema,
-  speechPadMs: z.number().int(),
-  threshold: z.number(),
-});
-const localVadSchema = z.object({
-  enabled: z.boolean(),
-  maxSpeechDurationSeconds: automaticNumberSchema,
-  minSilenceDurationMs: automaticNumberSchema,
-  minSpeechDurationMs: z.number().int(),
-  negativeSpeechThreshold: automaticNumberSchema,
-  speechPadMs: z.number().int(),
-  threshold: z.number(),
-});
-const profileLanguages = [
-  ...(["auto", "ar", "cs", "da", "de", "el", "en", "en-GB", "en-US", "es"] as const),
-  ...(["es-ES", "es-MX", "fi", "fr", "fr-CA", "he", "hi", "hu", "id", "it"] as const),
-  ...(["ja", "ko", "nl", "no", "pl", "pt", "pt-BR", "pt-PT", "ro", "ru"] as const),
-  ...(["sv", "th", "tr", "uk", "vi", "zh", "zh-CN", "zh-TW"] as const),
-] as const;
-const profileBaseShape = {
-  language: z.enum(profileLanguages),
-  name: z.string(),
-  profileId: z.string(),
-};
-const refinementBaseShape = {
-  generation: generationSchema,
-  maxChunkCharacters: z.number().int(),
-  model: z.string().nullable(),
-  prompt: promptSchema,
-};
-const summaryBaseShape = {
-  consolidationPrompt: promptSchema,
-  extractionPrompt: promptSchema,
-  generation: generationSchema,
-  maxChunkCharacters: z.number().int(),
-  model: z.string().nullable(),
-};
-const transcriptionBaseShape = {
-  interSpeechSilenceMs: z.number().int(),
-  language: z.enum(profileLanguages),
-  mergeMaxGapMs: z.number().int(),
-  model: z.string().nullable(),
-  prompt: promptSchema,
-  providerOptions: z.record(z.string(), z.record(z.string(), z.json())).optional(),
-  temperature: z.number().optional(),
-};
-export const profileSchema = z.discriminatedUnion("profileType", [
-  z.object({
-    ...profileBaseShape,
-    profileType: z.literal("external"),
-    refinement: z.object({ ...refinementBaseShape, provider: z.literal("openrouter") }),
-    summary: z.object({ ...summaryBaseShape, provider: z.literal("openrouter") }),
-    transcription: z.object({
-      ...transcriptionBaseShape,
-      provider: z.literal("openrouter"),
-      vad: externalVadSchema,
-    }),
-  }),
-  z.object({
-    ...profileBaseShape,
-    profileType: z.literal("local"),
-    refinement: z.object({ ...refinementBaseShape, provider: z.literal("ollama") }),
-    summary: z.object({ ...summaryBaseShape, provider: z.literal("ollama") }),
-    transcription: z.object({
-      ...transcriptionBaseShape,
-      batchSize: z.union([z.literal("auto"), z.number().int()]),
-      provider: z.literal("faster-whisper"),
-      vad: localVadSchema,
-    }),
-  }),
-]);
 export const guildConfigurationSchema = z.object({
   activeProfileId: z.string().nullable(),
-  profiles: z.array(profileSchema),
+  profiles: z.array(profileSchema.extend({ availability: profileAvailabilitySchema })),
   recordingRoleIds: z.array(z.string()),
   recordingUserIds: z.array(z.string()),
   settings: z.object({
@@ -440,16 +357,6 @@ export type SetupStatus = z.infer<typeof setupStatusSchema>;
 export type DashboardSettings = z.infer<typeof dashboardSettingsSchema>;
 export type BotInstallation = z.infer<typeof botInstallationSchema>;
 export type Guild = z.infer<typeof guildSchema>;
-export type Profile = z.infer<typeof profileSchema>;
-export type ProfileInput =
-  | Omit<Extract<Profile, { profileType: "external" }>, "profileId">
-  | Omit<Extract<Profile, { profileType: "local" }>, "profileId">;
-export interface ProfileListItem {
-  active: boolean;
-  activeServerCount?: number | undefined;
-  profile: Profile;
-}
-export type PromptDefaults = z.infer<typeof promptDefaultsSchema>;
 export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;
 export type GuildMemberPage = z.infer<typeof guildMemberPageSchema>;

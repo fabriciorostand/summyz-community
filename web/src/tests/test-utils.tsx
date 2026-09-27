@@ -244,12 +244,24 @@ export function aProfile(overrides: Partial<Profile> = {}): Profile {
   } as Profile;
 }
 
+/** A profile as the server configuration lists it, with whether it can record. */
+export function aConfigurationProfile(
+  profile: Profile,
+  availability: GuildConfiguration["profiles"][number]["availability"] = {
+    missingModels: [],
+    status: "ready",
+    unavailableProviders: [],
+  },
+): GuildConfiguration["profiles"][number] {
+  return { ...profile, availability };
+}
+
 export function aGuildConfiguration(
   overrides: Partial<GuildConfiguration> = {},
 ): GuildConfiguration {
   return {
     activeProfileId: "p1",
-    profiles: [aProfile()],
+    profiles: [aConfigurationProfile(aProfile())],
     recordingRoleIds: ["r1"],
     recordingUserIds: [],
     settings: { botLanguage: "pt-BR", persistMeetingAudio: false, persistMeetingContent: true },

@@ -44,9 +44,21 @@ export const profileLanguages = [
 
 export type ProfileLanguage = (typeof profileLanguages)[number];
 
-const languageOptions: readonly SelectOption<ProfileLanguage>[] = profileLanguages.map(
-  (language) => ({ label: language, value: language }),
-);
+const displayNames = new Intl.DisplayNames(["pt-BR"], { type: "language" });
+
+export function languageLabel(language: ProfileLanguage, autoLabel: string): string {
+  if (language === "auto") return autoLabel;
+  const name = displayNames.of(language) ?? language;
+  return name.charAt(0).toLocaleUpperCase("pt-BR") + name.slice(1);
+}
+
+function languageOptions(autoLabel: string): SelectOption<ProfileLanguage>[] {
+  const named = profileLanguages
+    .filter((language) => language !== "auto")
+    .map((language) => ({ label: languageLabel(language, autoLabel), value: language }))
+    .sort((left, right) => left.label.localeCompare(right.label, "pt-BR"));
+  return [{ label: autoLabel, value: "auto" }, ...named];
+}
 
 /** Picks the next unused "Perfil N" so a new profile never collides with an existing name. */
 export function nextLocalizedProfileName(
@@ -61,13 +73,22 @@ export function nextLocalizedProfileName(
 }
 
 export function LanguageSelector({
+  autoLabel,
   label,
   onChange,
   value,
 }: {
+  autoLabel: string;
   label: string;
   onChange: (value: ProfileLanguage) => void;
   value: ProfileLanguage;
 }) {
-  return <SelectField label={label} onChange={onChange} options={languageOptions} value={value} />;
+  return (
+    <SelectField
+      label={label}
+      onChange={onChange}
+      options={languageOptions(autoLabel)}
+      value={value}
+    />
+  );
 }

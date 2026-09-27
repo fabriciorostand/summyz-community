@@ -241,6 +241,11 @@ describe("HelpTip", () => {
     expect(screen.queryByRole("tooltip")).not.toBeInTheDocument();
   });
 
+  it("takes a specific name when several tips share a screen", () => {
+    render(<HelpTip label="Sobre a etapa Resumo">Escreve o resumo.</HelpTip>);
+    expect(screen.getByRole("button", { name: "Sobre a etapa Resumo" })).toBeInTheDocument();
+  });
+
   it("shifts the tip back inside a narrow viewport", async () => {
     vi.spyOn(document.documentElement, "clientWidth", "get").mockReturnValue(320);
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
