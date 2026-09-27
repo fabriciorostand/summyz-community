@@ -73,7 +73,7 @@ export function UnlockPage({ onUnlocked }: { onUnlocked: () => void }) {
             Instalação desbloqueada
           </h2>
           <button
-            className="mt-5 rounded-[10px] bg-action px-5 py-3 text-[14px] font-medium text-white transition-colors hover:bg-action-hover"
+            className="mt-5 rounded-[10px] bg-action-gradient px-5 py-3 text-[14px] font-medium text-white transition-colors hover:bg-action-gradient-hover"
             onClick={onUnlocked}
             type="button"
           >
@@ -130,7 +130,7 @@ export function UnlockPage({ onUnlocked }: { onUnlocked: () => void }) {
             </div>
           )}
           <button
-            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-[10px] bg-action py-3.5 text-[14px] font-medium text-white transition-colors enabled:hover:bg-action-hover disabled:cursor-wait disabled:opacity-70"
+            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-[10px] bg-action-gradient py-3.5 text-[14px] font-medium text-white transition-colors enabled:hover:bg-action-gradient-hover disabled:cursor-wait disabled:opacity-70"
             disabled={state.kind === "checking"}
             type="submit"
           >

@@ -2,8 +2,9 @@
 
 /*
  * Design tokens for the Summyz dashboard.
- * Values come from the "Split, em azul Discord" design direction: Discord blurple as the
- * action color, dark surfaces by default, and a documented light-theme mapping.
+ * The action palette comes from the Summyz logo: its violet-to-blue gradient fills primary
+ * actions and a solid indigo from the middle of that gradient covers every other action state.
+ * Surfaces stay dark by default, with a documented light-theme mapping.
  * Dark is the default palette; the light overrides live in the [data-theme="light"] block.
  */
 @theme {
@@ -11,11 +12,14 @@
   /* index.html loads only the semi-condensed (87.5%) width, so every mono text renders at it. */
   --font-mono: "Martian Mono", ui-monospace, "SFMono-Regular", monospace;
 
-  --color-action: #5865f2;
-  --color-action-hover: #4752c4;
-  --color-action-soft: #1b1f37;
-  --color-accent: #8b93f6;
-  --color-accent-hover: #a5abf8;
+  --color-action: #5a2df0;
+  --color-action-soft: #1a1639;
+  --color-accent: #9b8cff;
+  --color-accent-hover: #b9afff;
+  --color-action-from: #7017e6;
+  --color-action-to: #2a41fa;
+  --color-action-hover-from: #5c10c2;
+  --color-action-hover-to: #1f33d6;
 
   --color-canvas: #0b0d13;
   --color-surface: #12151e;
@@ -37,14 +41,20 @@
   --color-warn: #d9a23b;
   --color-fail: #e2607f;
   --color-fail-soft: #2a1720;
+
+  /* Third cost series, after action and accent: the blue glow of the logo. */
+  --color-chart-sky: #4a99fc;
 }
 
 :root[data-theme="light"] {
-  --color-action: #4752c4;
-  --color-action-hover: #3b45a8;
-  --color-action-soft: #eeeefc;
-  --color-accent: #4752c4;
-  --color-accent-hover: #3b45a8;
+  --color-action: #4a22d0;
+  --color-action-soft: #eeeafc;
+  --color-accent: #4a22d0;
+  --color-accent-hover: #3d1bb0;
+  --color-action-from: #5c10c2;
+  --color-action-to: #1f33d6;
+  --color-action-hover-from: #4a0ca0;
+  --color-action-hover-to: #1828b0;
 
   --color-canvas: #eeeef6;
   --color-surface: #fafafd;
@@ -67,6 +77,9 @@
   --color-warn: #9a6d14;
   --color-fail: #b8365a;
   --color-fail-soft: #fceff2;
+
+  /* Darkened from #4a99fc so the cost series keeps 3:1 against light surfaces. */
+  --color-chart-sky: #3080e0;
 }
 
 :root {
@@ -114,6 +127,18 @@ body {
   letter-spacing: 0.1em;
   line-height: 1;
   text-transform: uppercase;
+}
+
+/*
+ * Primary actions carry the logo gradient. The stops are gradient variables, so the existing
+ * transition-colors also animates the hover.
+ */
+@utility bg-action-gradient {
+  @apply bg-linear-120 from-action-from to-action-to;
+}
+
+@utility bg-action-gradient-hover {
+  @apply from-action-hover-from to-action-hover-to;
 }
 
 /*

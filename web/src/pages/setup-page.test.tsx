@@ -40,6 +40,15 @@ afterEach(() => {
 });
 
 describe("SetupPage in local mode", () => {
+  it("paints the submit action with the gradient and drops it while disabled", () => {
+    renderSetup("local");
+    expect(screen.getByRole("button", { name: "Concluir" })).toHaveClass(
+      "bg-action-gradient",
+      "enabled:hover:bg-action-gradient-hover",
+      "disabled:bg-none",
+    );
+  });
+
   it("has only the token step and no password", () => {
     renderSetup("local");
     expect(screen.getByText("Token do bot")).toBeInTheDocument();

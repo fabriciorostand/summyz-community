@@ -2,7 +2,14 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-import { EmptyState, ErrorState, FullPageLoading, LoadingPanel, Skeleton } from "./states";
+import {
+  EmptyState,
+  ErrorState,
+  FullPageLoading,
+  InstallBotLink,
+  LoadingPanel,
+  Skeleton,
+} from "./states";
 
 describe("loading states", () => {
   it("labels the panel for assistive tech", () => {
@@ -65,5 +72,15 @@ describe("ErrorState", () => {
   it("renders without a retry handler or code", () => {
     render(<ErrorState title="Falhou">Erro.</ErrorState>);
     expect(screen.queryByRole("button", { name: /Tentar novamente/ })).toBeNull();
+  });
+});
+
+describe("InstallBotLink", () => {
+  it("paints the primary link with the action gradient", () => {
+    render(<InstallBotLink installUrl="https://discord.com/oauth2/authorize?client_id=1" />);
+    expect(screen.getByRole("link", { name: "Adicionar o bot a um servidor" })).toHaveClass(
+      "bg-action-gradient",
+      "hover:bg-action-gradient-hover",
+    );
   });
 });
