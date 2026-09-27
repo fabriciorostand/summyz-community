@@ -53,8 +53,3 @@ do GitHub e dos fornecedores. Caches de npm, pip, BuildKit e modelos reduzem as 
 sem dispensar as verificações de versão, hash e digest. O dashboard reutiliza o cache BuildKit do
 bot sem sobrescrevê-lo. O cache dos modelos é salvo somente após o smoke test passar e contém apenas
 os artefatos de Ollama e faster-whisper, não o diretório inteiro dos serviços.
-
-## Contratos de modelos
-
-A integração do frontend com seleção por etapa, catálogos, disponibilidade, download e desinstalação
-está descrita em [Catálogos e modelos](model-catalog-api.md).

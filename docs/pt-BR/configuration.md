@@ -79,8 +79,7 @@ ele autorizar podem usar `/record` e `/stop`; os cargos não recebem outros pode
 Os perfis são globais da instalação e podem ser reutilizados em todos os servidores nos quais o bot
 está instalado. Cada etapa escolhe seu provedor independentemente; o backend calcula os tipos
 **API externa**, **Local** ou **Híbrido**. Uma instalação nova recebe apenas `Perfil 1`/`Profile 1`,
-com provedores e modelos vazios. Um perfil ativo não pode ser excluído. Os contratos disponíveis
-para os novos seletores estão em [Catálogos e modelos](model-catalog-api.md).
+com provedores e modelos vazios. Um perfil ativo não pode ser excluído.
 
 Cada servidor mantém no máximo um desses perfis como ativo, independentemente do tipo. Servidores
 novos começam sem perfil ativo; enquanto transcrição, refinamento e resumo do perfil escolhido não
