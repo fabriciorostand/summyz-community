@@ -19,6 +19,7 @@ import {
   profileBodySchema,
   profileParametersSchema,
 } from "./server-contracts.js";
+import { registerModelRoutes, requireModels } from "./server-model-routes.js";
 import { registerSetupRoutes } from "./server-setup-routes.js";
 import {
   authorizeDashboard,
@@ -144,6 +145,7 @@ export async function createApiServer(
   app.get("/api/health", async () => ({ status: "ok" }));
   registerSetupRoutes(app, dependencies);
   registerAuthRoutes(app, dependencies);
+  registerModelRoutes(app, dependencies);
 
   app.get("/api/commands", async (request) => {
     const access = await authorizeDashboard(request, dependencies);
@@ -223,8 +225,15 @@ export async function createApiServer(
     }
     return {
       activeProfileId,
-      profiles: profiles.map((profile) =>
-        localizeAiProfileDefaults(profile, access.dashboardLanguage),
+      profiles: await Promise.all(
+        profiles.map(async (profile) => ({
+          ...localizeAiProfileDefaults(profile, access.dashboardLanguage),
+          availability: (await dependencies.models?.inventory.assess(profile)) ?? {
+            status: "unavailable",
+            missingModels: [],
+            unavailableProviders: [],
+          },
+        })),
       ),
       recordingRoleIds: recordingPermissions.roleIds,
       recordingUserIds: validUserGrants.map((grant) => grant.userId),
@@ -314,11 +323,18 @@ export async function createApiServer(
         ]);
       },
     );
-    return profiles.map((profile) => ({
-      active: (activeProfileCounts.get(profile.profileId) ?? 0) > 0,
-      activeServerCount: activeProfileCounts.get(profile.profileId) ?? 0,
-      profile: localizeAiProfileDefaults(profile, access.dashboardLanguage),
-    }));
+    return Promise.all(
+      profiles.map(async (profile) => ({
+        active: (activeProfileCounts.get(profile.profileId) ?? 0) > 0,
+        activeServerCount: activeProfileCounts.get(profile.profileId) ?? 0,
+        profile: localizeAiProfileDefaults(profile, access.dashboardLanguage),
+        availability: (await dependencies.models?.inventory.assess(profile)) ?? {
+          status: "unavailable",
+          missingModels: [],
+          unavailableProviders: [],
+        },
+      })),
+    );
   });
   app.post("/api/profiles", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
@@ -326,6 +342,7 @@ export async function createApiServer(
       ...parseRequestInput(profileBodySchema, request.body),
       profileId: randomUUID(),
     });
+    await requireModels(dependencies).catalog.validateProfile(profile);
     await dependencies.aiProfiles.createProfile(profile);
     return reply.status(201).send(profile);
   });
@@ -336,6 +353,7 @@ export async function createApiServer(
       ...parseRequestInput(profileBodySchema, request.body),
       profileId: parameters.profileId,
     });
+    await requireModels(dependencies).catalog.validateProfile(profile);
     await dependencies.aiProfiles.updateProfile(profile);
     return reply.status(204).send();
   });

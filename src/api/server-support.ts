@@ -7,7 +7,11 @@ import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { InstallationAccessRecoveryError } from "../auth/installation-access-recovery.js";
 import { InstallationLoginThrottleError } from "../auth/installation-login-throttle.js";
 import { InstallationPasswordError } from "../auth/installation-password.js";
-import { StoredAiProfileValidationError } from "../database/postgres-ai-profile-store.js";
+import {
+  DuplicateProfileNameError,
+  StoredAiProfileValidationError,
+} from "../database/postgres-ai-profile-store.js";
+import { ModelOperationError } from "../models/model-catalog.js";
 
 import {
   type ApiAnalyticsStore,
@@ -183,11 +187,29 @@ export function parseRequestInput<T extends z.ZodType>(schema: T, input: unknown
 
 export function getKnownApiError(error: unknown):
   | {
-      body: { error: string; issues?: unknown[] };
+      body: {
+        error: string;
+        issues?: unknown[];
+        field?: string;
+        message?: string;
+        profileName?: string;
+      };
       retryAfterSeconds?: number;
       statusCode: number;
     }
   | undefined {
+  if (error instanceof DuplicateProfileNameError)
+    return {
+      statusCode: 409,
+      body: {
+        error: "profile_name_conflict",
+        field: "name",
+        profileName: error.profileName,
+        message: `Já existe um perfil chamado '${error.profileName}'. Escolha outro nome.`,
+      },
+    };
+  if (error instanceof ModelOperationError)
+    return { statusCode: error.statusCode, body: { error: error.code } };
   if (error instanceof InvalidRequestError) {
     return { body: { error: "invalid_request", issues: error.issues }, statusCode: 400 };
   }

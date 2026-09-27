@@ -121,7 +121,6 @@ export class LocalModelManager {
   readonly #fasterWhisperBaseUrl: string;
   readonly #fetch: Fetch;
   readonly #logger: Logger;
-  readonly #managedOllamaModels = new Set<string>();
   readonly #ollamaBaseUrl: string;
   readonly #ollamaUses = new Map<string, Set<OllamaPhase>>();
   readonly #pendingOllamaPhases = new Set<OllamaPhase>();
@@ -192,17 +191,6 @@ export class LocalModelManager {
         "Unable to unload rejected Ollama model",
       );
     });
-
-    if (!this.#managedOllamaModels.has(model) || (uses?.size ?? 0) > 0) {
-      return;
-    }
-    await this.#requestOllama("/api/delete", { model }).catch((error: unknown) => {
-      this.#logger.warn(
-        { errorType: getErrorType(error), model, phase },
-        "Unable to delete rejected Ollama model",
-      );
-    });
-    this.#logger.warn({ model, phase }, "Rejected Ollama model was removed from managed storage");
   }
 
   #trackOllamaUse(
@@ -211,7 +199,6 @@ export class LocalModelManager {
   ): void {
     if (selection == null) return;
     if (selection.provider !== "ollama") return;
-    this.#managedOllamaModels.add(selection.model);
     const uses = this.#ollamaUses.get(selection.model) ?? new Set<OllamaPhase>();
     uses.add(phase);
     this.#pendingOllamaPhases.add(phase);
@@ -221,7 +208,6 @@ export class LocalModelManager {
   async #prepareOllamaModel(model: string): Promise<void> {
     const phases = [...(this.#ollamaUses.get(model) ?? [])];
     try {
-      await this.#requestOllama("/api/pull", { model, stream: false });
       await this.#recordOllamaInventory(model);
       this.#logger.info({ model }, "Ollama model is ready");
     } catch (error) {
@@ -242,8 +228,7 @@ export class LocalModelManager {
       } catch (error) {
         if (error instanceof IncompatibleOllamaModelError) {
           await this.rejectOllamaModel(model, phase);
-          this.#pendingOllamaPhases.delete(phase);
-          continue;
+          throw error;
         }
         if (
           error instanceof LocalAiDevicePolicyError ||
@@ -372,7 +357,7 @@ export class LocalModelManager {
     const execution = this.#executionPlan?.transcription ?? cpuExecution();
     try {
       const response = await this.#requestFasterWhisperPreparation(model, execution);
-      await this.#requireSuccessfulFasterWhisperResponse(response, model);
+      this.#requireSuccessfulFasterWhisperResponse(response);
       const status = parseFasterWhisperStatus(await response.json().catch(() => null));
       requireMultilingualCheckpoint(status);
       requireFasterWhisperDevice(status.device, execution);
@@ -417,27 +402,9 @@ export class LocalModelManager {
     });
   }
 
-  async #requireSuccessfulFasterWhisperResponse(response: Response, model: string): Promise<void> {
+  #requireSuccessfulFasterWhisperResponse(response: Response): void {
     if (response.ok) return;
-    if (response.status === 422) {
-      await this.#deleteFasterWhisperModel(model);
-      this.#fasterWhisperPending = false;
-    }
     throw new Error(`FasterWhisperPreparationStatus${String(response.status)}`);
-  }
-
-  async #deleteFasterWhisperModel(model: string): Promise<void> {
-    await this.#fetch(`${this.#fasterWhisperBaseUrl}/models/delete`, {
-      body: JSON.stringify({ model }),
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-      signal: AbortSignal.timeout(30_000),
-    }).catch((error: unknown) => {
-      this.#logger.warn(
-        { errorType: getErrorType(error), model },
-        "Unable to delete rejected faster-whisper model",
-      );
-    });
   }
 
   async #requestOllama(path: string, body: unknown): Promise<void> {

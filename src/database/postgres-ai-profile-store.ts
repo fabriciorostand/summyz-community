@@ -8,7 +8,7 @@ const rowSchema = z.object({
   language: z.unknown(),
   name: z.string().min(1),
   profile_id: z.string().min(1),
-  profile_type: z.enum(["external", "local"]),
+  profile_type: z.enum(["external", "local", "hybrid"]).nullable(),
   refinement: z.unknown(),
   summary: z.unknown(),
   transcription: z.unknown(),
@@ -33,6 +33,13 @@ export class StoredAiProfileValidationError extends Error {
   }
 }
 
+export class DuplicateProfileNameError extends Error {
+  public constructor(public readonly profileName: string) {
+    super("profile_name_conflict");
+    this.name = "DuplicateProfileNameError";
+  }
+}
+
 export class PostgresAiProfileStore implements AiProfileStore {
   readonly #database: PostgresExecutor;
 
@@ -51,11 +58,13 @@ export class PostgresAiProfileStore implements AiProfileStore {
 
   public async createProfile(input: AiProfile): Promise<void> {
     const profile = aiProfileSchema.parse(input);
-    await this.#database.query(
-      `INSERT INTO ai_profiles (
+    await this.#writeProfile(profile, async (database) =>
+      database.query(
+        `INSERT INTO ai_profiles (
          profile_id, profile_type, name, transcription, refinement, summary, language
        ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7)`,
-      serializeProfile(profile),
+        serializeProfile(profile),
+      ),
     );
   }
 
@@ -148,18 +157,37 @@ export class PostgresAiProfileStore implements AiProfileStore {
 
   public async updateProfile(input: AiProfile): Promise<void> {
     const profile = aiProfileSchema.parse(input);
-    const result = await this.#database.query(
-      `UPDATE ai_profiles
-       SET name = $3,
+    const result = await this.#writeProfile(profile, async (database) =>
+      database.query(
+        `UPDATE ai_profiles
+       SET name = $3, profile_type = $2,
            transcription = $4::jsonb,
            refinement = $5::jsonb,
            summary = $6::jsonb,
            language = $7,
            updated_at = now()
-       WHERE profile_id = $1 AND profile_type = $2`,
-      serializeProfile(profile),
+       WHERE profile_id = $1`,
+        serializeProfile(profile),
+      ),
     );
     ensureProfileWasChanged(result.rowCount);
+  }
+
+  async #writeProfile<T>(
+    profile: AiProfile,
+    write: (database: PostgresExecutor) => Promise<T>,
+  ): Promise<T> {
+    if (this.#database.transaction === undefined)
+      throw new Error("Profile writes require a transaction");
+    return this.#database.transaction(async (database) => {
+      await database.query("SELECT pg_advisory_xact_lock(hashtext('summyz_profile_names'))");
+      const duplicate = await database.query(
+        "SELECT profile_id FROM ai_profiles WHERE btrim(name) = $1 AND profile_id <> $2 LIMIT 1",
+        [profile.name, profile.profileId],
+      );
+      if (duplicate.rows.length > 0) throw new DuplicateProfileNameError(profile.name);
+      return write(database);
+    });
   }
 }
 

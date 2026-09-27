@@ -77,9 +77,10 @@ ele autorizar podem usar `/record` e `/stop`; os cargos não recebem outros pode
 ## Perfis de processamento
 
 Os perfis são globais da instalação e podem ser reutilizados em todos os servidores nos quais o bot
-está instalado. A página **Perfis** separa configurações de **API externa** e **Local**. Uma
-instalação nova recebe um perfil de cada tipo com os modelos vazios. Um perfil ativo não pode ser
-excluído.
+está instalado. Cada etapa escolhe seu provedor independentemente; o backend calcula os tipos
+**API externa**, **Local** ou **Híbrido**. Uma instalação nova recebe apenas `Perfil 1`/`Profile 1`,
+com provedores e modelos vazios. Um perfil ativo não pode ser excluído. Os contratos disponíveis
+para os novos seletores estão em [Catálogos e modelos](model-catalog-api.md).
 
 Cada servidor mantém no máximo um desses perfis como ativo, independentemente do tipo. Servidores
 novos começam sem perfil ativo; enquanto transcrição, refinamento e resumo do perfil escolhido não
@@ -88,8 +89,10 @@ modelo preserva os demais parâmetros do perfil. Se
 o bot sair de um servidor, ele deixa de aparecer no dashboard, mas seus dados persistidos são
 preservados. Reinstalar o mesmo bot nesse servidor torna esses dados visíveis novamente.
 
-Não existe modelo `auto` nem `openrouter/auto`. A escolha é livre e o Summyz nunca substitui o
-modelo selecionado. A avaliação local usa os estados `recommended`, `compatible`,
+O Summyz não escolhe modelos automaticamente. A escolha deve pertencer ao catálogo do provedor e
+o Summyz nunca substitui o modelo selecionado. Salvar exige as três etapas completas; arquivos locais
+podem ser instalados depois, mas sua ausência bloqueia a gravação. A avaliação local usa os estados
+`recommended`, `compatible`,
 `above_recommended`, `unknown` e `incompatible`: somente `incompatible` bloqueia a gravação;
 `above_recommended` e `unknown` geram avisos privados. O `language` do resumo e o
 `transcription.language` do perfil usam um catálogo de tags BCP 47 e têm `auto` como
@@ -180,7 +183,7 @@ Na fase de transcrição, cada perfil define:
 - `providerOptions`: opções opcionais agrupadas pelo slug do provedor conforme o contrato do
   OpenRouter.
 
-Somente perfis locais expõem `batchSize`: `auto`, `0` para desativar ou um inteiro de `1` a `64`.
+Somente a transcrição com faster-whisper expõe `batchSize`: `auto`, `0` para desativar ou um inteiro de `1` a `64`.
 No faster-whisper, o lote é uma otimização de inferência e continua produzindo timestamps por
 palavra. Para APIs externas, o Summyz otimiza requisições independentes por meio de
 `TRANSCRIPTION_CONCURRENCY`.
@@ -202,19 +205,19 @@ Se a lista de perfis ou a configuração de um servidor não puder ser carregada
 um erro genérico e permite tentar novamente na própria página. Detalhes sobre dependências e dados
 persistidos permanecem somente nos logs estruturados do servidor.
 
-O VAD é configurado na aba própria do perfil e pode ser desativado. Perfis de API externa usam o
-detector Silero do Summyz antes de enviar áudio ao OpenRouter. Perfis locais não executam esse
+O VAD é configurado na aba própria do perfil e pode ser desativado. Etapas de transcrição com OpenRouter usam o
+detector Silero do Summyz antes de enviar áudio. Transcrição com faster-whisper não executa esse
 detector: somente o VAD nativo do faster-whisper faz o pré-processamento. Assim, nunca há dois VADs
 em sequência. Cada tipo preserva os padrões e limites próprios do seu detector; limiar de fala,
 limiar negativo, fala mínima, silêncio de encerramento e margem de fala são persistidos no perfil.
-O perfil local também permite controlar a duração máxima de uma região de fala. Valores `auto`
+A transcrição com faster-whisper também permite controlar a duração máxima de uma região de fala. Valores `auto`
 mantêm o comportamento nativo conhecido do faster-whisper para o modo normal ou em lote.
 
-Com um perfil de API externa e VAD ativo, segmentos sem voz são concluídos como silêncio, com zero
+Com transcrição OpenRouter e VAD ativo, segmentos sem voz são concluídos como silêncio, com zero
 tentativas externas. Somente os intervalos detectados como voz são consolidados em WAV sem perdas
 dentro dos limites configurados. Pequenos silêncios sintéticos podem preservar fronteiras de
 enunciados. Um mapa temporal exclui essas pausas e recoloca cada trecho no relógio original depois
-da transcrição, sem misturar participantes. No perfil local, o áudio consolidado chega ao
+da transcrição, sem misturar participantes. Com transcrição local, o áudio consolidado chega ao
 faster-whisper, que aplica seu próprio VAD conforme o perfil.
 
 O OpenRouter pode rotear uma requisição entre provedores compatíveis com o modelo selecionado. O

@@ -23,7 +23,10 @@ const windowsAdapterSchema = z.object({
   PNPDeviceID: z.string().optional(),
 });
 const injectedGpuSchema = z.object({
-  SUMMYZ_DETECTED_GPU_MEMORY_BYTES: z.coerce.number().int().positive().optional(),
+  SUMMYZ_DETECTED_GPU_MEMORY_BYTES: z.preprocess(
+    (value) => (value === "" ? undefined : value),
+    z.coerce.number().int().positive().optional(),
+  ),
   SUMMYZ_DETECTED_GPU_NAME: z.string().min(1).max(200).optional(),
   SUMMYZ_DETECTED_GPU_VENDOR: z.enum(["amd", "apple", "intel", "nvidia", "unknown"]),
 });

@@ -22,9 +22,8 @@ from execution_policy import (
 )
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from faster_whisper import BatchedInferencePipeline, WhisperModel
-from faster_whisper.utils import download_model
 from model_capability import require_multilingual_capability
-from model_inventory import create_model_inventory, write_model_inventory
+from model_downloads import ModelDownloads, catalog, installed_models, is_installed
 from pydantic import BaseModel, Field, ValidationError, model_validator
 from starlette.concurrency import run_in_threadpool
 from structured_logging import configure_structured_logging
@@ -40,6 +39,7 @@ MODEL_ROOT.mkdir(parents=True, exist_ok=True)
 TEMP_ROOT.mkdir(parents=True, exist_ok=True)
 
 model_lock = Lock()
+downloads = ModelDownloads(MODEL_ROOT)
 
 
 class Transcriber(Protocol):
@@ -179,20 +179,8 @@ def load_model(
             return loaded_runtime
 
         directory = model_directory(f"{model}@{revision or 'default'}")
-        directory.mkdir(parents=True, exist_ok=True)
-        download_model(model, output_dir=str(directory), revision=revision)
-        inventory = create_model_inventory(model, requested_revision=revision)
-        write_model_inventory(directory, inventory)
-        logger.info(
-            "Local model inventory recorded",
-            extra={
-                "license": inventory["license"],
-                "model": model,
-                "origin": inventory["origin"],
-                "provider": inventory["provider"],
-                "revision": inventory["revision"],
-            },
-        )
+        if not is_installed(directory):
+            raise FileNotFoundError("The selected model is not installed")
         unload_model()
 
         runtime, active_device, fallback_applied = load_with_device_policy(
@@ -290,6 +278,10 @@ async def prepare_model(request: ModelRequest) -> ModelStatus:
             multilingual=runtime.multilingual,
             status="ready",
         )
+    except FileNotFoundError as error:
+        raise HTTPException(
+            status_code=409, detail="The selected model is not installed"
+        ) from error
     except AccelerationUnavailableError as error:
         logger.error(
             "Required acceleration is unavailable",
@@ -299,7 +291,6 @@ async def prepare_model(request: ModelRequest) -> ModelStatus:
             status_code=409, detail="Required GPU acceleration is unavailable"
         ) from error
     except Exception as error:
-        await run_in_threadpool(remove_model, request.model, request.revision)
         logger.error(
             "Model preparation failed",
             extra={"error_type": type(error).__name__, "model": request.model},
@@ -311,6 +302,35 @@ async def prepare_model(request: ModelRequest) -> ModelStatus:
 async def delete_model(request: ModelRequest) -> dict[str, str]:
     await run_in_threadpool(remove_model, request.model, request.revision)
     return {"status": "deleted"}
+
+
+@app.get("/models")
+async def list_models() -> dict[str, object]:
+    return {"models": await run_in_threadpool(installed_models, MODEL_ROOT)}
+
+
+@app.get("/models/catalog")
+async def list_model_catalog() -> dict[str, object]:
+    return {"items": await run_in_threadpool(catalog)}
+
+
+@app.post("/models/download")
+async def start_model_download(request: ModelRequest) -> dict[str, object]:
+    try:
+        return downloads.start(request.model, request.revision)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail="The model download cannot start") from error
+
+
+@app.post("/models/download/status")
+async def model_download_status(request: ModelRequest) -> dict[str, object]:
+    return downloads.status(request.model, request.revision)
+
+
+@app.post("/models/download/cancel")
+async def cancel_model_download(request: ModelRequest) -> dict[str, object]:
+    result = await run_in_threadpool(downloads.cancel, request.model, request.revision)
+    return dict(result)
 
 
 @app.post("/transcribe")

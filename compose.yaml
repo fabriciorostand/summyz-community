@@ -1,9 +1,21 @@
 name: summyz-community
 
 services:
+  model-storage-init:
+    image: ollama/ollama:0.33.3@sha256:32931b46719f673c05fdbaa81ccb26da18ea4a1c57590a754874ab28ba269eb2
+    user: "0:0"
+    entrypoint: ["/bin/sh", "-c"]
+    command: ["mkdir -p /model-storage/models/blobs && chown -R 1000:1000 /model-storage"]
+    volumes:
+      - ollama_models:/model-storage
+
   ollama:
     image: ollama/ollama:0.33.3@sha256:32931b46719f673c05fdbaa81ccb26da18ea4a1c57590a754874ab28ba269eb2
     restart: unless-stopped
+    user: "1000:1000"
+    depends_on:
+      model-storage-init:
+        condition: service_completed_successfully
     expose:
       - "11434"
     healthcheck:
@@ -12,9 +24,11 @@ services:
       timeout: 5s
       retries: 12
     volumes:
-      - ollama_models:/root/.ollama
+      - ollama_models:/model-storage
     environment:
       OLLAMA_LLM_LIBRARY: cpu
+      HOME: /model-storage
+      OLLAMA_MODELS: /model-storage/models
 
   faster-whisper:
     image: summyz-community-faster-whisper
@@ -85,6 +99,8 @@ services:
       target: dashboard-runtime
     restart: unless-stopped
     depends_on:
+      model-storage-init:
+        condition: service_completed_successfully
       postgres:
         condition: service_healthy
     env_file:
@@ -94,6 +110,8 @@ services:
       WEB_PORT: 8787
     ports:
       - "127.0.0.1:${WEB_PORT:-8787}:8787"
+    volumes:
+      - ollama_models:/models/ollama
 
   smoke:
     profiles: ["smoke"]

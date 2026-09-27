@@ -7,6 +7,63 @@ import { InstallationPasswordError } from "../src/auth/installation-password.js"
 import { createLogger } from "../src/logger.js";
 
 describe("Community dashboard API", () => {
+  it("exposes model catalog, downloads, cancellation and deletion behind dashboard access", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+    const catalog = await app.inject({
+      method: "GET",
+      url: "/api/models?phase=summary&provider=ollama&family=qwen3",
+    });
+    expect(catalog.statusCode).toBe(200);
+    expect(dependencies.models?.catalog.list).toHaveBeenCalledWith({
+      phase: "summary",
+      provider: "ollama",
+      family: "qwen3",
+    });
+    const download = await app.inject({
+      method: "POST",
+      url: "/api/models/downloads",
+      payload: { phase: "summary", provider: "ollama", model: "qwen3:8b" },
+    });
+    expect(download.statusCode).toBe(202);
+    expect(download.json()).not.toHaveProperty("partialDigests");
+    const cancel = await app.inject({
+      method: "POST",
+      url: "/api/models/downloads/63d3b8c0-e02a-4fdf-8179-a0feec79e7c1/cancel",
+    });
+    expect(cancel.statusCode).toBe(202);
+    expect(
+      (
+        await app.inject({
+          method: "DELETE",
+          url: "/api/models",
+          payload: { provider: "ollama", model: "qwen3:8b" },
+        })
+      ).statusCode,
+    ).toBe(204);
+    expect((await app.inject({ method: "GET", url: "/api/models/downloads" })).json()).toHaveLength(
+      1,
+    );
+    expect(
+      (await app.inject({ method: "GET", url: "/api/models?phase=invalid&provider=ollama" }))
+        .statusCode,
+    ).toBe(400);
+    const profiles = await app.inject({ method: "GET", url: "/api/profiles" });
+    expect(profiles.json()[0].availability.status).toBe("ready");
+    const settings = await app.inject({ method: "GET", url: "/api/guilds/guild-1/configuration" });
+    expect(settings.json().profiles[0].availability.status).toBe("ready");
+    await app.close();
+    const publicApp = await createApiServer(createDependencies("public"));
+    expect(
+      (await publicApp.inject({ method: "GET", url: "/api/models?phase=summary&provider=ollama" }))
+        .statusCode,
+    ).toBe(401);
+    expect(
+      (await publicApp.inject({ method: "POST", url: "/api/models/downloads", payload: {} }))
+        .statusCode,
+    ).toBe(403);
+    await publicApp.close();
+  });
   it("treats stored summary validation failures as internal errors in detail and export", async () => {
     const dependencies = createDependencies("local");
     const error = vi.fn();
@@ -125,7 +182,9 @@ describe("Community dashboard API", () => {
     const payload = {
       ...body,
       language: "en",
-      transcription: { ...body.transcription, language: "pt-BR" },
+      transcription: { ...body.transcription, language: "pt-BR", model: "vendor/stt" },
+      refinement: { ...body.refinement, model: "vendor/text" },
+      summary: { ...body.summary, model: "vendor/text" },
     };
 
     const accepted = await app.inject({ method: "POST", payload, url: "/api/profiles" });
@@ -161,12 +220,12 @@ describe("Community dashboard API", () => {
       "bot-token",
     );
     expect(dependencies.passwords.initialize).not.toHaveBeenCalled();
-    expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledTimes(2);
+    expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledTimes(1);
     expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledWith(
-      expect.objectContaining({ profileType: "external" }),
-    );
-    expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledWith(
-      expect.objectContaining({ profileType: "local" }),
+      expect.objectContaining({
+        profileType: null,
+        transcription: expect.objectContaining({ provider: null, model: null }),
+      }),
     );
     expect(response.body).not.toContain("bot-token");
     await app.close();
@@ -510,10 +569,56 @@ describe("Community dashboard API", () => {
   });
 });
 
+function modelDependencies(): NonNullable<ApiServerDependencies["models"]> {
+  const job = {
+    downloadId: "63d3b8c0-e02a-4fdf-8179-a0feec79e7c1",
+    provider: "ollama" as const,
+    model: "qwen3:8b",
+    status: "queued" as const,
+    completedBytes: 0,
+    totalBytes: null,
+    partialDigests: [],
+    failureCode: null,
+  };
+  return {
+    inventory: {
+      assess: vi.fn(async () => ({
+        status: "ready" as const,
+        missingModels: [],
+        unavailableProviders: [],
+      })),
+    },
+    catalog: {
+      validateProfile: vi.fn(async () => {}),
+      list: vi.fn(async (query) => ({
+        ...query,
+        status: "fresh" as const,
+        fetchedAt: 0,
+        items: [],
+        inventoryStatus: "available" as const,
+      })),
+    },
+    management: {
+      download: vi.fn(async () => job),
+      remove: vi.fn(async () => {}),
+      downloads: {
+        cancel: vi.fn(async () => {}),
+        store: {
+          list: vi.fn(async () => [job]),
+          get: vi.fn(async () => job),
+          create: vi.fn(async () => job),
+          update: vi.fn(async () => {}),
+        },
+      },
+    },
+  };
+}
+
 function createDependencies(accessMode: "local" | "public"): ApiServerDependencies {
   const profile = createInitialAiProfile("external", "pt-BR");
   return {
     accessMode,
+    models: modelDependencies(),
     aiProfiles: {
       clearActiveProfile: vi.fn(async () => undefined),
       createProfile: vi.fn(async () => undefined),

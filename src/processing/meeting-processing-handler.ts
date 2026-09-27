@@ -66,6 +66,7 @@ interface MeetingFinalizer {
 }
 
 interface MeetingProcessingHandlerOptions {
+  requireModels?: (manifest: RecordingManifest) => Promise<void>;
   audioCatalog: MeetingAudioCatalog;
   finalizer: MeetingFinalizer;
   meetingStore: MeetingStore;
@@ -81,6 +82,7 @@ interface MeetingProcessingHandlerOptions {
 }
 
 export class MeetingProcessingHandler implements ProcessingJobHandler {
+  readonly #requireModels: ((manifest: RecordingManifest) => Promise<void>) | undefined;
   readonly #audioCatalog: MeetingAudioCatalog;
   readonly #finalizer: MeetingFinalizer;
   readonly #meetingStore: MeetingStore;
@@ -95,6 +97,7 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
   readonly #transcriptionStore: TranscriptionStateStore;
 
   public constructor(options: MeetingProcessingHandlerOptions) {
+    this.#requireModels = options.requireModels;
     this.#audioCatalog = options.audioCatalog;
     this.#finalizer = options.finalizer;
     this.#meetingStore = options.meetingStore;
@@ -111,6 +114,7 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
 
   public async process(job: ClaimedProcessingJob): Promise<void> {
     const manifest = await this.#meetingStore.load(job.meetingId);
+    await this.#requireModels?.(manifest);
     if (job.jobType === "transcription") {
       await this.#processTranscription(job, manifest);
       return;

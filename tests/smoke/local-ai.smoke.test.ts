@@ -1,5 +1,12 @@
+import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { ProviderModelTransfer } from "../../src/models/model-transfer.js";
+import {
+  parseOllamaFamilies,
+  parseOllamaVariants,
+  readPublicLibrary,
+} from "../../src/models/ollama-library.js";
 
 const fasterWhisperUrl = process.env.FASTER_WHISPER_SMOKE_URL ?? "http://faster-whisper:8000";
 const ollamaUrl = process.env.OLLAMA_SMOKE_URL ?? "http://ollama:11434";
@@ -14,7 +21,49 @@ const localAiDevice = process.env.SMOKE_LOCAL_AI_DEVICE === "gpu" ? "gpu" : "cpu
 const expectedWhisperDevice = localAiDevice === "gpu" ? "cuda" : "cpu";
 
 describe("serviços locais de IA", () => {
+  it("consulta a biblioteca pública e os catálogos locais sem baixar modelos", async () => {
+    const families = parseOllamaFamilies(await readPublicLibrary(""));
+    expect(families.some((item) => item.family === "qwen3")).toBe(true);
+    const variants = parseOllamaVariants(await readPublicLibrary("/qwen3/tags"), "qwen3");
+    expect(variants.some((item) => item.model === "qwen3:1.7b" && (item.sizeBytes ?? 0) > 0)).toBe(
+      true,
+    );
+    const catalog = await fetch(`${fasterWhisperUrl}/models/catalog`);
+    expect(
+      z
+        .object({ items: z.array(z.object({ model: z.string() })) })
+        .parse(await catalog.json())
+        .items.some((item) => item.model === "tiny"),
+    ).toBe(true);
+    const missing = await fetch(`${fasterWhisperUrl}/models/prepare`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: "not-an-installed-model" }),
+    });
+    expect(missing.status).toBe(409);
+  });
   it("prepara e executa faster-whisper com áudio sintético", async () => {
+    const selection = { model: whisperModel, revision: whisperRevision };
+    const download = await fetch(`${fasterWhisperUrl}/models/download`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(selection),
+    });
+    expect(download.ok).toBe(true);
+    let ready = false;
+    const deadline = Date.now() + 25 * 60_000;
+    while (!ready && Date.now() < deadline) {
+      const response = await fetch(`${fasterWhisperUrl}/models/download/status`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(selection),
+      });
+      const state = z.object({ status: z.string() }).parse(await response.json());
+      expect(["failed", "cancelled"]).not.toContain(state.status);
+      ready = state.status === "completed";
+      if (!ready) await delay(1_000);
+    }
+    expect(ready).toBe(true);
     const preparation = await fetch(`${fasterWhisperUrl}/models/prepare`, {
       body: JSON.stringify({
         batchSize: 0,
@@ -63,12 +112,27 @@ describe("serviços locais de IA", () => {
   });
 
   it("baixa e valida saída estruturada do Ollama", async () => {
-    const pull = await fetch(`${ollamaUrl}/api/pull`, {
-      body: JSON.stringify({ model: ollamaModel, stream: false }),
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-    });
-    expect(pull.ok).toBe(true);
+    const transfer = new ProviderModelTransfer((url, init) =>
+      fetch(String(url).replace("http://ollama:11434", ollamaUrl), init),
+    );
+    let completedBytes = 0;
+    await transfer.run(
+      {
+        downloadId: "00000000-0000-4000-8000-000000000001",
+        provider: "ollama",
+        model: ollamaModel,
+        status: "downloading",
+        completedBytes: 0,
+        totalBytes: null,
+        partialDigests: [],
+        failureCode: null,
+      },
+      new AbortController().signal,
+      async (patch) => {
+        if (patch.completedBytes !== undefined) completedBytes = patch.completedBytes;
+      },
+    );
+    expect(completedBytes).toBeGreaterThan(0);
 
     const tags = await fetch(`${ollamaUrl}/api/tags`);
     expect(tags.ok).toBe(true);

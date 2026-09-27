@@ -2,7 +2,12 @@ import { isAbsolute, normalize, win32 } from "node:path";
 
 import { z } from "zod";
 
-import { externalVadSchema, localVadSchema, profileLanguageSchema } from "../ai-profile.js";
+import {
+  calculateProfileType,
+  externalVadSchema,
+  localVadSchema,
+  profileLanguageSchema,
+} from "../ai-profile.js";
 
 const storageIdentifierSchema = z
   .string()
@@ -57,30 +62,29 @@ const currentTranscriptionBase = selectedModelSchema.and(
   }),
 );
 
-export const meetingAiConfigurationSchema = z.discriminatedUnion("profileType", [
-  z.object({
+export const meetingAiConfigurationSchema = z
+  .object({
     language: profileLanguageSchema.default("auto"),
-    profileType: z.literal("external"),
-    refinement: currentRefinementBase.and(z.object({ provider: z.literal("openrouter") })),
-    summary: currentSummaryBase.and(z.object({ provider: z.literal("openrouter") })),
-    transcription: currentTranscriptionBase.and(
-      z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
-    ),
-  }),
-  z.object({
-    language: profileLanguageSchema.default("auto"),
-    profileType: z.literal("local"),
-    refinement: currentRefinementBase.and(z.object({ provider: z.literal("ollama") })),
-    summary: currentSummaryBase.and(z.object({ provider: z.literal("ollama") })),
-    transcription: currentTranscriptionBase.and(
-      z.object({
-        batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
-        provider: z.literal("faster-whisper"),
-        vad: localVadSchema,
-      }),
-    ),
-  }),
-]);
+    profileType: z.enum(["external", "local", "hybrid"]).nullable().optional(),
+    refinement: currentRefinementBase.and(z.object({ provider: z.enum(["openrouter", "ollama"]) })),
+    summary: currentSummaryBase.and(z.object({ provider: z.enum(["openrouter", "ollama"]) })),
+    transcription: z.union([
+      currentTranscriptionBase.and(
+        z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
+      ),
+      currentTranscriptionBase.and(
+        z.object({
+          batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
+          provider: z.literal("faster-whisper"),
+          vad: localVadSchema,
+        }),
+      ),
+    ]),
+  })
+  .transform((configuration) => ({
+    ...configuration,
+    profileType: calculateProfileType(configuration),
+  }));
 
 export const segmentSchema = z.object({
   durationMs: z.number().nonnegative(),

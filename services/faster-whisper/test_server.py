@@ -94,26 +94,16 @@ class TestModels:
         assert consumed == ["started"]
         assert transcriber.calls[0][1]["batch_size"] == 2
 
-    def test_load_model_downloads_exact_revision_and_reuses_loaded_runtime(
+    def test_load_model_uses_installed_revision_without_downloading(
         self, tmp_path: Path, monkeypatch: object
     ) -> None:
         revision = "d90ca5fe260221311c53c58e660288d3deb8d356"
-        download = Mock()
-        inventory = Mock(
-            return_value={
-                "license": "mit",
-                "model": "tiny",
-                "origin": "url",
-                "provider": "huggingface",
-                "revision": revision,
-            }
-        )
-        write_inventory = Mock()
         created = runtime()
         monkeypatch.setattr(server, "MODEL_ROOT", tmp_path)  # type: ignore[attr-defined]
-        monkeypatch.setattr(server, "download_model", download)  # type: ignore[attr-defined]
-        monkeypatch.setattr(server, "create_model_inventory", inventory)  # type: ignore[attr-defined]
-        monkeypatch.setattr(server, "write_model_inventory", write_inventory)  # type: ignore[attr-defined]
+        directory = server.model_directory(f"tiny@{revision}")
+        directory.mkdir()
+        for name in ("model.bin", "config.json", "tokenizer.json"):
+            (directory / name).write_bytes(b"installed")
         monkeypatch.setattr(server, "create_runtime", Mock(return_value=created))  # type: ignore[attr-defined]
         monkeypatch.setattr(server.ctranslate2, "get_cuda_device_count", Mock(return_value=0))
         server.unload_model()
@@ -122,11 +112,13 @@ class TestModels:
         second = server.load_model("tiny", revision, "cpu", "none", 0)
 
         assert first is second
-        download.assert_called_once_with(
-            "tiny", output_dir=str(server.model_directory(f"tiny@{revision}")), revision=revision
-        )
-        inventory.assert_called_once_with("tiny", requested_revision=revision)
-        write_inventory.assert_called_once()
+
+    def test_missing_model_is_rejected_without_creating_files(self, tmp_path, monkeypatch):
+        monkeypatch.setattr(server, "MODEL_ROOT", tmp_path)
+        server.unload_model()
+        with pytest.raises(FileNotFoundError):
+            server.load_model("tiny", None, "cpu", "none", 0)
+        assert list(tmp_path.iterdir()) == []
 
     def test_remove_model_unloads_matching_revision(
         self, tmp_path: Path, monkeypatch: object
@@ -195,6 +187,23 @@ class TestEndpoints:
         assert result.device == "cpu"
         assert deleted == {"status": "deleted"}
         remove.assert_called_once_with("tiny", None)
+
+    @pytest.mark.parametrize(
+        "status",
+        [
+            {"status": "cancelling"},
+            {"status": "cancelled", "completedBytes": 0, "totalBytes": None},
+        ],
+    )
+    def test_cancel_returns_the_download_status(
+        self, monkeypatch: pytest.MonkeyPatch, status: dict[str, object]
+    ) -> None:
+        cancel = Mock(return_value=status)
+        monkeypatch.setattr(server, "run_in_threadpool", immediate)
+        monkeypatch.setattr(server.downloads, "cancel", cancel)
+        request = server.ModelRequest(model="tiny", revision="a" * 40)
+        assert asyncio.run(server.cancel_model_download(request)) == status
+        cancel.assert_called_once_with("tiny", "a" * 40)
 
     def test_prepare_maps_acceleration_and_generic_failures(self, monkeypatch: object) -> None:
         monkeypatch.setattr(server, "run_in_threadpool", immediate)  # type: ignore[attr-defined]

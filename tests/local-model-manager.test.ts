@@ -7,10 +7,7 @@ import {
   type ResolvedMeetingAiConfiguration,
 } from "../src/recording/manifest.js";
 
-type LocalProfileAiConfiguration = Extract<
-  ResolvedMeetingAiConfiguration,
-  { profileType: "local" }
->;
+type LocalProfileAiConfiguration = ResolvedMeetingAiConfiguration;
 
 function configuration(model = "qwen3:4b"): LocalProfileAiConfiguration {
   const parsed = meetingAiConfigurationSchema.parse({
@@ -81,7 +78,7 @@ describe("LocalModelManager", () => {
       await expect(manager.prepare()).rejects.toThrow(/multilingual/i);
     },
   );
-  it("baixa e valida contratos das duas fases Ollama e prepara faster-whisper", async () => {
+  it("valida contratos instalados sem baixar modelos", async () => {
     const fetch = vi.fn(async (url: string, init: RequestInit) => {
       if (url.endsWith("/models/prepare")) return multilingualWhisperStatus();
       if (url.endsWith("/api/chat")) {
@@ -111,13 +108,13 @@ describe("LocalModelManager", () => {
 
     expect(fetch.mock.calls.map(([url]) => url)).toEqual(
       expect.arrayContaining([
-        "http://ollama:11434/api/pull",
         "http://ollama:11434/api/show",
         "http://ollama:11434/api/tags",
         "http://ollama:11434/api/chat",
         "http://faster-whisper:8000/models/prepare",
       ]),
     );
+    expect(fetch.mock.calls.some(([url]) => url.endsWith("/api/pull"))).toBe(false);
   });
 
   it("registra metadados disponíveis sem bloquear modelo Ollama sem licença", async () => {
@@ -238,7 +235,7 @@ describe("LocalModelManager", () => {
     );
   });
 
-  it("remove modelo Ollama quando todas as fases falham na validação estruturada", async () => {
+  it("recusa modelo incompatível sem desinstalar arquivos existentes", async () => {
     const fetch = vi.fn(async (url: string, _init: RequestInit) => {
       if (url.endsWith("/models/prepare")) return multilingualWhisperStatus();
       return url.endsWith("/api/chat")
@@ -251,12 +248,11 @@ describe("LocalModelManager", () => {
       logger: createLogger("silent"),
     });
 
-    await manager.prepare();
-
-    expect(fetch.mock.calls.map(([url]) => url)).toContain("http://ollama:11434/api/delete");
+    await expect(manager.prepare()).rejects.toThrow();
+    expect(fetch.mock.calls.map(([url]) => url)).not.toContain("http://ollama:11434/api/delete");
   });
 
-  it("limpa instalação faster-whisper rejeitada e não usa Ollama", async () => {
+  it("preserva instalação faster-whisper rejeitada e não usa Ollama", async () => {
     const fetch = vi.fn(async (url: string, _init: RequestInit) =>
       url.endsWith("/models/prepare")
         ? new Response("", { status: 422 })
@@ -272,13 +268,10 @@ describe("LocalModelManager", () => {
 
     expect(
       fetch.mock.calls.map(([url]) => url).filter((url) => url.includes("faster-whisper")),
-    ).toEqual([
-      "http://faster-whisper:8000/models/prepare",
-      "http://faster-whisper:8000/models/delete",
-    ]);
+    ).toEqual(["http://faster-whisper:8000/models/prepare"]);
   });
 
-  it("descarrega modelo inválido e só apaga os pesos quando nenhuma fase válida o usa", async () => {
+  it("descarrega modelo inválido sem desinstalar os pesos", async () => {
     const fetch = vi.fn(
       async (_url: string, _init: RequestInit) => new Response("", { status: 200 }),
     );
@@ -295,7 +288,6 @@ describe("LocalModelManager", () => {
     expect(fetch.mock.calls.map(([url]) => url)).toEqual([
       "http://ollama:11434/api/generate",
       "http://ollama:11434/api/generate",
-      "http://ollama:11434/api/delete",
     ]);
   });
 
@@ -458,6 +450,9 @@ function fasterWhisperOnlyConfiguration(model = "invalid-whisper"): LocalProfile
   const base = configuration();
   return {
     ...base,
+    profileType: "hybrid",
+    refinement: { ...base.refinement, provider: "openrouter" },
+    summary: { ...base.summary, provider: "openrouter" },
     transcription: {
       ...base.transcription,
       model,

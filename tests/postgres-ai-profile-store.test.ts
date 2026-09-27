@@ -5,6 +5,18 @@ import { PostgresAiProfileStore } from "../src/database/postgres-ai-profile-stor
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
 
 describe("PostgresAiProfileStore", () => {
+  it("rejects a duplicate trimmed name across provider types", async () => {
+    const query = vi
+      .fn<PostgresExecutor["query"]>()
+      .mockResolvedValue({ rowCount: 1, rows: [{ profile_id: "other" }] });
+    const transaction = async <T>(action: (executor: PostgresExecutor) => Promise<T>) =>
+      action({ query });
+    const store = new PostgresAiProfileStore({ query, transaction });
+    await expect(store.createProfile(createInitialAiProfile("local", "en"))).rejects.toMatchObject({
+      name: "DuplicateProfileNameError",
+    });
+    expect(query.mock.calls.some(([sql]) => sql.includes("lower(name)"))).toBe(false);
+  });
   it("lists installation-wide profiles without an owner filter", async () => {
     const profile = createInitialAiProfile("external", "pt-BR");
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
@@ -57,7 +69,10 @@ describe("PostgresAiProfileStore", () => {
   it("updates a profile without an account ownership predicate", async () => {
     const profile = createInitialAiProfile("local", "en");
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
-    const store = new PostgresAiProfileStore({ query });
+    const store = new PostgresAiProfileStore({
+      query,
+      transaction: async (action) => action({ query }),
+    });
 
     await store.updateProfile(profile);
     expect(query.mock.calls[0]?.[0]).not.toMatch(/owner_discord_user_id/i);
