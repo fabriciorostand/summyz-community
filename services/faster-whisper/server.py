@@ -329,7 +329,8 @@ async def model_download_status(request: ModelRequest) -> dict[str, object]:
 
 @app.post("/models/download/cancel")
 async def cancel_model_download(request: ModelRequest) -> dict[str, object]:
-    return await run_in_threadpool(downloads.cancel, request.model, request.revision)
+    result = await run_in_threadpool(downloads.cancel, request.model, request.revision)
+    return dict(result)
 
 
 @app.post("/transcribe")

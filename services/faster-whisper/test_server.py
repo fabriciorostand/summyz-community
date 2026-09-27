@@ -188,6 +188,23 @@ class TestEndpoints:
         assert deleted == {"status": "deleted"}
         remove.assert_called_once_with("tiny", None)
 
+    @pytest.mark.parametrize(
+        "status",
+        [
+            {"status": "cancelling"},
+            {"status": "cancelled", "completedBytes": 0, "totalBytes": None},
+        ],
+    )
+    def test_cancel_returns_the_download_status(
+        self, monkeypatch: pytest.MonkeyPatch, status: dict[str, object]
+    ) -> None:
+        cancel = Mock(return_value=status)
+        monkeypatch.setattr(server, "run_in_threadpool", immediate)
+        monkeypatch.setattr(server.downloads, "cancel", cancel)
+        request = server.ModelRequest(model="tiny", revision="a" * 40)
+        assert asyncio.run(server.cancel_model_download(request)) == status
+        cancel.assert_called_once_with("tiny", "a" * 40)
+
     def test_prepare_maps_acceleration_and_generic_failures(self, monkeypatch: object) -> None:
         monkeypatch.setattr(server, "run_in_threadpool", immediate)  # type: ignore[attr-defined]
         request = server.ModelRequest(model="tiny")
