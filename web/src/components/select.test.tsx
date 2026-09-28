@@ -243,6 +243,22 @@ describe("Select", () => {
     expect(screen.getAllByTestId("avatar-u1")).toHaveLength(2);
   });
 
+  it("renders trailing content after the label in the list only", async () => {
+    render(
+      <Select
+        aria-label="Perfil"
+        onChange={() => undefined}
+        options={[{ label: "Padrão", trailing: <span data-testid="type-p1" />, value: "p1" }]}
+        value="p1"
+      />,
+    );
+    expect(screen.queryByTestId("type-p1")).toBeNull();
+    await userEvent.click(screen.getByRole("combobox", { name: "Perfil" }));
+    const option = screen.getByRole("option", { name: "Padrão" });
+    expect(option.querySelector(":scope > span")).toHaveTextContent("Padrão");
+    expect(option.querySelector(":scope > span + [data-testid='type-p1']")).not.toBeNull();
+  });
+
   it("lets the caller draw the closed value", () => {
     render(
       <Select

@@ -25,7 +25,7 @@ export function ServersPage() {
     <>
       <TopBar
         actions={
-          <Button onClick={guilds.reload} type="button" variant="secondary">
+          <Button onClick={guilds.reload} size="toolbar" type="button" variant="secondary">
             <RefreshCw className="size-3.5" />
             Atualizar lista
           </Button>

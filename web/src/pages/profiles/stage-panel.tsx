@@ -48,12 +48,12 @@ function ExecutionChoice({
     { icon: <HardDrive className="size-3" />, label: "Local", value: "local" as const },
     { icon: <Cloud className="size-3" />, label: "API externa", value: "api" as const },
   ];
-  // Native radios keep arrow-key selection and the group semantics without extra wiring.
+  // Native radios keep arrow-key selection and the group semantics without extra wiring. The
+  // label sits above the options with the same spacing as the model field below.
   return (
-    <fieldset className="m-0 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 border-0 p-0">
-      <legend className="float-left mr-3 p-0">
-        <Label>Execução</Label>
-        <span className="sr-only"> da etapa {stageTitles[stage]}</span>
+    <fieldset className="m-0 min-w-0 border-0 p-0">
+      <legend className="mb-1.5 p-0">
+        <Label>Execução</Label> <span className="sr-only">da etapa {stageTitles[stage]}</span>
       </legend>
       <div className="inline-flex max-w-full gap-0.5 rounded-lg border border-line bg-surface p-1">
         {options.map((option) => (

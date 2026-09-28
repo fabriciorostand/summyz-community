@@ -25,14 +25,23 @@ const buttonVariants: Record<ButtonVariant, string> = {
   secondary: "border border-line bg-surface-raised text-ink enabled:hover:border-line-strong",
 };
 
+type ButtonSize = "default" | "toolbar";
+
+// The toolbar size matches the header pickers and theme toggle, so a header row lines up.
+const buttonSizes: Record<ButtonSize, string> = {
+  default: "px-3.5 py-2 text-[13.5px]",
+  toolbar: "h-[34px] px-3 text-[12.5px]",
+};
+
 export function Button({
   className = "",
+  size = "default",
   variant = "primary",
   ...props
-}: ComponentProps<"button"> & { variant?: ButtonVariant }) {
+}: ComponentProps<"button"> & { size?: ButtonSize; variant?: ButtonVariant }) {
   return (
     <button
-      className={`inline-flex items-center justify-center gap-2 rounded-lg px-3.5 py-2 text-[13.5px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${buttonVariants[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-lg font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${buttonSizes[size]} ${buttonVariants[variant]} ${className}`}
       {...props}
     />
   );

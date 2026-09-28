@@ -1,4 +1,4 @@
-import { Trash2 } from "lucide-react";
+import { Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Badge, Button } from "../../components/ui";
@@ -74,6 +74,83 @@ function DeletePopover({
   );
 }
 
+/**
+ * The name stays locked until the pencil opens it. Enter or leaving the field keeps the edit,
+ * Escape restores the name from before it, and a name conflict reopens it for fixing.
+ */
+function ProfileNameField({
+  name,
+  nameError,
+  onNameChange,
+}: {
+  name: string;
+  nameError: string | null;
+  onNameChange: (name: string) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const input = useRef<HTMLInputElement>(null);
+  const before = useRef(name);
+
+  useEffect(() => {
+    const field = input.current;
+    if (nameError === null || field === null) return;
+    before.current = field.value;
+    setEditing(true);
+    field.focus();
+    field.select();
+  }, [nameError]);
+
+  function startEditing() {
+    const field = input.current;
+    if (field === null) return;
+    if (!editing) before.current = field.value;
+    setEditing(true);
+    field.focus();
+    field.setSelectionRange(field.value.length, field.value.length);
+  }
+
+  return (
+    <div className="relative flex min-w-0 flex-[1_1_240px] items-center">
+      <input
+        aria-describedby={nameError === null ? undefined : "profile-name-error"}
+        aria-invalid={nameError !== null}
+        aria-label="Nome do perfil"
+        className={`w-full min-w-0 rounded-lg border py-1 pr-10 pl-2.5 text-[20px] font-semibold tracking-tight text-ink outline-none transition-colors ${
+          editing ? "bg-surface-raised" : "cursor-default bg-transparent"
+        } ${nameError !== null ? "border-fail" : editing ? "border-action" : "border-line"}`}
+        maxLength={100}
+        onBlur={() => setEditing(false)}
+        onChange={(event) => onNameChange(event.currentTarget.value)}
+        onKeyDown={(event) => {
+          if (!editing) return;
+          if (event.key === "Escape") onNameChange(before.current);
+          if (event.key === "Enter" || event.key === "Escape") {
+            event.preventDefault();
+            event.currentTarget.blur();
+          }
+        }}
+        readOnly={!editing}
+        ref={input}
+        // While locked, keyboard users reach the name through the pencil button next to it.
+        tabIndex={editing ? undefined : -1}
+        value={name}
+      />
+      <button
+        aria-label="Editar nome do perfil"
+        className={`absolute right-1.5 grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-inset hover:text-ink ${
+          editing ? "text-accent" : "text-ink-muted"
+        }`}
+        onClick={startEditing}
+        // Pressing the pencil while editing must not blur the field and end the edit.
+        onMouseDown={(event) => event.preventDefault()}
+        type="button"
+      >
+        <Pencil aria-hidden="true" className="size-3.5" />
+      </button>
+    </div>
+  );
+}
+
 export function ProfileHeader({
   activeServerCount,
   busy,
@@ -111,17 +188,7 @@ export function ProfileHeader({
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
-        <input
-          aria-describedby={nameError === null ? undefined : "profile-name-error"}
-          aria-invalid={nameError !== null}
-          aria-label="Nome do perfil"
-          className={`-ml-2 min-w-0 flex-[1_1_240px] rounded-lg border bg-transparent px-2 py-1 text-[20px] font-semibold tracking-tight text-ink outline-none transition-colors hover:border-line focus:border-action focus:bg-surface-raised ${
-            nameError === null ? "border-transparent" : "border-fail"
-          }`}
-          maxLength={100}
-          onChange={(event) => onNameChange(event.currentTarget.value)}
-          value={name}
-        />
+        <ProfileNameField name={name} nameError={nameError} onNameChange={onNameChange} />
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-2">
           <ProfileTypeBadge type={type} />
           <UsageLine count={activeServerCount} />

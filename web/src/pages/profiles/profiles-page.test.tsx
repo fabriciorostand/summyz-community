@@ -197,22 +197,108 @@ async function openStage(title: "Transcrição" | "Refinamento" | "Resumo") {
   await userEvent.click(await screen.findByRole("tab", { name: new RegExp(title) }));
 }
 
+async function chooseProfile(name: string) {
+  await screen.findByRole("combobox", { name: "Perfil" });
+  const list = await openOptions("Perfil");
+  await userEvent.click(within(list).getByRole("option", { name: new RegExp(`^${name}`) }));
+}
+
+async function editName(text: string, { replace = false } = {}) {
+  await userEvent.click(await screen.findByRole("button", { name: "Editar nome do perfil" }));
+  const name = screen.getByLabelText("Nome do perfil");
+  if (replace) await userEvent.clear(name);
+  await userEvent.type(name, text);
+}
+
 async function pickModel(model: RegExp) {
   await userEvent.click(screen.getByRole("button", { name: /^Modelo/ }));
   await userEvent.click(await screen.findByRole("option", { name: model }));
 }
 
 describe("ProfilesPage", () => {
-  it("lists every profile once, with its type and where it is used", async () => {
+  it("picks the profile from the header, with the type of each one", async () => {
     renderScreen(<ProfilesPage />);
 
-    const list = await screen.findByRole("navigation", { name: "Perfis" });
-    const first = within(list).getByRole("button", { name: /Padrão OpenRouter/ });
-    expect(first).toHaveTextContent("API");
-    expect(first).toHaveTextContent("Em uso em 1 servidor");
-    expect(within(list).getByRole("button", { name: /Local sem custo/ })).toHaveTextContent(
-      "Local",
+    const header = await screen.findByRole("banner");
+    const picker = await within(header).findByRole("combobox", { name: "Perfil" });
+    expect(picker).toHaveTextContent("Padrão OpenRouter");
+    expect(within(header).getByRole("button", { name: /Novo perfil/ })).toBeInTheDocument();
+    const list = await openOptions("Perfil");
+    const options = within(list).getAllByRole("option");
+    expect(options).toHaveLength(2);
+    expect(options[0]).toHaveTextContent("Padrão OpenRouter");
+    expect(options[0]).toHaveTextContent("API externa");
+    expect(options[1]).toHaveTextContent("Local sem custo");
+    expect(options[1]).toHaveTextContent("Local");
+    expect(screen.queryByRole("navigation", { name: "Perfis" })).toBeNull();
+  });
+
+  it("shows the edit in progress in the header picker", async () => {
+    renderScreen(<ProfilesPage />);
+    await editName("!");
+
+    expect(screen.getByRole("combobox", { name: "Perfil" })).toHaveTextContent(
+      "Padrão OpenRouter!",
     );
+  });
+
+  it("labels the execution choice above its options", async () => {
+    renderScreen(<ProfilesPage />);
+
+    const group = await screen.findByRole("group", { name: "Execução da etapa Transcrição" });
+    expect(within(group).getByText("Execução")).toBeVisible();
+  });
+
+  it("gives the header picker and button the overview control size", async () => {
+    renderScreen(<ProfilesPage />);
+    const header = await screen.findByRole("banner");
+
+    const picker = await within(header).findByRole("combobox", { name: "Perfil" });
+    const create = within(header).getByRole("button", { name: /Novo perfil/ });
+    for (const control of [picker, create]) {
+      expect(control).toHaveClass("h-[34px]", "text-[12.5px]");
+    }
+  });
+
+  it("keeps the profile name locked until the pencil is clicked", async () => {
+    renderScreen(<ProfilesPage />);
+    const name = await screen.findByLabelText("Nome do perfil");
+
+    expect(name).toHaveClass("border-line");
+    expect(name).toHaveAttribute("readonly");
+    await userEvent.type(name, "!");
+    expect(name).toHaveValue("Padrão OpenRouter");
+
+    await userEvent.click(screen.getByRole("button", { name: "Editar nome do perfil" }));
+    expect(name).not.toHaveAttribute("readonly");
+    expect(name).toHaveFocus();
+    await userEvent.type(name, "!");
+    await userEvent.keyboard("{Enter}");
+
+    expect(name).toHaveAttribute("readonly");
+    expect(name).toHaveValue("Padrão OpenRouter!");
+    expect(screen.getByRole("button", { name: "Salvar perfil" })).toBeInTheDocument();
+  });
+
+  it("keeps the edited name when focus leaves it", async () => {
+    renderScreen(<ProfilesPage />);
+    await editName("!");
+    await userEvent.click(screen.getByRole("tab", { name: /Refinamento/ }));
+
+    const name = screen.getByLabelText("Nome do perfil");
+    expect(name).toHaveAttribute("readonly");
+    expect(name).toHaveValue("Padrão OpenRouter!");
+  });
+
+  it("restores the name from before the edit with Escape", async () => {
+    renderScreen(<ProfilesPage />);
+    await editName("!");
+    await userEvent.keyboard("{Escape}");
+
+    const name = screen.getByLabelText("Nome do perfil");
+    expect(name).toHaveAttribute("readonly");
+    expect(name).toHaveValue("Padrão OpenRouter");
+    expect(screen.queryByRole("button", { name: "Salvar perfil" })).toBeNull();
   });
 
   it("shows the three stages with the model and where each one runs", async () => {
@@ -316,7 +402,7 @@ describe("ProfilesPage", () => {
     await userEvent.click(screen.getByRole("radio", { name: "Local" }));
 
     expect(screen.getByRole("button", { name: /^Modelo/ })).toHaveTextContent("Escolha um modelo");
-    expect(screen.getAllByText("Híbrido")).toHaveLength(2);
+    expect(screen.getByText("Híbrido")).toBeInTheDocument();
     expect(screen.getByText(/Escolha o modelo de Resumo/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Salvar perfil" })).toBeDisabled();
   });
@@ -356,8 +442,7 @@ describe("ProfilesPage", () => {
 
   it("goes back from the in-use confirmation without saving", async () => {
     renderScreen(<ProfilesPage />);
-    const name = await screen.findByLabelText("Nome do perfil");
-    await userEvent.type(name, "!");
+    await editName("!");
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
     await userEvent.click(screen.getByRole("button", { name: "Voltar" }));
 
@@ -368,10 +453,9 @@ describe("ProfilesPage", () => {
   it("shows a name conflict next to the name", async () => {
     vi.mocked(api.updateProfile).mockRejectedValue(new ApiError(409, "profile_name_conflict"));
     renderScreen(<ProfilesPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
-    const name = screen.getByLabelText("Nome do perfil");
-    await userEvent.clear(name);
-    await userEvent.type(name, "Padrão OpenRouter");
+    await chooseProfile("Local sem custo");
+    await editName("Padrão OpenRouter", { replace: true });
+    await userEvent.keyboard("{Enter}");
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
 
     expect(
@@ -379,14 +463,18 @@ describe("ProfilesPage", () => {
         "Já existe um perfil chamado “Padrão OpenRouter”. Escolha outro nome.",
       ),
     ).toBeInTheDocument();
-    expect(screen.getByLabelText("Nome do perfil")).toHaveAttribute("aria-invalid", "true");
+    const name = screen.getByLabelText("Nome do perfil");
+    expect(name).toHaveAttribute("aria-invalid", "true");
+    // The conflict reopens the name for editing so it can be fixed right away.
+    expect(name).not.toHaveAttribute("readonly");
+    expect(name).toHaveFocus();
   });
 
   it("explains a save the server refuses", async () => {
     vi.mocked(api.updateProfile).mockRejectedValue(new ApiError(503, "catalog_unavailable"));
     renderScreen(<ProfilesPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
-    await userEvent.type(screen.getByLabelText("Nome do perfil"), "!");
+    await chooseProfile("Local sem custo");
+    await editName("!");
     await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
@@ -396,21 +484,21 @@ describe("ProfilesPage", () => {
 
   it("asks before leaving a profile with unsaved changes", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.type(await screen.findByLabelText("Nome do perfil"), "!");
-    await userEvent.click(screen.getByRole("button", { name: /Local sem custo/ }));
+    await editName("!");
+    await chooseProfile("Local sem custo");
 
     const dialog = screen.getByRole("dialog", { name: "Descartar alterações?" });
     await userEvent.click(within(dialog).getByRole("button", { name: "Continuar editando" }));
     expect(screen.getByLabelText("Nome do perfil")).toHaveValue("Padrão OpenRouter!");
 
-    await userEvent.click(screen.getByRole("button", { name: /Local sem custo/ }));
+    await chooseProfile("Local sem custo");
     await userEvent.click(screen.getByRole("button", { name: "Descartar alterações" }));
     expect(screen.getByLabelText("Nome do perfil")).toHaveValue("Local sem custo");
   });
 
   it("discards the changes from the save bar", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.type(await screen.findByLabelText("Nome do perfil"), "!");
+    await editName("!");
     await userEvent.click(screen.getByRole("button", { name: "Descartar" }));
 
     expect(screen.getByLabelText("Nome do perfil")).toHaveValue("Padrão OpenRouter");
@@ -429,12 +517,14 @@ describe("ProfilesPage", () => {
 
   it("deletes an unused profile after confirmation", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
+    await chooseProfile("Local sem custo");
     await userEvent.click(screen.getByRole("button", { name: "Excluir" }));
     await userEvent.click(screen.getByRole("button", { name: "Excluir perfil" }));
 
     await waitFor(() => expect(api.deleteProfile).toHaveBeenCalledWith("p2"));
-    expect(screen.queryByRole("button", { name: /Local sem custo/ })).toBeNull();
+    expect(screen.getByRole("combobox", { name: "Perfil" })).toHaveTextContent("Padrão OpenRouter");
+    const list = await openOptions("Perfil");
+    expect(within(list).queryByRole("option", { name: /Local sem custo/ })).toBeNull();
   });
 
   it("creates a profile from the selected one", async () => {
@@ -446,7 +536,9 @@ describe("ProfilesPage", () => {
       expect(api.createProfile).toHaveBeenCalledWith(expect.objectContaining({ name: "Perfil 1" })),
     );
     expect(vi.mocked(api.createProfile).mock.calls[0]?.[0]).not.toHaveProperty("profileType");
-    expect(await screen.findByLabelText("Nome do perfil")).toHaveValue("Perfil 1");
+    const name = await screen.findByLabelText("Nome do perfil");
+    await waitFor(() => expect(name).toHaveValue("Perfil 1"));
+    expect(name).toHaveAttribute("readonly");
   });
 
   it("guides the setup profile, which has no execution chosen yet", async () => {
@@ -499,9 +591,6 @@ describe("ProfilesPage", () => {
       name: "Este perfil ainda não pode gravar.",
     });
     expect(banner).toHaveTextContent("Falta instalar qwen3:8b (Resumo).");
-    expect(
-      within(screen.getByRole("navigation", { name: "Perfis" })).getByText(/Indisponível/),
-    ).toBeInTheDocument();
     await userEvent.click(within(banner).getByRole("button", { name: "Baixar qwen3:8b" }));
 
     expect(api.startModelDownload).toHaveBeenCalledWith("summary", "ollama", "qwen3:8b");
@@ -509,7 +598,7 @@ describe("ProfilesPage", () => {
 
   it("lists voice detection values adjusted for the external API before saving", async () => {
     renderScreen(<ProfilesPage />);
-    await userEvent.click(await screen.findByRole("button", { name: /Local sem custo/ }));
+    await chooseProfile("Local sem custo");
     await userEvent.click(screen.getByRole("radio", { name: "API externa" }));
     await pickModel(/openai\/whisper-1/);
 
