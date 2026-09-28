@@ -104,13 +104,13 @@ O dashboard mostra integralmente os prompts editáveis de transcrição, refinam
 consolidação. **Sem prompt** remove apenas a personalização: um prompt-base imutável do Summyz
 sempre é enviado para fixar idioma, estrutura, evidências, preservação literal e regras de segurança.
 Transcrições e prompts editáveis são tratados como conteúdo não confiável. O padrão de transcrição
-não possui bloco editável. Os demais padrões nascem em inglês ou pt-BR conforme o idioma global do
-dashboard. A tela busca os prompts padrão do resumo para o idioma efetivo: o `language` explícito do
-resumo ou `transcription.language` quando o resumo está em `auto`. Alterar qualquer uma dessas
-configurações, quando isso muda o idioma efetivo, adapta os prompts de resumo ainda iguais ao padrão
-anterior; textos personalizados são preservados. O botão **Restaurar padrão** usa o idioma atual do
-dashboard. Os prompts e modelos efetivos são fixados no manifesto quando a reunião começa, sem
-mudança silenciosa em retomadas.
+não possui bloco editável. Os demais padrões são armazenados em inglês e apresentados pelo front
+no idioma do dashboard. A tela busca os prompts padrão do resumo para o idioma efetivo:
+o `language` explícito do resumo ou `transcription.language` quando o resumo está em `auto`.
+Alterar esse idioma adapta somente os campos com modo `default`; campos `custom` são preservados
+literalmente. O botão **Restaurar padrão** envia o modo `default` para o campo; o backend restaura
+o padrão em inglês e o front apresenta a versão localizada. Os prompts e modelos efetivos são
+fixados no manifesto quando a reunião começa, sem mudança silenciosa em retomadas.
 
 Com `transcription.language: auto`, a transcrição detecta o idioma falado e preserva as alternâncias;
 cada lote contribui uma vez para determinar o idioma primário predominante. Um
@@ -189,6 +189,9 @@ palavra. Para APIs externas, o Summyz otimiza requisições independentes por me
 
 ## Dashboard e histórico
 
+Consultas usam o fuso enviado pelo front; a exportação TXT recebe formato de data, hora e fuso
+por requisição. Tema e idioma da interface são preferências do navegador, sem persistência no backend.
+
 O Dashboard e o Histórico mostram apenas servidores onde o bot configurado está instalado. O seletor
 é compartilhado entre as páginas e preservado no navegador. Os totais de calls e duração consideram
 reuniões antigas e novas cujo pipeline terminou; o ranking de falantes começa nas reuniões gravadas
@@ -196,7 +199,8 @@ com o manifesto v3. A participação soma os intervalos de cada palavra, une sob
 pessoa e distribui o arredondamento inteiro para totalizar exatamente 100%. Participantes silenciosos
 permanecem visíveis com `0%`.
 
-Datas e limites dos filtros usam `SUMMARY_TIME_ZONE`. Conteúdo de resumo e transcrição só aparece
+Datas, limites dos filtros e agrupamentos do dashboard usam o `timeZone` obrigatório enviado
+pelo front em cada consulta. Os timestamps permanecem em UTC e os filtros em `YYYY-MM-DD`. Conteúdo de resumo e transcrição só aparece
 quando a retenção estava habilitada para a reunião. O custo do Dashboard soma valores confirmados de
 todas as tentativas e avisa quando ainda existem valores pendentes ou não atribuídos.
 

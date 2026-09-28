@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
 
+import { profileLanguageSchema } from "../ai-profile.js";
 import { createDefaultAiPrompts } from "../ai-prompts.js";
 import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { InstallationLoginThrottle } from "../auth/installation-login-throttle.js";
@@ -108,36 +109,21 @@ export function registerAuthRoutes(
   );
 
   app.get("/api/settings", async (request) => {
-    const access = await authorizeDashboard(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const settings = await dependencies.settings.getSettings();
     return {
       accessMode: dependencies.accessMode,
-      dashboardLanguage: access.dashboardLanguage,
-      dashboardTheme: access.dashboardTheme,
       discordApplicationId: settings.discordApplicationId,
       secrets: settings.secrets,
     };
   });
 
-  app.put("/api/settings/preferences", async (request, reply) => {
-    await authorizeDashboard(request, dependencies);
-    const preferences = parseRequestInput(
-      z.object({
-        dashboardLanguage: z.enum(["en", "pt-BR"]),
-        dashboardTheme: z.enum(["system", "light", "dark"]),
-      }),
-      request.body,
-    );
-    await dependencies.settings.updatePreferences(preferences);
-    return reply.status(204).send();
-  });
-
   app.get("/api/ai/prompts/defaults", async (request) => {
-    const access = await authorizeDashboard(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const { summaryLanguage } = parseRequestInput(
-      z.object({ summaryLanguage: z.string().min(1).max(32) }),
+      z.object({ summaryLanguage: profileLanguageSchema }),
       request.query,
     );
-    return createDefaultAiPrompts(access.dashboardLanguage, summaryLanguage);
+    return createDefaultAiPrompts(summaryLanguage);
   });
 }

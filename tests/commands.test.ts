@@ -86,16 +86,15 @@ describe("comandos do bot", () => {
         ? [`/${definition.name}`]
         : subcommands.map((subcommand) => `/${definition.name} ${subcommand.name}`);
     });
-    const referencePaths = createCommandReference("pt-BR").flatMap((group) =>
+    const referencePaths = createCommandReference().flatMap((group) =>
       group.commands.map((command) => command.name),
     );
 
     expect(referencePaths.toSorted()).toEqual(registeredPaths.toSorted());
   });
 
-  it("localiza os grupos e as descrições da referência", () => {
-    const english = createCommandReference("en");
-    const portuguese = createCommandReference("pt-BR");
+  it("returns fixed English descriptions with stable identifiers", () => {
+    const english = createCommandReference();
 
     expect(english[0]).toMatchObject({
       commands: [
@@ -110,18 +109,6 @@ describe("comandos do bot", () => {
       ],
       label: "Recording",
     });
-    expect(portuguese[0]).toMatchObject({
-      commands: [
-        {
-          description: "Inicia a gravação do canal de voz em que você está",
-          name: "/record",
-        },
-        {
-          description: "Encerra a gravação do canal de voz em que você está",
-          name: "/stop",
-        },
-      ],
-      label: "Gravação",
-    });
+    expect(english.map((group) => group.id)).toEqual(["recording", "administrative", "cost"]);
   });
 });

@@ -1,10 +1,11 @@
 import { z } from "zod";
 
-import { type AiProfile, aiProfileSchema, canonicalizeAiProfileDefaults } from "../ai-profile.js";
+import { type AiProfile, aiProfileSchema, promptModesSchema } from "../ai-profile.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const identifierSchema = z.string().min(1).max(256);
 const rowSchema = z.object({
+  prompt_modes: promptModesSchema,
   language: z.unknown(),
   name: z.string().min(1),
   profile_id: z.string().min(1),
@@ -61,8 +62,8 @@ export class PostgresAiProfileStore implements AiProfileStore {
     await this.#writeProfile(profile, async (database) =>
       database.query(
         `INSERT INTO ai_profiles (
-         profile_id, profile_type, name, transcription, refinement, summary, language
-       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7)`,
+         profile_id, profile_type, name, transcription, refinement, summary, language, prompt_modes
+       ) VALUES ($1, $2, $3, $4::jsonb, $5::jsonb, $6::jsonb, $7, $8::jsonb)`,
         serializeProfile(profile),
       ),
     );
@@ -91,7 +92,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
   public async getActiveProfile(guildId: string): Promise<AiProfile | undefined> {
     const result = await this.#database.query(
       `SELECT profile.profile_id, profile.profile_type, profile.name, profile.transcription,
-              profile.refinement, profile.summary, profile.language
+              profile.refinement, profile.summary, profile.language, profile.prompt_modes
        FROM guild_configurations AS guild
        JOIN ai_profiles AS profile ON profile.profile_id = guild.active_ai_profile_id
        WHERE guild.guild_id = $1`,
@@ -103,7 +104,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
   public async listProfiles(): Promise<AiProfile[]> {
     const result = await this.#database.query(
       `SELECT profile_id, profile_type, name, transcription, refinement, summary,
-              language
+              language, prompt_modes
        FROM ai_profiles
        ORDER BY profile_type, created_at, profile_id`,
     );
@@ -164,7 +165,7 @@ export class PostgresAiProfileStore implements AiProfileStore {
            transcription = $4::jsonb,
            refinement = $5::jsonb,
            summary = $6::jsonb,
-           language = $7,
+           language = $7, prompt_modes = $8::jsonb,
            updated_at = now()
        WHERE profile_id = $1`,
         serializeProfile(profile),
@@ -199,6 +200,7 @@ function parseProfileRow(input: unknown): AiProfile {
   try {
     const row = rowSchema.parse(input);
     return aiProfileSchema.parse({
+      promptModes: row.prompt_modes,
       language: row.language,
       name: row.name,
       profileId: row.profile_id,
@@ -214,14 +216,14 @@ function parseProfileRow(input: unknown): AiProfile {
 }
 
 function serializeProfile(profile: AiProfile): readonly unknown[] {
-  const canonical = canonicalizeAiProfileDefaults(profile);
   return [
-    canonical.profileId,
-    canonical.profileType,
-    canonical.name,
-    JSON.stringify(canonical.transcription),
-    JSON.stringify(canonical.refinement),
-    JSON.stringify(canonical.summary),
-    canonical.language,
+    profile.profileId,
+    profile.profileType,
+    profile.name,
+    JSON.stringify(profile.transcription),
+    JSON.stringify(profile.refinement),
+    JSON.stringify(profile.summary),
+    profile.language,
+    JSON.stringify(profile.promptModes),
   ];
 }

@@ -7,6 +7,164 @@ import { InstallationPasswordError } from "../src/auth/installation-password.js"
 import { createLogger } from "../src/logger.js";
 
 describe("Community dashboard API", () => {
+  it("passes each browser zone to history and rolling analytics without persisting it", async () => {
+    const dependencies = createDependencies("local");
+    const analytics = analyticsDependencies();
+    dependencies.analytics = analytics;
+    const app = await createApiServer(dependencies);
+    for (const timeZone of ["America/Sao_Paulo", "Europe/Lisbon", "UTC"]) {
+      const query = new URLSearchParams({ timeZone, dateFrom: "2026-09-28", dateTo: "2026-09-28" });
+      const history = await app.inject({
+        method: "GET",
+        url: `/api/guilds/guild-1/meetings?${query}`,
+      });
+      expect(history.statusCode).toBe(200);
+      expect(history.json().timeZone).toBe(timeZone);
+      expect(analytics.listMeetings).toHaveBeenLastCalledWith(
+        "guild-1",
+        expect.objectContaining({ timeZone, dateFrom: "2026-09-28", dateTo: "2026-09-28" }),
+      );
+      const dashboard = await app.inject({
+        method: "GET",
+        url: `/api/guilds/guild-1/dashboard?${new URLSearchParams({ timeZone, period: "90d" })}`,
+      });
+      expect(dashboard.statusCode).toBe(200);
+      expect(dashboard.json().timeZone).toBe(timeZone);
+      expect(analytics.getDashboard).toHaveBeenLastCalledWith("guild-1", {
+        period: "90d",
+        timeZone,
+      });
+    }
+    expect(dependencies.settings.getSettings).not.toHaveBeenCalled();
+    await app.close();
+  });
+  it("exports the requested date and clock while preserving summary language and spoken deadlines", async () => {
+    const dependencies = createDependencies("local");
+    dependencies.analytics = analyticsDependencies();
+    const app = await createApiServer(dependencies);
+    const query = new URLSearchParams({
+      timeZone: "America/Sao_Paulo",
+      dateFormat: "MM/DD/YYYY",
+      timeFormat: "12h",
+    });
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/guilds/guild-1/meetings/meeting-1/export?${query}`,
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.headers["content-type"]).toContain("text/plain");
+    expect(response.body).toContain("Started at: 09/28/2026 11:30 PM");
+    expect(response.body).toContain("Time zone: America/Sao_Paulo");
+    expect(response.body).toContain("Executive summary\nThe release was approved.");
+    expect(response.body).toContain("Deadline: amanhã");
+    expect(response.body).toContain("Ana: Vamos publicar amanhã.");
+    await app.close();
+  });
+  it("rejects profile writes without prompt ownership and preserves custom input", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+    const { profileId: _id, ...base } = createInitialAiProfile("external", "en");
+    const body = {
+      ...base,
+      promptModes: { ...base.promptModes, refinement: "custom" as const },
+      transcription: { ...base.transcription, model: "vendor/stt" },
+      refinement: { ...base.refinement, model: "vendor/text", prompt: "  Revise em português.  " },
+      summary: { ...base.summary, model: "vendor/text" },
+    };
+    const { promptModes: _modes, ...invalid } = body;
+    expect(
+      (await app.inject({ method: "POST", url: "/api/profiles", payload: invalid })).statusCode,
+    ).toBe(400);
+    const created = await app.inject({ method: "POST", url: "/api/profiles", payload: body });
+    expect(created.statusCode).toBe(201);
+    expect(created.json().refinement.prompt).toBe(body.refinement.prompt);
+    expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledWith(
+      expect.objectContaining({
+        promptModes: body.promptModes,
+        refinement: expect.objectContaining({ prompt: body.refinement.prompt }),
+      }),
+    );
+    await app.close();
+  });
+
+  it("keeps settings and local authorization independent of presentation preferences", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+    vi.mocked(dependencies.settings.getSettings).mockClear();
+    expect((await app.inject({ method: "GET", url: "/api/commands" })).statusCode).toBe(200);
+    expect(dependencies.settings.getSettings).not.toHaveBeenCalled();
+    for (const url of ["/api/settings", "/api/installation/settings"]) {
+      const response = await app.inject({ method: "GET", url });
+      expect(response.json()).not.toHaveProperty("dashboardLanguage");
+      expect(response.json()).not.toHaveProperty("dashboardTheme");
+    }
+    expect(
+      (await app.inject({ method: "PUT", url: "/api/settings/preferences", payload: {} }))
+        .statusCode,
+    ).toBe(404);
+    await app.close();
+  });
+  it("requires setup language before inspecting or storing credentials", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+    for (const setupLanguage of [undefined, "fr"]) {
+      expect(
+        (
+          await app.inject({
+            method: "POST",
+            url: "/api/setup",
+            payload: { discordBotToken: "bot-token", setupLanguage },
+          })
+        ).statusCode,
+      ).toBe(400);
+    }
+    expect(dependencies.guildDirectory.inspectBotToken).not.toHaveBeenCalled();
+    expect(dependencies.settings.configureDiscordBot).not.toHaveBeenCalled();
+    await app.close();
+  });
+  it("returns fixed English prompt defaults without using dashboard locale", async () => {
+    const app = await createApiServer(createDependencies("local"));
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/ai/prompts/defaults?summaryLanguage=pt-BR",
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json().summaryExtraction).toContain("in Brazilian Portuguese");
+    expect(response.json().refinement).toContain("conservative transcript reviewer");
+    expect(
+      (await app.inject({ method: "GET", url: "/api/ai/prompts/defaults?summaryLanguage=invalid" }))
+        .statusCode,
+    ).toBe(400);
+    await app.close();
+  });
+  it("rejects missing and invalid calendar zones before analytics access", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+    for (const route of ["dashboard", "meetings", "meetings/meeting-1"]) {
+      for (const suffix of ["", "?timeZone=Mars%2FOlympus"]) {
+        expect(
+          (await app.inject({ method: "GET", url: `/api/guilds/guild-1/${route}${suffix}` }))
+            .statusCode,
+        ).toBe(400);
+      }
+    }
+    for (const suffix of [
+      "",
+      "?timeZone=UTC",
+      "?timeZone=UTC&dateFormat=DD%2FMM%2FYYYY&timeFormat=bad",
+    ]) {
+      expect(
+        (
+          await app.inject({
+            method: "GET",
+            url: `/api/guilds/guild-1/meetings/meeting-1/export${suffix}`,
+          })
+        ).statusCode,
+      ).toBe(400);
+    }
+    await app.close();
+  });
+
   it("exposes model catalog, downloads, cancellation and deletion behind dashboard access", async () => {
     const dependencies = createDependencies("local");
     const app = await createApiServer(dependencies);
@@ -91,7 +249,7 @@ describe("Community dashboard API", () => {
     for (const suffix of ["", "/export"]) {
       const response = await app.inject({
         method: "GET",
-        url: `/api/guilds/guild-1/meetings/meeting-1${suffix}`,
+        url: `/api/guilds/guild-1/meetings/meeting-1${suffix}?timeZone=UTC&dateFormat=YYYY-MM-DD&timeFormat=24h`,
       });
       expect(response.statusCode).toBe(500);
       expect(response.json()).toEqual({ error: "internal_error" });
@@ -209,7 +367,7 @@ describe("Community dashboard API", () => {
 
     const response = await app.inject({
       method: "POST",
-      payload: { discordBotToken: "bot-token" },
+      payload: { discordBotToken: "bot-token", setupLanguage: "pt-BR" },
       url: "/api/setup",
     });
 
@@ -223,6 +381,11 @@ describe("Community dashboard API", () => {
     expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledTimes(1);
     expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledWith(
       expect.objectContaining({
+        name: "Perfil 1",
+        promptModes: expect.objectContaining({ refinement: "default" }),
+        refinement: expect.objectContaining({
+          prompt: expect.stringContaining("conservative transcript reviewer"),
+        }),
         profileType: null,
         transcription: expect.objectContaining({ provider: null, model: null }),
       }),
@@ -247,6 +410,7 @@ describe("Community dashboard API", () => {
       method: "POST",
       payload: {
         discordBotToken: "bot-token",
+        setupLanguage: "pt-BR",
         installationPassword: "uma frase secreta bem segura",
       },
       url: "/api/setup",
@@ -255,7 +419,7 @@ describe("Community dashboard API", () => {
     const missingPassword = await app.inject({
       headers,
       method: "POST",
-      payload: { discordBotToken: "bot-token" },
+      payload: { discordBotToken: "bot-token", setupLanguage: "pt-BR" },
       url: "/api/setup",
     });
     const accepted = await app.inject({
@@ -263,6 +427,7 @@ describe("Community dashboard API", () => {
       method: "POST",
       payload: {
         discordBotToken: "bot-token",
+        setupLanguage: "pt-BR",
         installationPassword: "uma frase secreta bem segura",
       },
       url: "/api/setup",
@@ -355,11 +520,9 @@ describe("Community dashboard API", () => {
     await localApp.close();
   });
 
-  it("returns the command reference in the persisted dashboard language", async () => {
+  it("returns the fixed English command reference with stable group identifiers", async () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
-      dashboardLanguage: "en",
-      dashboardTheme: "system",
       discordApplicationId: null,
       secrets: { discordBotToken: false, openRouterApiKey: false },
       setupCompleted: false,
@@ -381,6 +544,7 @@ describe("Community dashboard API", () => {
             name: "/stop",
           },
         ],
+        id: "recording",
         label: "Recording",
       },
       expect.objectContaining({ label: "Administrative shortcuts" }),
@@ -416,7 +580,7 @@ describe("Community dashboard API", () => {
 
     expect(rejected.statusCode).toBe(401);
     expect(accepted.statusCode).toBe(200);
-    expect(accepted.json()[0]).toMatchObject({ label: "Gravação" });
+    expect(accepted.json()[0]).toMatchObject({ id: "recording", label: "Recording" });
     await app.close();
   });
 
@@ -451,8 +615,6 @@ describe("Community dashboard API", () => {
   it("exposes a generic Discord installation URL without user OAuth", async () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
-      dashboardLanguage: "pt-BR",
-      dashboardTheme: "system",
       discordApplicationId: "application-1",
       secrets: { discordBotToken: true, openRouterApiKey: false },
       setupCompleted: true,
@@ -631,10 +793,7 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
       updateProfile: vi.fn(async () => undefined),
     },
     auth: {
-      authenticate: vi.fn(async () => ({
-        dashboardLanguage: "pt-BR" as const,
-        dashboardTheme: "system" as const,
-      })),
+      authenticate: vi.fn(async () => undefined),
       create: vi.fn(async () => "session-token"),
       logout: vi.fn(async () => undefined),
     },
@@ -697,20 +856,70 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
       completeSetup: vi.fn(async () => undefined),
       configureDiscordBot: vi.fn(async () => undefined),
       getSettings: vi.fn(async () => ({
-        dashboardLanguage: "pt-BR" as const,
-        dashboardTheme: "system" as const,
         discordApplicationId: null,
         secrets: { discordBotToken: false, openRouterApiKey: false },
         setupCompleted: false,
       })),
       removeSecret: vi.fn(async () => undefined),
       setSecret: vi.fn(async () => undefined),
-      updatePreferences: vi.fn(async () => undefined),
     },
     setupToken: "setup-token-value-with-at-least-32-chars",
     tasks: {
       list: vi.fn(async () => []),
       setCompleted: vi.fn(async () => undefined),
     },
+  };
+}
+
+function analyticsDependencies(): NonNullable<ApiServerDependencies["analytics"]> {
+  const cost = {
+    attemptCounts: { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 },
+    breakdown: [],
+    confirmed: [],
+  };
+  return {
+    getDashboard: vi.fn<NonNullable<ApiServerDependencies["analytics"]>["getDashboard"]>(
+      async () => ({
+        averageDurationMs: 0,
+        calls: { current: 0, deltaPercentage: null, previous: null },
+        cost,
+        openTaskCount: 0,
+        period: "90d",
+        statusSeries: [],
+        topSpeakers: [],
+        totalCalls: 0,
+        totalDurationMs: 0,
+      }),
+    ),
+    getGuildCallCount: vi.fn(async () => 0),
+    listMeetings: vi.fn(async () => ({ items: [], page: 1, pageSize: 20, total: 0 })),
+    getMeeting: vi.fn<NonNullable<ApiServerDependencies["analytics"]>["getMeeting"]>(async () => ({
+      aiProfile: null,
+      audioRetained: false,
+      completedAt: "2026-09-29T02:31:00.000Z",
+      contentRetained: true,
+      cost,
+      discordUrl: null,
+      durationMs: 60000,
+      failureCode: null,
+      meetingId: "meeting-1",
+      participants: [],
+      pipelineStatus: "completed",
+      rawTranscript: null,
+      startedAt: "2026-09-29T02:30:00.000Z",
+      voiceChannelName: "Planejamento",
+      transcript: "[00:05] Ana: Vamos publicar amanhã.",
+      summary: {
+        status: "completed",
+        language: "en",
+        executiveSummary: "The release was approved.",
+        decisions: [],
+        discussedTopics: [],
+        observations: [],
+        tasks: [{ text: "Publish", deadlineText: "amanhã" }],
+      },
+    })),
+    updateDisplayNames: vi.fn(async () => undefined),
+    updateParticipantProfiles: vi.fn(async () => undefined),
   };
 }

@@ -98,7 +98,6 @@ const app = await createApiServer(
     recovery,
     settings,
     setupToken: config.setupToken,
-    timeZone: config.summaryTimeZone,
     tasks: new PostgresTaskStore(database),
   },
   { staticDirectory: resolve(config.staticDirectory) },
