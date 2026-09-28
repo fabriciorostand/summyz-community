@@ -15,6 +15,8 @@ import { createPortal } from "react-dom";
 export interface SelectOption<T extends string> {
   label: string;
   leading?: ReactNode;
+  /** Drawn after the label in the list only, so the closed trigger keeps its room for the label. */
+  trailing?: ReactNode;
   value: T;
 }
 
@@ -311,6 +313,7 @@ export function Select<T extends string>({
                 >
                   {option.leading}
                   <span className="min-w-0 flex-1 truncate">{option.label}</span>
+                  {option.trailing}
                   {isSelected && <Check className="size-3.5 shrink-0 text-accent" />}
                 </div>
               );

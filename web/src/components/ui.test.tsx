@@ -57,6 +57,19 @@ describe("Button", () => {
     }
   });
 
+  it("matches the header controls at the toolbar size", () => {
+    render(
+      <>
+        <Button>Padrão</Button>
+        <Button size="toolbar">Topo</Button>
+      </>,
+    );
+    expect(screen.getByRole("button", { name: "Padrão" })).toHaveClass("py-2", "text-[13.5px]");
+    const toolbar = screen.getByRole("button", { name: "Topo" });
+    expect(toolbar).toHaveClass("h-[34px]", "text-[12.5px]");
+    expect(toolbar).not.toHaveClass("py-2", "text-[13.5px]");
+  });
+
   it("calls the handler when clicked", async () => {
     const onClick = vi.fn();
     render(<Button onClick={onClick}>Ok</Button>);

@@ -30,7 +30,7 @@ import { languageLabel, nextLocalizedProfileName } from "./language-selector";
 import { downloadProgress } from "./model-labels";
 import { AvailabilityBanner, useMissingModels } from "./profile-availability";
 import { ProfileHeader } from "./profile-header";
-import { ProfileList } from "./profile-list";
+import { ProfilePicker } from "./profile-picker";
 import {
   acknowledgeReview,
   changeExecution,
@@ -284,14 +284,25 @@ export function ProfilesPage() {
     <>
       <TopBar
         actions={
-          <Button
-            disabled={items === undefined || selected === undefined}
-            onClick={() => guard(() => void create())}
-            type="button"
-          >
-            <Plus className="size-3.5" />
-            Novo perfil
-          </Button>
+          <>
+            {items !== undefined && draft !== null && selected !== undefined && (
+              <ProfilePicker
+                draft={draft}
+                items={items}
+                onSelect={(profileId) => guard(() => open(profileId, items))}
+                selectedId={selected.profile.profileId}
+              />
+            )}
+            <Button
+              disabled={items === undefined || selected === undefined}
+              onClick={() => guard(() => void create())}
+              size="toolbar"
+              type="button"
+            >
+              <Plus className="size-3.5" />
+              Novo perfil
+            </Button>
+          </>
         }
         title="Perfis de IA"
       />
@@ -367,9 +378,6 @@ export function ProfilesPage() {
               }
               setConfirming(false);
             }}
-            onSelect={(profileId) =>
-              profileId !== selected.profile.profileId && guard(() => open(profileId, items))
-            }
             onStageChange={setStage}
             review={review}
             saveError={saveError}
@@ -414,7 +422,6 @@ interface ProfileEditorProps {
   onReviewChange: (review: StageReview) => void;
   onSaved: (profile: Profile, missingModels: string[]) => Promise<void>;
   onSaveError: (error: unknown) => void;
-  onSelect: (profileId: string) => void;
   onStageChange: (stage: Stage) => void;
   review: StageReview;
   saveError: string | null;
@@ -488,62 +495,53 @@ function ProfileEditor(props: ProfileEditorProps) {
   }
 
   return (
-    <div className="grid grid-cols-1 gap-5 xl:grid-cols-[250px_minmax(0,1fr)] xl:gap-6">
-      <ProfileList
-        draft={draft}
-        items={props.items}
-        jobFor={props.downloads.jobFor}
-        onSelect={props.onSelect}
-        selectedId={selected.profile.profileId}
+    <div className="flex min-w-0 flex-col gap-4">
+      <ProfileHeader
+        activeServerCount={selected.activeServerCount}
+        busy={props.saving}
+        name={draft.name}
+        nameError={props.nameError}
+        onDelete={props.onDelete}
+        onlyProfile={props.items.length === 1}
+        onNameChange={props.onNameChange}
+        savedName={selected.profile.name}
+        type={profileTypeOf(draft)}
       />
-      <div className="flex min-w-0 flex-col gap-4">
-        <ProfileHeader
-          activeServerCount={selected.activeServerCount}
-          busy={props.saving}
-          name={draft.name}
-          nameError={props.nameError}
-          onDelete={props.onDelete}
-          onlyProfile={props.items.length === 1}
-          onNameChange={props.onNameChange}
-          savedName={selected.profile.name}
-          type={profileTypeOf(draft)}
-        />
-        <AvailabilityBanner
-          activeServerCount={selected.activeServerCount}
-          availability={selected.availability}
-          changed={props.dirty}
-          downloads={props.downloads}
-          draftMissing={draftMissing}
-        />
-        <StageTrail
-          dirty={dirtyStages}
-          notes={notes}
-          onSelect={props.onStageChange}
-          profile={draft}
-          selected={stage}
-        />
-        <StagePanel
-          downloads={props.downloads}
-          needsModel={needsModel.has(stage)}
-          onAcknowledge={(path) => props.onReviewChange(acknowledgeReview(review, path))}
-          onChange={props.onChange}
-          onExecution={changeStageExecution}
-          onModel={(model) => {
-            props.onChange({ ...draft, [stage]: { ...draft[stage], model } });
-            const next = new Set(needsModel);
-            next.delete(stage);
-            props.onNeedsModelChange(next);
-          }}
-          onModelsChanged={props.onModelsChanged}
-          profile={draft}
-          promptDefaults={promptDefaults}
-          review={review}
-          stage={stage}
-        />
-      </div>
+      <AvailabilityBanner
+        activeServerCount={selected.activeServerCount}
+        availability={selected.availability}
+        changed={props.dirty}
+        downloads={props.downloads}
+        draftMissing={draftMissing}
+      />
+      <StageTrail
+        dirty={dirtyStages}
+        notes={notes}
+        onSelect={props.onStageChange}
+        profile={draft}
+        selected={stage}
+      />
+      <StagePanel
+        downloads={props.downloads}
+        needsModel={needsModel.has(stage)}
+        onAcknowledge={(path) => props.onReviewChange(acknowledgeReview(review, path))}
+        onChange={props.onChange}
+        onExecution={changeStageExecution}
+        onModel={(model) => {
+          props.onChange({ ...draft, [stage]: { ...draft[stage], model } });
+          const next = new Set(needsModel);
+          next.delete(stage);
+          props.onNeedsModelChange(next);
+        }}
+        onModelsChanged={props.onModelsChanged}
+        profile={draft}
+        promptDefaults={promptDefaults}
+        review={review}
+        stage={stage}
+      />
       {props.dirty && (
         // Leaves room at the end of the page so the fixed bar never covers the last settings.
-        <div className="h-28 xl:col-span-2">
+        <div className="h-28">
           <SaveBar
             activeServerCount={selected.activeServerCount}
             blocker={blocker}

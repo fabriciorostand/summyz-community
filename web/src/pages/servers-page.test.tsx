@@ -75,6 +75,14 @@ describe("ServersPage", () => {
     expect(button.parentElement).not.toHaveClass("ml-auto");
   });
 
+  it("gives the refresh button the overview control size", () => {
+    renderScreen(<ServersPage />);
+    expect(screen.getByRole("button", { name: /Atualizar lista/ })).toHaveClass(
+      "h-[34px]",
+      "text-[12.5px]",
+    );
+  });
+
   it("explains that the bot decides the list when it is in no server", async () => {
     renderScreen(<ServersPage />, {
       context: dashboardContext({ guilds: guildSelection({ guilds: [] }) }),
