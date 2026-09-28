@@ -165,62 +165,47 @@ export const commandCatalog = {
   },
 } as const;
 
-const groupLabels = {
-  administrative: localized("Administrative shortcuts", "Atalhos administrativos"),
-  cost: localized("Cost — server owner only", "Custo — só para o dono do servidor"),
-  recording: localized("Recording", "Gravação"),
-} as const;
-
-function rootReference(entry: CatalogEntry, language: CommandLanguage) {
+function rootReference(entry: CatalogEntry) {
   return {
-    description: entry.description[language],
+    description: entry.description.en,
     name: `/${entry.name}`,
   };
 }
 
-function subcommandReference(
-  command: CatalogEntry,
-  subcommand: CatalogEntry,
-  language: CommandLanguage,
-) {
+function subcommandReference(command: CatalogEntry, subcommand: CatalogEntry) {
   return {
-    description: subcommand.description[language],
+    description: subcommand.description.en,
     name: `/${command.name} ${subcommand.name}`,
   };
 }
 
-export function createCommandReference(language: CommandLanguage) {
+export function createCommandReference() {
   const { record, recordingCost, recordingRole, recordingSummaryForum, stop } = commandCatalog;
   return [
     {
-      commands: [rootReference(record, language), rootReference(stop, language)],
-      label: groupLabels.recording[language],
+      commands: [rootReference(record), rootReference(stop)],
+      id: "recording",
+      label: "Recording",
     },
     {
       commands: [
-        subcommandReference(recordingSummaryForum, recordingSummaryForum.subcommands.set, language),
-        subcommandReference(
-          recordingSummaryForum,
-          recordingSummaryForum.subcommands.show,
-          language,
-        ),
-        subcommandReference(
-          recordingSummaryForum,
-          recordingSummaryForum.subcommands.clear,
-          language,
-        ),
-        subcommandReference(recordingRole, recordingRole.subcommands.add, language),
-        subcommandReference(recordingRole, recordingRole.subcommands.remove, language),
-        subcommandReference(recordingRole, recordingRole.subcommands.list, language),
+        subcommandReference(recordingSummaryForum, recordingSummaryForum.subcommands.set),
+        subcommandReference(recordingSummaryForum, recordingSummaryForum.subcommands.show),
+        subcommandReference(recordingSummaryForum, recordingSummaryForum.subcommands.clear),
+        subcommandReference(recordingRole, recordingRole.subcommands.add),
+        subcommandReference(recordingRole, recordingRole.subcommands.remove),
+        subcommandReference(recordingRole, recordingRole.subcommands.list),
       ],
-      label: groupLabels.administrative[language],
+      id: "administrative",
+      label: "Administrative shortcuts",
     },
     {
       commands: [
-        subcommandReference(recordingCost, recordingCost.subcommands.meeting, language),
-        subcommandReference(recordingCost, recordingCost.subcommands.period, language),
+        subcommandReference(recordingCost, recordingCost.subcommands.meeting),
+        subcommandReference(recordingCost, recordingCost.subcommands.period),
       ],
-      label: groupLabels.cost[language],
+      id: "cost",
+      label: "Cost — server owner only",
     },
   ];
 }

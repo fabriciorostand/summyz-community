@@ -1,15 +1,9 @@
 import { randomUUID } from "node:crypto";
 
 import { z } from "zod";
-import { dashboardLanguageSchema, dashboardThemeSchema } from "../auth/auth-domain.js";
-import { dashboardAccessSchema, type StoredDashboardAccess } from "../auth/dashboard-session.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 const dateSchema = z.iso.datetime();
-const rowSchema = z.object({
-  dashboard_language: dashboardLanguageSchema,
-  dashboard_theme: dashboardThemeSchema,
-});
 
 export class PostgresDashboardSessionStore {
   readonly #database: PostgresExecutor;
@@ -40,29 +34,22 @@ export class PostgresDashboardSessionStore {
     expiresAt: string;
     now: string;
     tokenHash: string;
-  }): Promise<StoredDashboardAccess | undefined> {
+  }): Promise<boolean> {
     const result = await this.#database.query(
       `UPDATE dashboard_sessions AS session
        SET expires_at = LEAST($3, session.absolute_expires_at), last_used_at = $2
-       FROM installation_settings AS settings
        WHERE session.token_hash = $1
          AND session.revoked_at IS NULL
          AND session.expires_at > $2
          AND session.absolute_expires_at > $2
-       RETURNING settings.dashboard_language,
-                 settings.dashboard_theme`,
+       RETURNING session.session_id`,
       [
         z.string().min(1).parse(input.tokenHash),
         dateSchema.parse(input.now),
         dateSchema.parse(input.expiresAt),
       ],
     );
-    if (result.rows[0] === undefined) return undefined;
-    const row = rowSchema.parse(result.rows[0]);
-    return dashboardAccessSchema.parse({
-      dashboardLanguage: row.dashboard_language,
-      dashboardTheme: row.dashboard_theme,
-    });
+    return result.rowCount === 1;
   }
 
   public async revokeSession(tokenHash: string): Promise<void> {

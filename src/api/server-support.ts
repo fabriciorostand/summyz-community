@@ -2,7 +2,6 @@ import { createHash, timingSafeEqual } from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Logger } from "pino";
 import { ZodError, type z } from "zod";
-import type { DashboardAccess } from "../auth/auth-domain.js";
 import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { InstallationAccessRecoveryError } from "../auth/installation-access-recovery.js";
 import { InstallationLoginThrottleError } from "../auth/installation-login-throttle.js";
@@ -25,19 +24,12 @@ const authenticatedRequests = new WeakSet<FastifyRequest>();
 export async function authorizeDashboard(
   request: FastifyRequest,
   dependencies: ApiServerDependencies,
-): Promise<DashboardAccess> {
-  if (dependencies.accessMode === "local") {
-    const settings = await dependencies.settings.getSettings();
-    return {
-      dashboardLanguage: settings.dashboardLanguage,
-      dashboardTheme: settings.dashboardTheme,
-    };
-  }
+): Promise<void> {
+  if (dependencies.accessMode === "local") return;
   const sessionToken = request.cookies.summyz_session;
   if (sessionToken === undefined || sessionToken.length === 0) throw new DashboardSessionError();
-  const access = await dependencies.auth.authenticate(sessionToken);
+  await dependencies.auth.authenticate(sessionToken);
   authenticatedRequests.add(request);
-  return access;
 }
 
 export function wasRequestAuthenticated(request: FastifyRequest): boolean {
@@ -48,8 +40,8 @@ export async function authorizeGuild(
   request: FastifyRequest,
   dependencies: ApiServerDependencies,
   resolveGuildAccess: GuildAccessResolver,
-): Promise<{ access: DashboardAccess; guildId: string }> {
-  const access = await authorizeDashboard(request, dependencies);
+): Promise<{ guildId: string }> {
+  await authorizeDashboard(request, dependencies);
   const { guildId } = parseRequestInput(guildParametersSchema, request.params);
   const guilds = await resolveGuildAccess();
   if (!guilds.some((guild) => guild.id === guildId)) {
@@ -57,7 +49,7 @@ export async function authorizeGuild(
     error.statusCode = 403;
     throw error;
   }
-  return { access, guildId };
+  return { guildId };
 }
 
 export type GuildAccessResolver = () => Promise<readonly InstalledDiscordGuild[]>;

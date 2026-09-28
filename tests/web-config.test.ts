@@ -22,7 +22,6 @@ describe("loadWebConfig", () => {
   it("exige chaves de infraestrutura fortes e aceita HTTPS para VPS", () => {
     expect(() => loadWebConfig({ ...required, SUMMYZ_SETUP_TOKEN: "short" })).toThrow();
     expect(() => loadWebConfig({ ...required, SUMMYZ_SECRETS_KEY: "invalid" })).toThrow();
-    expect(() => loadWebConfig({ ...required, SUMMARY_TIME_ZONE: "Invalid/Time_Zone" })).toThrow();
     expect(() =>
       loadWebConfig({ ...required, PUBLIC_BASE_URL: "https://summyz.example.com/dashboard" }),
     ).toThrow(/origin/i);
@@ -37,7 +36,6 @@ describe("loadWebConfig", () => {
       accessMode: "public",
       host: "0.0.0.0",
       publicBaseUrl: "https://summyz.example.com",
-      summaryTimeZone: "America/Sao_Paulo",
     });
   });
 

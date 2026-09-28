@@ -22,7 +22,6 @@ const environmentSchema = z.object({
       "SUMMYZ_SECRETS_KEY must contain exactly 32 bytes encoded as base64url",
     ),
   SUMMYZ_SETUP_TOKEN: z.string().min(32).max(512),
-  SUMMARY_TIME_ZONE: z.string().min(1).refine(isValidTimeZone).default("America/Sao_Paulo"),
   WEB_HOST: z.string().min(1).default("127.0.0.1"),
   WEB_PORT: z.coerce.number().int().min(1).max(65_535).default(8_787),
   WEB_STATIC_DIR: z.string().min(1).default("web/dist"),
@@ -40,7 +39,6 @@ export interface WebConfig {
   secretsKey: string;
   setupToken: string;
   staticDirectory: string;
-  summaryTimeZone: string;
 }
 
 export function loadWebConfig(environment: NodeJS.ProcessEnv): WebConfig {
@@ -65,7 +63,6 @@ export function loadWebConfig(environment: NodeJS.ProcessEnv): WebConfig {
     secretsKey: parsed.SUMMYZ_SECRETS_KEY,
     setupToken: parsed.SUMMYZ_SETUP_TOKEN,
     staticDirectory: parsed.WEB_STATIC_DIR,
-    summaryTimeZone: parsed.SUMMARY_TIME_ZONE,
   };
 }
 
@@ -76,13 +73,4 @@ function isLoopbackHost(host: string): boolean {
 function isThirtyTwoByteBase64Url(value: string): boolean {
   const bytes = Buffer.from(value, "base64url");
   return bytes.length === 32 && bytes.toString("base64url") === value;
-}
-
-function isValidTimeZone(value: string): boolean {
-  try {
-    new Intl.DateTimeFormat("en-US", { timeZone: value });
-    return true;
-  } catch {
-    return false;
-  }
 }

@@ -7,12 +7,40 @@ import {
 import type { MeetingHistoryDetail } from "../src/database/postgres-analytics-store.js";
 
 describe("meeting text export", () => {
-  it("exports stable metadata, localized summary sections and the retained transcript", () => {
-    const content = createMeetingTextExport(completedMeeting(), "America/Sao_Paulo");
-
+  it("uses English metadata while preserving generated section labels for other languages", () => {
+    const meeting = completedMeeting();
+    if (meeting.summary?.status !== "completed" || meeting.summary.labels === undefined) {
+      throw new Error("Completed summary labels fixture is invalid");
+    }
+    const content = createMeetingTextExport(
+      {
+        ...meeting,
+        summary: {
+          ...meeting.summary,
+          language: "es",
+          labels: { ...meeting.summary.labels, summary: "Resumen", tasks: "Tareas" },
+        },
+      },
+      { dateFormat: "MM/DD/YYYY", timeFormat: "12h", timeZone: "UTC" },
+    );
     expect(content).toContain("Voice channel: planejamento");
-    expect(content).toContain("Started at:");
-    expect(content).toContain("Duration: 01:01:01");
+    expect(content).toContain("Started at: 09/08/2026 12:00 PM");
+    expect(content).toContain("Time zone: UTC");
+    expect(content).toContain("\nResumen\n");
+    expect(content).toContain("\nTareas\n");
+    expect(content).toContain("amanhã às 20h");
+  });
+
+  it("exports stable metadata, localized summary sections and the retained transcript", () => {
+    const content = createMeetingTextExport(completedMeeting(), {
+      dateFormat: "DD/MM/YYYY",
+      timeFormat: "24h",
+      timeZone: "America/Sao_Paulo",
+    });
+
+    expect(content).toContain("Canal de voz: planejamento");
+    expect(content).toContain("Início: 08/09/2026 09:00");
+    expect(content).toContain("Duração: 01:01:01");
     expect(content).toContain("ID da reunião: meeting-1");
     expect(content).toContain("Síntese executiva\nAlinhamento da entrega.");
     expect(content).toContain("- Publicar a versão (Responsável: Ana; Prazo: amanhã às 20h)");
@@ -23,9 +51,12 @@ describe("meeting text export", () => {
     { summary: { language: "pt-BR" as const, status: "failed" as const } },
     { transcript: null },
   ])("keeps export unavailable without both completed summary and transcript", (override) => {
-    expect(() => createMeetingTextExport({ ...completedMeeting(), ...override }, "UTC")).toThrow(
-      MeetingExportUnavailableError,
-    );
+    expect(() =>
+      createMeetingTextExport(
+        { ...completedMeeting(), ...override },
+        { dateFormat: "YYYY-MM-DD", timeFormat: "24h", timeZone: "UTC" },
+      ),
+    ).toThrow(MeetingExportUnavailableError);
   });
 
   it("uses English fallbacks and explicit placeholders for missing optional data", () => {
@@ -49,7 +80,7 @@ describe("meeting text export", () => {
         },
         voiceChannelName: null,
       },
-      "UTC",
+      { dateFormat: "YYYY-MM-DD", timeFormat: "24h", timeZone: "UTC" },
     );
 
     expect(content).toContain("Voice channel: -");

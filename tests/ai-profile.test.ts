@@ -59,6 +59,12 @@ describe("perfis de IA", () => {
   it("mantém o perfil completo com idioma de resumo explícito e fixa todas as opções", () => {
     const profile = aiProfileSchema.parse({
       ...createInitialAiProfile("local", "pt-BR"),
+      promptModes: {
+        transcription: "custom",
+        refinement: "custom",
+        summaryExtraction: "custom",
+        summaryConsolidation: "custom",
+      },
       language: "pt-BR",
       refinement: {
         generation: { seed: 0, temperature: 0, think: false },

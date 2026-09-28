@@ -1,8 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
-
 import type { MeetingHistoryFilters } from "../database/postgres-analytics-store.js";
 import { directoryPageQuerySchema } from "../directory-pagination.js";
+import {
+  calendarQuerySchema,
+  exportPresentationSchema,
+  timeZoneSchema,
+} from "./date-presentation.js";
 import { createMeetingTextExport, MeetingExportUnavailableError } from "./meeting-export.js";
 
 import type { ApiServerDependencies } from "./server-contracts.js";
@@ -18,6 +22,7 @@ import {
 type ParticipantProfile = { avatarUrl?: string | null; displayName: string };
 
 const meetingListQuerySchema = z.object({
+  timeZone: timeZoneSchema,
   dateFrom: z.iso.date().optional(),
   dateTo: z.iso.date().optional(),
   channelName: z.string().trim().min(1).max(100).optional(),
@@ -65,15 +70,15 @@ export function registerAnalyticsRoutes(
 ): void {
   app.get("/api/guilds/:guildId/dashboard", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
-    const analytics = requireAnalytics(dependencies);
-    const { period } = parseRequestInput(
-      z.object({ period: z.enum(["30d", "90d", "all"]).default("30d") }),
+    const { period, timeZone } = parseRequestInput(
+      z.object({ period: z.enum(["30d", "90d", "all"]).default("30d"), timeZone: timeZoneSchema }),
       request.query,
     );
+    const analytics = requireAnalytics(dependencies);
     const [dashboard, liveMeeting] = await Promise.all([
       analytics.getDashboard(guildId, {
         period,
-        timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+        timeZone,
       }),
       dependencies.liveMeetings.getForGuild(guildId),
     ]);
@@ -96,7 +101,7 @@ export function registerAnalyticsRoutes(
                 applyParticipantProfile(participant, profiles),
               ),
             },
-      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+      timeZone,
       topSpeakers: dashboard.topSpeakers.map((speaker) =>
         applyParticipantProfile(speaker, profiles),
       ),
@@ -105,10 +110,11 @@ export function registerAnalyticsRoutes(
   app.get("/api/guilds/:guildId/meetings", async (request) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const query = parseRequestInput(meetingListQuerySchema, request.query);
+    const { timeZone } = query;
     const analytics = requireAnalytics(dependencies);
     const history = await analytics.listMeetings(
       guildId,
-      meetingHistoryFilters(query, dependencies.timeZone ?? "America/Sao_Paulo"),
+      meetingHistoryFilters(query, query.timeZone),
     );
     const liveMeeting = await dependencies.liveMeetings.getForGuild(guildId);
     const itemsWithLiveParticipants = history.items.map((meeting) =>
@@ -136,11 +142,12 @@ export function registerAnalyticsRoutes(
             applyParticipantProfile(participant, profiles),
           ) ?? null,
       })),
-      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+      timeZone,
     };
   });
   app.get("/api/guilds/:guildId/meetings/:meetingId", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { timeZone } = parseRequestInput(calendarQuerySchema, request.query);
     const { meetingId } = parseRequestInput(
       z.object({ meetingId: z.string().min(1).max(128) }),
       request.params,
@@ -166,11 +173,12 @@ export function registerAnalyticsRoutes(
       ...meeting,
       participants:
         participants?.map((participant) => applyParticipantProfile(participant, profiles)) ?? null,
-      timeZone: dependencies.timeZone ?? "America/Sao_Paulo",
+      timeZone,
     };
   });
   app.get("/api/guilds/:guildId/meetings/:meetingId/export", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const presentation = parseRequestInput(exportPresentationSchema, request.query);
     const { meetingId } = parseRequestInput(
       z.object({ meetingId: z.string().min(1).max(128) }),
       request.params,
@@ -178,10 +186,7 @@ export function registerAnalyticsRoutes(
     const meeting = await requireAnalytics(dependencies).getMeeting(guildId, meetingId);
     if (meeting === undefined) return reply.status(404).send({ error: "meeting_not_found" });
     try {
-      const content = createMeetingTextExport(
-        meeting,
-        dependencies.timeZone ?? "America/Sao_Paulo",
-      );
+      const content = createMeetingTextExport(meeting, presentation);
       return reply
         .header("content-type", "text/plain; charset=utf-8")
         .header("content-disposition", 'attachment; filename="summyz-meeting.txt"')

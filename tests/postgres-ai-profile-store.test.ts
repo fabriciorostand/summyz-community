@@ -81,6 +81,7 @@ describe("PostgresAiProfileStore", () => {
 
 function toRow(profile: ReturnType<typeof createInitialAiProfile>) {
   return {
+    prompt_modes: profile.promptModes,
     language: profile.language,
     name: profile.name,
     profile_id: profile.profileId,

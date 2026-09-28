@@ -15,8 +15,7 @@ describe("PostgresInstallationSettingsStore", () => {
         rows: [
           {
             configured_secrets: ["discord_bot_token"],
-            dashboard_language: "pt-BR",
-            dashboard_theme: "system",
+
             discord_application_id: "application-1",
             setup_completed_at: null,
           },
@@ -28,6 +27,9 @@ describe("PostgresInstallationSettingsStore", () => {
     const status = await store.getSettings();
 
     expect(query.mock.calls[0]?.[1]?.[1]).not.toBe("real-token");
+    expect(status).not.toHaveProperty("dashboardLanguage");
+    expect(status).not.toHaveProperty("dashboardTheme");
+    expect(query.mock.calls[1]?.[0]).not.toContain("dashboard_language");
     expect(status.secrets).toEqual({ discordBotToken: true, openRouterApiKey: false });
     expect(JSON.stringify(status)).not.toContain("real-token");
     expect(JSON.stringify(status)).not.toContain("clientSecret");
@@ -54,17 +56,5 @@ describe("PostgresInstallationSettingsStore", () => {
     const store = new PostgresInstallationSettingsStore({ database: { query }, secretBox: box });
 
     await expect(store.getSecret("discord_bot_token")).resolves.toBe("discord-token");
-  });
-
-  it("stores global dashboard preferences in installation settings", async () => {
-    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
-    const store = new PostgresInstallationSettingsStore({ database: { query }, secretBox: box });
-
-    await store.updatePreferences({ dashboardLanguage: "en", dashboardTheme: "dark" });
-
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("installation_settings"), [
-      "en",
-      "dark",
-    ]);
   });
 });

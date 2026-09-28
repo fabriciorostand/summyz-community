@@ -1,10 +1,5 @@
 import { z } from "zod";
-
-import {
-  canonicalizeDefaultPrompt,
-  createDefaultAiPrompts,
-  localizeDefaultPrompt,
-} from "./ai-prompts.js";
+import { createDefaultAiPrompts } from "./ai-prompts.js";
 
 export {
   type AiProfileCompatibilityStatus,
@@ -145,7 +140,17 @@ export const externalSummaryAiProfileSchema = summaryBaseSchema.extend({
 export const localSummaryAiProfileSchema = summaryBaseSchema.extend({
   provider: z.literal("ollama").default("ollama"),
 });
+export const promptModesSchema = z
+  .object({
+    transcription: z.enum(["default", "custom"]),
+    refinement: z.enum(["default", "custom"]),
+    summaryExtraction: z.enum(["default", "custom"]),
+    summaryConsolidation: z.enum(["default", "custom"]),
+  })
+  .strict();
+
 const profileBaseShape = {
+  promptModes: promptModesSchema,
   language: profileLanguageSchema.default("auto"),
   name: z.string().trim().min(1).max(100),
   profileId: identifierSchema,
@@ -209,13 +214,42 @@ export const aiProfileInputSchema = z
     profileType: z.unknown().optional(),
   })
   .strict();
-export const aiProfileSchema = aiProfileInputSchema.transform((profile) => ({
-  ...profile,
-  profileType: calculateProfileType(profile),
-}));
+export const aiProfileSchema = aiProfileInputSchema.transform((profile) => {
+  const language = profile.language === "auto" ? profile.transcription.language : profile.language;
+  const defaults = createDefaultAiPrompts(language);
+  return {
+    ...profile,
+    profileType: calculateProfileType(profile),
+    transcription: {
+      ...profile.transcription,
+      prompt:
+        profile.promptModes.transcription === "default"
+          ? defaults.transcription
+          : profile.transcription.prompt,
+    },
+    refinement: {
+      ...profile.refinement,
+      prompt:
+        profile.promptModes.refinement === "default"
+          ? defaults.refinement
+          : profile.refinement.prompt,
+    },
+    summary: {
+      ...profile.summary,
+      extractionPrompt:
+        profile.promptModes.summaryExtraction === "default"
+          ? defaults.summaryExtraction
+          : profile.summary.extractionPrompt,
+      consolidationPrompt:
+        profile.promptModes.summaryConsolidation === "default"
+          ? defaults.summaryConsolidation
+          : profile.summary.consolidationPrompt,
+    },
+  };
+});
 
-export function createEmptyInitialAiProfile(dashboardLanguage: "en" | "pt-BR"): AiProfile {
-  const base = createInitialAiProfile("external", dashboardLanguage);
+export function createEmptyInitialAiProfile(setupLanguage: "en" | "pt-BR"): AiProfile {
+  const base = createInitialAiProfile("external", setupLanguage);
   return aiProfileSchema.parse({
     ...base,
     profileId: "default-profile-1",
@@ -230,10 +264,10 @@ export type AiProfileType = AiProfile["profileType"];
 
 export function createInitialAiProfile(
   profileType: "external" | "local",
-  dashboardLanguage: "en" | "pt-BR",
+  setupLanguage: "en" | "pt-BR",
 ): AiProfile {
-  const localizedName = dashboardLanguage === "pt-BR" ? "Perfil 1" : "Profile 1";
-  const prompts = createDefaultAiPrompts(dashboardLanguage, "auto");
+  const localizedName = setupLanguage === "pt-BR" ? "Perfil 1" : "Profile 1";
+  const prompts = createDefaultAiPrompts("auto");
   const providerSelection =
     profileType === "external"
       ? {
@@ -265,68 +299,16 @@ export function createInitialAiProfile(
           transcription: { model: null, prompt: null, provider: "faster-whisper" as const },
         };
   return aiProfileSchema.parse({
+    promptModes: {
+      transcription: "default",
+      refinement: "default",
+      summaryExtraction: "default",
+      summaryConsolidation: "default",
+    },
     name: localizedName,
     profileId: `${profileType}-profile-1`,
     profileType,
     ...providerSelection,
-  });
-}
-
-export function localizeAiProfileDefaults(
-  profile: AiProfile,
-  dashboardLanguage: "en" | "pt-BR",
-): AiProfile {
-  const summaryPromptLanguage = getSummaryPromptLanguage(profile);
-  return aiProfileSchema.parse({
-    ...profile,
-    refinement: {
-      ...profile.refinement,
-      prompt: localizeDefaultPrompt(
-        profile.refinement.prompt,
-        "refinement",
-        dashboardLanguage,
-        profile.language,
-      ),
-    },
-    summary: {
-      ...profile.summary,
-      consolidationPrompt: localizeDefaultPrompt(
-        profile.summary.consolidationPrompt,
-        "summaryConsolidation",
-        dashboardLanguage,
-        summaryPromptLanguage,
-      ),
-      extractionPrompt: localizeDefaultPrompt(
-        profile.summary.extractionPrompt,
-        "summaryExtraction",
-        dashboardLanguage,
-        summaryPromptLanguage,
-      ),
-    },
-  });
-}
-
-export function canonicalizeAiProfileDefaults(profile: AiProfile): AiProfile {
-  const summaryPromptLanguage = getSummaryPromptLanguage(profile);
-  return aiProfileSchema.parse({
-    ...profile,
-    refinement: {
-      ...profile.refinement,
-      prompt: canonicalizeDefaultPrompt(profile.refinement.prompt, "refinement", profile.language),
-    },
-    summary: {
-      ...profile.summary,
-      consolidationPrompt: canonicalizeDefaultPrompt(
-        profile.summary.consolidationPrompt,
-        "summaryConsolidation",
-        summaryPromptLanguage,
-      ),
-      extractionPrompt: canonicalizeDefaultPrompt(
-        profile.summary.extractionPrompt,
-        "summaryExtraction",
-        summaryPromptLanguage,
-      ),
-    },
   });
 }
 
@@ -336,14 +318,14 @@ export function isAiProfileComplete(profile: AiProfile): boolean {
   );
 }
 
-export function resolveAiProfile(profile: AiProfile) {
+export function resolveAiProfile(input: AiProfile) {
+  const profile = aiProfileSchema.parse(input);
   if (!isAiProfileComplete(profile)) {
     throw new Error("The active AI profile is incomplete");
   }
   const transcription = requireCompletePhase(profile.transcription);
   const refinement = requireCompletePhase(profile.refinement);
   const summary = requireCompletePhase(profile.summary);
-  const summaryPromptLanguage = getSummaryPromptLanguage(profile);
   return {
     language: profile.language,
     profileType: profile.profileType,
@@ -351,20 +333,12 @@ export function resolveAiProfile(profile: AiProfile) {
       generation: refinement.generation,
       maxChunkCharacters: refinement.maxChunkCharacters,
       model: refinement.model,
-      prompt: canonicalizeDefaultPrompt(refinement.prompt, "refinement", profile.language),
+      prompt: refinement.prompt,
       provider: refinement.provider,
     },
     summary: {
-      consolidationPrompt: canonicalizeDefaultPrompt(
-        summary.consolidationPrompt,
-        "summaryConsolidation",
-        summaryPromptLanguage,
-      ),
-      extractionPrompt: canonicalizeDefaultPrompt(
-        summary.extractionPrompt,
-        "summaryExtraction",
-        summaryPromptLanguage,
-      ),
+      consolidationPrompt: summary.consolidationPrompt,
+      extractionPrompt: summary.extractionPrompt,
       generation: summary.generation,
       maxChunkCharacters: summary.maxChunkCharacters,
       model: summary.model,
@@ -389,10 +363,6 @@ export function resolveAiProfile(profile: AiProfile) {
       vad: transcription.vad,
     },
   };
-}
-
-function getSummaryPromptLanguage(profile: AiProfile): ProfileLanguage {
-  return profile.language === "auto" ? profile.transcription.language : profile.language;
 }
 
 function requireCompletePhase<T extends { model: string | null; provider: string | null }>(

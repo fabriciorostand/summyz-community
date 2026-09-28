@@ -27,7 +27,7 @@ const pendingStatuses = [
 describe.skipIf(connectionString === undefined)(
   "contrato real de atualização do PostgreSQL",
   () => {
-    it.each([9, 14])(
+    it.each([9, 14, 15])(
       "preserva calls, jobs, custos e catálogo de áudio ao atualizar da versão %i",
       async (baseline) => {
         const adminPool = new Pool({

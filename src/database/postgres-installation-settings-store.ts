@@ -1,16 +1,10 @@
 import { z } from "zod";
 
-import { dashboardLanguageSchema, dashboardThemeSchema } from "../auth/auth-domain.js";
 import type { SecretBox } from "../security/secret-box.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
 export const installationSecretNameSchema = z.enum(["discord_bot_token", "openrouter_api_key"]);
 export type InstallationSecretName = z.infer<typeof installationSecretNameSchema>;
-
-export const installationPreferencesSchema = z.object({
-  dashboardLanguage: dashboardLanguageSchema,
-  dashboardTheme: dashboardThemeSchema,
-});
 
 export interface InstallationSecretStatus {
   discordBotToken: boolean;
@@ -18,8 +12,6 @@ export interface InstallationSecretStatus {
 }
 
 export interface InstallationSettings {
-  dashboardLanguage: z.infer<typeof dashboardLanguageSchema>;
-  dashboardTheme: z.infer<typeof dashboardThemeSchema>;
   discordApplicationId: string | null;
   secrets: InstallationSecretStatus;
   setupCompleted: boolean;
@@ -27,8 +19,6 @@ export interface InstallationSettings {
 
 const settingsRowSchema = z.object({
   configured_secrets: z.array(installationSecretNameSchema).default([]),
-  dashboard_language: dashboardLanguageSchema,
-  dashboard_theme: dashboardThemeSchema,
   discord_application_id: z.string().nullable(),
   setup_completed_at: z.union([z.string(), z.date()]).nullable(),
 });
@@ -44,8 +34,7 @@ export class PostgresInstallationSettingsStore {
 
   public async getSettings(): Promise<InstallationSettings> {
     const result = await this.#database.query(
-      `SELECT settings.discord_application_id, settings.dashboard_language,
-              settings.dashboard_theme, settings.setup_completed_at,
+      `SELECT settings.discord_application_id, settings.setup_completed_at,
               COALESCE(
                 (SELECT array_agg(secret_name ORDER BY secret_name) FROM installation_secrets),
                 ARRAY[]::text[]
@@ -55,8 +44,6 @@ export class PostgresInstallationSettingsStore {
     const row = settingsRowSchema.parse(result.rows[0]);
     const secretNames = new Set(row.configured_secrets);
     return {
-      dashboardLanguage: row.dashboard_language,
-      dashboardTheme: row.dashboard_theme,
       discordApplicationId: row.discord_application_id,
       secrets: {
         discordBotToken: secretNames.has("discord_bot_token"),
@@ -64,18 +51,6 @@ export class PostgresInstallationSettingsStore {
       },
       setupCompleted: row.setup_completed_at !== null,
     };
-  }
-
-  public async updatePreferences(
-    input: z.input<typeof installationPreferencesSchema>,
-  ): Promise<void> {
-    const preferences = installationPreferencesSchema.parse(input);
-    await this.#database.query(
-      `UPDATE installation_settings
-       SET dashboard_language = $1, dashboard_theme = $2, updated_at = now()
-       WHERE singleton = true`,
-      [preferences.dashboardLanguage, preferences.dashboardTheme],
-    );
   }
 
   public async configureDiscordBot(applicationId: string, token: string): Promise<void> {

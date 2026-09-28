@@ -25,12 +25,7 @@ describe("PostgresDashboardSessionStore", () => {
   it("refreshes only an active session within its absolute lifetime", async () => {
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
       rowCount: 1,
-      rows: [
-        {
-          dashboard_language: "pt-BR",
-          dashboard_theme: "dark",
-        },
-      ],
+      rows: [{ session_id: "session-1" }],
     });
     const store = new PostgresDashboardSessionStore({ query });
 
@@ -40,11 +35,8 @@ describe("PostgresDashboardSessionStore", () => {
         now: "2026-09-09T12:00:00.000Z",
         tokenHash: "hashed-token",
       }),
-    ).resolves.toEqual({
-      dashboardLanguage: "pt-BR",
-      dashboardTheme: "dark",
-    });
-    expect(query.mock.calls[0]?.[0]).toContain("installation_settings");
+    ).resolves.toBe(true);
+    expect(query.mock.calls[0]?.[0]).not.toContain("installation_settings");
     expect(query.mock.calls[0]?.[0]).toContain("absolute_expires_at");
     expect(query.mock.calls[0]?.[0]).not.toContain("discord_connections");
   });

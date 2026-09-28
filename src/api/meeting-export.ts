@@ -1,6 +1,11 @@
 import type { MeetingHistorySummary } from "../analytics/meeting-history-summary.js";
 import type { MeetingHistoryDetail } from "../database/postgres-analytics-store.js";
 import { formatClockDuration } from "../duration-format.js";
+import {
+  type ExportPresentation,
+  exportPresentationSchema,
+  formatExportDate,
+} from "./date-presentation.js";
 
 export class MeetingExportUnavailableError extends Error {
   public constructor() {
@@ -9,7 +14,10 @@ export class MeetingExportUnavailableError extends Error {
   }
 }
 
-export function createMeetingTextExport(meeting: MeetingHistoryDetail, timeZone: string): string {
+export function createMeetingTextExport(
+  meeting: MeetingHistoryDetail,
+  input: ExportPresentation,
+): string {
   if (
     meeting.summary === null ||
     meeting.summary.status !== "completed" ||
@@ -17,12 +25,27 @@ export function createMeetingTextExport(meeting: MeetingHistoryDetail, timeZone:
   ) {
     throw new MeetingExportUnavailableError();
   }
+  const presentation = exportPresentationSchema.parse(input);
   const summary = meeting.summary;
+  const metadata = summary.language.toLowerCase().startsWith("pt")
+    ? {
+        voiceChannel: "Canal de voz",
+        startedAt: "Início",
+        duration: "Duração",
+        timeZone: "Fuso horário",
+      }
+    : {
+        voiceChannel: "Voice channel",
+        startedAt: "Started at",
+        duration: "Duration",
+        timeZone: "Time zone",
+      };
   const labels = summary.labels ?? fallbackLabels(summary.language);
   const lines = [
-    `Voice channel: ${meeting.voiceChannelName ?? "-"}`,
-    `Started at: ${formatStartedAt(meeting.startedAt, summary.language, timeZone)}`,
-    `Duration: ${meeting.durationMs === null ? "-" : formatClockDuration(meeting.durationMs)}`,
+    `${metadata.voiceChannel}: ${meeting.voiceChannelName ?? "-"}`,
+    `${metadata.startedAt}: ${formatExportDate(meeting.startedAt, presentation)}`,
+    `${metadata.timeZone}: ${presentation.timeZone}`,
+    `${metadata.duration}: ${meeting.durationMs === null ? "-" : formatClockDuration(meeting.durationMs)}`,
     `${labels.meetingId}: ${meeting.meetingId}`,
     "",
     labels.summary,
@@ -47,14 +70,6 @@ export function createMeetingTextExport(meeting: MeetingHistoryDetail, timeZone:
     "",
   ];
   return lines.join("\n");
-}
-
-function formatStartedAt(value: string, language: string, timeZone: string): string {
-  return new Intl.DateTimeFormat(language, {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone,
-  }).format(new Date(value));
 }
 
 function formatList(items: readonly string[]): string[] {

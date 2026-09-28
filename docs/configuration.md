@@ -100,13 +100,11 @@ The dashboard displays the editable transcription, refinement, summary extractio
 consolidation prompts. **No prompt** removes only the customization: Summyz always sends an
 immutable base prompt that pins language, structure, evidence, literal-value preservation, and
 security rules. Transcripts and editable prompts are untrusted content. Transcription defaults to
-no editable prompt. The remaining defaults are created in English or Brazilian Portuguese according
-to the installation's dashboard language. The dashboard requests summary prompt defaults for the
-effective summary language: an explicit summary `language`, or `transcription.language` when the
-summary is `auto`. Changing either setting when it changes that effective language adapts unchanged
-summary prompts that still match the previous default; customized text is preserved. The
-**Restore default** action uses the current dashboard language. Effective prompts and models are
-pinned in the meeting manifest and cannot silently change on resume.
+no editable prompt.
+
+Os padrões são armazenados em inglês; a localização da interface pertence ao front. Cada prompt
+usa um modo explícito `default` ou `custom`, sem reconhecimento de padrões por comparação de texto.
+Os prompts efetivos permanecem fixados no manifesto da reunião.
 
 With `transcription.language: auto`, transcription detects speech language and preserves language
 switching; every batch contributes once to the predominant primary language. An explicit
@@ -182,7 +180,9 @@ whose pipeline completed; speaker rankings begin with meetings recorded using ma
 sums word intervals, unions overlaps from the same person, and distributes integer rounding so the
 result totals exactly 100%. Silent attendees remain visible with `0%`.
 
-Dates and filter boundaries use `SUMMARY_TIME_ZONE`. Summary and transcript content is available only
+Datas e filtros do dashboard usam o `timeZone` enviado pelo front.
+
+Summary and transcript content is available only
 when retention was enabled for that meeting. Dashboard cost totals include all confirmed attempts and
 warn when pending or unattributed values remain.
 

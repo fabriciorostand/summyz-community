@@ -7,7 +7,7 @@ import staticFiles from "@fastify/static";
 import Fastify from "fastify";
 import { z } from "zod";
 
-import { aiProfileSchema, localizeAiProfileDefaults } from "../ai-profile.js";
+import { aiProfileSchema } from "../ai-profile.js";
 import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
 import { createCommandReference } from "../discord/command-catalog.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
@@ -148,8 +148,8 @@ export async function createApiServer(
   registerModelRoutes(app, dependencies);
 
   app.get("/api/commands", async (request) => {
-    const access = await authorizeDashboard(request, dependencies);
-    return createCommandReference(access.dashboardLanguage);
+    await authorizeDashboard(request, dependencies);
+    return createCommandReference();
   });
   app.get("/api/guilds", async (request) => {
     await authorizeDashboard(request, dependencies);
@@ -183,7 +183,7 @@ export async function createApiServer(
   });
   registerAnalyticsRoutes(app, dependencies, resolveGuildAccess);
   app.get("/api/guilds/:guildId/configuration", async (request) => {
-    const { access, guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
     const [settings, recordingPermissions, summaryForum, profiles, activeProfile] =
       await runApiDependency("database", "load_guild_configuration", async () => {
         return Promise.all([
@@ -227,7 +227,7 @@ export async function createApiServer(
       activeProfileId,
       profiles: await Promise.all(
         profiles.map(async (profile) => ({
-          ...localizeAiProfileDefaults(profile, access.dashboardLanguage),
+          ...profile,
           availability: (await dependencies.models?.inventory.assess(profile)) ?? {
             status: "unavailable",
             missingModels: [],
@@ -312,7 +312,7 @@ export async function createApiServer(
     return reply.status(204).send();
   });
   app.get("/api/profiles", async (request) => {
-    const access = await authorizeDashboard(request, dependencies);
+    await authorizeDashboard(request, dependencies);
     const [profiles, activeProfileCounts] = await runApiDependency(
       "database",
       "list_ai_profiles",
@@ -327,7 +327,7 @@ export async function createApiServer(
       profiles.map(async (profile) => ({
         active: (activeProfileCounts.get(profile.profileId) ?? 0) > 0,
         activeServerCount: activeProfileCounts.get(profile.profileId) ?? 0,
-        profile: localizeAiProfileDefaults(profile, access.dashboardLanguage),
+        profile,
         availability: (await dependencies.models?.inventory.assess(profile)) ?? {
           status: "unavailable",
           missingModels: [],

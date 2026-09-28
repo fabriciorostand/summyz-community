@@ -2,19 +2,6 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { z } from "zod";
 
-import {
-  type DashboardAccess,
-  dashboardLanguageSchema,
-  dashboardThemeSchema,
-} from "./auth-domain.js";
-
-export const dashboardAccessSchema = z.object({
-  dashboardLanguage: dashboardLanguageSchema,
-  dashboardTheme: dashboardThemeSchema,
-});
-
-export type StoredDashboardAccess = z.infer<typeof dashboardAccessSchema>;
-
 interface DashboardSessionRepository {
   createSession(input: {
     absoluteExpiresAt: string;
@@ -25,7 +12,7 @@ interface DashboardSessionRepository {
     expiresAt: string;
     now: string;
     tokenHash: string;
-  }): Promise<StoredDashboardAccess | undefined>;
+  }): Promise<boolean>;
   revokeSession(tokenHash: string): Promise<void>;
 }
 
@@ -67,15 +54,14 @@ export class DashboardSessionService {
     return token;
   }
 
-  public async authenticate(token: string): Promise<DashboardAccess> {
+  public async authenticate(token: string): Promise<void> {
     const now = this.#now();
-    const identity = await this.#repository.findAndRefreshSession({
+    const active = await this.#repository.findAndRefreshSession({
       expiresAt: new Date(now.getTime() + SESSION_IDLE_DURATION_MS).toISOString(),
       now: now.toISOString(),
       tokenHash: hashToken(token),
     });
-    if (identity === undefined) throw new DashboardSessionError();
-    return dashboardAccessSchema.parse(identity);
+    if (!active) throw new DashboardSessionError();
   }
 
   public async logout(token: string): Promise<void> {

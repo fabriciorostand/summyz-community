@@ -35,9 +35,7 @@ describe.skipIf(connectionString === undefined)("installation access in real Pos
 
       await passwords.initialize("primeira frase secreta segura");
       const firstSession = await sessions.create();
-      await expect(sessions.authenticate(firstSession)).resolves.toMatchObject({
-        dashboardLanguage: "pt-BR",
-      });
+      await expect(sessions.authenticate(firstSession)).resolves.toBeUndefined();
 
       await passwords.change("primeira frase secreta segura", "segunda frase secreta segura");
       await expect(sessions.authenticate(firstSession)).rejects.toBeInstanceOf(

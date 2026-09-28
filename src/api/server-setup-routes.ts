@@ -41,7 +41,7 @@ export function registerSetupRoutes(
       if (dependencies.accessMode === "public") {
         await initializePublicPassword(dependencies, setup.installationPassword ?? "");
       }
-      await createMissingInitialProfiles(dependencies, current.dashboardLanguage);
+      await createMissingInitialProfiles(dependencies, setup.setupLanguage);
       await dependencies.settings.completeSetup();
       if (dependencies.accessMode === "public") {
         setSessionCookie(reply, await dependencies.auth.create());
@@ -80,10 +80,10 @@ async function initializePublicPassword(
 
 async function createMissingInitialProfiles(
   dependencies: ApiServerDependencies,
-  dashboardLanguage: "en" | "pt-BR",
+  setupLanguage: "en" | "pt-BR",
 ): Promise<void> {
   const existingProfiles = await dependencies.aiProfiles.listProfiles();
   if (existingProfiles.length === 0) {
-    await dependencies.aiProfiles.createProfile(createEmptyInitialAiProfile(dashboardLanguage));
+    await dependencies.aiProfiles.createProfile(createEmptyInitialAiProfile(setupLanguage));
   }
 }

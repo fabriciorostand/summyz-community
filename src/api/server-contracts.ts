@@ -2,7 +2,6 @@ import type { Logger } from "pino";
 import { z } from "zod";
 
 import { aiProfileInputSchema, calculateProfileType } from "../ai-profile.js";
-import type { DashboardAccess } from "../auth/auth-domain.js";
 import { installationPasswordSchema } from "../auth/installation-password.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type {
@@ -27,6 +26,7 @@ import type { ModelDownloadManager } from "../models/model-download-manager.js";
 import type { ModelManagement } from "../models/model-management.js";
 
 export const setupSchema = z.object({
+  setupLanguage: z.enum(["en", "pt-BR"]),
   discordBotToken: z.string().min(1),
   installationPassword: installationPasswordSchema.optional(),
 });
@@ -54,7 +54,7 @@ export const profileBodySchema = aiProfileInputSchema
   .transform((profile) => ({ ...profile, profileType: calculateProfileType(profile) }));
 
 export interface ApiAuthService {
-  authenticate(sessionToken: string): Promise<DashboardAccess>;
+  authenticate(sessionToken: string): Promise<void>;
   create(): Promise<string>;
   logout(sessionToken: string): Promise<void>;
 }
@@ -76,10 +76,6 @@ export interface ApiSettingsStore {
   getSettings(): Promise<InstallationSettings>;
   removeSecret(name: InstallationSecretName): Promise<void>;
   setSecret(name: InstallationSecretName, value: string): Promise<void>;
-  updatePreferences(input: {
-    dashboardLanguage: "en" | "pt-BR";
-    dashboardTheme: "system" | "light" | "dark";
-  }): Promise<void>;
 }
 
 export interface InstalledDiscordGuild {
@@ -177,7 +173,6 @@ export interface ApiServerDependencies {
   recovery: ApiRecoveryService;
   settings: ApiSettingsStore;
   setupToken: string;
-  timeZone?: string;
   tasks: {
     list(
       guildId: string,
