@@ -27,6 +27,8 @@ import {
   createGuildAccessResolver,
   getErrorStatusCode,
   getKnownApiError,
+  isLoopbackHost,
+  isTrustedOrigin,
   logApiFailure,
   parseRequestInput,
   runApiDependency,
@@ -104,10 +106,12 @@ export async function createApiServer(
   });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
   app.addHook("onRequest", async (request, reply) => {
+    if (dependencies.accessMode === "local" && !isLoopbackHost(request.headers.host)) {
+      return reply.status(403).send({ error: "invalid_host" });
+    }
     if (
-      dependencies.accessMode === "public" &&
       !["GET", "HEAD", "OPTIONS"].includes(request.method) &&
-      request.headers.origin !== dependencies.publicBaseUrl
+      !isTrustedOrigin(request.headers.origin, dependencies)
     ) {
       return reply.status(403).send({ error: "invalid_origin" });
     }

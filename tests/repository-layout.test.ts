@@ -19,7 +19,6 @@ describe("repository layout", () => {
       "docs/pt-BR/operations.md",
       "docs/pt-BR/reference/bot-commands.md",
       "docs/pt-BR/release-checklist.md",
-      "docs/pt-BR/legal/revisao-juridica-1.0.md",
       "requirements/ci.in",
       "requirements/ci.lock",
     ];
@@ -31,7 +30,6 @@ describe("repository layout", () => {
       "requirements-ci.lock",
       "docs/installation.pt-BR.md",
       "docs/release-checklist.pt-BR.md",
-      "docs/revisao-juridica-1.0.md",
       "docs/pt-BR/BOT_COMMANDS.md",
     ];
 
@@ -105,5 +103,15 @@ describe("repository layout", () => {
     expect(localVitest).toContain('reportsDirectory: "artifacts/coverage/server"');
     expect(ciVitest).toContain('reportsDirectory: "artifacts/reports/server/coverage"');
     expect(webVitest).toContain('reportsDirectory: "../artifacts/reports/web/coverage"');
+  });
+
+  it("keeps every local environment file out of Git except the example", async () => {
+    const gitignore = await readFile(new URL(".gitignore", root), "utf8");
+    const lines = gitignore.split(/\r?\n/u).map((line) => line.trim());
+
+    expect(lines).toContain(".env");
+    expect(lines).toContain(".env.*");
+    expect(lines).toContain("!.env.example");
+    expect(lines.indexOf("!.env.example")).toBeGreaterThan(lines.indexOf(".env.*"));
   });
 });

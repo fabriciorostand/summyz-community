@@ -397,17 +397,17 @@ describe("dashboard API client", () => {
       "fetch",
       vi.fn<typeof fetch>().mockResolvedValue(
         Response.json({
-          applicationId: "1289443021764919306",
+          applicationId: "123456789012345678",
           configured: true,
-          installUrl: "https://discord.com/oauth2/authorize?client_id=1289443021764919306",
+          installUrl: "https://discord.com/oauth2/authorize?client_id=123456789012345678",
         }),
       ),
     );
 
     await expect(api.getBotInstallation()).resolves.toEqual({
-      applicationId: "1289443021764919306",
+      applicationId: "123456789012345678",
       configured: true,
-      installUrl: "https://discord.com/oauth2/authorize?client_id=1289443021764919306",
+      installUrl: "https://discord.com/oauth2/authorize?client_id=123456789012345678",
     });
   });
 

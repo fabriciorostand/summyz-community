@@ -9,11 +9,11 @@ import { ServersPage } from "./servers-page";
 
 vi.mock("../lib/api", () => ({ api: { getBotInstallation: vi.fn() } }));
 
-const installUrl = "https://discord.com/oauth2/authorize?client_id=1289443021764919306";
+const installUrl = "https://discord.com/oauth2/authorize?client_id=123456789012345678";
 
 beforeEach(() => {
   vi.mocked(api.getBotInstallation).mockResolvedValue({
-    applicationId: "1289443021764919306",
+    applicationId: "123456789012345678",
     configured: true,
     installUrl,
   });

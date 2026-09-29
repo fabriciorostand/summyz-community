@@ -19,7 +19,7 @@ import type {
 export function aSettings(overrides: Partial<DashboardSettings> = {}): DashboardSettings {
   return {
     accessMode: "local",
-    discordApplicationId: "1289443021764919306",
+    discordApplicationId: "123456789012345678",
     secrets: { discordBotToken: true, openRouterApiKey: true },
     ...overrides,
   };
