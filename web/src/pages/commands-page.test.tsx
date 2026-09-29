@@ -1,67 +1,46 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { useState } from "react";
-import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setLanguage } from "../i18n/store";
 import { api, type CommandReference } from "../lib/api";
-import { aSettings, dashboardContext, renderScreen } from "../tests/test-utils";
+import { renderScreen } from "../tests/test-utils";
 import { CommandsPage } from "./commands-page";
 
 vi.mock("../lib/api", () => ({ api: { listCommands: vi.fn() } }));
 
+/** The API always answers in English and names each group with a stable id. */
 const reference: CommandReference = [
   {
     commands: [
-      { description: "Inicia a gravação do canal de voz em que você está", name: "/record" },
-      { description: "Encerra a gravação do canal de voz em que você está", name: "/stop" },
+      { description: "Starts recording the voice channel you are in", name: "/record" },
+      { description: "Stops recording the voice channel you are in", name: "/stop" },
     ],
-    label: "Gravação",
+    id: "recording",
+    label: "Recording",
   },
   {
     commands: [
       {
-        description: "Define o fórum de resumos e transcrições",
+        description: "Sets the summary and transcript forum",
         name: "/recording-summary-forum set",
       },
-      {
-        description: "Autoriza um cargo a iniciar e encerrar gravações",
-        name: "/recording-role add",
-      },
+      { description: "Allows a role to start and stop recordings", name: "/recording-role add" },
     ],
-    label: "Atalhos administrativos",
+    id: "administrative",
+    label: "Administrative shortcuts",
   },
   {
     commands: [
       {
-        description: "Mostra os custos das reuniões iniciadas em um período",
+        description: "Shows costs for meetings started in a period",
         name: "/recording-cost period",
       },
     ],
-    label: "Custo — só para o dono do servidor",
+    id: "cost",
+    label: "Cost — server owner only",
   },
 ];
-
-/** Mirrors the layout: the outlet context changes when the operator switches the language. */
-function LanguageSwitchingHost() {
-  const [dashboardLanguage, setDashboardLanguage] = useState<"en" | "pt-BR">("pt-BR");
-  return (
-    <MemoryRouter>
-      <button onClick={() => setDashboardLanguage("en")} type="button">
-        English
-      </button>
-      <Routes>
-        <Route
-          element={
-            <Outlet context={dashboardContext({ settings: aSettings({ dashboardLanguage }) })} />
-          }
-        >
-          <Route element={<CommandsPage />} path="/" />
-        </Route>
-      </Routes>
-    </MemoryRouter>
-  );
-}
 
 beforeEach(() => {
   vi.mocked(api.listCommands).mockResolvedValue(reference);
@@ -72,7 +51,7 @@ afterEach(() => {
 });
 
 describe("CommandsPage", () => {
-  it("groups the commands the bot registers", async () => {
+  it("groups the commands the bot registers, named in the dashboard language", async () => {
     renderScreen(<CommandsPage />);
     expect(screen.getByRole("banner")).not.toHaveTextContent("Registrados pelo bot no Discord");
     expect(await screen.findByText("Gravação")).toBeInTheDocument();
@@ -80,7 +59,7 @@ describe("CommandsPage", () => {
     expect(screen.getByText("Custo — só para o dono do servidor")).toBeInTheDocument();
   });
 
-  it("lists every command the API returns with its description", async () => {
+  it("lists every command the API returns with a translated description", async () => {
     renderScreen(<CommandsPage />);
     expect(await screen.findByText("/record")).toBeInTheDocument();
     expect(
@@ -89,6 +68,39 @@ describe("CommandsPage", () => {
     expect(screen.getByText("/recording-summary-forum set")).toBeInTheDocument();
     expect(screen.getByText("/recording-cost period")).toBeInTheDocument();
     expect(screen.queryByText("/record start")).toBeNull();
+  });
+
+  it("keeps the English text of commands and groups the dashboard does not know yet", async () => {
+    vi.mocked(api.listCommands).mockResolvedValue([
+      {
+        commands: [{ description: "Exports the meeting audio", name: "/recording-audio" }],
+        id: "audio",
+        label: "Audio",
+      },
+    ]);
+    renderScreen(<CommandsPage />);
+    expect(await screen.findByText("Exports the meeting audio")).toBeInTheDocument();
+    expect(screen.getByText("Audio")).toBeInTheDocument();
+  });
+
+  it("shows the API text as it is when the dashboard is in English", async () => {
+    setLanguage("en");
+    renderScreen(<CommandsPage />);
+    expect(
+      await screen.findByText("Starts recording the voice channel you are in"),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Recording")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Commands" })).toBeInTheDocument();
+  });
+
+  it("switches language without asking the API again", async () => {
+    renderScreen(<CommandsPage />);
+    expect(await screen.findByText("Gravação")).toBeInTheDocument();
+
+    act(() => setLanguage("en"));
+
+    expect(screen.getByText("Recording")).toBeInTheDocument();
+    expect(api.listCommands).toHaveBeenCalledTimes(1);
   });
 
   it("shows a loading panel until the reference arrives", () => {
@@ -109,16 +121,6 @@ describe("CommandsPage", () => {
     expect(await screen.findByText("/record")).toBeInTheDocument();
     expect(screen.queryByRole("alert")).toBeNull();
     expect(api.listCommands).toHaveBeenCalledTimes(2);
-  });
-
-  it("reloads the reference when the dashboard language changes", async () => {
-    render(<LanguageSwitchingHost />);
-    expect(await screen.findByText("/record")).toBeInTheDocument();
-    expect(api.listCommands).toHaveBeenCalledTimes(1);
-
-    await userEvent.click(screen.getByRole("button", { name: "English" }));
-    await waitFor(() => expect(api.listCommands).toHaveBeenCalledTimes(2));
-    expect(await screen.findByText("/record")).toBeInTheDocument();
   });
 
   it("is a plain reference without a second column", async () => {

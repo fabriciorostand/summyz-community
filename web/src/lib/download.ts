@@ -18,12 +18,16 @@ export function downloadTextFile(fileName: string, contents: string): void {
  * Decomposing to NFD and dropping the combining marks keeps accented names readable
  * once every non-alphanumeric run collapses into a single hyphen.
  */
-export function meetingFileName(voiceChannelName: string | null, meetingId: string): string {
+export function meetingFileName(
+  voiceChannelName: string | null,
+  meetingId: string,
+  fallback: string,
+): string {
   const base = (voiceChannelName ?? meetingId)
     .normalize("NFD")
     .replaceAll(/\p{Diacritic}/gu, "")
     .replaceAll(/[^a-zA-Z0-9]+/gu, "-")
     .replaceAll(/^-+|-+$/gu, "")
     .toLowerCase();
-  return `${base.length === 0 ? "reuniao" : base}.txt`;
+  return `${base.length === 0 ? fallback : base}.txt`;
 }

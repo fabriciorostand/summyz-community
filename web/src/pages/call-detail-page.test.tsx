@@ -2,7 +2,9 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setDateFormat, setLanguage, setTimeFormat } from "../i18n/store";
 import { api } from "../lib/api";
+import { meetingFileName } from "../lib/download";
 import { aMeetingDetail, dashboardContext, renderScreen } from "../tests/test-utils";
 import { CallDetailPage } from "./call-detail-page";
 
@@ -12,7 +14,7 @@ vi.mock("../lib/api", () => ({
 
 vi.mock("../lib/download", () => ({
   downloadTextFile: vi.fn(),
-  meetingFileName: () => "launch-week-sync.txt",
+  meetingFileName: vi.fn(() => "launch-week-sync.txt"),
 }));
 
 const getMeeting = vi.mocked(api.getMeeting);
@@ -87,6 +89,81 @@ describe("CallDetailPage", () => {
     expect(screen.getByText("não")).toBeInTheDocument();
   });
 
+  it("asks for the meeting in the browser time zone", async () => {
+    renderDetail();
+    await screen.findByText("Padrão OpenRouter");
+    expect(getMeeting).toHaveBeenCalledWith("g1", "m1", "America/Sao_Paulo");
+  });
+
+  it("shows the full start date with the year in the chosen formats", async () => {
+    renderDetail();
+    expect(await screen.findByText("04/09/2026 14:02")).toBeInTheDocument();
+  });
+
+  it("follows an explicit date and time format on the start date", async () => {
+    setDateFormat("YYYY-MM-DD");
+    setTimeFormat("12h");
+    renderDetail();
+    expect(await screen.findByText("2026-09-04 2:02 PM")).toBeInTheDocument();
+  });
+
+  it("reads in English, keeping the summary content untouched", async () => {
+    setLanguage("en");
+    renderDetail();
+    expect(await screen.findByText("Fact sheet")).toBeInTheDocument();
+    expect(screen.getByText("USD 0.412907")).toBeInTheDocument();
+    expect(screen.getByText("Completed")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Export/ })).toBeInTheDocument();
+    expect(
+      screen.getByText("A Pixelforge trava a data de lançamento na sexta."),
+    ).toBeInTheDocument();
+  });
+
+  it("titles the summary sections in the summary language when the summary has no labels", async () => {
+    setLanguage("en");
+    renderDetail();
+    expect(await screen.findByText("Resumo executivo")).toBeInTheDocument();
+    expect(screen.getByText("Decisões")).toBeInTheDocument();
+    expect(screen.getByText("Tarefas por responsável")).toBeInTheDocument();
+  });
+
+  it("uses English section titles for a summary written in another language", async () => {
+    const meeting = aMeetingDetail();
+    if (meeting.summary?.status !== "completed") throw new Error("fixture must be completed");
+    getMeeting.mockResolvedValue({ ...meeting, summary: { ...meeting.summary, language: "es" } });
+    renderDetail();
+    expect(await screen.findByText("Executive summary")).toBeInTheDocument();
+    expect(screen.getByText("Decisions")).toBeInTheDocument();
+    expect(screen.getByText("Open issues and notes")).toBeInTheDocument();
+  });
+
+  it("keeps the section titles the summary brought with it", async () => {
+    const meeting = aMeetingDetail();
+    if (meeting.summary?.status !== "completed") throw new Error("fixture must be completed");
+    getMeeting.mockResolvedValue({
+      ...meeting,
+      summary: {
+        ...meeting.summary,
+        labels: {
+          assignee: "Responsable",
+          deadline: "Plazo",
+          decisions: "Decisiones",
+          discussedTopics: "Temas tratados",
+          executiveSummary: "Resumen ejecutivo",
+          fullTranscript: "Transcripción completa",
+          meetingId: "ID de la reunión",
+          observations: "Pendientes",
+          summary: "Resumen",
+          tasks: "Tareas",
+          transcript: "Transcripción",
+        },
+      },
+    });
+    renderDetail();
+    expect(await screen.findByText("Resumen ejecutivo")).toBeInTheDocument();
+    expect(screen.getByText("Decisiones")).toBeInTheDocument();
+  });
+
   it("links to the published Discord post", async () => {
     renderDetail();
     expect(await screen.findByRole("link", { name: /Abrir no Discord/ })).toHaveAttribute(
@@ -99,8 +176,31 @@ describe("CallDetailPage", () => {
     const { downloadTextFile } = await import("../lib/download");
     renderDetail();
     await userEvent.click(await screen.findByRole("button", { name: /Exportar/ }));
-    await waitFor(() => expect(api.getMeetingExport).toHaveBeenCalledWith("g1", "m1"));
+    await waitFor(() =>
+      expect(api.getMeetingExport).toHaveBeenCalledWith("g1", "m1", {
+        dateFormat: "DD/MM/YYYY",
+        timeFormat: "24h",
+        timeZone: "America/Sao_Paulo",
+      }),
+    );
     expect(downloadTextFile).toHaveBeenCalledWith("launch-week-sync.txt", "conteúdo exportado");
+    expect(meetingFileName).toHaveBeenCalledWith("Launch Week Sync", "m1", "reuniao");
+  });
+
+  it("exports in the formats chosen in this browser", async () => {
+    setLanguage("en");
+    setDateFormat("MM/DD/YYYY");
+    setTimeFormat("12h");
+    renderDetail();
+    await userEvent.click(await screen.findByRole("button", { name: /Export/ }));
+    await waitFor(() =>
+      expect(api.getMeetingExport).toHaveBeenCalledWith("g1", "m1", {
+        dateFormat: "MM/DD/YYYY",
+        timeFormat: "12h",
+        timeZone: "America/Sao_Paulo",
+      }),
+    );
+    expect(meetingFileName).toHaveBeenCalledWith("Launch Week Sync", "m1", "meeting");
   });
 
   it("reports an export failure on the button", async () => {

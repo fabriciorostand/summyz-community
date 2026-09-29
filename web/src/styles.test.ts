@@ -40,6 +40,12 @@ describe("action palette", () => {
     expect(styles).not.toMatch(/--color-action-hover:/);
   });
 
+  it("paints the navigation progress bar with the logo gradient", () => {
+    expect(styles).toMatch(
+      /html \.bprogress \.bar \{\s*background: linear-gradient\(120deg, var\(--color-action-from\), var\(--color-action-to\)\);/,
+    );
+  });
+
   it("paints primary actions with the gradient and darkens its stops on hover", () => {
     expect(utility("bg-action-gradient")).toContain(
       "@apply bg-linear-120 from-action-from to-action-to;",

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { useCallback, useState } from "react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import { setLanguage } from "../i18n/store";
 import { ApiError, api, type DashboardSettings, type InstallationHealth } from "../lib/api";
 import { aSettings, dashboardContext, renderScreen } from "../tests/test-utils";
 import { InstallationPage } from "./installation-page";
@@ -98,6 +98,24 @@ afterEach(() => {
 });
 
 describe("InstallationPage", () => {
+  it("reads in English, component health included", async () => {
+    setLanguage("en");
+    renderScreen(<InstallationPage />, {
+      context: dashboardContext({ settings: aSettings({ accessMode: "public" }) }),
+    });
+    expect(screen.getByRole("heading", { level: 1, name: "Installation" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Bot token")).toHaveAttribute(
+      "placeholder",
+      "Configured — type to replace",
+    );
+    expect(screen.getByRole("region", { name: "Dashboard access" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
+    expect(await screen.findByText("Bot authenticated on Discord")).toBeInTheDocument();
+    expect(screen.getByText("FFmpeg with libopus")).toBeInTheDocument();
+    expect(screen.getByText("no recent heartbeat")).toBeInTheDocument();
+    expect(screen.getByText("0 queued · 0 failed")).toBeInTheDocument();
+  });
+
   it("omits the requested installation guidance", () => {
     renderScreen(<InstallationPage />);
     expect(screen.getByRole("banner")).not.toHaveTextContent("Cada bloco salva separadamente");

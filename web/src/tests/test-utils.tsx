@@ -19,8 +19,6 @@ import type {
 export function aSettings(overrides: Partial<DashboardSettings> = {}): DashboardSettings {
   return {
     accessMode: "local",
-    dashboardLanguage: "pt-BR",
-    dashboardTheme: "dark",
     discordApplicationId: "1289443021764919306",
     secrets: { discordBotToken: true, openRouterApiKey: true },
     ...overrides,
@@ -206,6 +204,13 @@ export function aTask(overrides: Partial<DashboardTask> = {}): DashboardTask {
 export function aProfile(overrides: Partial<Profile> = {}): Profile {
   return {
     language: "pt-BR",
+    // A null editable prompt means "not sent", which the API stores as a custom choice.
+    promptModes: {
+      refinement: "custom",
+      summaryConsolidation: "custom",
+      summaryExtraction: "custom",
+      transcription: "default",
+    },
     name: "Padrão OpenRouter",
     profileId: "p1",
     profileType: "external",
@@ -308,7 +313,7 @@ export function dashboardContext(overrides: Partial<DashboardContext> = {}): Das
     reloadDashboard: () => undefined,
     reloadSettings: () => Promise.resolve(),
     setPeriod: () => undefined,
-    setPreferences: () => undefined,
+    setTheme: () => undefined,
     settings: aSettings(),
     theme: "dark",
     ...overrides,

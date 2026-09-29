@@ -1,6 +1,7 @@
 import { useEffect, useId, useRef } from "react";
 
 import { Button } from "../../components/ui";
+import { useI18n } from "../../i18n/store";
 
 /**
  * Asks before unsaved edits are thrown away. The native modal dialog traps focus, closes on
@@ -17,6 +18,7 @@ export function DiscardDialog({
   onKeep: () => void;
   open: boolean;
 }) {
+  const { discardDialog } = useI18n().t;
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
 
@@ -40,17 +42,17 @@ export function DiscardDialog({
       {open && (
         <div className="flex flex-col gap-3">
           <h2 className="m-0 text-[15px] font-semibold" id={titleId}>
-            Descartar alterações?
+            {discardDialog.title}
           </h2>
           <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
-            As alterações em “{name}” ainda não foram salvas e serão perdidas.
+            {discardDialog.body(name)}
           </p>
           <div className="mt-1 flex flex-wrap justify-end gap-2">
             <Button autoFocus onClick={onKeep} type="button" variant="secondary">
-              Continuar editando
+              {discardDialog.keepEditing}
             </Button>
             <Button onClick={onDiscard} type="button" variant="danger">
-              Descartar alterações
+              {discardDialog.discard}
             </Button>
           </div>
         </div>

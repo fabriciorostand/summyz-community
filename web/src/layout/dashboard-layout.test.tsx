@@ -13,7 +13,6 @@ vi.mock("../lib/api", () => ({
     getDashboard: vi.fn(),
     getSettings: vi.fn(),
     listGuilds: vi.fn(),
-    updatePreferences: vi.fn(),
   },
 }));
 
@@ -75,7 +74,6 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.listGuilds).mockResolvedValue([aGuild()]);
   vi.mocked(api.getDashboard).mockResolvedValue(aDashboard());
-  vi.mocked(api.updatePreferences).mockResolvedValue(undefined);
 });
 
 afterEach(() => {
@@ -112,6 +110,13 @@ describe("DashboardLayout", () => {
     expect(screen.getByTestId("mode")).toHaveTextContent("local");
   });
 
+  it("asks for the metrics in the browser time zone", async () => {
+    renderLayout();
+    await waitFor(() =>
+      expect(api.getDashboard).toHaveBeenCalledWith("g1", "30d", "America/Sao_Paulo"),
+    );
+  });
+
   it("feeds the sidebar counters", async () => {
     renderLayout();
     const calls = await screen.findByRole("link", { name: /Calls/ });
@@ -119,12 +124,13 @@ describe("DashboardLayout", () => {
     expect(screen.getByRole("link", { name: /Tarefas/ })).toHaveTextContent("7");
   });
 
-  it("persists a theme change through the installation preferences", async () => {
+  it("remembers a theme change in this browser", async () => {
+    localStorage.setItem("summyz:theme", "dark");
     renderLayout();
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
     await userEvent.click(screen.getByRole("button", { name: /tema/i }));
-    await waitFor(() => expect(api.updatePreferences).toHaveBeenCalledWith("pt-BR", "light"));
     expect(document.documentElement.dataset.theme).toBe("light");
+    expect(localStorage.getItem("summyz:theme")).toBe("light");
   });
 
   it("outlines the initials of a server without an icon, closed and in the list", async () => {
@@ -143,11 +149,14 @@ describe("DashboardLayout", () => {
     expect(screen.getByRole("button", { name: /tema/i })).toHaveClass("size-[34px]");
   });
 
-  it("persists a language change", async () => {
+  it("switches the whole dashboard to the chosen language and remembers it here", async () => {
     renderLayout();
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
     await chooseOption("Idioma do dashboard", "English");
-    await waitFor(() => expect(api.updatePreferences).toHaveBeenCalledWith("en", "dark"));
+    expect(screen.getByRole("link", { name: "Preferences" })).toBeInTheDocument();
+    expect(screen.getByRole("combobox", { name: "Dashboard language" })).toHaveTextContent("EN");
+    expect(localStorage.getItem("summyz:language")).toBe("en");
+    expect(document.documentElement.lang).toBe("en");
   });
 
   it("skips the dashboard request when the bot is in no server", async () => {

@@ -40,18 +40,21 @@ describe("downloadTextFile", () => {
 
 describe("meetingFileName", () => {
   it("slugifies the channel name", () => {
-    expect(meetingFileName("#launch-week", "mtg_1")).toBe("launch-week.txt");
+    expect(meetingFileName("#launch-week", "mtg_1", "reuniao")).toBe("launch-week.txt");
   });
 
   it("strips accents and collapses separators", () => {
-    expect(meetingFileName("Arte — revisão de HUD", "mtg_1")).toBe("arte-revisao-de-hud.txt");
+    expect(meetingFileName("Arte — revisão de HUD", "mtg_1", "reuniao")).toBe(
+      "arte-revisao-de-hud.txt",
+    );
   });
 
   it("falls back to the meeting id when the channel name is unknown", () => {
-    expect(meetingFileName(null, "mtg_01J7XQ")).toBe("mtg-01j7xq.txt");
+    expect(meetingFileName(null, "mtg_01J7XQ", "reuniao")).toBe("mtg-01j7xq.txt");
   });
 
-  it("falls back to a generic name when nothing survives the slug", () => {
-    expect(meetingFileName("###", "mtg_1")).toBe("reuniao.txt");
+  it("falls back to the generic name of the dashboard language when nothing survives", () => {
+    expect(meetingFileName("###", "mtg_1", "reuniao")).toBe("reuniao.txt");
+    expect(meetingFileName("###", "mtg_1", "meeting")).toBe("meeting.txt");
   });
 });

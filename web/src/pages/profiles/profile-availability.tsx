@@ -4,6 +4,7 @@ import { useState } from "react";
 import { Button, FormError } from "../../components/ui";
 import { useModelCatalog } from "../../hooks/use-model-catalog";
 import { isDownloadActive, type ModelDownloads } from "../../hooks/use-model-downloads";
+import { type I18nSnapshot, useI18n } from "../../i18n/store";
 import {
   ApiError,
   type ModelDownload,
@@ -11,7 +12,7 @@ import {
   type ProfileAvailability,
 } from "../../lib/api";
 import { downloadProgress } from "./model-labels";
-import { type Stage, stageTitles } from "./profile-stages";
+import type { Stage } from "./profile-stages";
 
 type MissingModel = ProfileAvailability["missingModels"][number];
 
@@ -42,9 +43,11 @@ export function useMissingModels(profile: Profile): MissingModel[] {
   return missing.filter((entry): entry is MissingModel => entry !== undefined);
 }
 
-export function missingSummary(missing: readonly MissingModel[]): string {
-  return new Intl.ListFormat("pt-BR").format(
-    missing.map((entry) => `${entry.model} (${stageTitles[entry.phase]})`),
+type Copy = Pick<I18nSnapshot, "format" | "t">;
+
+export function missingSummary(missing: readonly MissingModel[], { format, t }: Copy): string {
+  return format.list(
+    missing.map((entry) => t.availability.missingEntry(entry.model, t.stages.titles[entry.phase])),
   );
 }
 
@@ -52,12 +55,13 @@ export function missingSummary(missing: readonly MissingModel[]): string {
 export function availabilityLine(
   availability: ProfileAvailability,
   jobFor: (provider: ModelDownload["provider"], model: string) => ModelDownload | undefined,
+  { format, t }: Copy,
 ): { text: string; tone: "warn" | "muted" } | null {
   if (availability.status === "incomplete") {
-    return { text: "Incompleto: escolha a execução e o modelo das etapas", tone: "warn" };
+    return { text: t.availability.incompleteLine, tone: "warn" };
   }
   if (availability.status === "unavailable") {
-    return { text: "Não foi possível verificar os modelos locais", tone: "muted" };
+    return { text: t.availability.unavailableLine, tone: "muted" };
   }
   if (availability.status !== "missing_models") return null;
   const busy = availability.missingModels.find((entry) => {
@@ -70,31 +74,25 @@ export function availabilityLine(
       job?.totalBytes == null || job.totalBytes === 0
         ? ""
         : ` · ${String(Math.floor((job.completedBytes / job.totalBytes) * 100))}%`;
-    return { text: `Baixando ${busy.model}${percent}`, tone: "muted" };
+    return { text: `${t.availability.downloading(busy.model)}${percent}`, tone: "muted" };
   }
-  const models = new Intl.ListFormat("pt-BR").format([
-    ...new Set(availability.missingModels.map((entry) => entry.model)),
-  ]);
-  return { text: `Indisponível: falta instalar ${models}`, tone: "warn" };
+  const models = format.list([...new Set(availability.missingModels.map((entry) => entry.model))]);
+  return { text: t.availability.missingLine(models), tone: "warn" };
 }
 
-const downloadMessages: Record<string, string> = {
-  download_queue_full:
-    "A fila de downloads está cheia. Aguarde um download terminar e tente de novo.",
-  model_lifecycle_busy: "Outra operação de modelos está em andamento. Tente de novo em instantes.",
-};
-
 function MissingRow({ downloads, entry }: { downloads: ModelDownloads; entry: MissingModel }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [error, setError] = useState<string | null>(null);
   const job = downloads.jobFor(entry.provider, entry.model);
-  const progress = job !== undefined && isDownloadActive(job) ? downloadProgress(job) : null;
+  const progress = job !== undefined && isDownloadActive(job) ? downloadProgress(job, i18n) : null;
   return (
     <li className="flex flex-col gap-1.5">
       <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
         <code className="font-mono text-[11.5px] text-ink">{entry.model}</code>
         <span className="text-[11.5px] text-ink-muted">
-          {stageTitles[entry.phase]}
-          {job?.status === "failed" ? " · o download falhou" : ""}
+          {t.stages.titles[entry.phase]}
+          {job?.status === "failed" ? t.availability.downloadFailedSuffix : ""}
         </span>
         <span className="ml-auto flex items-center gap-2">
           {progress !== null && job !== undefined ? (
@@ -102,25 +100,23 @@ function MissingRow({ downloads, entry }: { downloads: ModelDownloads; entry: Mi
               <span className="text-[11px] text-ink-muted">{progress.label}</span>
               {job.status !== "cancelling" && (
                 <Button
-                  aria-label={`Cancelar download de ${entry.model}`}
+                  aria-label={t.availability.cancelDownloadOf(entry.model)}
                   className="px-2 py-1 text-[11.5px]"
                   onClick={() => {
                     void downloads
                       .cancel(job.downloadId)
-                      .catch(() =>
-                        setError("Não foi possível cancelar o download. Tente de novo."),
-                      );
+                      .catch(() => setError(t.availability.cancelFailed));
                   }}
                   type="button"
                   variant="ghost"
                 >
-                  Cancelar
+                  {t.common.cancel}
                 </Button>
               )}
             </>
           ) : (
             <Button
-              aria-label={`Baixar ${entry.model}`}
+              aria-label={t.availability.downloadOf(entry.model)}
               className="px-2.5 py-1 text-[11.5px]"
               onClick={() => {
                 setError(null);
@@ -128,15 +124,15 @@ function MissingRow({ downloads, entry }: { downloads: ModelDownloads; entry: Mi
                   .start(entry.phase, entry.provider, entry.model)
                   .catch((reason: unknown) =>
                     setError(
-                      (reason instanceof ApiError ? downloadMessages[reason.code] : undefined) ??
-                        "Não foi possível iniciar o download. Tente de novo.",
+                      (reason instanceof ApiError ? t.modelOperations[reason.code] : undefined) ??
+                        t.availability.startFailed,
                     ),
                   );
               }}
               type="button"
               variant="secondary"
             >
-              {job?.status === "failed" ? "Tentar de novo" : "Baixar agora"}
+              {job?.status === "failed" ? t.common.tryAgain : t.availability.downloadNow}
             </Button>
           )}
         </span>
@@ -146,37 +142,26 @@ function MissingRow({ downloads, entry }: { downloads: ModelDownloads; entry: Mi
   );
 }
 
-function serversWithoutRecording(activeServerCount: number): string {
-  if (activeServerCount === 0) return "";
-  return activeServerCount === 1
-    ? " O servidor que usa este perfil está sem gravação até lá."
-    : ` Os ${String(activeServerCount)} servidores que usam este perfil estão sem gravação até lá.`;
-}
-
 function bannerCopy(
   activeServerCount: number,
   availability: ProfileAvailability,
   changed: boolean,
   missing: readonly MissingModel[],
+  i18n: Copy,
 ): { body: string; title: string } | null {
+  const { availability: copy } = i18n.t;
   if (!changed && availability.status === "incomplete") {
-    return {
-      body: "Escolha a execução e o modelo de cada etapa e salve. Até lá, o bot não grava com ele.",
-      title: "Este perfil ainda não está completo.",
-    };
+    return { body: copy.bannerIncompleteBody, title: copy.bannerIncompleteTitle };
   }
   if (!changed && availability.status === "unavailable") {
-    return {
-      body: "O serviço de modelos desta instalação não respondeu. A gravação pode ser recusada.",
-      title: "Não foi possível verificar os modelos locais deste perfil.",
-    };
+    return { body: copy.bannerUnavailableBody, title: copy.bannerUnavailableTitle };
   }
   if (missing.length === 0) return null;
+  const servers =
+    changed || activeServerCount === 0 ? "" : copy.serversWithoutRecording(activeServerCount);
   return {
-    body: `Falta instalar ${missingSummary(missing)}. O bot recusa gravações com este perfil enquanto isso.${changed ? "" : serversWithoutRecording(activeServerCount)}`,
-    title: changed
-      ? "Com estas alterações, este perfil não vai gravar até terminar o download."
-      : "Este perfil ainda não pode gravar.",
+    body: `${copy.bannerMissingBody(missingSummary(missing, i18n))}${servers}`,
+    title: changed ? copy.bannerMissingTitleChanged : copy.bannerMissingTitle,
   };
 }
 
@@ -195,8 +180,9 @@ export function AvailabilityBanner({
   downloads: ModelDownloads;
   draftMissing: readonly MissingModel[];
 }) {
+  const i18n = useI18n();
   const missing = changed ? draftMissing : availability.missingModels;
-  const copy = bannerCopy(activeServerCount, availability, changed, missing);
+  const copy = bannerCopy(activeServerCount, availability, changed, missing, i18n);
   if (copy === null) return null;
   const { body, title } = copy;
   return (

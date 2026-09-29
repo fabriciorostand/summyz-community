@@ -10,15 +10,16 @@ import {
 } from "../components/states";
 import { Avatar, Button, Card, DiscordIcon } from "../components/ui";
 import { useBotInstallation } from "../hooks/use-bot-installation";
+import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import type { Guild } from "../lib/api";
-import { formatInteger } from "../lib/format";
 import { Screen } from "./screen";
 
 /** The bot decides which servers show up here: whatever it is in, nothing else. */
 export function ServersPage() {
   const { guilds } = useDashboard();
+  const { t } = useI18n();
   const { installUrl } = useBotInstallation();
   const list = guilds.guilds;
   return (
@@ -27,10 +28,10 @@ export function ServersPage() {
         actions={
           <Button onClick={guilds.reload} size="toolbar" type="button" variant="secondary">
             <RefreshCw className="size-3.5" />
-            Atualizar lista
+            {t.servers.refresh}
           </Button>
         }
-        title="Servidores"
+        title={t.servers.title}
         wrappedActionsAlign="start"
       />
       <Screen>
@@ -40,23 +41,22 @@ export function ServersPage() {
             onRetry={guilds.reload}
             secondaryAction={
               <Link className={secondaryLinkClass} to="/installation">
-                Ver instalação
+                {t.servers.viewInstallation}
               </Link>
             }
-            title="Servidores indisponíveis"
+            title={t.servers.unavailableTitle}
           >
-            O bot não conseguiu listar os servidores em que está. Confira o token em Instalação e
-            tente novamente.
+            {t.servers.unavailableBody}
           </ErrorState>
         ) : list === undefined ? (
-          <LoadingPanel label="Carregando servidores…" />
+          <LoadingPanel label={t.servers.loading} />
         ) : list.length === 0 ? (
           <NoServerState installUrl={installUrl} />
         ) : (
           <>
             <div>
               <InstallBotLink installUrl={installUrl} variant="secondary">
-                Adicionar o bot ao Discord
+                {t.servers.addToDiscord}
               </InstallBotLink>
             </div>
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
@@ -73,6 +73,7 @@ export function ServersPage() {
 }
 
 function GuildCard({ guild }: { guild: Guild }) {
+  const { format, t } = useI18n();
   const configured = guild.activeProfile != null && guild.summaryForum != null;
   return (
     <Card className="flex flex-col gap-4">
@@ -86,30 +87,36 @@ function GuildCard({ guild }: { guild: Guild }) {
             {configured ? (
               <>
                 <CircleCheck className="size-3.5 text-ok" />
-                <span className="text-ok">Instalado e configurado</span>
+                <span className="text-ok">{t.servers.configured}</span>
               </>
             ) : (
               <>
                 <CircleAlert className="size-3.5 text-warn" />
-                <span className="text-warn">Falta configurar</span>
+                <span className="text-warn">{t.servers.missingSetup}</span>
               </>
             )}
           </div>
         </div>
       </div>
       <div className="flex flex-col">
-        <GuildFact label="Perfil ativo" value={guild.activeProfile?.name ?? "Nenhum"} />
-        <GuildFact label="Fórum de resumos" value={guild.summaryForum?.name ?? "Não configurado"} />
         <GuildFact
-          label="Calls no período"
-          value={guild.callCount == null ? "—" : formatInteger(guild.callCount)}
+          label={t.servers.activeProfile}
+          value={guild.activeProfile?.name ?? t.servers.none}
+        />
+        <GuildFact
+          label={t.servers.summaryForum}
+          value={guild.summaryForum?.name ?? t.servers.notConfigured}
+        />
+        <GuildFact
+          label={t.servers.callsInPeriod}
+          value={guild.callCount == null ? "—" : format.number(guild.callCount)}
         />
       </div>
       <Link
         className="inline-flex items-center justify-center gap-2 rounded-lg bg-action-gradient px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-action-gradient-hover"
         to={`/guilds/${guild.id}`}
       >
-        Configurar
+        {t.servers.configure}
         <ArrowRight className="size-3.5" />
       </Link>
     </Card>
@@ -127,6 +134,7 @@ function GuildFact({ label, value }: { label: string; value: string }) {
 
 /** Dashed card at the end of the grid: the authorization happens on Discord, not here. */
 function AddServerCard({ installUrl }: { installUrl: string | undefined }) {
+  const { t } = useI18n();
   const body = (
     <>
       <span className="grid size-10 place-items-center rounded-xl bg-surface-inset text-ink-muted">
@@ -134,14 +142,14 @@ function AddServerCard({ installUrl }: { installUrl: string | undefined }) {
       </span>
       <span className="flex flex-col gap-1">
         <strong className="text-[14px] font-semibold tracking-tight text-ink">
-          Adicionar o bot a um servidor
+          {t.servers.addCardTitle}
         </strong>
         <span className="text-[12.5px] leading-relaxed text-ink-muted">
-          Abre a autorização oficial do Discord, onde você escolhe o servidor.
+          {t.servers.addCardBody}
         </span>
       </span>
       <span className="mt-auto inline-flex items-center gap-1 text-[12.5px] text-accent">
-        Autorizar no Discord <ArrowUpRight className="size-3.5" />
+        {t.servers.authorize} <ArrowUpRight className="size-3.5" />
       </span>
     </>
   );
@@ -156,7 +164,7 @@ function AddServerCard({ installUrl }: { installUrl: string | undefined }) {
   }
   return (
     <a
-      aria-label="Adicionar o bot a um servidor"
+      aria-label={t.servers.addCardTitle}
       className={`${className} hover:border-action/60 hover:bg-surface`}
       href={installUrl}
       rel="noreferrer"

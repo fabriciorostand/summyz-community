@@ -6,8 +6,6 @@ import { profileAvailabilitySchema, profileSchema } from "./profile-contracts";
 export * from "./profile-contracts";
 
 const accessModeSchema = z.enum(["local", "public"]);
-const dashboardLanguageSchema = z.enum(["en", "pt-BR"]);
-const dashboardThemeSchema = z.enum(["system", "light", "dark"]);
 
 export const accessStatusSchema = z.object({
   accessMode: accessModeSchema,
@@ -23,8 +21,6 @@ export const setupStatusSchema = z.object({
 });
 export const dashboardSettingsSchema = z.object({
   accessMode: accessModeSchema,
-  dashboardLanguage: dashboardLanguageSchema,
-  dashboardTheme: dashboardThemeSchema,
   discordApplicationId: z.string().nullable(),
   secrets: z.object({
     discordBotToken: z.boolean(),
@@ -346,6 +342,8 @@ export const commandReferenceSchema = z
   .array(
     z.object({
       commands: z.array(z.object({ description: z.string(), name: z.string() })).min(1),
+      /** Stable group key the dashboard translates; the label is the API's English fallback. */
+      id: z.string(),
       label: z.string(),
     }),
   )

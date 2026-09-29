@@ -27,17 +27,18 @@ import {
   Toggle,
 } from "../components/ui";
 import { useBotInstallation } from "../hooks/use-bot-installation";
+import { languageNames, languages } from "../i18n/preferences";
+import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import { ApiError, api, type GuildConfiguration, type GuildResources } from "../lib/api";
-import { formatCost, formatInteger } from "../lib/format";
 import { availabilityLine, missingSummary } from "./profiles/profile-availability";
-import { profileTypeLabels } from "./profiles/profile-header";
 import { Screen } from "./screen";
 
 export function GuildPage() {
   const { guildId = "" } = useParams();
   const { dashboard, guilds, period } = useDashboard();
+  const { t } = useI18n();
   const [configuration, setConfiguration] = useState<GuildConfiguration>();
   const [resources, setResources] = useState<GuildResources>();
   const [loadError, setLoadError] = useState<"request_failed" | "guild_access_denied">();
@@ -81,7 +82,7 @@ export function GuildPage() {
           saved ? (
             <span className="flex items-center gap-1.5 text-[12.5px] text-ok">
               <Check className="size-3.5" />
-              Alterações salvas
+              {t.guild.saved}
             </span>
           ) : undefined
         }
@@ -92,7 +93,7 @@ export function GuildPage() {
               to="/servers"
             >
               <ArrowLeft className="size-3.5" />
-              Servidores
+              {t.guild.servers}
             </Link>
             <span className="font-mono text-[11px] text-ink-dim">/</span>
             {guild !== undefined && (
@@ -100,7 +101,7 @@ export function GuildPage() {
             )}
           </>
         }
-        title={guild?.name ?? "Configuração do servidor"}
+        title={guild?.name ?? t.guild.title}
       />
       <Screen>
         {loadError === "guild_access_denied" ? (
@@ -109,12 +110,12 @@ export function GuildPage() {
           <ErrorState
             code="request_failed"
             onRetry={() => void load()}
-            title="Configuração indisponível"
+            title={t.guild.unavailableTitle}
           >
-            Não foi possível concluir as consultas necessárias para este servidor.
+            {t.guild.unavailableBody}
           </ErrorState>
         ) : configuration === undefined || resources === undefined ? (
-          <LoadingPanel label="Carregando configuração…" />
+          <LoadingPanel label={t.guild.loading} />
         ) : (
           <GuildBody
             configuration={configuration}
@@ -122,7 +123,7 @@ export function GuildPage() {
             guildId={guildId}
             onChange={setConfiguration}
             onSaved={flashSaved}
-            periodLabel={periodLabels[period]}
+            periodLabel={t.guild.periods[period]}
             resources={resources}
           />
         )}
@@ -135,12 +136,6 @@ function RemovedGuild({ guildName }: { guildName: string | undefined }) {
   const { installUrl } = useBotInstallation();
   return <GuildRemovedState guildName={guildName} installUrl={installUrl} />;
 }
-
-const periodLabels = {
-  "30d": "Últimos 30 dias.",
-  "90d": "Últimos 90 dias.",
-  all: "Todo o histórico.",
-} as const;
 
 function GuildBody({
   configuration,
@@ -159,6 +154,7 @@ function GuildBody({
   periodLabel: string;
   resources: GuildResources;
 }) {
+  const { format, t } = useI18n();
   async function activateProfile(profileId: string) {
     if (profileId === "") return;
     await api.setActiveProfile(guildId, profileId);
@@ -221,12 +217,12 @@ function GuildBody({
                 className="touch-target flex shrink-0 items-center gap-1 text-[12.5px] text-accent hover:text-accent-hover"
                 to="/profiles"
               >
-                Gerenciar perfis
+                {t.guild.manageProfiles}
                 <ArrowUpRight className="size-3.5" />
               </Link>
             }
             icon={<Bot className="size-4" />}
-            title="Perfil de IA usado neste servidor"
+            title={t.guild.profileHeading}
           />
           <ActiveProfileWarning configuration={configuration} />
           <div className="flex flex-col gap-2">
@@ -252,14 +248,14 @@ function GuildBody({
                     </strong>
                     <small className="label-mono text-ink-muted">
                       {profile.profileType === null
-                        ? "Incompleto"
-                        : profileTypeLabels[profile.profileType]}{" "}
-                      · {profile.transcription.model ?? "sem modelo"} ·{" "}
-                      {profile.summary.model ?? "sem modelo"} · {profile.language}
+                        ? t.guild.incomplete
+                        : t.profileHeader.types[profile.profileType]}{" "}
+                      · {profile.transcription.model ?? t.guild.noModel} ·{" "}
+                      {profile.summary.model ?? t.guild.noModel} · {profile.language}
                     </small>
                     <ProfileAvailabilityLine availability={profile.availability} />
                   </span>
-                  {active && <Badge tone="action">Em uso</Badge>}
+                  {active && <Badge tone="action">{t.guild.inUse}</Badge>}
                 </label>
               );
             })}
@@ -267,15 +263,12 @@ function GuildBody({
         </Card>
 
         <Card>
-          <SectionHeading
-            icon={<Megaphone className="size-4" />}
-            title="Onde publicar os resumos"
-          />
+          <SectionHeading icon={<Megaphone className="size-4" />} title={t.guild.publishHeading} />
           <SelectField
-            label="Canal de fórum"
+            label={t.guild.forumChannel}
             onChange={(forumId) => void updateForum(forumId)}
             options={[
-              { label: "Não configurado", value: "" },
+              { label: t.guild.notConfigured, value: "" },
               ...resources.forums.map((item) => ({ label: item.name, value: item.id })),
             ]}
             value={configuration.summaryForum?.forumId ?? ""}
@@ -284,9 +277,9 @@ function GuildBody({
 
         <Card>
           <SectionHeading
-            description="Donos e administradores do servidor sempre podem. Adicione cargos extras."
+            description={t.guild.whoCanRecordDescription}
             icon={<ShieldCheck className="size-4" />}
-            title="Quem pode iniciar uma gravação"
+            title={t.guild.whoCanRecord}
           />
           <div className="flex flex-col gap-1.5">
             {resources.roles.map((role) => (
@@ -298,7 +291,7 @@ function GuildBody({
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">{role.name}</span>
                 {role.memberCount != null && (
                   <span className="label-mono shrink-0 text-ink-dim">
-                    {formatInteger(role.memberCount)} membros
+                    {t.guild.members(format.number(role.memberCount))}
                   </span>
                 )}
                 <input
@@ -313,69 +306,68 @@ function GuildBody({
           {memberCountsUnavailable && (
             <div className="mt-3">
               <Notice icon={<TriangleAlert className="mt-0.5 size-3.5 shrink-0" />} tone="warn">
-                A contagem de membros exige a intent de membros habilitada na aplicação do Discord.
+                {t.guild.memberIntent}
               </Notice>
             </div>
           )}
         </Card>
 
         <div className="mt-2">
-          <RailLabel>Avançado</RailLabel>
+          <RailLabel>{t.guild.advanced}</RailLabel>
         </div>
         <Disclosure
           icon={<Database className="size-4" />}
-          summary={`Conteúdo ${configuration.settings.persistMeetingContent ? "retido" : "descartado"} · áudio ${configuration.settings.persistMeetingAudio ? "retido" : "descartado"}`}
-          title="Privacidade e retenção"
+          summary={t.guild.retentionSummary(
+            configuration.settings.persistMeetingContent,
+            configuration.settings.persistMeetingAudio,
+          )}
+          title={t.guild.privacy}
         >
           <div className="flex flex-col gap-3">
             <Toggle
               checked={configuration.settings.persistMeetingContent}
-              description="Mantém o conteúdo no banco após a publicação. Sem isso, o histórico só guarda metadados."
-              label="Reter transcrição e resumo"
+              description={t.guild.retainContentDescription}
+              label={t.guild.retainContent}
               onChange={(persistMeetingContent) =>
                 void saveSettings({ ...configuration.settings, persistMeetingContent })
               }
             />
             <Toggle
               checked={configuration.settings.persistMeetingAudio}
-              description="Desativado por padrão. Os arquivos ficam em DATA_DIR por tempo indeterminado e só saem por remoção manual."
-              label="Reter áudio bruto"
+              description={t.guild.retainAudioDescription}
+              label={t.guild.retainAudio}
               onChange={(persistMeetingAudio) =>
                 void saveSettings({ ...configuration.settings, persistMeetingAudio })
               }
             />
             <Notice icon={<TriangleAlert className="mt-0.5 size-3.5 shrink-0" />} tone="warn">
-              Conteúdo e áudio preservados não expiram automaticamente. A exclusão é uma operação
-              manual do administrador.
+              {t.guild.retentionWarning}
             </Notice>
           </div>
         </Disclosure>
         <Disclosure
           icon={<Languages className="size-4" />}
-          summary={`${
-            configuration.settings.botLanguage === "pt-BR" ? "Português (Brasil)" : "English"
-          } · ${selectedTag === undefined ? "sem tag" : `tag ${selectedTag.name}`}`}
-          title="Idioma do bot e tag de publicação"
+          summary={`${languageNames[configuration.settings.botLanguage]} · ${
+            selectedTag === undefined ? t.guild.noTag : t.guild.tag(selectedTag.name)
+          }`}
+          title={t.guild.botLanguageHeading}
         >
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <SelectField
-              label="Idioma do bot"
+              label={t.guild.botLanguage}
               onChange={(botLanguage) =>
                 void saveSettings({ ...configuration.settings, botLanguage })
               }
-              options={[
-                { label: "Português (Brasil)", value: "pt-BR" },
-                { label: "English", value: "en" },
-              ]}
+              options={languages.map((value) => ({ label: languageNames[value], value }))}
               value={configuration.settings.botLanguage}
             />
             <SelectField
               disabled={forum === undefined}
-              hint="Aplicada aos posts publicados no fórum de resumos."
-              label="Tag de publicação"
+              hint={t.guild.tagHint}
+              label={t.guild.publicationTag}
               onChange={(tagId) => void updateTag(tagId)}
               options={[
-                { label: "Sem tag", value: "" },
+                { label: t.guild.noTagOption, value: "" },
                 ...(forum?.tags ?? []).map((tag) => ({ label: tag.name, value: tag.id })),
               ]}
               value={configuration.summaryForum?.tagId ?? ""}
@@ -387,45 +379,46 @@ function GuildBody({
       <div className="flex flex-col gap-4">
         <Card>
           <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
-            Este servidor em números
+            {t.guild.inNumbers}
           </h2>
           <p className="m-0 mt-1 mb-3 text-[11.5px] text-ink-muted">{periodLabel}</p>
           {dashboard === undefined ? (
-            <p className="m-0 text-[12.5px] text-ink-muted">Métricas indisponíveis.</p>
+            <p className="m-0 text-[12.5px] text-ink-muted">{t.guild.metricsUnavailable}</p>
           ) : (
             <div className="flex flex-col">
-              <Stat label="Calls concluídas" value={formatInteger(dashboard.totalCalls)} />
+              <Stat label={t.guild.completedCalls} value={format.number(dashboard.totalCalls)} />
               <Stat
-                label="Falhas no pipeline"
-                value={formatInteger(
+                label={t.guild.pipelineFailures}
+                value={format.number(
                   dashboard.statusSeries.reduce((total, bucket) => total + bucket.failed, 0),
                 )}
               />
               <Stat
-                label="Horas gravadas"
-                value={formatInteger(dashboard.totalDurationMs / 3_600_000, 1)}
+                label={t.guild.hoursRecorded}
+                value={format.number(dashboard.totalDurationMs / 3_600_000, 1)}
               />
-              <Stat label="Custo confirmado" value={formatCost(dashboard.cost.confirmed)} />
+              <Stat label={t.guild.confirmedCost} value={format.cost(dashboard.cost.confirmed)} />
             </div>
           )}
         </Card>
         <Card>
           <h2 className="m-0 mb-3 text-[15px] font-semibold tracking-tight text-ink">
-            Checklist da instalação
+            {t.guild.checklist}
           </h2>
           <div className="flex flex-col gap-2">
-            <CheckItem done label="Bot presente no servidor" />
+            <CheckItem done label={t.guild.botPresent} />
             <CheckItem
               done={configuration.summaryForum !== undefined}
-              label="Fórum de resumos definido"
+              label={t.guild.forumDefined}
             />
-            <CheckItem done={configuration.activeProfileId !== null} label="Perfil de IA ativo" />
+            <CheckItem
+              done={configuration.activeProfileId !== null}
+              label={t.guild.profileActive}
+            />
             <CheckItem
               done={configuration.recordingRoleIds.length > 0}
               label={
-                configuration.recordingRoleIds.length > 0
-                  ? "Cargo extra autorizado"
-                  : "Nenhum cargo extra autorizado"
+                configuration.recordingRoleIds.length > 0 ? t.guild.extraRole : t.guild.noExtraRole
               }
             />
           </div>
@@ -462,8 +455,9 @@ function ProfileAvailabilityLine({
 }: {
   availability: GuildConfiguration["profiles"][number]["availability"];
 }) {
+  const i18n = useI18n();
   // Downloads are followed on the profiles screen; here the saved state is enough.
-  const line = availabilityLine(availability, () => undefined);
+  const line = availabilityLine(availability, () => undefined, i18n);
   if (line === null) return null;
   return (
     <small className={`text-[11px] ${line.tone === "warn" ? "text-warn" : "text-ink-muted"}`}>
@@ -474,6 +468,8 @@ function ProfileAvailabilityLine({
 
 /** The bot refuses to record while the active profile misses a local model; say so here. */
 function ActiveProfileWarning({ configuration }: { configuration: GuildConfiguration }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const active = configuration.profiles.find(
     (profile) => profile.profileId === configuration.activeProfileId,
   );
@@ -481,19 +477,17 @@ function ActiveProfileWarning({ configuration }: { configuration: GuildConfigura
   const { availability } = active;
   const reason =
     availability.status === "missing_models"
-      ? `O perfil ativo “${active.name}” ainda não tem ${missingSummary(availability.missingModels)} instalado. O bot recusa gravações até o download terminar.`
+      ? t.guild.activeMissing(active.name, missingSummary(availability.missingModels, i18n))
       : availability.status === "incomplete"
-        ? `O perfil ativo “${active.name}” ainda não tem a execução e o modelo de todas as etapas.`
-        : `Não foi possível verificar os modelos locais do perfil ativo “${active.name}”.`;
+        ? t.guild.activeIncomplete(active.name)
+        : t.guild.activeUnverified(active.name);
   return (
     <div className="mb-3">
       <Notice icon={<TriangleAlert className="mt-0.5 size-4 shrink-0" />} tone="warn">
-        <strong className="block text-[12.5px] text-ink">
-          Este servidor não consegue gravar agora.
-        </strong>
+        <strong className="block text-[12.5px] text-ink">{t.guild.cannotRecord}</strong>
         <span className="text-ink-secondary">{reason} </span>
         <Link className="text-accent hover:text-accent-hover" to="/profiles">
-          Abrir perfis de IA
+          {t.guild.openProfiles}
         </Link>
       </Notice>
     </div>

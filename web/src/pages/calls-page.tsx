@@ -5,6 +5,8 @@ import { Link } from "react-router-dom";
 import { Tabs } from "../components/disclosure";
 import { EmptyState, ErrorState, LoadingPanel } from "../components/states";
 import { Avatar, Badge, Button, Field, SelectField } from "../components/ui";
+import type { Messages } from "../i18n/messages/pt-BR";
+import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import {
@@ -12,19 +14,14 @@ import {
   type HistoricalParticipantPage,
   type MeetingHistoryPage as HistoryPage,
 } from "../lib/api";
-import {
-  formatDate,
-  formatDuration,
-  formatInteger,
-  percentageOf,
-  pipelineStatus,
-} from "../lib/format";
+import { formatDuration, percentageOf, pipelineStatus } from "../lib/format";
 import { Screen } from "./screen";
 
 type StateFilter = "" | "completed" | "in_progress" | "failed";
 
 export function CallsPage() {
   const { controls, guilds } = useDashboard();
+  const { format, t, timeZone } = useI18n();
   const guildId = guilds.selectedGuildId;
   const [search, setSearch] = useState("");
   const [submittedSearch, setSubmittedSearch] = useState("");
@@ -46,17 +43,21 @@ export function CallsPage() {
     setHistory(undefined);
     setLoadError(false);
     void api
-      .listMeetings(guildId, {
-        page,
-        ...buildFilters({
-          contentRetained,
-          dateFrom,
-          dateTo,
-          participantUserId,
-          search: submittedSearch,
-          state,
-        }),
-      })
+      .listMeetings(
+        guildId,
+        {
+          page,
+          ...buildFilters({
+            contentRetained,
+            dateFrom,
+            dateTo,
+            participantUserId,
+            search: submittedSearch,
+            state,
+          }),
+        },
+        timeZone,
+      )
       .then((next) => {
         if (active) setHistory(next);
       })
@@ -76,6 +77,7 @@ export function CallsPage() {
     reloadToken,
     submittedSearch,
     state,
+    timeZone,
   ]);
 
   function resetToFirstPage<T>(setter: (value: T) => void) {
@@ -90,7 +92,7 @@ export function CallsPage() {
 
   return (
     <>
-      <TopBar actions={controls} title="Calls" />
+      <TopBar actions={controls} title={t.calls.title} />
       <Screen>
         {guilds.guilds !== undefined && guilds.guilds.length > 0 && (
           <div className="flex flex-col gap-3">
@@ -104,11 +106,11 @@ export function CallsPage() {
             >
               <Search className="size-4 shrink-0 text-ink-muted" />
               <input
-                aria-label="Buscar por canal ou ID da reunião"
+                aria-label={t.calls.search}
                 className="min-w-0 flex-1 bg-transparent text-base outline-none placeholder:text-ink-dim pointer-fine:text-[13.5px]"
                 maxLength={128}
                 onChange={(event) => setSearch(event.currentTarget.value)}
-                placeholder="Buscar por canal ou ID da reunião"
+                placeholder={t.calls.search}
                 value={search}
               />
               {submittedSearch.length > 0 && (
@@ -121,7 +123,7 @@ export function CallsPage() {
                   type="button"
                   variant="ghost"
                 >
-                  Limpar
+                  {t.calls.clear}
                 </Button>
               )}
             </form>
@@ -130,13 +132,13 @@ export function CallsPage() {
                   fits beside them and at the start once it wraps below. */}
               <div className="min-w-0 flex-auto">
                 <Tabs
-                  ariaLabel="Estado da call"
+                  ariaLabel={t.calls.stateLabel}
                   onChange={resetToFirstPage(setState)}
                   options={[
-                    { label: "Todas", value: "" },
-                    { label: "Concluídas", value: "completed" },
-                    { label: "Em andamento", value: "in_progress" },
-                    { label: "Falhas", value: "failed" },
+                    { label: t.calls.all, value: "" },
+                    { label: t.calls.completed, value: "completed" },
+                    { label: t.calls.inProgress, value: "in_progress" },
+                    { label: t.calls.failed, value: "failed" },
                   ]}
                   value={state}
                 />
@@ -148,30 +150,30 @@ export function CallsPage() {
                 variant="secondary"
               >
                 <SlidersHorizontal className="size-3.5" />
-                Avançado
+                {t.calls.advanced}
               </Button>
             </div>
             {advancedOpen && (
               <div className="grid grid-cols-1 gap-3 rounded-xl border border-line bg-surface p-4 sm:grid-cols-2 xl:grid-cols-4">
                 <Field
-                  label="De"
+                  label={t.calls.from}
                   onChange={(event) => resetToFirstPage(setDateFrom)(event.currentTarget.value)}
                   type="date"
                   value={dateFrom}
                 />
                 <Field
-                  label="Até"
+                  label={t.calls.to}
                   onChange={(event) => resetToFirstPage(setDateTo)(event.currentTarget.value)}
                   type="date"
                   value={dateTo}
                 />
                 <SelectField
-                  label="Conteúdo retido"
+                  label={t.calls.contentRetained}
                   onChange={resetToFirstPage(setContentRetained)}
                   options={[
-                    { label: "Qualquer", value: "" },
-                    { label: "Somente com conteúdo", value: "true" },
-                    { label: "Somente sem conteúdo", value: "false" },
+                    { label: t.calls.any, value: "" },
+                    { label: t.calls.onlyWithContent, value: "true" },
+                    { label: t.calls.onlyWithoutContent, value: "false" },
                   ]}
                   value={contentRetained}
                 />
@@ -194,9 +196,11 @@ export function CallsPage() {
         {history !== undefined && history.items.length > 0 && (
           <div className="flex items-center justify-between">
             <span className="label-mono text-ink-muted">
-              {formatInteger((history.page - 1) * history.pageSize + 1)}–
-              {formatInteger(Math.min(history.page * history.pageSize, history.total))} de{" "}
-              {formatInteger(history.total)}
+              {t.calls.range(
+                format.number((history.page - 1) * history.pageSize + 1),
+                format.number(Math.min(history.page * history.pageSize, history.total)),
+                format.number(history.total),
+              )}
             </span>
             <div className="flex items-center gap-2">
               <Button
@@ -206,7 +210,7 @@ export function CallsPage() {
                 variant="secondary"
               >
                 <ChevronLeft className="size-3.5" />
-                Anterior
+                {t.calls.previous}
               </Button>
               <Button
                 disabled={page >= totalPages}
@@ -214,7 +218,7 @@ export function CallsPage() {
                 type="button"
                 variant="secondary"
               >
-                Próxima
+                {t.calls.next}
                 <ChevronRight className="size-3.5" />
               </Button>
             </div>
@@ -260,6 +264,7 @@ function ParticipantFilter({
   onChange: (value: string) => void;
   value: string;
 }) {
+  const { t } = useI18n();
   const [participants, setParticipants] = useState<HistoricalParticipantPage>();
   useEffect(() => {
     if (guildId.length === 0) return;
@@ -278,10 +283,10 @@ function ParticipantFilter({
   }, [guildId]);
   return (
     <SelectField
-      label="Participante"
+      label={t.calls.participant}
       onChange={onChange}
       options={[
-        { label: "Qualquer", value: "" },
+        { label: t.calls.any, value: "" },
         ...(participants?.items ?? []).map((participant) => ({
           label: participant.displayName,
           leading: (
@@ -313,37 +318,30 @@ function CallsBody({
   loadError: boolean;
   onRetry: () => void;
 }) {
+  const { t } = useI18n();
   if (loadError) {
     return (
-      <ErrorState code="request_failed" onRetry={onRetry} title="Histórico indisponível">
-        Não foi possível carregar as calls deste servidor.
+      <ErrorState code="request_failed" onRetry={onRetry} title={t.calls.historyUnavailableTitle}>
+        {t.calls.historyUnavailableBody}
       </ErrorState>
     );
   }
   if (guildCount === 0) {
-    return (
-      <EmptyState title="Nenhum servidor instalado">
-        Instale o Summyz em um servidor para começar o histórico.
-      </EmptyState>
-    );
+    return <EmptyState title={t.calls.noGuildTitle}>{t.calls.noGuildBody}</EmptyState>;
   }
   if (guildCount === undefined || (guildId.length > 0 && history === undefined)) {
-    return <LoadingPanel label="Carregando calls…" />;
+    return <LoadingPanel label={t.calls.loading} />;
   }
   if (history === undefined || history.items.length === 0) {
-    return (
-      <EmptyState title="Nenhuma call encontrada">
-        Ajuste os filtros ou aguarde a primeira reunião.
-      </EmptyState>
-    );
+    return <EmptyState title={t.calls.emptyTitle}>{t.calls.emptyBody}</EmptyState>;
   }
   return (
     <div className="flex flex-col gap-3 md:gap-0 md:overflow-hidden md:rounded-xl md:border md:border-line md:bg-surface">
       <div className="label-mono hidden grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_90px_28px] gap-4 border-b border-line-soft px-4 py-3 text-ink-muted md:grid">
-        <span>Quando</span>
-        <span>Canal</span>
-        <span>Participantes · tempo de fala</span>
-        <span className="text-right">Duração</span>
+        <span>{t.calls.when}</span>
+        <span>{t.calls.channel}</span>
+        <span>{t.calls.participants}</span>
+        <span className="text-right">{t.calls.duration}</span>
         <span />
       </div>
       {history.items.map((meeting) => (
@@ -360,7 +358,8 @@ function CallRow({
   meeting: HistoryPage["items"][number];
   timeZone: string;
 }) {
-  const status = pipelineStatus(meeting.pipelineStatus);
+  const { format, t } = useI18n();
+  const status = pipelineStatus(meeting.pipelineStatus, t.pipeline);
   const participants = meeting.participants ?? [];
   const withTalkTime = participants.filter((participant) => participant.percentage !== null);
   return (
@@ -371,23 +370,23 @@ function CallRow({
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 [grid-area:when] md:flex-col md:items-start">
         <Badge tone={status.tone === "live" ? "live" : status.tone}>{status.label}</Badge>
         <span className="font-mono text-[10.5px] text-ink-dim">
-          {formatDate(meeting.startedAt, timeZone)}
+          {format.shortDateTime(meeting.startedAt, timeZone)}
         </span>
       </div>
       <div className="min-w-0 [grid-area:channel]">
         <div className="truncate text-[13.5px] font-medium text-ink">
-          {meeting.voiceChannelName ?? "Informação indisponível"}
+          {meeting.voiceChannelName ?? t.calls.unavailable}
         </div>
         <div className="mt-0.5 truncate text-[11.5px] text-ink-muted">
           {meeting.aiProfile === null
-            ? retentionLabel(meeting)
-            : `perfil ${meeting.aiProfile.name}`}
+            ? retentionLabel(meeting, t.calls)
+            : t.calls.profile(meeting.aiProfile.name)}
         </div>
       </div>
       <div className="min-w-0 [grid-area:people]">
         {withTalkTime.length === 0 ? (
           <span className="text-[11.5px] text-ink-dim">
-            {participants.length === 0 ? "Informação indisponível" : "tempo de fala indisponível"}
+            {participants.length === 0 ? t.calls.unavailable : t.calls.talkTimeUnavailable}
           </span>
         ) : (
           <>
@@ -423,9 +422,7 @@ function CallRow({
   );
 }
 
-function retentionLabel(meeting: HistoryPage["items"][number]): string {
-  if (!meeting.contentRetained) return "conteúdo não retido";
-  return meeting.pipelineStatus === "failed"
-    ? "resumo não gerado · transcrição disponível"
-    : "resumo e transcrição retidos";
+function retentionLabel(meeting: HistoryPage["items"][number], labels: Messages["calls"]): string {
+  if (!meeting.contentRetained) return labels.contentNotRetained;
+  return meeting.pipelineStatus === "failed" ? labels.summaryFailed : labels.retained;
 }

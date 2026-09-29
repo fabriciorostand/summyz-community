@@ -13,6 +13,8 @@ import { Link } from "react-router-dom";
 import { Button, Label } from "../../components/ui";
 import { type CatalogState, useModelCatalog } from "../../hooks/use-model-catalog";
 import { isDownloadActive } from "../../hooks/use-model-downloads";
+import type { Messages } from "../../i18n/messages/pt-BR";
+import { type I18nSnapshot, useI18n } from "../../i18n/store";
 import type { ModelCatalog, ModelDownload } from "../../lib/api";
 import { compatibilityTag, installTag, type Tag } from "./model-labels";
 import { localEngines, type Stage } from "./profile-stages";
@@ -53,13 +55,13 @@ function matches(query: string, ...texts: (string | undefined)[]): boolean {
   return needle === "" || texts.some((text) => text?.toLowerCase().includes(needle));
 }
 
-function downloadTag(job: ModelDownload | undefined): Tag | null {
+function downloadTag(job: ModelDownload | undefined, t: Messages): Tag | null {
   if (job === undefined || !isDownloadActive(job)) return null;
-  if (job.status === "queued") return { label: "Na fila", tone: "neutral" };
+  if (job.status === "queued") return { label: t.models.queuedTag, tone: "neutral" };
   if (job.totalBytes === null || job.totalBytes === 0)
-    return { label: "Baixando", tone: "neutral" };
+    return { label: t.models.downloadingTag, tone: "neutral" };
   const percent = Math.floor((job.completedBytes / job.totalBytes) * 100);
-  return { label: `Baixando ${String(percent)}%`, tone: "neutral" };
+  return { label: t.models.downloadingTagPercent(String(percent)), tone: "neutral" };
 }
 
 function groupsFor(
@@ -67,11 +69,13 @@ function groupsFor(
   family: string | undefined,
   query: string,
   jobFor: JobFor | undefined,
+  i18n: Pick<I18nSnapshot, "format" | "t">,
 ): OptionGroup[] {
   const { provider } = catalog;
+  const { t } = i18n;
   const stateTag = (model: string, installed: boolean | null, size: number | null): Tag[] => {
     if (provider === "openrouter") return [];
-    const tag = downloadTag(jobFor?.(provider, model)) ?? installTag(installed, size);
+    const tag = downloadTag(jobFor?.(provider, model), t) ?? installTag(installed, size, i18n);
     return tag === null ? [] : [tag];
   };
   if (provider === "ollama" && family === undefined) {
@@ -86,14 +90,14 @@ function groupsFor(
       .filter((item) => matches(query, item.family, item.name))
       .map((item) => ({ id: item.family ?? item.name, kind: "family" as const, tags: [] }));
     return [
-      { label: "Instalados nesta máquina", options: installed },
-      { label: "Biblioteca do Ollama", options: families },
+      { label: t.models.installedOnMachine, options: installed },
+      { label: t.models.ollamaLibrary, options: families },
     ].filter((group) => group.options.length > 0);
   }
   const options = catalog.items
     .filter((item) => matches(query, item.model, item.name))
     .map((item) => {
-      const compatibility = compatibilityTag(item.compatibility);
+      const compatibility = compatibilityTag(item.compatibility, t);
       return {
         id: item.model,
         kind: "model" as const,
@@ -104,17 +108,17 @@ function groupsFor(
         ...(item.name === item.model ? {} : { sub: item.name }),
       };
     });
-  return options.length === 0 ? [] : [{ label: "Modelos", options }];
+  return options.length === 0 ? [] : [{ label: t.models.models, options }];
 }
 
-function sourceLabel(provider: Provider, stage: Stage): string {
-  return provider === "openrouter" ? "OpenRouter" : `Nesta instalação · ${localEngines[stage]}`;
+function sourceLabel(provider: Provider, stage: Stage, t: Messages): string {
+  return provider === "openrouter" ? "OpenRouter" : t.models.thisInstallation(localEngines[stage]);
 }
 
-function emptyMessage(query: string, family: string | undefined): string {
-  if (query.trim() !== "") return `Nenhum modelo encontrado para “${query.trim()}”.`;
-  if (family !== undefined) return "Esta família não tem modelos de texto para esta etapa.";
-  return "Nenhum modelo disponível para esta etapa.";
+function emptyMessage(query: string, family: string | undefined, t: Messages): string {
+  if (query.trim() !== "") return t.models.noMatch(query.trim());
+  if (family !== undefined) return t.models.familyEmpty;
+  return t.models.stageEmpty;
 }
 
 export interface ModelPickerProps {
@@ -138,6 +142,8 @@ export function ModelPicker({
   stage,
   value,
 }: ModelPickerProps) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [family, setFamily] = useState<string | undefined>(undefined);
@@ -152,8 +158,8 @@ export function ModelPicker({
     provider === "ollama" ? family : undefined,
   );
   const groups = useMemo(
-    () => (state.status === "ready" ? groupsFor(state.catalog, family, query, jobFor) : []),
-    [state, family, query, jobFor],
+    () => (state.status === "ready" ? groupsFor(state.catalog, family, query, jobFor, i18n) : []),
+    [state, family, query, jobFor, i18n],
   );
   const flat = groups.flatMap((group) => group.options);
 
@@ -218,7 +224,7 @@ export function ModelPicker({
   return (
     <div className="flex flex-col gap-1.5" ref={fieldRef}>
       <span id={labelId}>
-        <Label>Modelo</Label>
+        <Label>{t.models.model}</Label>
       </span>
       <div className="relative">
         <button
@@ -238,13 +244,13 @@ export function ModelPicker({
             }`}
             id={valueId}
           >
-            {value ?? "Escolha um modelo"}
+            {value ?? t.models.chooseModel}
           </span>
           <ChevronDown className="size-4 shrink-0 text-ink-muted" />
         </button>
         {open && (
           <div
-            aria-label={`Escolher modelo de ${sourceLabel(provider, stage)}`}
+            aria-label={t.models.chooseFrom(sourceLabel(provider, stage, t))}
             className="absolute inset-x-0 top-[calc(100%+6px)] z-30 overflow-hidden rounded-xl border border-line-strong bg-surface shadow-2xl"
             role="dialog"
           >
@@ -255,7 +261,7 @@ export function ModelPicker({
                 aria-autocomplete="list"
                 aria-controls={listId}
                 aria-expanded="true"
-                aria-label="Buscar modelo"
+                aria-label={t.models.search}
                 autoComplete="off"
                 className="min-w-0 flex-1 bg-transparent text-base text-ink outline-none placeholder:text-ink-dim pointer-fine:text-[13.5px]"
                 onChange={(event) => {
@@ -263,7 +269,7 @@ export function ModelPicker({
                   setActive(0);
                 }}
                 onKeyDown={onKeyDown}
-                placeholder="Buscar modelo"
+                placeholder={t.models.search}
                 ref={searchRef}
                 role="combobox"
                 spellCheck={false}
@@ -274,7 +280,7 @@ export function ModelPicker({
             <div className="flex items-center gap-2 px-3 pt-2.5 pb-1 text-[11.5px] font-semibold text-ink-secondary">
               {provider === "ollama" && family !== undefined ? (
                 <button
-                  aria-label="Voltar às famílias"
+                  aria-label={t.models.backToFamilies}
                   className="-ml-1 flex items-center gap-1 rounded px-1 text-accent hover:text-accent-hover"
                   onClick={() => browse(undefined)}
                   type="button"
@@ -283,12 +289,12 @@ export function ModelPicker({
                   {family}
                 </button>
               ) : (
-                sourceLabel(provider, stage)
+                sourceLabel(provider, stage, t)
               )}
             </div>
             <PickerBody reload={reload} state={state}>
               <div
-                aria-label="Modelos"
+                aria-label={t.models.models}
                 className="max-h-[340px] overflow-y-auto pb-1.5"
                 id={listId}
                 role="listbox"
@@ -303,7 +309,7 @@ export function ModelPicker({
                 />
                 {groups.length === 0 && (
                   <p className="m-0 px-3.5 py-2.5 text-[12px] text-ink-muted">
-                    {emptyMessage(query, family)}
+                    {emptyMessage(query, family, t)}
                   </p>
                 )}
               </div>
@@ -403,8 +409,6 @@ function OptionRow({
   );
 }
 
-const dateTime = new Intl.DateTimeFormat("pt-BR", { dateStyle: "short", timeStyle: "short" });
-
 function PickerBody({
   children,
   reload,
@@ -414,15 +418,16 @@ function PickerBody({
   reload: () => void;
   state: CatalogState;
 }) {
+  const { format, t, timeZone } = useI18n();
   if (state.status === "idle" || state.status === "loading") {
-    return <p className="m-0 px-3.5 py-3 text-[12px] text-ink-muted">Carregando modelos…</p>;
+    return <p className="m-0 px-3.5 py-3 text-[12px] text-ink-muted">{t.models.loading}</p>;
   }
   if (state.status === "error" && state.code === "openrouter_api_key_missing") {
     return (
       <div className="flex flex-col items-start gap-2 px-3.5 py-3 text-[12px] leading-relaxed text-ink-muted">
-        Configure a chave do OpenRouter para listar os modelos da API externa.
+        {t.models.keyMissing}
         <Link className="text-accent hover:text-accent-hover" to="/installation">
-          Abrir Instalação
+          {t.models.openInstallation}
         </Link>
       </div>
     );
@@ -430,14 +435,14 @@ function PickerBody({
   if (state.status === "error" || state.catalog.status === "unavailable") {
     return (
       <div className="flex flex-col items-start gap-2 px-3.5 py-3 text-[12px] leading-relaxed text-ink-muted">
-        Não foi possível carregar a lista de modelos. Verifique a conexão desta instalação.
+        {t.models.catalogFailed}
         <Button
           className="px-2.5 py-1 text-[12px]"
           onClick={reload}
           type="button"
           variant="secondary"
         >
-          Tentar de novo
+          {t.common.tryAgain}
         </Button>
       </div>
     );
@@ -446,7 +451,9 @@ function PickerBody({
     <>
       {state.catalog.status === "stale" && (
         <p className="m-0 px-3.5 pb-1 text-[11px] text-warn">
-          Esta lista é de {dateTime.format(state.catalog.fetchedAt)} e pode estar desatualizada.
+          {t.models.stale(
+            format.dateTime(new Date(state.catalog.fetchedAt).toISOString(), timeZone),
+          )}
         </p>
       )}
       {children}

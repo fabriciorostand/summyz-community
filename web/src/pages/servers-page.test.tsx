@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setLanguage } from "../i18n/store";
 import { api } from "../lib/api";
 import { aGuild, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
 import { ServersPage } from "./servers-page";
@@ -23,6 +24,16 @@ afterEach(() => {
 });
 
 describe("ServersPage", () => {
+  it("reads in English", async () => {
+    setLanguage("en");
+    renderScreen(<ServersPage />);
+    expect(screen.getByRole("heading", { level: 1, name: "Servers" })).toBeInTheDocument();
+    expect(screen.getByText("Installed and configured")).toBeInTheDocument();
+    expect(screen.getByText("Calls in the period")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Refresh list/ })).toBeInTheDocument();
+    await waitFor(() => expect(api.getBotInstallation).toHaveBeenCalled());
+  });
+
   it("lists the servers the bot is in with their essentials", async () => {
     renderScreen(<ServersPage />);
     expect(screen.getByRole("heading", { name: "Pixelforge" })).toBeInTheDocument();

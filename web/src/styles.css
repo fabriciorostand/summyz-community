@@ -193,6 +193,18 @@ body {
   animation: summyz-sheen 1.4s linear infinite;
 }
 
+/*
+ * The navigation progress bar carries the logo gradient, like the primary actions. The html
+ * prefix outranks the BProgress stylesheet whatever order the bundle loads them in.
+ */
+html .bprogress {
+  --bprogress-box-shadow: 0 0 10px var(--color-action), 0 0 5px var(--color-action);
+}
+
+html .bprogress .bar {
+  background: linear-gradient(120deg, var(--color-action-from), var(--color-action-to));
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* biome-ignore-start lint/complexity/noImportantStyles: the reduced-motion reset must beat every utility. */
   *,

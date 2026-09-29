@@ -10,6 +10,8 @@ export default defineConfig({
     proxy: { "/api": "http://127.0.0.1:8787" },
   },
   test: {
+    // Dates on screen and the zone sent to the API follow the browser, so the suite pins one.
+    env: { TZ: "America/Sao_Paulo" },
     environment: "jsdom",
     setupFiles: ["./src/test-setup.ts"],
   },

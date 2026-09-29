@@ -2,19 +2,14 @@ import { Cloud, HardDrive } from "lucide-react";
 import { Fragment, type KeyboardEvent } from "react";
 
 import { HelpTip } from "../../components/ui";
+import { useI18n } from "../../i18n/store";
 import type { Profile } from "../../lib/api";
-import { executionOf, type Stage, stages, stageTitles } from "./profile-stages";
+import { executionOf, type Stage, stages } from "./profile-stages";
 
 export interface StageNote {
   text: string;
   tone?: "warn";
 }
-
-export const stageHelp: Record<Stage, string> = {
-  refinement: "Revisa a transcrição e corrige erros evidentes, sem resumir nem traduzir.",
-  summary: "Encontra decisões e tarefas e escreve o resumo publicado no Discord.",
-  transcription: "Converte a fala de cada participante em texto, com horário e autor.",
-};
 
 export const stagePanelId = "profile-stage-panel";
 export const stageTabId = (stage: Stage) => `profile-stage-${stage}`;
@@ -37,18 +32,19 @@ function Connector() {
 }
 
 function Where({ profile, stage }: { profile: Profile; stage: Stage }) {
+  const { t } = useI18n();
   const execution = executionOf(profile, stage);
   if (execution === null) return null;
   return execution === "local" ? (
     <span className="flex items-center gap-1.5 text-[11px] font-medium text-ink-secondary">
       <HardDrive className="size-3" />
-      Local
+      {t.stagePanel.local}
     </span>
   ) : (
     <span className="flex items-center gap-1.5 text-[11px] font-medium text-accent">
       <Cloud className="size-3" />
-      <span className="hidden sm:inline">API externa</span>
-      <span className="sm:hidden">API</span>
+      <span className="hidden sm:inline">{t.stagePanel.external}</span>
+      <span className="sm:hidden">{t.profileHeader.api}</span>
     </span>
   );
 }
@@ -70,6 +66,7 @@ export function StageTrail({
   profile: Profile;
   selected: Stage;
 }) {
+  const { t } = useI18n();
   function onKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     const step = { ArrowLeft: -1, ArrowRight: 1 }[event.key];
     if (step === undefined) return;
@@ -82,7 +79,7 @@ export function StageTrail({
 
   return (
     <div
-      aria-label="Etapas do processamento"
+      aria-label={t.stageTrail.label}
       className="grid grid-cols-[minmax(0,1fr)_12px_minmax(0,1fr)_12px_minmax(0,1fr)] p-0 sm:grid-cols-[minmax(0,1fr)_28px_minmax(0,1fr)_28px_minmax(0,1fr)]"
       onKeyDown={onKeyDown}
       role="tablist"
@@ -111,16 +108,18 @@ export function StageTrail({
               >
                 <span className="flex min-w-0 items-center gap-1.5 pr-0 sm:pr-5">
                   <span className="truncate text-[11.5px] font-semibold text-ink sm:text-[13px]">
-                    {stageTitles[stage]}
+                    {t.stages.titles[stage]}
                   </span>
                   {dirty[stage] && (
                     <span className="size-1.5 shrink-0 rounded-full bg-warn">
-                      <span className="sr-only">alterada</span>
+                      <span className="sr-only">{t.stageTrail.changed}</span>
                     </span>
                   )}
                 </span>
                 {model === null ? (
-                  <span className="truncate text-[11.5px] text-ink-dim">Sem modelo</span>
+                  <span className="truncate text-[11.5px] text-ink-dim">
+                    {t.stageTrail.noModel}
+                  </span>
                 ) : (
                   <span className="truncate font-mono text-[10px] text-ink sm:text-[11.5px]">
                     <span className="hidden sm:inline">{model}</span>
@@ -138,7 +137,9 @@ export function StageTrail({
                 <Where profile={profile} stage={stage} />
               </button>
               <span className="absolute right-1.5 bottom-2 sm:top-2.5 sm:right-2.5 sm:bottom-auto">
-                <HelpTip label={`Sobre a etapa ${stageTitles[stage]}`}>{stageHelp[stage]}</HelpTip>
+                <HelpTip label={t.stageTrail.about(t.stages.titles[stage])}>
+                  {t.stages.help[stage]}
+                </HelpTip>
               </span>
             </div>
           </Fragment>

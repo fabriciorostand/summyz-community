@@ -4,10 +4,10 @@ import { Link } from "react-router-dom";
 
 import { EmptyState, ErrorState, LoadingPanel } from "../components/states";
 import { Avatar, Badge, Card } from "../components/ui";
+import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import { api, type DashboardTask } from "../lib/api";
-import { formatDeadline } from "../lib/format";
 import { groupByOwner, type OwnerGroup } from "../lib/task-groups";
 import { Screen } from "./screen";
 
@@ -22,6 +22,7 @@ function withCompletion(
 
 export function TasksPage() {
   const { controls, guilds, reloadDashboard } = useDashboard();
+  const { t } = useI18n();
   const guildId = guilds.selectedGuildId;
   const [tasks, setTasks] = useState<DashboardTask[]>();
   const [loadError, setLoadError] = useState(false);
@@ -65,13 +66,13 @@ export function TasksPage() {
     [guildId, reloadDashboard],
   );
 
-  const groups = tasks === undefined ? undefined : groupByOwner(tasks);
+  const groups = tasks === undefined ? undefined : groupByOwner(tasks, t.tasks.noOwner);
   const visibleGroups = groups?.filter((group) => ownerFilter === "" || group.key === ownerFilter);
   const openCount = tasks?.filter((task) => task.completedAt === null).length ?? 0;
 
   return (
     <>
-      <TopBar actions={controls} title="Tarefas" />
+      <TopBar actions={controls} title={t.tasks.title} />
       <Screen>
         <OwnerFilters
           groups={groups}
@@ -109,13 +110,14 @@ function OwnerFilters({
   ownerFilter: string;
   showCompleted: boolean;
 }) {
+  const { t } = useI18n();
   if (groups === undefined || groups.length === 0) return null;
   return (
     <div className="flex flex-wrap items-center gap-2">
       <OwnerChip
         active={ownerFilter === ""}
         count={openCount}
-        label="Todos"
+        label={t.tasks.all}
         onClick={() => onOwnerChange("")}
       />
       {groups.map((group) => (
@@ -135,7 +137,7 @@ function OwnerFilters({
           onChange={(event) => onShowCompletedChange(event.currentTarget.checked)}
           type="checkbox"
         />
-        Mostrar concluídas
+        {t.tasks.showCompleted}
       </label>
     </div>
   );
@@ -156,25 +158,22 @@ function TasksBody({
   tasks: DashboardTask[] | undefined;
   visibleGroups: OwnerGroup[] | undefined;
 }) {
+  const { t } = useI18n();
   if (failed) {
     return (
-      <ErrorState code="request_failed" onRetry={onRetry} title="Tarefas indisponíveis">
-        Não foi possível carregar as tarefas deste servidor.
+      <ErrorState code="request_failed" onRetry={onRetry} title={t.tasks.unavailableTitle}>
+        {t.tasks.unavailableBody}
       </ErrorState>
     );
   }
   if (!hasGuild) {
-    return (
-      <EmptyState title="Nenhum servidor instalado">
-        Instale o Summyz em um servidor para acompanhar as tarefas dos resumos.
-      </EmptyState>
-    );
+    return <EmptyState title={t.tasks.noGuildTitle}>{t.tasks.noGuildBody}</EmptyState>;
   }
-  if (tasks === undefined) return <LoadingPanel label="Carregando tarefas…" />;
+  if (tasks === undefined) return <LoadingPanel label={t.tasks.loading} />;
   if (visibleGroups === undefined || visibleGroups.length === 0) {
     return (
-      <EmptyState icon={<SquareCheckBig className="size-5" />} title="Nenhuma tarefa aberta">
-        As tarefas aparecem aqui assim que uma call concluída gerar um resumo com responsáveis.
+      <EmptyState icon={<SquareCheckBig className="size-5" />} title={t.tasks.emptyTitle}>
+        {t.tasks.emptyBody}
       </EmptyState>
     );
   }
@@ -225,13 +224,14 @@ function OwnerSection({
   group: OwnerGroup;
   onToggle: (task: DashboardTask) => Promise<void>;
 }) {
+  const { t } = useI18n();
   return (
     <Card>
       <div className="mb-3 flex flex-wrap items-center gap-2.5">
         <Avatar avatarUrl={group.avatarUrl} name={group.name} size={24} />
         <span className="min-w-0 truncate text-[13.5px] font-medium text-ink">{group.name}</span>
-        <span className="label-mono text-ink-muted">{group.openCount} abertas</span>
-        {group.overdueCount > 0 && <Badge tone="fail">{group.overdueCount} atrasada</Badge>}
+        <span className="label-mono text-ink-muted">{t.tasks.open(group.openCount)}</span>
+        {group.overdueCount > 0 && <Badge tone="fail">{t.tasks.overdue(group.overdueCount)}</Badge>}
       </div>
       <div className="flex flex-col">
         {group.tasks.map((task) => (
@@ -249,6 +249,7 @@ function TaskRow({
   onToggle: (task: DashboardTask) => Promise<void>;
   task: DashboardTask;
 }) {
+  const { format, t } = useI18n();
   const completed = task.completedAt !== null;
   return (
     // Phones put the call link and the deadline under the task text; wider screens keep one row.
@@ -279,7 +280,7 @@ function TaskRow({
             task.overdue && !completed ? "text-fail" : "text-ink-dim"
           }`}
         >
-          {formatDeadline(task, task.deadlineTimeZone ?? "America/Sao_Paulo")}
+          {format.deadline(task) ?? t.tasks.noDeadline}
         </span>
       </div>
     </div>

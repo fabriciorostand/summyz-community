@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setLanguage } from "../i18n/store";
 import { ApiError, api } from "../lib/api";
 import {
   aConfigurationProfile,
@@ -53,6 +54,17 @@ afterEach(() => {
 });
 
 describe("GuildPage", () => {
+  it("reads in English, keeping each language name in its own language", async () => {
+    setLanguage("en");
+    renderGuild();
+    expect(await screen.findByText("AI profile used in this server")).toBeInTheDocument();
+    expect(screen.getByText("Where to publish the summaries")).toBeInTheDocument();
+    expect(screen.getByText("12 members")).toBeInTheDocument();
+    expect(screen.getByText("Installation checklist")).toBeInTheDocument();
+    expect(screen.getByText(/Português \(Brasil\) · no tag/)).toBeInTheDocument();
+    expect(screen.getByText("Last 30 days.")).toBeInTheDocument();
+  });
+
   it("puts the essentials in front", async () => {
     renderGuild();
     expect(

@@ -2,20 +2,22 @@ import { useEffect, useState } from "react";
 
 import { ErrorState, LoadingPanel } from "../components/states";
 import { RailLabel } from "../components/ui";
-import { useDashboard } from "../layout/dashboard-layout";
+import { useI18n } from "../i18n/store";
 import { TopBar } from "../layout/top-bar";
 import { api, type CommandReference } from "../lib/api";
 import { Screen } from "./screen";
 
-/** The bot registers these commands; the API returns them localized in the dashboard language. */
+/**
+ * The bot registers these commands and the API describes them in English. The dashboard
+ * translates what it knows and keeps the English text for anything newer than its dictionary.
+ */
 export function CommandsPage() {
-  const { settings } = useDashboard();
-  const language = settings.dashboardLanguage;
+  const { t } = useI18n();
   const [groups, setGroups] = useState<CommandReference>();
   const [loadError, setLoadError] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
 
-  // biome-ignore lint/correctness/useExhaustiveDependencies: language and reloadToken are the refetch triggers.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is the explicit refetch trigger.
   useEffect(() => {
     let active = true;
     setGroups(undefined);
@@ -31,25 +33,25 @@ export function CommandsPage() {
     return () => {
       active = false;
     };
-  }, [language, reloadToken]);
+  }, [reloadToken]);
 
   return (
     <>
-      <TopBar title="Comandos" />
+      <TopBar title={t.commands.title} />
       <Screen width="narrow">
         {loadError ? (
           <ErrorState
             onRetry={() => setReloadToken((token) => token + 1)}
-            title="Comandos indisponíveis"
+            title={t.commands.unavailableTitle}
           >
-            Não foi possível carregar a referência de comandos do bot. Tente novamente.
+            {t.commands.unavailableBody}
           </ErrorState>
         ) : groups === undefined ? (
-          <LoadingPanel label="Carregando comandos…" />
+          <LoadingPanel label={t.commands.loading} />
         ) : (
           groups.map((group) => (
-            <div key={group.label}>
-              <RailLabel>{group.label}</RailLabel>
+            <div key={group.id}>
+              <RailLabel>{t.commands.groups[group.id] ?? group.label}</RailLabel>
               <div className="overflow-hidden rounded-xl border border-line bg-surface">
                 {group.commands.map(({ description, name }) => (
                   <div
@@ -57,7 +59,9 @@ export function CommandsPage() {
                     key={name}
                   >
                     <code className="font-mono text-[12.5px] text-accent">{name}</code>
-                    <span className="text-[12.5px] text-ink-muted">{description}</span>
+                    <span className="text-[12.5px] text-ink-muted">
+                      {t.commands.descriptions[name] ?? description}
+                    </span>
                   </div>
                 ))}
               </div>
