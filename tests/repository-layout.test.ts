@@ -105,4 +105,14 @@ describe("repository layout", () => {
     expect(ciVitest).toContain('reportsDirectory: "artifacts/reports/server/coverage"');
     expect(webVitest).toContain('reportsDirectory: "../artifacts/reports/web/coverage"');
   });
+
+  it("keeps every local environment file out of Git except the example", async () => {
+    const gitignore = await readFile(new URL(".gitignore", root), "utf8");
+    const lines = gitignore.split(/\r?\n/u).map((line) => line.trim());
+
+    expect(lines).toContain(".env");
+    expect(lines).toContain(".env.*");
+    expect(lines).toContain("!.env.example");
+    expect(lines.indexOf("!.env.example")).toBeGreaterThan(lines.indexOf(".env.*"));
+  });
 });
