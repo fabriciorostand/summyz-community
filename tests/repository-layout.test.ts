@@ -30,7 +30,6 @@ describe("repository layout", () => {
       "requirements-ci.lock",
       "docs/installation.pt-BR.md",
       "docs/release-checklist.pt-BR.md",
-      "docs/revisao-juridica-1.0.md",
       "docs/pt-BR/BOT_COMMANDS.md",
     ];
 
