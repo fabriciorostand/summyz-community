@@ -16,6 +16,8 @@ export default mergeConfig(baseConfig, {
         statements: 85,
       },
     },
+    // Private-repository runners have two cores and the default leaves one idle.
+    maxWorkers: "100%",
     outputFile: {
       junit: "../artifacts/reports/web/junit.xml",
     },

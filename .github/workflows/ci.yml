@@ -318,7 +318,7 @@ jobs:
           load: true
           tags: summyz-community-tests:ci
           cache-from: type=gha,scope=summyz-node-tests
-          cache-to: type=gha,mode=max,scope=summyz-node-tests,ignore-error=true
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=summyz-node-tests,ignore-error=true' || '' }}
 
       - name: Initialize test reports
         run: |
@@ -349,7 +349,7 @@ jobs:
           load: true
           tags: summyz-community-python-tests:ci
           cache-from: type=gha,scope=summyz-python-tests
-          cache-to: type=gha,mode=max,scope=summyz-python-tests,ignore-error=true
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=summyz-python-tests,ignore-error=true' || '' }}
 
       - name: Run Python tests with coverage
         if: always()
@@ -442,13 +442,44 @@ jobs:
     permissions:
       contents: read
     steps:
-      - name: Check out the tested revision
+      - name: Check out the tested revision and its base
         uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
+          fetch-depth: 0
           persist-credentials: false
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
+      - name: Detect changes that need the local-AI smoke test or CUDA packaging
+        id: changes
+        shell: bash
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            echo "local-ai=true" >> "${GITHUB_OUTPUT}"
+            echo "cuda=true" >> "${GITHUB_OUTPUT}"
+            exit 0
+          fi
+          changed_files="$(git diff --name-only "${BASE_SHA}...HEAD")"
+          # Both need the transcription image, its FFmpeg build, and its locked wheels.
+          transcription_paths='^(\.github/workflows/ci\.yml|\.dockerignore|services/faster-whisper/|docker/ffmpeg/|requirements/)'
+          # The smoke test also runs the Node test image and the model code it imports.
+          smoke_paths='^(\.github/ci/|\.npmrc|compose\.yaml|docker/|package\.json|package-lock\.json|web/package\.json|scripts/install-husky\.mjs|src/models/|tests/smoke/|vitest\.smoke\.config\.ts)'
+          local_ai=false
+          cuda=false
+          if grep --extended-regexp --quiet "${transcription_paths}" <<<"${changed_files}"; then
+            local_ai=true
+            cuda=true
+          elif grep --extended-regexp --quiet "${smoke_paths}" <<<"${changed_files}"; then
+            local_ai=true
+          fi
+          echo "local-ai=${local_ai}" >> "${GITHUB_OUTPUT}"
+          echo "cuda=${cuda}" >> "${GITHUB_OUTPUT}"
+          echo "::notice::Local-AI smoke test: ${local_ai}. CUDA packaging: ${cuda}."
+
       - name: Preflight NVIDIA system packages
+        if: steps.changes.outputs.cuda == 'true'
         shell: bash
         run: |
           repository_urls=(
@@ -463,6 +494,23 @@ jobs:
               --output /dev/null "${repository_url}"
           done
 
+      - name: Start pulling the local-AI images in the background
+        if: steps.changes.outputs.local-ai == 'true'
+        shell: bash
+        env:
+          CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
+          CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
+          POSTGRES_PASSWORD: ci-only-password
+        run: |
+          # The download is network-bound, so it overlaps with the CPU-bound image builds.
+          nohup bash -c '
+            docker compose -f compose.yaml -f .github/ci/docker-compose.ci.yaml \
+              --profile smoke pull --quiet ollama
+            pull_status=$?
+            echo "${pull_status}" > "${RUNNER_TEMP}/local-ai-pull.status.tmp"
+            mv "${RUNNER_TEMP}/local-ai-pull.status.tmp" "${RUNNER_TEMP}/local-ai-pull.status"
+          ' > "${RUNNER_TEMP}/local-ai-pull.log" 2>&1 &
+
       - name: Set up Buildx
         uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
 
@@ -475,7 +523,7 @@ jobs:
           load: true
           tags: summyz-community-bot:ci
           cache-from: type=gha,scope=summyz-runtime
-          cache-to: type=gha,mode=max,scope=summyz-runtime,ignore-error=true
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=summyz-runtime,ignore-error=true' || '' }}
 
       - name: Build dashboard image
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
@@ -496,9 +544,10 @@ jobs:
           load: true
           tags: summyz-community-faster-whisper:ci
           cache-from: type=gha,scope=summyz-python-runtime
-          cache-to: type=gha,mode=max,scope=summyz-python-runtime,ignore-error=true
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=summyz-python-runtime,ignore-error=true' || '' }}
 
       - name: Build smoke-test image
+        if: steps.changes.outputs.local-ai == 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -507,9 +556,9 @@ jobs:
           load: true
           tags: summyz-community-smoke:latest
           cache-from: type=gha,scope=summyz-node-tests
-          cache-to: type=gha,mode=max,scope=summyz-node-tests,ignore-error=true
 
       - name: Reclaim build storage before runtime validation
+        if: steps.changes.outputs.local-ai == 'true'
         run: |
           docker buildx prune --all --force
           docker image prune --force
@@ -535,6 +584,7 @@ jobs:
 
       - name: Restore immutable local-model cache # zizmor: ignore[cache-poisoning] PR cache scope is isolated and models are verified.
         id: local_model_cache
+        if: steps.changes.outputs.local-ai == 'true'
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -543,6 +593,7 @@ jobs:
           key: local-ai-d90ca5fe260221311c53c58e660288d3deb8d356-8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7
 
       - name: Prepare local-model cache permissions
+        if: steps.changes.outputs.local-ai == 'true'
         shell: bash
         env:
           CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
@@ -558,8 +609,21 @@ jobs:
             summyz-community-faster-whisper:ci \
             --recursive "${whisper_uid}:${whisper_gid}" /models
 
+      - name: Wait for the local-AI images
+        if: steps.changes.outputs.local-ai == 'true'
+        shell: bash
+        run: |
+          status_file="${RUNNER_TEMP}/local-ai-pull.status"
+          for _ in $(seq 1 300); do
+            [[ -f "${status_file}" ]] && break
+            sleep 2
+          done
+          cat "${RUNNER_TEMP}/local-ai-pull.log"
+          test "$(cat "${status_file}")" = "0"
+
       - name: Run real CPU local-AI smoke test
         id: local_ai_smoke
+        if: steps.changes.outputs.local-ai == 'true'
         shell: bash
         env:
           CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
@@ -615,7 +679,7 @@ jobs:
             --profile smoke logs --no-color --timestamps ollama faster-whisper
 
       - name: Stop local-AI services
-        if: always()
+        if: always() && steps.changes.outputs.local-ai == 'true'
         env:
           CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
           CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
@@ -625,7 +689,7 @@ jobs:
           --profile smoke down --volumes
 
       - name: Prepare verified local-model cache
-        if: steps.local_ai_smoke.outcome == 'success' && steps.local_model_cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && steps.local_ai_smoke.outcome == 'success' && steps.local_model_cache.outputs.cache-hit != 'true'
         shell: bash
         env:
           CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
@@ -637,7 +701,7 @@ jobs:
             "${CI_OLLAMA_CACHE}/models" "${CI_WHISPER_CACHE}/managed"
 
       - name: Save verified local-model cache
-        if: steps.local_ai_smoke.outcome == 'success' && steps.local_model_cache.outputs.cache-hit != 'true'
+        if: github.event_name == 'push' && steps.local_ai_smoke.outcome == 'success' && steps.local_model_cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: |
@@ -700,11 +764,13 @@ jobs:
             artifacts/reports/runtime/trivy-faster-whisper.json
 
       - name: Reclaim Docker storage before CUDA packaging
+        if: steps.changes.outputs.cuda == 'true'
         run: |
           docker image prune --all --force
           docker buildx prune --all --force
 
       - name: Build NVIDIA packaging target
+        if: steps.changes.outputs.cuda == 'true'
         uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
         with:
           context: .
@@ -713,7 +779,7 @@ jobs:
           load: false
           tags: summyz-community-faster-whisper-cuda:ci
           cache-from: type=gha,scope=summyz-python-cuda
-          cache-to: type=gha,mode=max,scope=summyz-python-cuda,ignore-error=true
+          cache-to: ${{ github.event_name == 'push' && 'type=gha,mode=max,scope=summyz-python-cuda,ignore-error=true' || '' }}
 
       - name: Upload runtime reports
         if: always()

@@ -335,9 +335,119 @@ describe("continuous integration contract", () => {
       workflow.indexOf("- name: Build CPU transcription image"),
     );
 
-    expect(botBuild).toContain("cache-to: type=gha,mode=max,scope=summyz-runtime");
+    expect(botBuild).toContain("'type=gha,mode=max,scope=summyz-runtime,ignore-error=true'");
     expect(dashboardBuild).toContain("cache-from: type=gha,scope=summyz-runtime");
     expect(dashboardBuild).not.toContain("cache-to:");
+  });
+
+  it("writes build and model caches only from pushes to main", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const cacheWrites = workflow.match(/^ +cache-to: .+$/gmu) ?? [];
+    const runtimeJob = workflow.slice(workflow.indexOf("\n  runtime:"));
+    const saveStep = runtimeJob.slice(
+      runtimeJob.indexOf("- name: Save verified local-model cache"),
+      runtimeJob.indexOf("- name: Initialize runtime reports"),
+    );
+
+    expect(cacheWrites).toHaveLength(5);
+    for (const cacheWrite of cacheWrites) {
+      expect(cacheWrite).toMatch(
+        /^ +cache-to: \$\{\{ github\.event_name == 'push' && 'type=gha,mode=max,scope=[a-z-]+,ignore-error=true' \|\| '' \}\}$/u,
+      );
+    }
+    expect(saveStep).toContain("github.event_name == 'push'");
+  });
+
+  it("reuses the tests image cache for the smoke image without writing it twice", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const runtimeJob = workflow.slice(workflow.indexOf("\n  runtime:"));
+    const smokeBuild = runtimeJob.slice(
+      runtimeJob.indexOf("- name: Build smoke-test image"),
+      runtimeJob.indexOf("- name: Reclaim build storage before runtime validation"),
+    );
+
+    expect(smokeBuild).toContain("cache-from: type=gha,scope=summyz-node-tests");
+    expect(smokeBuild).not.toContain("cache-to:");
+  });
+
+  it("runs the CI test suites on every runner core", async () => {
+    const [serverCiConfig, webCiConfig] = await Promise.all([
+      readFile(new URL("vitest.ci.config.ts", root), "utf8"),
+      readFile(new URL("web/vite.ci.config.ts", root), "utf8"),
+    ]);
+
+    expect(serverCiConfig).toContain('maxWorkers: "100%"');
+    expect(webCiConfig).toContain('maxWorkers: "100%"');
+  });
+
+  it("skips the local-AI smoke test and CUDA packaging on unrelated pull requests", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const runtimeJob = workflow.slice(workflow.indexOf("\n  runtime:"));
+    const stepOf = (name: string): string => {
+      const start = runtimeJob.indexOf(`- name: ${name}`);
+      expect(start).toBeGreaterThan(-1);
+      return runtimeJob.slice(start, runtimeJob.indexOf("- name:", start + 1));
+    };
+    const detection = stepOf("Detect changes that need the local-AI smoke test or CUDA packaging");
+    const localAiCondition = "steps.changes.outputs.local-ai == 'true'";
+    const cudaCondition = "steps.changes.outputs.cuda == 'true'";
+
+    expect(runtimeJob.indexOf("- name: Detect changes")).toBeLessThan(
+      runtimeJob.indexOf("- name: Preflight NVIDIA system packages"),
+    );
+    expect(detection).toContain("id: changes");
+    expect(detection).toContain(`if [[ "\${EVENT_NAME}" != "pull_request" ]]`);
+    expect(detection).toContain(`git diff --name-only "\${BASE_SHA}...HEAD"`);
+    for (const path of [
+      "services/faster-whisper/",
+      "docker/",
+      "requirements/",
+      "src/models/",
+      "tests/smoke/",
+      "compose",
+      "package-lock",
+    ]) {
+      expect(detection).toContain(path);
+    }
+    for (const name of [
+      "Start pulling the local-AI images in the background",
+      "Build smoke-test image",
+      "Reclaim build storage before runtime validation",
+      "Restore immutable local-model cache",
+      "Prepare local-model cache permissions",
+      "Wait for the local-AI images",
+      "Run real CPU local-AI smoke test",
+      "Stop local-AI services",
+    ]) {
+      expect(stepOf(name)).toContain(localAiCondition);
+    }
+    for (const name of [
+      "Preflight NVIDIA system packages",
+      "Reclaim Docker storage before CUDA packaging",
+      "Build NVIDIA packaging target",
+    ]) {
+      expect(stepOf(name)).toContain(cudaCondition);
+    }
+  });
+
+  it("pulls the local-AI images while the application images build", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const runtimeJob = workflow.slice(workflow.indexOf("\n  runtime:"));
+    const pullIndex = runtimeJob.indexOf(
+      "- name: Start pulling the local-AI images in the background",
+    );
+    const waitIndex = runtimeJob.indexOf("- name: Wait for the local-AI images");
+    const pullStep = runtimeJob.slice(pullIndex, runtimeJob.indexOf("- name:", pullIndex + 1));
+    const waitStep = runtimeJob.slice(waitIndex, runtimeJob.indexOf("- name:", waitIndex + 1));
+
+    expect(pullIndex).toBeGreaterThan(-1);
+    expect(pullIndex).toBeLessThan(runtimeJob.indexOf("- name: Build bot image"));
+    expect(pullStep).toContain("pull --quiet ollama");
+    expect(pullStep).toContain("local-ai-pull.status");
+    expect(waitIndex).toBeGreaterThan(pullIndex);
+    expect(waitIndex).toBeLessThan(runtimeJob.indexOf("- name: Run real CPU local-AI smoke test"));
+    expect(waitStep).toContain("local-ai-pull.log");
+    expect(waitStep).toContain('= "0"');
   });
 
   it("caches only local model artifacts after a successful smoke test", async () => {
