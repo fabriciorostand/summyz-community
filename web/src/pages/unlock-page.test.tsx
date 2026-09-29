@@ -4,7 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api } from "../lib/api";
-import { unguardedHoverClasses } from "../tests/test-utils";
+import { chooseOption, unguardedHoverClasses } from "../tests/test-utils";
 import { UnlockPage } from "./unlock-page";
 
 vi.mock("../lib/api", async () => {
@@ -31,6 +31,15 @@ afterEach(() => {
 });
 
 describe("UnlockPage", () => {
+  it("offers the language picker before the password is typed", async () => {
+    renderPage();
+    await chooseOption("Idioma do dashboard", "English");
+
+    expect(screen.getByRole("heading", { name: "Unlock" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Installation password")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sign in" })).toBeInTheDocument();
+  });
+
   it("asks only for the installation password", () => {
     renderPage();
     expect(screen.getByRole("heading", { name: "Desbloquear" })).toBeInTheDocument();

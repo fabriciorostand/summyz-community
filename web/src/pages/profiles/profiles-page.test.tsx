@@ -3,6 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { invalidateModelCatalogs } from "../../hooks/use-model-catalog";
+import { setLanguage } from "../../i18n/store";
 import {
   ApiError,
   api,
@@ -630,7 +631,41 @@ describe("ProfilesPage", () => {
     expect(api.getPromptDefaults).not.toHaveBeenCalledWith("en");
   });
 
-  it("retargets untouched prompts when the transcription language drives the summary", async () => {
+  it("retargets default prompts when the transcription language drives the summary", async () => {
+    vi.mocked(api.getPromptDefaults).mockImplementation((language) =>
+      Promise.resolve({
+        refinement: `refino ${language}`,
+        summaryConsolidation: `consolidação ${language}`,
+        summaryExtraction: `extração ${language}`,
+        transcription: null,
+      }),
+    );
+    listProfiles.mockResolvedValue([
+      item(
+        aProfile({
+          language: "auto",
+          promptModes: { ...aProfile().promptModes, summaryExtraction: "default" },
+          summary: { ...aProfile().summary, extractionPrompt: "extração auto" },
+        }),
+      ),
+    ]);
+    renderScreen(<ProfilesPage />);
+    await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("auto"));
+    await chooseOption("Idioma falado na reunião", "Inglês");
+    await waitFor(() => expect(api.getPromptDefaults).toHaveBeenCalledWith("en"));
+    await userEvent.click(screen.getByRole("button", { name: "Salvar perfil" }));
+
+    await waitFor(() =>
+      expect(api.updateProfile).toHaveBeenCalledWith(
+        expect.objectContaining({
+          promptModes: expect.objectContaining({ summaryExtraction: "default" }),
+          summary: expect.objectContaining({ extractionPrompt: "extração en" }),
+        }),
+      ),
+    );
+  });
+
+  it("never rewrites custom text, even when it matches the previous default", async () => {
     vi.mocked(api.getPromptDefaults).mockImplementation((language) =>
       Promise.resolve({
         refinement: `refino ${language}`,
@@ -656,8 +691,42 @@ describe("ProfilesPage", () => {
     await waitFor(() =>
       expect(api.updateProfile).toHaveBeenCalledWith(
         expect.objectContaining({
-          summary: expect.objectContaining({ extractionPrompt: "extração en" }),
+          promptModes: expect.objectContaining({ summaryExtraction: "custom" }),
+          summary: expect.objectContaining({ extractionPrompt: "extração auto" }),
         }),
+      ),
+    );
+  });
+
+  it("shows default prompts in Portuguese while saving them as defaults", async () => {
+    listProfiles.mockResolvedValue([
+      item(
+        aProfile({
+          promptModes: { ...aProfile().promptModes, refinement: "default" },
+          refinement: { ...aProfile().refinement, prompt: "prompt de refino" },
+        }),
+      ),
+    ]);
+    renderScreen(<ProfilesPage />);
+    await userEvent.click(await screen.findByRole("tab", { name: /Refinamento/ }));
+
+    expect(
+      await screen.findByText(/^Você é um revisor conservador de transcrições\./),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("prompt de refino")).toBeNull();
+  });
+
+  it("names a new profile in the language of whoever creates it", async () => {
+    setLanguage("en");
+    vi.mocked(api.createProfile).mockImplementation((input) =>
+      Promise.resolve({ ...input, profileId: "p3", profileType: "external" }),
+    );
+    renderScreen(<ProfilesPage />);
+    await userEvent.click(await screen.findByRole("button", { name: /New profile/ }));
+
+    await waitFor(() =>
+      expect(api.createProfile).toHaveBeenCalledWith(
+        expect.objectContaining({ name: "Profile 1" }),
       ),
     );
   });

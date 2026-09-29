@@ -2,26 +2,25 @@ import { Pencil, Trash2 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Badge, Button } from "../../components/ui";
+import { useI18n } from "../../i18n/store";
 import type { ProfileType } from "../../lib/api";
 
-export const profileTypeLabels: Record<NonNullable<ProfileType>, string> = {
-  external: "API externa",
-  hybrid: "Híbrido",
-  local: "Local",
-};
-
 export function ProfileTypeBadge({ short = false, type }: { short?: boolean; type: ProfileType }) {
-  if (type === null) return <Badge>Incompleto</Badge>;
-  const label = short && type === "external" ? "API" : profileTypeLabels[type];
+  const { profileHeader } = useI18n().t;
+  if (type === null) return <Badge>{profileHeader.incomplete}</Badge>;
+  const label = short && type === "external" ? profileHeader.api : profileHeader.types[type];
   return <Badge tone={type === "local" ? "neutral" : "action"}>{label}</Badge>;
 }
 
 export function UsageLine({ count }: { count: number }) {
-  if (count === 0) return <span className="text-[11.5px] text-ink-muted">Não está em uso</span>;
+  const { profileHeader } = useI18n().t;
+  if (count === 0) {
+    return <span className="text-[11.5px] text-ink-muted">{profileHeader.notInUse}</span>;
+  }
   return (
     <span className="flex items-center gap-1.5 text-[11.5px] whitespace-nowrap text-ok">
       <span className="size-1.5 rounded-full bg-ok" />
-      Em uso em {count} {count === 1 ? "servidor" : "servidores"}
+      {profileHeader.inUse(count)}
     </span>
   );
 }
@@ -39,35 +38,36 @@ function DeletePopover({
   onDelete: () => void;
   onlyProfile: boolean;
 }) {
+  const { common, profileHeader } = useI18n().t;
   const panel =
     "absolute top-[calc(100%+8px)] right-0 z-30 flex w-[min(320px,calc(100vw-2rem))] flex-col gap-2.5 rounded-xl border border-line-strong bg-surface p-3.5 text-[12.5px] leading-relaxed text-ink-secondary shadow-2xl";
   if (activeServerCount > 0 || onlyProfile) {
     const reason =
       activeServerCount > 0
-        ? `Escolha outro perfil ${activeServerCount === 1 ? "no servidor que usa" : `nos ${String(activeServerCount)} servidores que usam`} este antes de excluir.`
-        : "Crie outro perfil antes de excluir este.";
+        ? profileHeader.chooseOtherFirst(activeServerCount)
+        : profileHeader.createAnotherFirst;
     return (
-      <div aria-label="Excluir perfil" className={panel} role="dialog">
+      <div aria-label={profileHeader.deleteProfile} className={panel} role="dialog">
         <strong className="text-[13px] text-ink">
-          {activeServerCount > 0 ? "Este perfil está em uso" : "Este é o único perfil"}
+          {activeServerCount > 0 ? profileHeader.inUseTitle : profileHeader.onlyProfileTitle}
         </strong>
         <span>{reason}</span>
         <Button className="self-end" onClick={onClose} type="button" variant="secondary">
-          Entendi
+          {profileHeader.understood}
         </Button>
       </div>
     );
   }
   return (
-    <div aria-label="Excluir perfil" className={panel} role="alertdialog">
-      <strong className="text-[13px] text-ink">Excluir “{name}”?</strong>
-      <span>O perfil sai da lista e não pode ser recuperado.</span>
+    <div aria-label={profileHeader.deleteProfile} className={panel} role="alertdialog">
+      <strong className="text-[13px] text-ink">{profileHeader.confirmDelete(name)}</strong>
+      <span>{profileHeader.deleteWarning}</span>
       <div className="flex justify-end gap-2">
         <Button onClick={onClose} type="button" variant="secondary">
-          Cancelar
+          {common.cancel}
         </Button>
         <Button onClick={onDelete} type="button" variant="danger">
-          Excluir perfil
+          {profileHeader.deleteProfile}
         </Button>
       </div>
     </div>
@@ -87,6 +87,7 @@ function ProfileNameField({
   nameError: string | null;
   onNameChange: (name: string) => void;
 }) {
+  const { profileHeader } = useI18n().t;
   const [editing, setEditing] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const before = useRef(name);
@@ -114,7 +115,7 @@ function ProfileNameField({
       <input
         aria-describedby={nameError === null ? undefined : "profile-name-error"}
         aria-invalid={nameError !== null}
-        aria-label="Nome do perfil"
+        aria-label={profileHeader.profileName}
         className={`w-full min-w-0 rounded-lg border py-1 pr-10 pl-2.5 text-[20px] font-semibold tracking-tight text-ink outline-none transition-colors ${
           editing ? "bg-surface-raised" : "cursor-default bg-transparent"
         } ${nameError !== null ? "border-fail" : editing ? "border-action" : "border-line"}`}
@@ -136,7 +137,7 @@ function ProfileNameField({
         value={name}
       />
       <button
-        aria-label="Editar nome do perfil"
+        aria-label={profileHeader.editName}
         className={`absolute right-1.5 grid size-7 place-items-center rounded-md transition-colors hover:bg-surface-inset hover:text-ink ${
           editing ? "text-accent" : "text-ink-muted"
         }`}
@@ -172,6 +173,7 @@ export function ProfileHeader({
   savedName: string;
   type: ProfileType;
 }) {
+  const { profileHeader } = useI18n().t;
   const [deleting, setDeleting] = useState(false);
   const holder = useRef<HTMLSpanElement>(null);
 
@@ -201,7 +203,7 @@ export function ProfileHeader({
               variant="ghost"
             >
               <Trash2 className="size-3.5" />
-              Excluir
+              {profileHeader.delete}
             </Button>
             {deleting && (
               <DeletePopover

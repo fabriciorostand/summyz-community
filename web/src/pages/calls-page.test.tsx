@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setDateFormat, setLanguage, setTimeFormat } from "../i18n/store";
 import { api } from "../lib/api";
 import {
   aMeetingPage,
@@ -67,7 +68,11 @@ describe("CallsPage", () => {
     await screen.findByText("Launch Week Sync");
     await userEvent.type(screen.getByLabelText(/Buscar por canal/), "m1{Enter}");
     await waitFor(() =>
-      expect(listMeetings).toHaveBeenLastCalledWith("g1", { meetingId: "m1", page: 1 }),
+      expect(listMeetings).toHaveBeenLastCalledWith(
+        "g1",
+        { meetingId: "m1", page: 1 },
+        "America/Sao_Paulo",
+      ),
     );
   });
 
@@ -76,7 +81,11 @@ describe("CallsPage", () => {
     await screen.findByText("Launch Week Sync");
     await userEvent.type(screen.getByLabelText(/Buscar por canal/), "launch week{Enter}");
     await waitFor(() =>
-      expect(listMeetings).toHaveBeenLastCalledWith("g1", { channelName: "launch week", page: 1 }),
+      expect(listMeetings).toHaveBeenLastCalledWith(
+        "g1",
+        { channelName: "launch week", page: 1 },
+        "America/Sao_Paulo",
+      ),
     );
   });
 
@@ -85,7 +94,11 @@ describe("CallsPage", () => {
     await screen.findByText("Launch Week Sync");
     await userEvent.type(screen.getByLabelText(/Buscar por canal/), "#launch{Enter}");
     await waitFor(() =>
-      expect(listMeetings).toHaveBeenLastCalledWith("g1", { channelName: "launch", page: 1 }),
+      expect(listMeetings).toHaveBeenLastCalledWith(
+        "g1",
+        { channelName: "launch", page: 1 },
+        "America/Sao_Paulo",
+      ),
     );
   });
 
@@ -95,7 +108,9 @@ describe("CallsPage", () => {
     await userEvent.type(screen.getByLabelText(/Buscar por canal/), "m1{Enter}");
     await screen.findByRole("button", { name: "Limpar" });
     await userEvent.click(screen.getByRole("button", { name: "Limpar" }));
-    await waitFor(() => expect(listMeetings).toHaveBeenLastCalledWith("g1", { page: 1 }));
+    await waitFor(() =>
+      expect(listMeetings).toHaveBeenLastCalledWith("g1", { page: 1 }, "America/Sao_Paulo"),
+    );
   });
 
   it("filters by pipeline state", async () => {
@@ -103,7 +118,11 @@ describe("CallsPage", () => {
     await screen.findByText("Launch Week Sync");
     await userEvent.click(screen.getByRole("tab", { name: "Falhas" }));
     await waitFor(() =>
-      expect(listMeetings).toHaveBeenLastCalledWith("g1", { page: 1, state: "failed" }),
+      expect(listMeetings).toHaveBeenLastCalledWith(
+        "g1",
+        { page: 1, state: "failed" },
+        "America/Sao_Paulo",
+      ),
     );
   });
 
@@ -123,7 +142,11 @@ describe("CallsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /Avançado/ }));
     await chooseOption("Conteúdo retido", "Somente com conteúdo");
     await waitFor(() =>
-      expect(listMeetings).toHaveBeenLastCalledWith("g1", { contentRetained: true, page: 1 }),
+      expect(listMeetings).toHaveBeenLastCalledWith(
+        "g1",
+        { contentRetained: true, page: 1 },
+        "America/Sao_Paulo",
+      ),
     );
   });
 
@@ -134,7 +157,11 @@ describe("CallsPage", () => {
     await openOptions("Participante");
     await userEvent.click(await screen.findByRole("option", { name: "PixelPaladin" }));
     await waitFor(() =>
-      expect(listMeetings).toHaveBeenLastCalledWith("g1", { page: 1, participantUserId: "u1" }),
+      expect(listMeetings).toHaveBeenLastCalledWith(
+        "g1",
+        { page: 1, participantUserId: "u1" },
+        "America/Sao_Paulo",
+      ),
     );
   });
 
@@ -153,7 +180,11 @@ describe("CallsPage", () => {
     await userEvent.click(screen.getByRole("button", { name: /Avançado/ }));
     await userEvent.type(screen.getByLabelText("De"), "2026-09-01");
     await waitFor(() =>
-      expect(listMeetings).toHaveBeenLastCalledWith("g1", { dateFrom: "2026-09-01", page: 1 }),
+      expect(listMeetings).toHaveBeenLastCalledWith(
+        "g1",
+        { dateFrom: "2026-09-01", page: 1 },
+        "America/Sao_Paulo",
+      ),
     );
   });
 
@@ -163,7 +194,9 @@ describe("CallsPage", () => {
     await screen.findByText("Launch Week Sync");
     expect(screen.getByRole("button", { name: /Anterior/ })).toBeDisabled();
     await userEvent.click(screen.getByRole("button", { name: /Próxima/ }));
-    await waitFor(() => expect(listMeetings).toHaveBeenLastCalledWith("g1", { page: 2 }));
+    await waitFor(() =>
+      expect(listMeetings).toHaveBeenLastCalledWith("g1", { page: 2 }, "America/Sao_Paulo"),
+    );
   });
 
   it("summarises the visible range", async () => {
@@ -227,6 +260,22 @@ describe("CallsPage", () => {
     });
     renderScreen(<CallsPage />);
     expect(await screen.findByText("tempo de fala indisponível")).toBeInTheDocument();
+  });
+
+  it("shows each start in the chosen date and time formats, without the year", async () => {
+    setDateFormat("MM/DD/YYYY");
+    setTimeFormat("12h");
+    renderScreen(<CallsPage />);
+    expect(await screen.findByText("09/04 2:02 PM")).toBeInTheDocument();
+  });
+
+  it("reads in English", async () => {
+    setLanguage("en");
+    renderScreen(<CallsPage />);
+    expect(await screen.findByText("profile Padrão OpenRouter")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Completed" })).toBeInTheDocument();
+    expect(screen.getByText("content not retained")).toBeInTheDocument();
+    expect(screen.getByText("1–2 of 2")).toBeInTheDocument();
   });
 
   it("does not print the time zone footer", async () => {

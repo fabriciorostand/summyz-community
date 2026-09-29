@@ -141,14 +141,28 @@ describe("VadEditor", () => {
         profile={aProfile()}
         review={
           new Map([
-            ["transcription.vad.minSpeechDurationMs", "A API externa exige pelo menos 32 ms."],
+            ["transcription.vad.minSpeechDurationMs", { kind: "minimum", minimum: 32 } as const],
+            ["transcription.vad.threshold", { kind: "minimum", minimum: 0.15 } as const],
+            ["transcription.vad.minSilenceDurationMs", { fallback: 768, kind: "auto" } as const],
           ])
         }
       />,
     );
 
     expect(screen.getByText("Fala mínima (ms)", { selector: "strong" })).toBeInTheDocument();
-    expect(screen.getByText("A API externa exige pelo menos 32 ms.")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "A API externa exige pelo menos 32 ms. Ajustamos o valor; confirme ou ajuste.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "A API externa exige um limiar de pelo menos 0,15. Ajustamos o valor; confirme ou ajuste.",
+      ),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText('A API externa não aceita "auto" aqui. Usamos 768 ms; confirme ou ajuste.'),
+    ).toBeInTheDocument();
     await userEvent.click(
       screen.getByRole("button", { name: "Manter o valor de Fala mínima (ms)" }),
     );

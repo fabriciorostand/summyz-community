@@ -1,5 +1,8 @@
 import type { SelectOption } from "../../components/select";
 import { SelectField } from "../../components/ui";
+import type { Formatter } from "../../i18n/formatter";
+import type { Language } from "../../i18n/preferences";
+import { type I18nSnapshot, useI18n } from "../../i18n/store";
 
 export const profileLanguages = [
   "auto",
@@ -44,28 +47,35 @@ export const profileLanguages = [
 
 export type ProfileLanguage = (typeof profileLanguages)[number];
 
-const displayNames = new Intl.DisplayNames(["pt-BR"], { type: "language" });
-
-export function languageLabel(language: ProfileLanguage, autoLabel: string): string {
-  if (language === "auto") return autoLabel;
-  const name = displayNames.of(language) ?? language;
-  return name.charAt(0).toLocaleUpperCase("pt-BR") + name.slice(1);
+/** Names a profile language in the dashboard language; "auto" gets the caller's wording. */
+export function languageLabel(
+  language: ProfileLanguage,
+  autoLabel: string,
+  format: Formatter,
+): string {
+  return language === "auto" ? autoLabel : format.languageName(language);
 }
 
-function languageOptions(autoLabel: string): SelectOption<ProfileLanguage>[] {
+function languageOptions(
+  autoLabel: string,
+  { format, language: dashboardLanguage }: Pick<I18nSnapshot, "format" | "language">,
+): SelectOption<ProfileLanguage>[] {
   const named = profileLanguages
     .filter((language) => language !== "auto")
-    .map((language) => ({ label: languageLabel(language, autoLabel), value: language }))
-    .sort((left, right) => left.label.localeCompare(right.label, "pt-BR"));
+    .map((language) => ({ label: languageLabel(language, autoLabel, format), value: language }))
+    .sort((left, right) => left.label.localeCompare(right.label, dashboardLanguage));
   return [{ label: autoLabel, value: "auto" }, ...named];
 }
 
-/** Picks the next unused "Perfil N" so a new profile never collides with an existing name. */
+/**
+ * Picks the next unused "<prefix> N" so a new profile never collides with an existing name.
+ * The prefix comes from the dashboard language of whoever creates the profile.
+ */
 export function nextLocalizedProfileName(
   items: ReadonlyArray<{ profile: { name: string } }>,
-  locale: "en" | "pt-BR",
+  prefix: string,
+  locale: Language,
 ): string {
-  const prefix = locale === "pt-BR" ? "Perfil" : "Profile";
   const taken = new Set(items.map(({ profile }) => profile.name.toLocaleLowerCase(locale)));
   let next = 1;
   while (taken.has(`${prefix} ${String(next)}`.toLocaleLowerCase(locale))) next += 1;
@@ -83,11 +93,12 @@ export function LanguageSelector({
   onChange: (value: ProfileLanguage) => void;
   value: ProfileLanguage;
 }) {
+  const i18n = useI18n();
   return (
     <SelectField
       label={label}
       onChange={onChange}
-      options={languageOptions(autoLabel)}
+      options={languageOptions(autoLabel, i18n)}
       value={value}
     />
   );

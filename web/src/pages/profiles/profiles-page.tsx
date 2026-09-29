@@ -12,7 +12,8 @@ import { ErrorState, LoadingPanel } from "../../components/states";
 import { Button } from "../../components/ui";
 import { invalidateModelCatalogs } from "../../hooks/use-model-catalog";
 import { type ModelDownloads, useModelDownloads } from "../../hooks/use-model-downloads";
-import { useDashboard } from "../../layout/dashboard-layout";
+import type { Messages } from "../../i18n/messages/pt-BR";
+import { type I18nSnapshot, useI18n } from "../../i18n/store";
 import { TopBar } from "../../layout/top-bar";
 import {
   ApiError,
@@ -42,7 +43,7 @@ import {
   type Stage,
   type StageReview,
   stages,
-  stageTitles,
+  summaryPromptLanguage,
 } from "./profile-stages";
 import { SaveBar, type SaveBlocker } from "./save-bar";
 import { StagePanel } from "./stage-panel";
@@ -73,36 +74,26 @@ function readPath(source: unknown, path: string): unknown {
   return current;
 }
 
-const saveErrors: Record<string, string> = {
-  catalog_unavailable:
-    "Não foi possível validar os modelos agora porque o catálogo está indisponível. Tente de novo em instantes.",
-  invalid_request: "Escolha a execução e o modelo de todas as etapas antes de salvar.",
-  model_not_in_catalog: "Um dos modelos escolhidos não está no catálogo. Escolha outro modelo.",
-  openrouter_api_key_missing:
-    "Configure a chave do OpenRouter em Instalação para salvar etapas com API externa.",
-  profile_incomplete: "Escolha a execução e o modelo de todas as etapas antes de salvar.",
-};
-
-function saveErrorMessage(error: unknown): string {
+function saveErrorMessage(error: unknown, t: Messages): string {
   return (
-    (error instanceof ApiError ? saveErrors[error.code] : undefined) ??
-    "Não foi possível salvar o perfil. Tente de novo."
+    (error instanceof ApiError ? t.profiles.saveErrors[error.code] : undefined) ??
+    t.profiles.saveFailed
   );
 }
 
-/** Keeps a prompt only while the operator customised it; untouched defaults follow the language. */
-function keepCustom(current: string | null, previous: string, next: string): string | null {
-  return current === previous ? next : current;
-}
-
-/** The summary follows the transcription language while its own language is auto. */
-function summaryPromptLanguage(profile: Profile): string {
-  return profile.language === "auto" ? profile.transcription.language : profile.language;
+/** A default prompt takes the new default; custom text stays exactly as written. */
+function followDefault(
+  mode: Profile["promptModes"]["refinement"],
+  current: string | null,
+  next: string,
+): string | null {
+  return mode === "default" ? next : current;
 }
 
 /**
- * Loads the default prompts in the summary language. Switching that language rewrites the
- * prompts that still hold the previous defaults.
+ * Loads the server's English defaults for the effective summary language. Switching that
+ * language moves every prompt still in default mode to the new default, so what the editor
+ * holds matches what the server will store.
  */
 function usePromptDefaults(
   profile: Profile,
@@ -118,8 +109,7 @@ function usePromptDefaults(
     api.getPromptDefaults(language).then(
       (next) => {
         if (!current) return;
-        const before = previous.current;
-        if (before !== undefined) {
+        if (previous.current !== undefined) {
           setDraft((draft) =>
             draft !== null &&
             draft.profileId === profileId &&
@@ -128,14 +118,14 @@ function usePromptDefaults(
                   ...draft,
                   summary: {
                     ...draft.summary,
-                    consolidationPrompt: keepCustom(
+                    consolidationPrompt: followDefault(
+                      draft.promptModes.summaryConsolidation,
                       draft.summary.consolidationPrompt,
-                      before.summaryConsolidation,
                       next.summaryConsolidation,
                     ),
-                    extractionPrompt: keepCustom(
+                    extractionPrompt: followDefault(
+                      draft.promptModes.summaryExtraction,
                       draft.summary.extractionPrompt,
-                      before.summaryExtraction,
                       next.summaryExtraction,
                     ),
                   },
@@ -160,7 +150,8 @@ function usePromptDefaults(
 }
 
 export function ProfilesPage() {
-  const { settings } = useDashboard();
+  const i18n = useI18n();
+  const { format, language, t } = i18n;
   const [items, setItems] = useState<ProfileListItem[]>();
   const [loadError, setLoadError] = useState(false);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -212,10 +203,10 @@ export function ProfilesPage() {
       setItems(next);
       return next;
     } catch {
-      notify("Não foi possível atualizar a lista de perfis.", "fail");
+      notify(t.profiles.refreshFailed, "fail");
       return undefined;
     }
-  }, [notify]);
+  }, [notify, t]);
 
   useEffect(() => {
     void load();
@@ -225,10 +216,10 @@ export function ProfilesPage() {
     (job: ModelDownload) => {
       invalidateModelCatalogs();
       void refresh();
-      if (job.status === "completed") notify(`${job.model} instalado.`);
-      if (job.status === "failed") notify(`Não foi possível baixar ${job.model}.`, "fail");
+      if (job.status === "completed") notify(t.profiles.installed(job.model));
+      if (job.status === "failed") notify(t.profiles.downloadFailed(job.model), "fail");
     },
-    [notify, refresh],
+    [notify, refresh, t],
   );
   const downloads = useModelDownloads(onSettled);
 
@@ -246,14 +237,14 @@ export function ProfilesPage() {
   async function create() {
     if (items === undefined || selected === undefined) return;
     if (incompleteStages(selected.profile).length > 0) {
-      notify("Complete e salve o perfil selecionado antes de criar uma cópia.", "fail");
+      notify(t.profiles.completeBeforeCopy, "fail");
       return;
     }
     const { profileId: _profileId, profileType: _profileType, ...base } = selected.profile;
     try {
       const created = await api.createProfile({
         ...base,
-        name: nextLocalizedProfileName(items, settings.dashboardLanguage),
+        name: nextLocalizedProfileName(items, t.profiles.newProfilePrefix, language),
       });
       const refreshed = (await refresh()) ?? items;
       // The copy shows up even when the refreshed list does not carry it yet.
@@ -262,9 +253,9 @@ export function ProfilesPage() {
         : [...refreshed, { ...selected, active: false, activeServerCount: 0, profile: created }];
       if (next !== refreshed) setItems(next);
       open(created.profileId, next);
-      notify(`“${created.name}” criado.`);
+      notify(t.profiles.created(created.name));
     } catch (error) {
-      notify(saveErrorMessage(error), "fail");
+      notify(saveErrorMessage(error, t), "fail");
     }
   }
 
@@ -274,9 +265,9 @@ export function ProfilesPage() {
       const next = (items ?? []).filter((item) => item.profile.profileId !== profileId);
       setItems(next);
       open(next[0]?.profile.profileId ?? "", next);
-      notify("Perfil excluído.");
+      notify(t.profiles.deleted);
     } catch {
-      notify("Não foi possível excluir o perfil. Tente de novo.", "fail");
+      notify(t.profiles.deleteFailed, "fail");
     }
   }
 
@@ -300,25 +291,25 @@ export function ProfilesPage() {
               type="button"
             >
               <Plus className="size-3.5" />
-              Novo perfil
+              {t.profiles.newProfile}
             </Button>
           </>
         }
-        title="Perfis de IA"
+        title={t.profiles.title}
       />
       <Screen>
         {loadError ? (
           <ErrorState
             code="request_failed"
             onRetry={() => void load()}
-            title="Perfis indisponíveis"
+            title={t.profiles.unavailableTitle}
           >
-            Não foi possível carregar seus perfis.
+            {t.profiles.unavailableBody}
           </ErrorState>
         ) : items === undefined ? (
-          <LoadingPanel label="Carregando perfis…" />
+          <LoadingPanel label={t.profiles.loading} />
         ) : draft === null || selected === undefined ? (
-          <p className="m-0 text-[13px] text-ink-muted">Nenhum perfil cadastrado.</p>
+          <p className="m-0 text-[13px] text-ink-muted">{t.profiles.empty}</p>
         ) : (
           <ProfileEditor
             confirming={confirming}
@@ -364,17 +355,17 @@ export function ProfilesPage() {
               setConfirming(false);
               notify(
                 missing.length > 0
-                  ? `Perfil salvo. Ele só vai gravar depois que ${new Intl.ListFormat("pt-BR").format(missing)} for instalado.`
-                  : "Perfil salvo.",
+                  ? t.profiles.savedMissing(format.list(missing))
+                  : t.profiles.saved,
               );
               await refresh();
             }}
             onSaveError={(error) => {
               if (error instanceof ApiError && error.code === "profile_name_conflict") {
-                setNameError(`Já existe um perfil chamado “${draft.name}”. Escolha outro nome.`);
-                setSaveError("Troque o nome do perfil: ele já é usado por outro perfil.");
+                setNameError(t.profiles.nameConflict(draft.name));
+                setSaveError(t.profiles.nameConflictSave);
               } else {
-                setSaveError(saveErrorMessage(error));
+                setSaveError(saveErrorMessage(error, t));
               }
               setConfirming(false);
             }}
@@ -433,6 +424,8 @@ interface ProfileEditorProps {
 }
 
 function ProfileEditor(props: ProfileEditorProps) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const { draft, needsModel, review, selected, stage } = props;
   const promptDefaults = usePromptDefaults(draft, props.setDraft);
   const draftMissing = useMissingModels(draft);
@@ -448,9 +441,9 @@ function ProfileEditor(props: ProfileEditorProps) {
     transcription: stageDirty("transcription"),
   };
   const notes: Record<Stage, StageNote> = {
-    refinement: stageNote("refinement", props, missing),
-    summary: stageNote("summary", props, missing),
-    transcription: stageNote("transcription", props, missing),
+    refinement: stageNote("refinement", props, missing, i18n),
+    summary: stageNote("summary", props, missing, i18n),
+    transcription: stageNote("transcription", props, missing, i18n),
   };
 
   const incomplete = incompleteStages(draft);
@@ -547,8 +540,8 @@ function ProfileEditor(props: ProfileEditorProps) {
             blocker={blocker}
             busy={props.saving}
             changes={[
-              ...(draft.name === selected.profile.name ? [] : ["Nome"]),
-              ...stages.filter((item) => dirtyStages[item]).map((item) => stageTitles[item]),
+              ...(draft.name === selected.profile.name ? [] : [t.profiles.name]),
+              ...stages.filter((item) => dirtyStages[item]).map((item) => t.stages.titles[item]),
             ]}
             confirming={props.confirming}
             error={props.saveError}
@@ -569,29 +562,33 @@ function stageNote(
   stage: Stage,
   { downloads, draft, needsModel, review }: ProfileEditorProps,
   missing: readonly { model: string; phase: Stage; provider: ModelDownload["provider"] }[],
+  i18n: I18nSnapshot,
 ): StageNote {
-  if (executionOf(draft, stage) === null) return { text: "Escolha a execução", tone: "warn" };
+  const { format, t } = i18n;
+  if (executionOf(draft, stage) === null) {
+    return { text: t.profiles.chooseExecutionNote, tone: "warn" };
+  }
   if (needsModel.has(stage) || draft[stage].model === null) {
-    return { text: "Escolha o modelo", tone: "warn" };
+    return { text: t.profiles.chooseModelNote, tone: "warn" };
   }
   const reviewCount = [...review.keys()].filter((path) => path.startsWith(`${stage}.`)).length;
-  if (reviewCount > 0) {
-    return {
-      text: `Revisar ${String(reviewCount)} ${reviewCount === 1 ? "campo" : "campos"}`,
-      tone: "warn",
-    };
-  }
+  if (reviewCount > 0) return { text: t.profiles.reviewFields(reviewCount), tone: "warn" };
   const absent = missing.find((entry) => entry.phase === stage);
   if (absent !== undefined) {
     const job = downloads.jobFor(absent.provider, absent.model);
-    if (job !== undefined && job.status !== "failed") return { text: downloadProgress(job).label };
-    return { text: "Não instalado", tone: "warn" };
+    if (job !== undefined && job.status !== "failed") {
+      return { text: downloadProgress(job, i18n).label };
+    }
+    return { text: t.profiles.notInstalled, tone: "warn" };
   }
   if (stage === "transcription") {
-    return { text: languageLabel(draft.transcription.language, "Idioma detectado") };
+    return {
+      text: languageLabel(draft.transcription.language, t.profiles.detectedLanguage, format),
+    };
   }
   if (stage === "refinement") {
-    return { text: draft.refinement.prompt === null ? "Sem prompt" : "Com prompt de refinamento" };
+    const sent = draft.promptModes.refinement === "default" || draft.refinement.prompt !== null;
+    return { text: sent ? t.profiles.withRefinementPrompt : t.profiles.noPrompt };
   }
-  return { text: languageLabel(draft.language, "Mesmo idioma da reunião") };
+  return { text: languageLabel(draft.language, t.profiles.sameAsMeeting, format) };
 }

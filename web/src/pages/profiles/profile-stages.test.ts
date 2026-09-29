@@ -14,6 +14,12 @@ import {
 function externalProfile(): Profile {
   return {
     language: "auto",
+    promptModes: {
+      refinement: "custom",
+      summaryConsolidation: "custom",
+      summaryExtraction: "custom",
+      transcription: "default",
+    },
     name: "Perfil 1",
     profileId: "p1",
     profileType: "external",
@@ -167,7 +173,11 @@ describe("profile stages", () => {
       "transcription.vad.minSpeechDurationMs",
       "transcription.vad.threshold",
     ]);
-    expect(review.get("transcription.vad.minSilenceDurationMs")).toMatch(/768 ms/);
+    expect(Object.fromEntries(review)).toEqual({
+      "transcription.vad.minSilenceDurationMs": { fallback: 768, kind: "auto" },
+      "transcription.vad.minSpeechDurationMs": { kind: "minimum", minimum: 32 },
+      "transcription.vad.threshold": { kind: "minimum", minimum: 0.15 },
+    });
   });
 
   it("gives the setup profile a local voice detection shape when transcription runs locally", () => {

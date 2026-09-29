@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import type { DateFormat, Language, TimeFormat } from "../i18n/preferences";
+
 import {
   accessStatusSchema,
   botInstallationSchema,
@@ -143,11 +145,11 @@ export const api = {
     request(`/api/profiles/${profileId}`, emptySchema, { method: "DELETE" }),
   getAccessStatus: () => request("/api/access/status", accessStatusSchema),
   getBotInstallation: () => request("/api/installation/bot", botInstallationSchema),
-  getDashboard: (guildId: string, period: "30d" | "90d" | "all" = "30d") =>
+  getDashboard: (guildId: string, period: "30d" | "90d" | "all", timeZone: string) =>
     request(
-      `/api/guilds/${guildId}/dashboard${
-        period === "30d" ? "" : `?${new URLSearchParams({ period })}`
-      }`,
+      `/api/guilds/${guildId}/dashboard?${new URLSearchParams(
+        period === "30d" ? { timeZone } : { period, timeZone },
+      )}`,
       dashboardAnalyticsSchema,
     ),
   getGuildConfiguration: (guildId: string) =>
@@ -155,10 +157,19 @@ export const api = {
   getGuildResources: (guildId: string) =>
     request(`/api/guilds/${guildId}/resources`, resourcesSchema),
   getInstallationHealth: () => request("/api/installation/health", installationHealthSchema),
-  getMeeting: (guildId: string, meetingId: string) =>
-    request(`/api/guilds/${guildId}/meetings/${meetingId}`, meetingHistoryDetailSchema),
-  getMeetingExport: (guildId: string, meetingId: string) =>
-    requestText(`/api/guilds/${guildId}/meetings/${meetingId}/export`),
+  getMeeting: (guildId: string, meetingId: string, timeZone: string) =>
+    request(
+      `/api/guilds/${guildId}/meetings/${meetingId}?${new URLSearchParams({ timeZone })}`,
+      meetingHistoryDetailSchema,
+    ),
+  getMeetingExport: (
+    guildId: string,
+    meetingId: string,
+    presentation: { dateFormat: DateFormat; timeFormat: TimeFormat; timeZone: string },
+  ) =>
+    requestText(
+      `/api/guilds/${guildId}/meetings/${meetingId}/export?${new URLSearchParams(presentation)}`,
+    ),
   getPromptDefaults: (summaryLanguage: string) =>
     request(
       `/api/ai/prompts/defaults?${new URLSearchParams({ summaryLanguage })}`,
@@ -197,8 +208,9 @@ export const api = {
       participantUserId?: string;
       state?: string;
     },
+    timeZone: string,
   ) => {
-    const parameters = new URLSearchParams({ page: String(filters.page) });
+    const parameters = new URLSearchParams({ page: String(filters.page), timeZone });
     if (filters.meetingId !== undefined) parameters.set("meetingId", filters.meetingId);
     if (filters.dateFrom !== undefined) parameters.set("dateFrom", filters.dateFrom);
     if (filters.dateTo !== undefined) parameters.set("dateTo", filters.dateTo);
@@ -248,7 +260,7 @@ export const api = {
   /** The claim token only exists in public mode; local installations skip it entirely. */
   setup: (
     claimToken: string | undefined,
-    value: { discordBotToken: string; installationPassword?: string },
+    value: { discordBotToken: string; installationPassword?: string; setupLanguage: Language },
   ) =>
     request("/api/setup", emptySchema, {
       body: json(value),
@@ -263,14 +275,6 @@ export const api = {
   updateGuildSettings: (guildId: string, settings: GuildConfiguration["settings"]) =>
     request(`/api/guilds/${guildId}/settings`, emptySchema, {
       body: json(settings),
-      method: "PUT",
-    }),
-  updatePreferences: (
-    dashboardLanguage: "en" | "pt-BR",
-    dashboardTheme: "system" | "light" | "dark",
-  ) =>
-    request("/api/settings/preferences", emptySchema, {
-      body: json({ dashboardLanguage, dashboardTheme }),
       method: "PUT",
     }),
   uninstallModel: (provider: LocalModelProvider, model: string) =>

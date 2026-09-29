@@ -37,8 +37,20 @@ const profileLanguages = [
   ...(["ja", "ko", "nl", "no", "pl", "pt", "pt-BR", "pt-PT", "ro", "ru"] as const),
   ...(["sv", "th", "tr", "uk", "vi", "zh", "zh-CN", "zh-TW"] as const),
 ] as const;
+const promptModeSchema = z.enum(["default", "custom"]);
+/**
+ * "default" makes the server store and use its English default for the effective summary
+ * language; "custom" keeps the text exactly as sent.
+ */
+export const promptModesSchema = z.object({
+  refinement: promptModeSchema,
+  summaryConsolidation: promptModeSchema,
+  summaryExtraction: promptModeSchema,
+  transcription: promptModeSchema,
+});
 const profileBaseShape = {
   language: z.enum(profileLanguages),
+  promptModes: promptModesSchema,
   name: z.string(),
   profileId: z.string(),
 };

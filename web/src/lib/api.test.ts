@@ -27,10 +27,11 @@ describe("dashboard API client", () => {
     const reference = [
       {
         commands: [
-          { description: "Inicia a gravação do canal de voz em que você está", name: "/record" },
-          { description: "Encerra a gravação do canal de voz em que você está", name: "/stop" },
+          { description: "Starts recording the voice channel you are in", name: "/record" },
+          { description: "Stops recording the voice channel you are in", name: "/stop" },
         ],
-        label: "Gravação",
+        id: "recording",
+        label: "Recording",
       },
     ];
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(reference));
@@ -49,7 +50,9 @@ describe("dashboard API client", () => {
 
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(Response.json([{ commands: [], label: "Gravação" }])),
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json([{ commands: [], id: "recording", label: "Recording" }])),
     );
     await expect(api.listCommands()).rejects.toThrow();
   });
@@ -109,6 +112,18 @@ describe("dashboard API client", () => {
     const { prompt: _prompt, ...transcription } = profile.transcription;
 
     expect(profileSchema.safeParse({ ...profile, transcription }).success).toBe(false);
+  });
+
+  it("requires an explicit default or custom mode for every prompt", () => {
+    const { promptModes: _promptModes, ...withoutModes } = validProfile();
+
+    expect(profileSchema.safeParse(withoutModes).success).toBe(false);
+    expect(
+      profileSchema.safeParse({
+        ...validProfile(),
+        promptModes: { ...validProfile().promptModes, refinement: "translated" },
+      }).success,
+    ).toBe(false);
   });
 
   it("requires the transcription language on every profile", () => {
@@ -185,8 +200,9 @@ describe("dashboard API client", () => {
     await api.setup("setup-token", {
       discordBotToken: "bot-token",
       installationPassword: "installation password",
+      setupLanguage: "en",
     });
-    await api.setup(undefined, { discordBotToken: "bot-token" });
+    await api.setup(undefined, { discordBotToken: "bot-token", setupLanguage: "pt-BR" });
     await api.updateForum("guild-1", null);
     await api.updateForum("guild-1", { forumId: "forum-1", tagId: "tag-1" });
     await api.updateGuildSettings("guild-1", {
@@ -194,7 +210,6 @@ describe("dashboard API client", () => {
       persistMeetingAudio: true,
       persistMeetingContent: false,
     });
-    await api.updatePreferences("en", "dark");
     await api.updateProfile(validProfile());
     await api.updateRecordingPermissions("guild-1", {
       roleIds: ["role-1"],
@@ -202,13 +217,17 @@ describe("dashboard API client", () => {
     });
     await api.updateSecret("openrouter_api_key", "secret");
 
-    expect(fetchMock).toHaveBeenCalledTimes(17);
+    expect(fetchMock).toHaveBeenCalledTimes(16);
     const claimedSetup = findRequest(fetchMock, "/api/setup", 0);
     expect(claimedSetup.method).toBe("POST");
     expect(claimedSetup.headers.get("content-type")).toBe("application/json");
     expect(claimedSetup.headers.get("x-summyz-setup-token")).toBe("setup-token");
     const localSetup = findRequest(fetchMock, "/api/setup", 1);
     expect(localSetup.headers.has("x-summyz-setup-token")).toBe(false);
+    expect(JSON.parse(localSetup.body)).toEqual({
+      discordBotToken: "bot-token",
+      setupLanguage: "pt-BR",
+    });
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/access/login",
       expect.objectContaining({
@@ -238,13 +257,6 @@ describe("dashboard API client", () => {
       expect.objectContaining({ method: "DELETE" }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
-      "/api/settings/preferences",
-      expect.objectContaining({
-        body: JSON.stringify({ dashboardLanguage: "en", dashboardTheme: "dark" }),
-        method: "PUT",
-      }),
-    );
-    expect(fetchMock).toHaveBeenCalledWith(
       "/api/guilds/guild-1/recording-permissions",
       expect.objectContaining({
         body: JSON.stringify({ roleIds: ["role-1"], userIds: ["user-1"] }),
@@ -265,15 +277,53 @@ describe("dashboard API client", () => {
     expect(JSON.parse(request.body)).not.toHaveProperty("profileId");
   });
 
-  it("returns meeting exports as text without trying to parse JSON", async () => {
-    vi.stubGlobal(
-      "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(new Response("Voice channel: planning")),
-    );
+  it("returns meeting exports as text, in the chosen date and time formats and zone", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValue(new Response("Voice channel: planning"));
+    vi.stubGlobal("fetch", fetchMock);
 
-    await expect(api.getMeetingExport("guild-1", "meeting-1")).resolves.toBe(
-      "Voice channel: planning",
+    await expect(
+      api.getMeetingExport("guild-1", "meeting-1", {
+        dateFormat: "DD/MM/YYYY",
+        timeFormat: "12h",
+        timeZone: "America/Sao_Paulo",
+      }),
+    ).resolves.toBe("Voice channel: planning");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/guilds/guild-1/meetings/meeting-1/export?dateFormat=DD%2FMM%2FYYYY&timeFormat=12h&timeZone=America%2FSao_Paulo",
+      expect.objectContaining({ credentials: "same-origin" }),
     );
+  });
+
+  it("sends the browser time zone with every calendar query", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockRejectedValue(new Error("not needed"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await api.getDashboard("guild-1", "30d", "Europe/Lisbon").catch(() => undefined);
+    await api.getDashboard("guild-1", "90d", "UTC").catch(() => undefined);
+    await api
+      .listMeetings("guild-1", { dateFrom: "2026-09-01", page: 2 }, "Europe/Lisbon")
+      .catch(() => undefined);
+    await api.getMeeting("guild-1", "meeting-1", "Europe/Lisbon").catch(() => undefined);
+
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/guilds/guild-1/dashboard?timeZone=Europe%2FLisbon",
+      "/api/guilds/guild-1/dashboard?period=90d&timeZone=UTC",
+      "/api/guilds/guild-1/meetings?page=2&timeZone=Europe%2FLisbon&dateFrom=2026-09-01",
+      "/api/guilds/guild-1/meetings/meeting-1?timeZone=Europe%2FLisbon",
+    ]);
+  });
+
+  it("reads settings that no longer carry presentation preferences", async () => {
+    const settings = {
+      accessMode: "local",
+      discordApplicationId: null,
+      secrets: { discordBotToken: true, openRouterApiKey: false },
+    };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json(settings)));
+
+    await expect(api.getSettings()).resolves.toEqual(settings);
   });
 
   it("lists visible guild members with search and role filters", async () => {
@@ -628,6 +678,12 @@ function findRequest(
 function validProfile(): Profile {
   return {
     language: "auto",
+    promptModes: {
+      refinement: "custom",
+      summaryConsolidation: "custom",
+      summaryExtraction: "custom",
+      transcription: "default",
+    },
     name: "Perfil 1",
     profileId: "profile-1",
     profileType: "local" as const,

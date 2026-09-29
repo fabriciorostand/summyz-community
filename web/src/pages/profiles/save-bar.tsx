@@ -2,23 +2,18 @@ import { TriangleAlert } from "lucide-react";
 import { type ReactNode, useEffect, useRef } from "react";
 
 import { Button, FormError } from "../../components/ui";
-import { type Stage, stageTitles } from "./profile-stages";
+import { type I18nSnapshot, useI18n } from "../../i18n/store";
+import type { Stage } from "./profile-stages";
 
 export type SaveBlocker =
   | { kind: "incomplete"; stages: Stage[] }
   | { count: number; kind: "review"; stages: Stage[] };
 
-const list = (stages: readonly Stage[]) =>
-  new Intl.ListFormat("pt-BR").format(stages.map((stage) => stageTitles[stage]));
-
-function blockerMessage(blocker: SaveBlocker): string {
-  if (blocker.kind === "incomplete") {
-    return `Escolha o modelo de ${list(blocker.stages)} antes de salvar.`;
-  }
-  return `Revise ${String(blocker.count)} ${blocker.count === 1 ? "campo" : "campos"} em ${list(blocker.stages)} antes de salvar. Os valores foram ajustados para a API externa.`;
+function blockerMessage(blocker: SaveBlocker, { format, t }: I18nSnapshot): string {
+  const stages = format.list(blocker.stages.map((stage) => t.stages.titles[stage]));
+  if (blocker.kind === "incomplete") return t.saveBar.incompleteBlocker(stages);
+  return t.saveBar.reviewBlocker(blocker.count, stages);
 }
-
-const listFormat = new Intl.ListFormat("pt-BR");
 
 function Warning({ children }: { children: ReactNode }) {
   return (
@@ -42,18 +37,21 @@ function SaveBarMessage({
   confirming: boolean;
   missingModels: readonly string[];
 }) {
-  if (blocker !== null) return <Warning>{blockerMessage(blocker)}</Warning>;
+  const i18n = useI18n();
+  const { format, t } = i18n;
+  if (blocker !== null) return <Warning>{blockerMessage(blocker, i18n)}</Warning>;
   if (confirming) {
-    const one = activeServerCount === 1;
     const detail =
       missingModels.length > 0
-        ? `Como ${listFormat.format(missingModels)} ainda não ${missingModels.length === 1 ? "está instalado" : "estão instalados"}, ${one ? "esse servidor não vai" : "esses servidores não vão"} conseguir gravar até o download terminar.`
-        : "As alterações valem nas próximas reuniões.";
+        ? t.saveBar.missingDetail(
+            format.list(missingModels),
+            missingModels.length,
+            activeServerCount,
+          )
+        : t.saveBar.nextMeetings;
     return (
       <Warning>
-        <strong className="font-medium text-ink">
-          Este perfil está em uso em {activeServerCount} {one ? "servidor" : "servidores"}.
-        </strong>{" "}
+        <strong className="font-medium text-ink">{t.saveBar.inUse(activeServerCount)}</strong>{" "}
         {detail}
       </Warning>
     );
@@ -62,8 +60,8 @@ function SaveBarMessage({
     <span className="flex items-center gap-2.5">
       <span className="size-1.5 shrink-0 rounded-full bg-warn" />
       <span>
-        <strong className="font-medium text-ink">Alterações não salvas</strong>
-        {changes.length > 0 && ` em ${listFormat.format(changes)}`}
+        <strong className="font-medium text-ink">{t.saveBar.unsaved}</strong>
+        {changes.length > 0 && t.saveBar.unsavedIn(format.list(changes))}
       </span>
     </span>
   );
@@ -101,6 +99,7 @@ export function SaveBar({
   onGoTo: (stage: Stage) => void;
   onSave: () => void;
 }) {
+  const { t } = useI18n();
   const saveRef = useRef<HTMLButtonElement>(null);
   const confirmRef = useRef<HTMLButtonElement>(null);
   const previousConfirming = useRef(confirming);
@@ -128,21 +127,21 @@ export function SaveBar({
           {confirming && blocker === null ? (
             <>
               <Button disabled={busy} onClick={onBack} type="button" variant="secondary">
-                Voltar
+                {t.common.back}
               </Button>
               <Button disabled={busy} onClick={onConfirm} ref={confirmRef} type="button">
-                {busy ? "Salvando…" : "Salvar mesmo assim"}
+                {busy ? t.saveBar.saving : t.saveBar.saveAnyway}
               </Button>
             </>
           ) : (
             <>
               {firstBlocked !== undefined && (
                 <Button onClick={() => onGoTo(firstBlocked)} type="button" variant="secondary">
-                  Ir para {stageTitles[firstBlocked]}
+                  {t.saveBar.goTo(t.stages.titles[firstBlocked])}
                 </Button>
               )}
               <Button disabled={busy} onClick={onDiscard} type="button" variant="secondary">
-                Descartar
+                {t.saveBar.discard}
               </Button>
               <Button
                 disabled={busy || blocker !== null}
@@ -150,7 +149,7 @@ export function SaveBar({
                 ref={saveRef}
                 type="button"
               >
-                {busy ? "Salvando…" : "Salvar perfil"}
+                {busy ? t.saveBar.saving : t.saveBar.save}
               </Button>
             </>
           )}

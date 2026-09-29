@@ -3,6 +3,8 @@ import { type ReactNode, useContext } from "react";
 
 import { Select } from "../components/select";
 import { Avatar } from "../components/ui";
+import { languageNames, languages } from "../i18n/preferences";
+import { setLanguage, useI18n } from "../i18n/store";
 import type { Guild } from "../lib/api";
 import type { ThemePreference } from "../lib/theme";
 import { NavigationContext } from "./navigation";
@@ -16,12 +18,13 @@ export function GuildPicker({
   onChange: (value: string) => void;
   value: string;
 }) {
+  const { t } = useI18n();
   if (!guilds.some((guild) => guild.id === value)) return null;
   // Long guild names shorten with an ellipsis instead of pushing the header past the screen.
   return (
     <div className="flex min-w-0 max-w-44 sm:max-w-xs">
       <Select
-        aria-label="Servidor"
+        aria-label={t.topBar.guild}
         onChange={onChange}
         options={guilds.map((guild) => ({
           label: guild.name,
@@ -37,30 +40,23 @@ export function GuildPicker({
   );
 }
 
-export function LanguagePicker({
-  onChange,
-  value,
-}: {
-  onChange: (value: "en" | "pt-BR") => void;
-  value: "en" | "pt-BR";
-}) {
+/** Compact language switch; the choice belongs to this browser, not to the installation. */
+export function LanguagePicker() {
+  const { language, t } = useI18n();
   return (
     <Select
-      aria-label="Idioma do dashboard"
-      onChange={onChange}
-      options={[
-        { label: "Português (Brasil)", value: "pt-BR" },
-        { label: "English", value: "en" },
-      ]}
+      aria-label={t.topBar.language}
+      onChange={setLanguage}
+      options={languages.map((value) => ({ label: languageNames[value], value }))}
       renderValue={() => (
         <>
           <Globe className="size-3.5 text-ink-muted" />
           <span className="font-mono text-[11px] font-normal text-ink-secondary">
-            {value === "pt-BR" ? "PT-BR" : "EN"}
+            {language === "pt-BR" ? "PT-BR" : "EN"}
           </span>
         </>
       )}
-      value={value}
+      value={language}
       variant="toolbar"
     />
   );
@@ -73,10 +69,11 @@ export function ThemeToggle({
   onChange: (value: ThemePreference) => void;
   value: ThemePreference;
 }) {
+  const { t } = useI18n();
   const isDark = value === "dark" || (value === "system" && !prefersLight());
   return (
     <button
-      aria-label={isDark ? "Usar tema claro" : "Usar tema escuro"}
+      aria-label={isDark ? t.topBar.useLightTheme : t.topBar.useDarkTheme}
       className="grid size-[34px] place-items-center rounded-lg border border-line bg-surface-raised text-ink-muted transition-colors hover:text-ink"
       onClick={() => onChange(isDark ? "light" : "dark")}
       type="button"
@@ -125,12 +122,13 @@ export function TopBar({
 
 function MenuButton() {
   const navigation = useContext(NavigationContext);
+  const { t } = useI18n();
   if (navigation === undefined) return null;
   return (
     <button
       aria-controls={navigation.drawerId}
       aria-expanded={navigation.open}
-      aria-label="Abrir menu de navegação"
+      aria-label={t.nav.openMenu}
       className="grid size-10 shrink-0 place-items-center rounded-lg border border-line bg-surface-raised text-ink-muted transition-colors hover:text-ink lg:hidden"
       onClick={navigation.show}
       type="button"

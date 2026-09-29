@@ -1,4 +1,6 @@
-const locale = "pt-BR";
+import type { Messages } from "../i18n/messages/pt-BR";
+
+/* Language-neutral helpers; dates, numbers and lists go through the i18n formatter instead. */
 
 export type StatusTone = "ok" | "fail" | "live";
 
@@ -23,95 +25,13 @@ export function formatElapsed(milliseconds: number): string {
   return hours === 0 ? tail : `${String(hours)}:${tail}`;
 }
 
-type CostEntry = { amount: string; currency: string };
-
-/** Joins every confirmed currency, leaving non-numeric amounts untouched. */
-function formatCostEntries(
-  entries: readonly CostEntry[],
-  formatAmount: (amount: number, currency: string) => string,
-): string {
-  if (entries.length === 0) return "—";
-  return entries
-    .map((entry) => {
-      const amount = Number(entry.amount);
-      if (!Number.isFinite(amount)) return `${entry.currency} ${entry.amount}`;
-      return formatAmount(amount, entry.currency);
-    })
-    .join(" · ");
-}
-
-export function formatCost(entries: readonly CostEntry[]): string {
-  return formatCostEntries(
-    entries,
-    (amount, currency) =>
-      `${currency} ${amount.toLocaleString(locale, { maximumFractionDigits: 6 })}`,
-  );
-}
-
-/**
- * Overview variant of {@link formatCost}: two decimals, flagging positive amounts that would
- * otherwise round down to zero.
- */
-export function formatRoundedCost(entries: readonly CostEntry[]): string {
-  return formatCostEntries(entries, (amount, currency) => {
-    const rounded = amount.toLocaleString(locale, {
-      maximumFractionDigits: 2,
-      minimumFractionDigits: 2,
-    });
-    if (amount > 0 && rounded === "0,00") return `< ${currency} 0,01`;
-    return `${currency} ${rounded}`;
-  });
-}
-
-export function formatDate(value: string | null, timeZone: string): string {
-  if (value === null) return "—";
-  return new Intl.DateTimeFormat(locale, {
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    month: "2-digit",
-    timeZone,
-  })
-    .format(new Date(value))
-    .replace(", ", " ");
-}
-
-export function formatShortDate(value: string, timeZone: string): string {
-  return new Intl.DateTimeFormat(locale, {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone,
-  }).format(new Date(`${value}T12:00:00.000Z`));
-}
-
-export interface DeadlineParts {
-  deadlineDate: string | null;
-  deadlinePrecision: "date" | "minute" | null;
-  deadlineTime: string | null;
-}
-
-export function formatDeadline(parts: DeadlineParts, timeZone: string): string {
-  if (parts.deadlineDate === null) return "sem prazo";
-  const instant = new Date(`${parts.deadlineDate}T12:00:00.000Z`);
-  const weekday = new Intl.DateTimeFormat(locale, { timeZone, weekday: "short" })
-    .format(instant)
-    .replace(".", "")
-    .slice(0, 3)
-    .toLocaleUpperCase(locale);
-  const day = new Intl.DateTimeFormat(locale, {
-    day: "2-digit",
-    month: "2-digit",
-    timeZone,
-  }).format(instant);
-  const base = `${weekday} ${day}`;
-  if (parts.deadlinePrecision !== "minute" || parts.deadlineTime === null) return base;
-  return `${base} ${parts.deadlineTime.slice(0, 5)}`;
-}
-
-export function pipelineStatus(status: string): { label: string; tone: StatusTone } {
-  if (status === "completed") return { label: "Concluída", tone: "ok" };
-  if (status === "failed") return { label: "Falhou", tone: "fail" };
-  return { label: "Em andamento", tone: "live" };
+export function pipelineStatus(
+  status: string,
+  labels: Messages["pipeline"],
+): { label: string; tone: StatusTone } {
+  if (status === "completed") return { label: labels.completed, tone: "ok" };
+  if (status === "failed") return { label: labels.failed, tone: "fail" };
+  return { label: labels.inProgress, tone: "live" };
 }
 
 export function percentageOf(value: number, maximum: number): number {
@@ -125,13 +45,6 @@ export function initialsOf(name: string): string {
     .split(/\s+/)
     .filter((word) => word.length > 0);
   if (words.length === 0) return "?";
-  if (words.length === 1) return (words[0] ?? "").slice(0, 2).toLocaleUpperCase(locale);
-  return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toLocaleUpperCase(locale);
-}
-
-export function formatInteger(value: number, fractionDigits = 0): string {
-  return value.toLocaleString(locale, {
-    maximumFractionDigits: fractionDigits,
-    minimumFractionDigits: fractionDigits,
-  });
+  if (words.length === 1) return (words[0] ?? "").slice(0, 2).toLocaleUpperCase();
+  return `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`.toLocaleUpperCase();
 }

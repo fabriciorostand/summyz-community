@@ -2,9 +2,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
+import { reloadPreferences } from "../i18n/store";
 import { ApiError, api } from "../lib/api";
-import { unguardedHoverClasses } from "../tests/test-utils";
+import { chooseOption, unguardedHoverClasses } from "../tests/test-utils";
 import { SetupPage } from "./setup-page";
 
 vi.mock("../lib/api", async () => {
@@ -37,6 +37,40 @@ beforeEach(() => {
 afterEach(() => {
   vi.clearAllMocks();
   vi.restoreAllMocks();
+});
+
+describe("SetupPage language", () => {
+  it("follows the browser language before anyone chooses", async () => {
+    vi.spyOn(navigator, "languages", "get").mockReturnValue(["en-US"]);
+    reloadPreferences();
+    renderSetup("local");
+
+    expect(screen.getByRole("heading", { name: "Paste the bot token" })).toBeInTheDocument();
+    await userEvent.type(screen.getByLabelText("Bot token"), "bot-token");
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    await waitFor(() =>
+      expect(api.setup).toHaveBeenCalledWith(undefined, {
+        discordBotToken: "bot-token",
+        setupLanguage: "en",
+      }),
+    );
+  });
+
+  it("switches language from the corner picker and names the first profile in it", async () => {
+    renderSetup("local");
+    await chooseOption("Idioma do dashboard", "English");
+
+    expect(screen.getByRole("heading", { name: "Paste the bot token" })).toBeInTheDocument();
+    expect(localStorage.getItem("summyz:language")).toBe("en");
+    await userEvent.type(screen.getByLabelText("Bot token"), "bot-token");
+    await userEvent.click(screen.getByRole("button", { name: "Finish" }));
+    await waitFor(() =>
+      expect(api.setup).toHaveBeenCalledWith(undefined, {
+        discordBotToken: "bot-token",
+        setupLanguage: "en",
+      }),
+    );
+  });
 });
 
 describe("SetupPage in local mode", () => {
@@ -73,6 +107,7 @@ describe("SetupPage in local mode", () => {
     expect(await screen.findByRole("heading", { name: "Bot conectado" })).toBeInTheDocument();
     expect(api.setup).toHaveBeenCalledWith(undefined, {
       discordBotToken: "MTI4OTQ0MzAyMTc2NDkxOTMwNg.bot-token",
+      setupLanguage: "pt-BR",
     });
     const link = await screen.findByRole("link", { name: /Adicionar a um servidor/ });
     expect(link).toHaveAttribute(
@@ -139,6 +174,7 @@ describe("SetupPage in public mode", () => {
     expect(api.setup).toHaveBeenCalledWith("setup-claim-token", {
       discordBotToken: "MTI4OTQ0MzAyMTc2NDkxOTMwNg.bot-token",
       installationPassword: "curta mas agora ficou longa",
+      setupLanguage: "pt-BR",
     });
     expect(screen.getByText("Online")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Ir para o dashboard" }));

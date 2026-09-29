@@ -3,20 +3,24 @@ import type { Profile, ProfileType } from "../../lib/api";
 export const stages = ["transcription", "refinement", "summary"] as const;
 export type Stage = (typeof stages)[number];
 export type Execution = "local" | "api";
+/**
+ * Why a voice detection value was adjusted: the external API rejects "auto" or values below a
+ * minimum. The reason is kept instead of a sentence so the note follows the dashboard language.
+ */
+export type ReviewNote = { fallback: number; kind: "auto" } | { kind: "minimum"; minimum: number };
 /** Voice detection settings that no longer fit after transcription moved to the external API. */
-export type StageReview = ReadonlyMap<string, string>;
-
-export const stageTitles: Record<Stage, string> = {
-  refinement: "Refinamento",
-  summary: "Resumo",
-  transcription: "Transcrição",
-};
+export type StageReview = ReadonlyMap<string, ReviewNote>;
 
 export const localEngines: Record<Stage, "faster-whisper" | "Ollama"> = {
   refinement: "Ollama",
   summary: "Ollama",
   transcription: "faster-whisper",
 };
+
+/** The summary follows the transcription language while its own language is auto. */
+export function summaryPromptLanguage(profile: Profile): string {
+  return profile.language === "auto" ? profile.transcription.language : profile.language;
+}
 
 export function localProviderOf(stage: Stage): "faster-whisper" | "ollama" {
   return stage === "transcription" ? "faster-whisper" : "ollama";
@@ -92,8 +96,8 @@ const externalSilenceDefault = 768;
 function moveTranscription(
   current: Profile["transcription"],
   execution: Execution,
-): { review: Map<string, string>; stage: Profile["transcription"] } {
-  const review = new Map<string, string>();
+): { review: Map<string, ReviewNote>; stage: Profile["transcription"] } {
+  const review = new Map<string, ReviewNote>();
   const { maxSpeechDurationSeconds, minSilenceDurationMs, ...vad } = {
     maxSpeechDurationSeconds: "auto" as const,
     ...current.vad,
@@ -114,29 +118,29 @@ function moveTranscription(
   const silence =
     typeof minSilenceDurationMs === "number" ? minSilenceDurationMs : externalSilenceDefault;
   if (minSilenceDurationMs === "auto") {
-    review.set(
-      "transcription.vad.minSilenceDurationMs",
-      `A API externa não aceita "auto" aqui. Usamos ${String(externalSilenceDefault)} ms; confirme ou ajuste.`,
-    );
+    review.set("transcription.vad.minSilenceDurationMs", {
+      fallback: externalSilenceDefault,
+      kind: "auto",
+    });
   }
   const minimumSilence = Math.max(silence, externalMinimums.minSilenceDurationMs);
   if (silence < externalMinimums.minSilenceDurationMs) {
-    review.set(
-      "transcription.vad.minSilenceDurationMs",
-      `A API externa exige pelo menos ${String(externalMinimums.minSilenceDurationMs)} ms. Ajustamos o valor; confirme ou ajuste.`,
-    );
+    review.set("transcription.vad.minSilenceDurationMs", {
+      kind: "minimum",
+      minimum: externalMinimums.minSilenceDurationMs,
+    });
   }
   if (vad.minSpeechDurationMs < externalMinimums.minSpeechDurationMs) {
-    review.set(
-      "transcription.vad.minSpeechDurationMs",
-      `A API externa exige pelo menos ${String(externalMinimums.minSpeechDurationMs)} ms. Ajustamos o valor; confirme ou ajuste.`,
-    );
+    review.set("transcription.vad.minSpeechDurationMs", {
+      kind: "minimum",
+      minimum: externalMinimums.minSpeechDurationMs,
+    });
   }
   if (vad.threshold < externalMinimums.threshold) {
-    review.set(
-      "transcription.vad.threshold",
-      "A API externa exige um limiar de pelo menos 0,15. Ajustamos o valor; confirme ou ajuste.",
-    );
+    review.set("transcription.vad.threshold", {
+      kind: "minimum",
+      minimum: externalMinimums.threshold,
+    });
   }
   return {
     review,

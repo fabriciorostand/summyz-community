@@ -6,6 +6,7 @@ import { Tabs } from "../components/disclosure";
 import { ErrorState, LoadingPanel, NoServerState, secondaryLinkClass } from "../components/states";
 import { Avatar, Badge, Card, InlineLink, Meter, RailLabel } from "../components/ui";
 import { useBotInstallation } from "../hooks/use-bot-installation";
+import { useI18n } from "../i18n/store";
 import { type DashboardPeriod, useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import {
@@ -14,25 +15,16 @@ import {
   type DashboardTask,
   type MeetingHistoryPage,
 } from "../lib/api";
-import {
-  formatDate,
-  formatDeadline,
-  formatDuration,
-  formatElapsed,
-  formatInteger,
-  formatRoundedCost,
-  formatShortDate,
-  percentageOf,
-  pipelineStatus,
-} from "../lib/format";
+import { formatDuration, formatElapsed, percentageOf, pipelineStatus } from "../lib/format";
 import { groupByOwner } from "../lib/task-groups";
 import { Screen } from "./screen";
 
 export function OverviewPage() {
   const { controls, dashboard, dashboardError, guilds, period, setPeriod } = useDashboard();
+  const { t } = useI18n();
   return (
     <>
-      <TopBar actions={controls} title="Visão geral" />
+      <TopBar actions={controls} title={t.overview.title} />
       <Screen>
         <OverviewBody
           dashboard={dashboard}
@@ -65,6 +57,7 @@ function OverviewBody({
   period: DashboardPeriod;
   setPeriod: (value: DashboardPeriod) => void;
 }) {
+  const { t } = useI18n();
   if (error) {
     return (
       <ErrorState
@@ -72,38 +65,39 @@ function OverviewBody({
         onRetry={onRetry}
         secondaryAction={
           <Link className={secondaryLinkClass} to="/installation">
-            Ver instalação
+            {t.overview.viewInstallation}
           </Link>
         }
-        title="Não foi possível carregar as métricas"
+        title={t.overview.metricsErrorTitle}
       >
-        A consulta falhou. As gravações em andamento não são afetadas — o bot roda separado do
-        dashboard.
+        {t.overview.metricsErrorBody}
       </ErrorState>
     );
   }
   if (guildCount === 0) return <NoGuildState />;
   if (guildCount === undefined || (guildId.length > 0 && dashboard === undefined)) {
-    return <LoadingPanel label="Carregando métricas do servidor…" />;
+    return <LoadingPanel label={t.overview.loadingMetrics} />;
   }
   if (dashboard === undefined) return null;
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
       <div className="flex min-w-0 flex-col gap-6">
-        {dashboard.liveMeeting != null && <LiveCard liveMeeting={dashboard.liveMeeting} />}
+        {dashboard.liveMeeting != null && (
+          <LiveCard liveMeeting={dashboard.liveMeeting} timeZone={dashboard.timeZone} />
+        )}
         <div>
           <div className="mb-3 flex items-center gap-3">
-            <span className="label-mono text-ink-muted">Período</span>
+            <span className="label-mono text-ink-muted">{t.overview.period}</span>
             <span className="h-px flex-1 bg-line-soft" />
             {/* The period tabs keep their width. */}
             <div className="shrink-0">
               <Tabs
-                ariaLabel="Período"
+                ariaLabel={t.overview.period}
                 onChange={setPeriod}
                 options={[
                   { label: "30d", value: "30d" },
                   { label: "90d", value: "90d" },
-                  { label: "Tudo", value: "all" },
+                  { label: t.overview.all, value: "all" },
                 ]}
                 value={period}
               />
@@ -129,25 +123,29 @@ function NoGuildState() {
 
 function LiveCard({
   liveMeeting,
+  timeZone,
 }: {
   liveMeeting: NonNullable<DashboardAnalytics["liveMeeting"]>;
+  /** The zone the metrics were asked in, so the start time matches every other date. */
+  timeZone: string;
 }) {
+  const { format, t } = useI18n();
   const elapsed = useElapsed(liveMeeting.startedAt);
   const speaking = new Set(liveMeeting.speakingUserIds);
   return (
     <div>
-      <RailLabel>Agora</RailLabel>
+      <RailLabel>{t.overview.now}</RailLabel>
       <section className="flex flex-wrap items-start gap-6 rounded-xl border border-fail/30 bg-surface p-5">
         <div className="min-w-0 flex-1">
-          <Badge tone="live">Gravando</Badge>
+          <Badge tone="live">{t.overview.recording}</Badge>
           <h2 className="m-0 mt-2.5 text-[20px] font-semibold tracking-tight text-ink">
-            {liveMeeting.voiceChannelName ?? "Canal indisponível"}
+            {liveMeeting.voiceChannelName ?? t.overview.channelUnavailable}
           </h2>
           <p className="m-0 mt-1.5 text-[12.5px] text-ink-muted">
-            Iniciada às {formatDate(liveMeeting.startedAt, "America/Sao_Paulo").split(" ")[1]}
+            {t.overview.startedAt(format.time(liveMeeting.startedAt, timeZone))}
             {liveMeeting.aiProfile !== null && (
               <>
-                {" · perfil "}
+                {` · ${t.overview.profile} `}
                 <span className="text-ink-secondary">{liveMeeting.aiProfile.name}</span>
               </>
             )}
@@ -169,7 +167,7 @@ function LiveCard({
                 />
                 {participant.displayName}
                 {speaking.has(participant.userId) && (
-                  <em className="label-mono not-italic">falando</em>
+                  <em className="label-mono not-italic">{t.overview.speaking}</em>
                 )}
               </span>
             ))}
@@ -179,12 +177,12 @@ function LiveCard({
           <div className="font-mono text-[28px] leading-none font-medium tracking-tight text-ink">
             {elapsed}
           </div>
-          <div className="label-mono text-ink-muted">Decorridos</div>
+          <div className="label-mono text-ink-muted">{t.overview.elapsed}</div>
           <Link
             className="mt-2 inline-flex items-center gap-1 text-[12.5px] text-accent hover:text-accent-hover"
             to={`/history/${liveMeeting.meetingId}`}
           >
-            Acompanhar <ArrowUpRight className="size-3.5" />
+            {t.overview.follow} <ArrowUpRight className="size-3.5" />
           </Link>
         </div>
       </section>
@@ -203,6 +201,7 @@ function useElapsed(startedAt: string): string {
 }
 
 function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
+  const { format, t } = useI18n();
   const maximum = Math.max(
     1,
     ...dashboard.statusSeries.map((bucket) => bucket.completed + bucket.failed),
@@ -214,23 +213,23 @@ function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
         <div className="grid flex-1 grid-cols-[repeat(auto-fit,minmax(7rem,1fr))] gap-6">
           <Metric
             delta={dashboard.calls.deltaPercentage}
-            label="Calls"
-            value={formatInteger(dashboard.totalCalls)}
+            label={t.overview.calls}
+            value={format.number(dashboard.totalCalls)}
           />
           <Metric
-            label="Horas"
-            note={`${formatDuration(dashboard.averageDurationMs)} médios`}
-            value={formatInteger(dashboard.totalDurationMs / 3_600_000, 1)}
+            label={t.overview.hours}
+            note={t.overview.averageDuration(formatDuration(dashboard.averageDurationMs))}
+            value={format.number(dashboard.totalDurationMs / 3_600_000, 1)}
           />
           <Metric
-            label="Custo"
-            note={pending > 0 ? `${String(pending)} pendentes` : undefined}
-            value={formatRoundedCost(dashboard.cost.confirmed)}
+            label={t.overview.cost}
+            note={pending > 0 ? t.overview.pending(pending) : undefined}
+            value={format.roundedCost(dashboard.cost.confirmed)}
           />
         </div>
         <div className="flex gap-3">
-          <LegendItem className="bg-action" label="Concluídas" />
-          <LegendItem className="bg-fail" label="Falhas" />
+          <LegendItem className="bg-action" label={t.overview.completed} />
+          <LegendItem className="bg-fail" label={t.overview.failures} />
         </div>
       </div>
       {dashboard.statusSeries.length > 0 && (
@@ -245,13 +244,13 @@ function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
                   <div
                     className="min-h-0.5 rounded-t bg-fail"
                     style={{ height: `${String((bucket.failed / maximum) * 100)}%` }}
-                    title={`${String(bucket.failed)} falhas`}
+                    title={t.overview.failedCount(bucket.failed)}
                   />
                 )}
                 <div
                   className="min-h-0.5 rounded-t bg-action"
                   style={{ height: `${String((bucket.completed / maximum) * 100)}%` }}
-                  title={`${String(bucket.completed)} concluídas`}
+                  title={t.overview.completedCount(bucket.completed)}
                 />
               </div>
             ))}
@@ -259,7 +258,7 @@ function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
           <div className="mt-2 flex justify-between">
             {dashboard.statusSeries.map((bucket) => (
               <span className="font-mono text-[9.5px] text-ink-dim" key={bucket.bucketStart}>
-                {formatShortDate(bucket.bucketStart, dashboard.timeZone)}
+                {format.dayMonth(bucket.bucketStart)}
               </span>
             ))}
           </div>
@@ -309,6 +308,7 @@ function Metric({
 }
 
 function TopSpeakersCard({ dashboard }: { dashboard: DashboardAnalytics }) {
+  const { t } = useI18n();
   const maximum = dashboard.topSpeakers[0]?.talkTimeMs ?? 0;
   const total = dashboard.topSpeakers.reduce((sum, speaker) => sum + speaker.talkTimeMs, 0);
   return (
@@ -316,14 +316,12 @@ function TopSpeakersCard({ dashboard }: { dashboard: DashboardAnalytics }) {
       <div className="mb-4 flex items-center justify-between">
         <h2 className="m-0 flex items-center gap-2 text-[15px] font-semibold tracking-tight text-ink">
           <Mic2 className="size-4 text-accent" />
-          Principais falantes
+          {t.overview.topSpeakers}
         </h2>
-        <span className="label-mono text-ink-muted">Tempo de fala</span>
+        <span className="label-mono text-ink-muted">{t.overview.talkTime}</span>
       </div>
       {dashboard.topSpeakers.length === 0 ? (
-        <p className="m-0 text-[12.5px] text-ink-muted">
-          O tempo de fala estará disponível após a primeira call concluída.
-        </p>
+        <p className="m-0 text-[12.5px] text-ink-muted">{t.overview.talkTimeEmpty}</p>
       ) : (
         <div className="flex flex-col gap-3">
           {dashboard.topSpeakers.map((speaker) => (
@@ -348,12 +346,6 @@ function TopSpeakersCard({ dashboard }: { dashboard: DashboardAnalytics }) {
   );
 }
 
-const phaseLabels = {
-  refinement: "Refinamento",
-  summary: "Resumo",
-  transcription: "Transcrição",
-} as const;
-
 const costSegmentColors = ["bg-action", "bg-accent", "bg-chart-sky", "bg-ok", "bg-warn"] as const;
 
 type CostEntry = DashboardAnalytics["cost"]["breakdown"][number];
@@ -371,6 +363,7 @@ function segmentColor(index: number): string {
 }
 
 function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
+  const { format, t } = useI18n();
   const unattributed = dashboard.cost.attemptCounts.unattributed;
   const paid = dashboard.cost.breakdown.filter((entry) => entry.execution !== "local");
   const total = paid.reduce((sum, entry) => sum + confirmedAmount(entry), 0);
@@ -378,17 +371,17 @@ function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
     <Card>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
-          Custo por provedor
+          {t.overview.costByProvider}
         </h2>
-        <InlineLink>Detalhar</InlineLink>
+        <InlineLink>{t.overview.details}</InlineLink>
       </div>
       {dashboard.cost.breakdown.length === 0 ? (
-        <p className="m-0 text-[12.5px] text-ink-muted">Nenhum custo registrado no período.</p>
+        <p className="m-0 text-[12.5px] text-ink-muted">{t.overview.noCost}</p>
       ) : (
         <>
           {total > 0 && (
             <div
-              aria-label="Distribuição do custo confirmado"
+              aria-label={t.overview.costDistribution}
               className="mb-4 flex h-[9px] overflow-hidden rounded-[5px]"
               role="img"
             >
@@ -415,14 +408,16 @@ function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
                   }`}
                 />
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
-                  {entry.execution === "local" ? entry.provider : phaseLabels[entry.phase]}
+                  {entry.execution === "local" ? entry.provider : t.stages.titles[entry.phase]}
                   <span className="text-ink-dim">
                     {" "}
-                    · {entry.execution === "local" ? "local" : entry.provider}
+                    · {entry.execution === "local" ? t.overview.local : entry.provider}
                   </span>
                 </span>
                 <span className="shrink-0 font-mono text-[11.5px] text-ink-secondary">
-                  {entry.execution === "local" ? "sem custo" : formatRoundedCost(entry.confirmed)}
+                  {entry.execution === "local"
+                    ? t.overview.noCharge
+                    : format.roundedCost(entry.confirmed)}
                 </span>
               </div>
             ))}
@@ -433,10 +428,7 @@ function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
         <div className="mt-4 flex items-start gap-2 text-[11.5px] leading-relaxed text-warn">
           <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
           <span>
-            {unattributed === 1
-              ? "1 tentativa não foi atribuída automaticamente."
-              : `${String(unattributed)} tentativas não foram atribuídas automaticamente.`}{" "}
-            O subtotal confirmado não é necessariamente completo.
+            {t.overview.unattributed(unattributed)} {t.overview.incompleteSubtotal}
           </span>
         </div>
       )}
@@ -445,26 +437,28 @@ function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
 }
 
 function OpenTasksCard({ dashboard, guildId }: { dashboard: DashboardAnalytics; guildId: string }) {
+  const { t } = useI18n();
   if (dashboard.openTaskCount === 0) return null;
   return (
     <Card>
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">Tarefas abertas</h2>
-          <p className="m-0 mt-1 text-[12.5px] text-ink-muted">
-            Agrupadas por responsável, extraídas dos resumos.
-          </p>
+          <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
+            {t.overview.openTasks}
+          </h2>
+          <p className="m-0 mt-1 text-[12.5px] text-ink-muted">{t.overview.openTasksHint}</p>
         </div>
         <Link className="shrink-0 text-[12.5px] text-accent hover:text-accent-hover" to="/tasks">
-          Ver todas as {String(dashboard.openTaskCount)}
+          {t.overview.viewAll(dashboard.openTaskCount)}
         </Link>
       </div>
-      <TaskPreview guildId={guildId} timeZone={dashboard.timeZone} />
+      <TaskPreview guildId={guildId} />
     </Card>
   );
 }
 
-function TaskPreview({ guildId, timeZone }: { guildId: string; timeZone: string }) {
+function TaskPreview({ guildId }: { guildId: string }) {
+  const { format, t } = useI18n();
   const [tasks, setTasks] = useState<DashboardTask[]>();
   useEffect(() => {
     let active = true;
@@ -480,8 +474,8 @@ function TaskPreview({ guildId, timeZone }: { guildId: string; timeZone: string 
       active = false;
     };
   }, [guildId]);
-  if (tasks === undefined) return <LoadingPanel label="Carregando tarefas…" />;
-  const groups = groupByOwner(tasks).slice(0, 3);
+  if (tasks === undefined) return <LoadingPanel label={t.overview.loadingTasks} />;
+  const groups = groupByOwner(tasks, t.tasks.noOwner).slice(0, 3);
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       {groups.map((group) => (
@@ -494,23 +488,26 @@ function TaskPreview({ guildId, timeZone }: { guildId: string; timeZone: string 
             <span className="font-mono text-[10.5px] text-ink-muted">{group.openCount}</span>
           </div>
           <div className="flex flex-col gap-2">
-            {group.tasks.slice(0, 3).map((task) => (
-              <div className="flex items-start gap-2" key={task.taskId}>
-                <span
-                  className={`mt-1.5 size-1.5 shrink-0 rounded-full ${task.overdue ? "bg-fail" : "bg-accent"}`}
-                />
-                <span className="min-w-0 text-[12px] leading-snug text-ink-secondary">
-                  {task.text}
-                  {task.deadlineDate !== null && (
-                    <em
-                      className={`label-mono mt-1 block not-italic ${task.overdue ? "text-fail" : "text-ink-dim"}`}
-                    >
-                      {formatDeadline(task, task.deadlineTimeZone ?? timeZone)}
-                    </em>
-                  )}
-                </span>
-              </div>
-            ))}
+            {group.tasks.slice(0, 3).map((task) => {
+              const deadline = format.deadline(task);
+              return (
+                <div className="flex items-start gap-2" key={task.taskId}>
+                  <span
+                    className={`mt-1.5 size-1.5 shrink-0 rounded-full ${task.overdue ? "bg-fail" : "bg-accent"}`}
+                  />
+                  <span className="min-w-0 text-[12px] leading-snug text-ink-secondary">
+                    {task.text}
+                    {deadline !== null && (
+                      <em
+                        className={`label-mono mt-1 block not-italic ${task.overdue ? "text-fail" : "text-ink-dim"}`}
+                      >
+                        {deadline}
+                      </em>
+                    )}
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       ))}
@@ -519,11 +516,12 @@ function TaskPreview({ guildId, timeZone }: { guildId: string; timeZone: string 
 }
 
 function RecentCallsCard({ guildId }: { guildId: string }) {
+  const { t, timeZone } = useI18n();
   const [history, setHistory] = useState<MeetingHistoryPage>();
   useEffect(() => {
     let active = true;
     void api
-      .listMeetings(guildId, { page: 1 })
+      .listMeetings(guildId, { page: 1 }, timeZone)
       .then((next) => {
         if (active) setHistory(next);
       })
@@ -533,24 +531,26 @@ function RecentCallsCard({ guildId }: { guildId: string }) {
     return () => {
       active = false;
     };
-  }, [guildId]);
+  }, [guildId, timeZone]);
   return (
     <Card>
       <div className="mb-4 flex items-center justify-between">
-        <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">Últimas calls</h2>
+        <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
+          {t.overview.recentCalls}
+        </h2>
         <Link
           className="touch-target text-[12.5px] text-accent hover:text-accent-hover"
           to="/history"
         >
-          Histórico
+          {t.overview.history}
         </Link>
       </div>
       {history === undefined || history.items.length === 0 ? (
-        <p className="m-0 text-[12.5px] text-ink-muted">Nenhuma call registrada ainda.</p>
+        <p className="m-0 text-[12.5px] text-ink-muted">{t.overview.noCalls}</p>
       ) : (
         <div className="flex flex-col">
           {history.items.slice(0, 4).map((meeting) => {
-            const status = pipelineStatus(meeting.pipelineStatus);
+            const status = pipelineStatus(meeting.pipelineStatus, t.pipeline);
             return (
               <Link
                 className="flex items-center gap-2.5 border-b border-line-soft py-2.5 last:border-0 hover:text-ink"
@@ -563,7 +563,7 @@ function RecentCallsCard({ guildId }: { guildId: string }) {
                   }`}
                 />
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink-secondary">
-                  {meeting.voiceChannelName ?? "Canal indisponível"}
+                  {meeting.voiceChannelName ?? t.overview.channelUnavailable}
                 </span>
                 <span className="shrink-0 font-mono text-[11px] text-ink-dim">
                   {formatDuration(meeting.durationMs)}

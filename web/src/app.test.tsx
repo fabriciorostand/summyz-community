@@ -1,10 +1,10 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter } from "react-router-dom";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { App } from "./app";
 import { ApiError, api, subscribeToSessionExpiry } from "./lib/api";
+import { routes } from "./routes";
 import { aDashboard, aGuild, aSettings } from "./tests/test-utils";
 
 vi.mock("./lib/api", async () => {
@@ -27,11 +27,10 @@ vi.mock("./lib/api", async () => {
   };
 });
 
+/** The same route tree the browser uses, lazy screens included, on an in-memory history. */
 function renderApp(route: string) {
   return render(
-    <MemoryRouter initialEntries={[route]}>
-      <App />
-    </MemoryRouter>,
+    <RouterProvider router={createMemoryRouter(routes, { initialEntries: [route] })} />,
   );
 }
 
@@ -63,10 +62,9 @@ beforeEach(() => {
   vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.listCommands).mockResolvedValue([
     {
-      commands: [
-        { description: "Inicia a gravação do canal de voz em que você está", name: "/record" },
-      ],
-      label: "Gravação",
+      commands: [{ description: "Starts recording the voice channel you are in", name: "/record" }],
+      id: "recording",
+      label: "Recording",
     },
   ]);
 });
@@ -190,5 +188,19 @@ describe("App", () => {
   it("no longer exposes the account route", async () => {
     renderApp("/account");
     expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+  });
+
+  it("sends a finished installation away from the setup screen", async () => {
+    renderApp("/setup");
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+  });
+
+  it("loads the next screen when the sidebar navigates", async () => {
+    renderApp("/settings");
+    expect(await screen.findByRole("heading", { name: "Preferências" })).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("link", { name: "Comandos" }));
+
+    expect(await screen.findByRole("heading", { name: "Comandos" })).toBeInTheDocument();
   });
 });

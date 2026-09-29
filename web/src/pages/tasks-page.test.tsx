@@ -2,6 +2,7 @@ import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setDateFormat, setLanguage, setTimeFormat } from "../i18n/store";
 import { api } from "../lib/api";
 import { aTask, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
 import { TasksPage } from "./tasks-page";
@@ -63,6 +64,39 @@ describe("TasksPage", () => {
   it("shows the deadline of each task", async () => {
     renderScreen(<TasksPage />);
     expect(await screen.findAllByText("SEX 04/09")).not.toHaveLength(0);
+  });
+
+  it("dates a deadline even when the task carries no time zone of its own", async () => {
+    listTasks.mockResolvedValue([aTask({ deadlineTimeZone: null })]);
+    renderScreen(<TasksPage />);
+    expect(await screen.findByText("SEX 04/09")).toBeInTheDocument();
+  });
+
+  it("says when a task has no deadline", async () => {
+    listTasks.mockResolvedValue([aTask({ deadlineDate: null, deadlinePrecision: null })]);
+    renderScreen(<TasksPage />);
+    expect(await screen.findByText("sem prazo")).toBeInTheDocument();
+  });
+
+  it("uses the singular for a single open task", async () => {
+    listTasks.mockResolvedValue([aTask()]);
+    renderScreen(<TasksPage />);
+    expect(await screen.findByText("1 aberta")).toBeInTheDocument();
+  });
+
+  it("reads in English with the chosen formats", async () => {
+    setLanguage("en");
+    setDateFormat("MM/DD/YYYY");
+    setTimeFormat("12h");
+    listTasks.mockResolvedValue([
+      aTask({ deadlinePrecision: "minute", deadlineTime: "14:30:00" }),
+      aTask({ deadlineDate: null, taskId: "55555555-5555-4555-8555-555555555555", text: "Plan" }),
+    ]);
+    renderScreen(<TasksPage />);
+    expect(await screen.findByText("FRI 09/04 2:30 PM")).toBeInTheDocument();
+    expect(screen.getByText("no deadline")).toBeInTheDocument();
+    expect(screen.getByText("2 open")).toBeInTheDocument();
+    expect(screen.getByText("Show completed")).toBeInTheDocument();
   });
 
   it("completes a task and refreshes the counters", async () => {

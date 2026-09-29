@@ -11,6 +11,8 @@ import {
 import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
+import { useI18n } from "../i18n/store";
+
 export function Brand({ label = "Summyz", size = 28 }: { label?: string; size?: number }) {
   return (
     <div className="flex items-center gap-2.5">
@@ -101,6 +103,7 @@ export function Sidebar({
   openTaskCount: number | undefined;
   variant?: keyof typeof sidebarVariants;
 }) {
+  const { nav } = useI18n().t;
   const iconClass = "size-[15px]";
   return (
     <aside className={`flex-col bg-surface-rail px-3 py-4.5 ${sidebarVariants[variant]}`}>
@@ -108,60 +111,60 @@ export function Sidebar({
         <Brand />
         {action}
       </div>
-      <NavGroup label="Reuniões">
+      <NavGroup label={nav.meetings}>
         <NavItem
           onNavigate={onNavigate}
           icon={<Gauge className={iconClass} />}
-          label="Visão geral"
+          label={nav.overview}
           to="/"
         />
         <NavItem
           onNavigate={onNavigate}
           count={callCount}
           icon={<PhoneCall className={iconClass} />}
-          label="Calls"
+          label={nav.calls}
           to="/history"
         />
         <NavItem
           onNavigate={onNavigate}
           count={openTaskCount}
           icon={<SquareCheckBig className={iconClass} />}
-          label="Tarefas"
+          label={nav.tasks}
           to="/tasks"
           tone="alert"
         />
       </NavGroup>
-      <NavGroup label="Configuração">
+      <NavGroup label={nav.configuration}>
         <NavItem
           onNavigate={onNavigate}
           icon={<Server className={iconClass} />}
-          label="Servidores"
+          label={nav.servers}
           to="/servers"
         />
         <NavItem
           onNavigate={onNavigate}
           icon={<SlidersHorizontal className={iconClass} />}
-          label="Perfis de IA"
+          label={nav.profiles}
           to="/profiles"
         />
         <NavItem
           onNavigate={onNavigate}
           icon={<Command className={iconClass} />}
-          label="Comandos"
+          label={nav.commands}
           to="/commands"
         />
       </NavGroup>
-      <NavGroup label="Sistema">
+      <NavGroup label={nav.system}>
         <NavItem
           onNavigate={onNavigate}
           icon={<SlidersVertical className={iconClass} />}
-          label="Preferências"
+          label={nav.preferences}
           to="/settings"
         />
         <NavItem
           onNavigate={onNavigate}
           icon={<Settings className={iconClass} />}
-          label="Instalação"
+          label={nav.installation}
           to="/installation"
         />
       </NavGroup>

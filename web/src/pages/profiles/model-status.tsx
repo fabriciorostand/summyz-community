@@ -4,23 +4,16 @@ import { useState } from "react";
 import { Button, FormError } from "../../components/ui";
 import { invalidateModelCatalogs, useModelCatalog } from "../../hooks/use-model-catalog";
 import { isDownloadActive, type ModelDownloads } from "../../hooks/use-model-downloads";
+import type { Messages } from "../../i18n/messages/pt-BR";
+import { useI18n } from "../../i18n/store";
 import { ApiError, api, type ModelCatalog, type ModelDownload } from "../../lib/api";
-import { downloadProgress, formatBytes } from "./model-labels";
+import { downloadProgress } from "./model-labels";
 import type { Stage } from "./profile-stages";
 
 type LocalProvider = ModelDownload["provider"];
 
-const operationMessages: Record<string, string> = {
-  download_queue_full:
-    "A fila de downloads está cheia. Aguarde um download terminar e tente de novo.",
-  model_download_active: "Há um download deste modelo em andamento. Aguarde ele terminar.",
-  model_in_use:
-    "Uma gravação ou reunião em processamento ainda usa este modelo. Tente depois que o processamento terminar.",
-  model_lifecycle_busy: "Outra operação de modelos está em andamento. Tente de novo em instantes.",
-};
-
-function operationMessage(error: unknown, fallback: string): string {
-  return (error instanceof ApiError ? operationMessages[error.code] : undefined) ?? fallback;
+function operationMessage(error: unknown, fallback: string, t: Messages): string {
+  return (error instanceof ApiError ? t.modelOperations[error.code] : undefined) ?? fallback;
 }
 
 const boxClass =
@@ -45,11 +38,11 @@ export function ModelStatus({
   provider,
   stage,
 }: ModelStatusProps) {
+  const { t } = useI18n();
   if (needsModel) {
     return (
       <small className="text-[11px] leading-relaxed text-warn">
-        A execução mudou. Escolha um modelo {provider === "openrouter" ? "do OpenRouter" : "local"}{" "}
-        para esta etapa.
+        {t.models.executionChanged(provider === "openrouter")}
       </small>
     );
   }
@@ -57,7 +50,7 @@ export function ModelStatus({
     return (
       <p className="m-0 flex items-start gap-2 text-[12px] leading-relaxed text-ink-secondary">
         <CircleDollarSign className="mt-0.5 size-3.5 shrink-0 text-warn" />
-        Esta etapa usa o OpenRouter e gera custo por uso, cobrado na sua conta do OpenRouter.
+        {t.models.openRouterCost}
       </p>
     );
   }
@@ -86,6 +79,7 @@ function LocalModelStatus({
   provider: LocalProvider;
   stage: Stage;
 }) {
+  const { format, t } = useI18n();
   const { state } = useModelCatalog(
     stage,
     provider,
@@ -99,7 +93,7 @@ function LocalModelStatus({
     downloads
       .start(stage, provider, model)
       .catch((reason: unknown) =>
-        setError(operationMessage(reason, "Não foi possível iniciar o download. Tente de novo.")),
+        setError(operationMessage(reason, t.availability.startFailed, t)),
       );
   }
 
@@ -109,15 +103,15 @@ function LocalModelStatus({
   if (job?.status === "failed") {
     return (
       <div className={`${boxClass} border-fail/40 bg-fail-soft/40 text-ink-secondary`}>
-        <strong className="text-[12.5px] text-ink">Não foi possível baixar {model}.</strong>
-        Verifique o espaço em disco e a conexão desta instalação e tente de novo.
+        <strong className="text-[12.5px] text-ink">{t.models.downloadFailedTitle(model)}</strong>
+        {t.models.downloadFailedBody}
         <Button
           className="px-2.5 py-1 text-[12px]"
           onClick={download}
           type="button"
           variant="secondary"
         >
-          Tentar de novo
+          {t.common.tryAgain}
         </Button>
         {error !== null && <FormError>{error}</FormError>}
       </div>
@@ -129,11 +123,7 @@ function LocalModelStatus({
     state.catalog.status === "unavailable" ||
     state.catalog.inventoryStatus === "unavailable"
   ) {
-    return (
-      <small className="text-[11px] text-ink-muted">
-        Não foi possível verificar se {model} está instalado nesta máquina.
-      </small>
-    );
+    return <small className="text-[11px] text-ink-muted">{t.models.cannotVerify(model)}</small>;
   }
   const entry = state.catalog.items.find((item) => item.model === model);
   const installed =
@@ -146,17 +136,19 @@ function LocalModelStatus({
       ) : (
         <div className={`${boxClass} border-line bg-surface-raised text-ink-secondary`}>
           <strong className="text-[12.5px] text-ink">
-            {model} ainda não está instalado
-            {entry?.sizeBytes == null ? "" : ` (${formatBytes(entry.sizeBytes)})`}.
+            {t.models.notInstalledTitle(
+              model,
+              entry?.sizeBytes == null ? null : format.bytes(entry.sizeBytes),
+            )}
           </strong>
-          Você pode salvar o perfil, mas ele não vai gravar até o modelo ser baixado.
+          {t.models.notInstalledBody}
           <Button
             className="px-2.5 py-1 text-[12px]"
             onClick={download}
             type="button"
             variant="secondary"
           >
-            Baixar agora
+            {t.availability.downloadNow}
           </Button>
           {error !== null && <FormError>{error}</FormError>}
         </div>
@@ -170,12 +162,12 @@ function CompatibilityWarning({
 }: {
   compatibility: ModelCatalog["items"][number]["compatibility"] | undefined;
 }) {
+  const { t } = useI18n();
   if (compatibility === "incompatible") {
     return (
       <p className="m-0 flex items-start gap-2 rounded-lg border border-fail/40 bg-fail-soft px-3.5 py-2.5 text-[12px] leading-relaxed text-fail">
         <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-        Este modelo é incompatível com esta máquina e o bot não grava com ele. Escolha um modelo
-        marcado como compatível ou recomendado.
+        {t.models.incompatibleWarning}
       </p>
     );
   }
@@ -183,7 +175,7 @@ function CompatibilityWarning({
     return (
       <p className="m-0 flex items-start gap-2 text-[12px] leading-relaxed text-warn">
         <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-        Este modelo pede mais do que esta máquina recomenda e pode ficar lento ou falhar.
+        {t.models.aboveRecommendedWarning}
       </p>
     );
   }
@@ -191,8 +183,10 @@ function CompatibilityWarning({
 }
 
 function DownloadProgress({ downloads, job }: { downloads: ModelDownloads; job: ModelDownload }) {
+  const i18n = useI18n();
+  const { t } = i18n;
   const [error, setError] = useState<string | null>(null);
-  const progress = downloadProgress(job);
+  const progress = downloadProgress(job, i18n);
   return (
     <div
       className={`${boxClass} w-full border-line bg-surface-raised text-ink-secondary`}
@@ -200,7 +194,7 @@ function DownloadProgress({ downloads, job }: { downloads: ModelDownloads; job: 
     >
       <span>{progress.label}</span>
       <div
-        aria-label={`Download de ${job.model}`}
+        aria-label={t.models.downloadOf(job.model)}
         aria-valuemax={100}
         aria-valuemin={0}
         aria-valuenow={progress.percent ?? undefined}
@@ -222,20 +216,16 @@ function DownloadProgress({ downloads, job }: { downloads: ModelDownloads; job: 
             downloads
               .cancel(job.downloadId)
               .catch((reason: unknown) =>
-                setError(
-                  operationMessage(reason, "Não foi possível cancelar o download. Tente de novo."),
-                ),
+                setError(operationMessage(reason, t.availability.cancelFailed, t)),
               );
           }}
           type="button"
           variant="ghost"
         >
-          Cancelar download
+          {t.models.cancelDownload}
         </Button>
       )}
-      <small className="text-[11px] text-ink-dim">
-        Você pode salvar o perfil agora, mas ele só vai gravar quando o download terminar.
-      </small>
+      <small className="text-[11px] text-ink-dim">{t.models.saveWhileDownloading}</small>
       {error !== null && <FormError>{error}</FormError>}
     </div>
   );
@@ -250,6 +240,7 @@ function InstalledModel({
   onModelsChanged: () => void;
   provider: LocalProvider;
 }) {
+  const { t } = useI18n();
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -263,7 +254,7 @@ function InstalledModel({
       invalidateModelCatalogs();
       onModelsChanged();
     } catch (reason) {
-      setError(operationMessage(reason, "Não foi possível desinstalar o modelo. Tente de novo."));
+      setError(operationMessage(reason, t.models.uninstallFailed, t));
     } finally {
       setBusy(false);
     }
@@ -274,7 +265,7 @@ function InstalledModel({
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[12px] text-ink-secondary">
         <span className="flex items-center gap-1.5 text-ok">
           <HardDrive className="size-3.5" />
-          Instalado nesta máquina
+          {t.models.installedHere}
         </span>
         {!confirming && (
           <Button
@@ -283,19 +274,18 @@ function InstalledModel({
             type="button"
             variant="ghost"
           >
-            Desinstalar modelo
+            {t.models.uninstallModel}
           </Button>
         )}
       </div>
       {confirming && (
         <div
-          aria-label={`Desinstalar ${model}?`}
+          aria-label={t.models.uninstallQuestion(model)}
           className={`${boxClass} border-warn/30 bg-warn/10 text-ink-secondary`}
           role="alertdialog"
         >
-          <strong className="text-[12.5px] text-ink">Desinstalar {model}?</strong>
-          Os arquivos saem desta máquina. Perfis que usam este modelo ficam sem poder gravar até ele
-          ser baixado de novo.
+          <strong className="text-[12.5px] text-ink">{t.models.uninstallQuestion(model)}</strong>
+          {t.models.uninstallWarning}
           <div className="flex gap-2">
             <Button
               className="px-2.5 py-1 text-[12px]"
@@ -304,7 +294,7 @@ function InstalledModel({
               type="button"
               variant="secondary"
             >
-              Cancelar
+              {t.common.cancel}
             </Button>
             <Button
               className="px-2.5 py-1 text-[12px]"
@@ -313,7 +303,7 @@ function InstalledModel({
               type="button"
               variant="danger"
             >
-              Desinstalar
+              {t.models.uninstall}
             </Button>
           </div>
         </div>

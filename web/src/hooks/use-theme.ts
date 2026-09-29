@@ -2,21 +2,14 @@ import { useCallback, useEffect, useState } from "react";
 
 import { applyTheme, readStoredTheme, storeTheme, type ThemePreference } from "../lib/theme";
 
-/**
- * Keeps the document theme in sync with the account preference, falling back to whatever
- * this browser remembered so the first paint after a reload does not flash the wrong palette.
- */
-export function useTheme(accountPreference: ThemePreference | undefined): {
+/** Keeps the document theme in sync with the preference this browser remembers. */
+export function useTheme(): {
   preference: ThemePreference;
   setPreference(value: ThemePreference): void;
 } {
   const [preference, setPreferenceState] = useState<ThemePreference>(
     () => readStoredTheme() ?? "system",
   );
-
-  useEffect(() => {
-    if (accountPreference !== undefined) setPreferenceState(accountPreference);
-  }, [accountPreference]);
 
   useEffect(() => {
     applyTheme(preference);

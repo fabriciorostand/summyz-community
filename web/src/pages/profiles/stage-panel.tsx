@@ -3,6 +3,8 @@ import { AudioLines, Cloud, Combine, HardDrive, Settings2 } from "lucide-react";
 import { Disclosure } from "../../components/disclosure";
 import { Badge, Label } from "../../components/ui";
 import type { ModelDownloads } from "../../hooks/use-model-downloads";
+import { presentPromptDefaults } from "../../i18n/prompt-defaults";
+import { useI18n } from "../../i18n/store";
 import type { Profile, PromptDefaults } from "../../lib/api";
 import { MergeSettings, PhaseSettings, TranscriptionTuning } from "./generation-editor";
 import { LanguageSelector } from "./language-selector";
@@ -14,7 +16,7 @@ import {
   localProviderOf,
   type Stage,
   type StageReview,
-  stageTitles,
+  summaryPromptLanguage,
 } from "./profile-stages";
 import { PromptEditor } from "./prompt-editor";
 import { stagePanelId, stageTabId } from "./stage-trail";
@@ -44,16 +46,18 @@ function ExecutionChoice({
   stage: Stage;
   value: Execution | null;
 }) {
+  const { t } = useI18n();
   const options = [
-    { icon: <HardDrive className="size-3" />, label: "Local", value: "local" as const },
-    { icon: <Cloud className="size-3" />, label: "API externa", value: "api" as const },
+    { icon: <HardDrive className="size-3" />, label: t.stagePanel.local, value: "local" as const },
+    { icon: <Cloud className="size-3" />, label: t.stagePanel.external, value: "api" as const },
   ];
   // Native radios keep arrow-key selection and the group semantics without extra wiring. The
   // label sits above the options with the same spacing as the model field below.
   return (
     <fieldset className="m-0 min-w-0 border-0 p-0">
       <legend className="mb-1.5 p-0">
-        <Label>Execução</Label> <span className="sr-only">da etapa {stageTitles[stage]}</span>
+        <Label>{t.stagePanel.execution}</Label>{" "}
+        <span className="sr-only">{t.stagePanel.executionOfStage(t.stages.titles[stage])}</span>
       </legend>
       <div className="inline-flex max-w-full gap-0.5 rounded-lg border border-line bg-surface p-1">
         {options.map((option) => (
@@ -79,6 +83,7 @@ function ExecutionChoice({
 }
 
 export function StagePanel(props: StagePanelProps) {
+  const { t } = useI18n();
   const { profile, stage } = props;
   const execution = executionOf(profile, stage);
   const provider = execution === "api" ? "openrouter" : localProviderOf(stage);
@@ -92,9 +97,7 @@ export function StagePanel(props: StagePanelProps) {
       <div className="flex flex-col gap-3 border-b border-line-soft pb-5">
         <ExecutionChoice onChange={props.onExecution} stage={stage} value={execution} />
         {execution === null ? (
-          <p className="m-0 text-[12px] text-ink-muted">
-            Escolha se esta etapa roda nesta instalação ou na API externa para ver os modelos.
-          </p>
+          <p className="m-0 text-[12px] text-ink-muted">{t.stagePanel.chooseExecutionHint}</p>
         ) : (
           <>
             <ModelPicker
@@ -130,13 +133,15 @@ function StageFields({
   review,
   stage,
 }: StagePanelProps) {
+  const { format, language, t } = useI18n();
+  const defaults = presentPromptDefaults(language, summaryPromptLanguage(profile), promptDefaults);
   if (stage === "transcription") {
     const { vad } = profile.transcription;
     return (
       <>
         <LanguageSelector
-          autoLabel="Detectar automaticamente"
-          label="Idioma falado na reunião"
+          autoLabel={t.profiles.autoDetect}
+          label={t.stagePanel.spokenLanguage}
           onChange={(language) =>
             onChange({ ...profile, transcription: { ...profile.transcription, language } })
           }
@@ -144,14 +149,18 @@ function StageFields({
         />
         <div className="flex flex-col gap-2.5">
           <Disclosure
-            badge={review.size > 0 ? <Badge>Revisar</Badge> : undefined}
+            badge={review.size > 0 ? <Badge>{t.stagePanel.review}</Badge> : undefined}
             icon={<AudioLines className="size-4" />}
             summary={
               review.size > 0
-                ? "Há valores ajustados para revisar"
-                : `${vad.enabled ? "Ativada" : "Desativada"}, limiar ${String(vad.threshold).replace(".", ",")}, margem de ${String(vad.speechPadMs)} ms`
+                ? t.stagePanel.reviewPending
+                : t.stagePanel.vadSummary(
+                    vad.enabled,
+                    format.decimal(vad.threshold),
+                    format.number(vad.speechPadMs),
+                  )
             }
-            title="Detecção de voz"
+            title={t.stagePanel.voiceDetection}
           >
             <VadEditor
               onAcknowledge={onAcknowledge}
@@ -162,15 +171,15 @@ function StageFields({
           </Disclosure>
           <Disclosure
             icon={<Combine className="size-4" />}
-            summary={`Intervalo máximo de união de ${String(profile.transcription.mergeMaxGapMs)} ms`}
-            title="Junção de falas"
+            summary={t.stagePanel.mergeSummary(format.number(profile.transcription.mergeMaxGapMs))}
+            title={t.stagePanel.speechMerge}
           >
             <MergeSettings onChange={onChange} profile={profile} />
           </Disclosure>
           <Disclosure
             icon={<Settings2 className="size-4" />}
-            summary="Temperatura e tamanho do lote"
-            title="Ajustes do modelo"
+            summary={t.stagePanel.transcriptionTuningSummary}
+            title={t.stagePanel.modelTuning}
           >
             <TranscriptionTuning onChange={onChange} profile={profile} />
           </Disclosure>
@@ -181,8 +190,8 @@ function StageFields({
   const tuning = (
     <Disclosure
       icon={<Settings2 className="size-4" />}
-      summary="Temperatura, seed, tamanho do chunk e raciocínio"
-      title="Ajustes do modelo"
+      summary={t.stagePanel.phaseTuningSummary}
+      title={t.stagePanel.modelTuning}
     >
       <PhaseSettings onChange={onChange} phase={stage} profile={profile} />
     </Disclosure>
@@ -191,10 +200,15 @@ function StageFields({
     return (
       <>
         <PromptEditor
-          defaultPrompt={promptDefaults?.refinement}
-          label="Prompt de refinamento"
-          onChange={(prompt) =>
-            onChange({ ...profile, refinement: { ...profile.refinement, prompt } })
+          defaultPrompt={defaults?.refinement}
+          label={t.stagePanel.refinementPrompt}
+          mode={profile.promptModes.refinement}
+          onChange={({ mode, value }) =>
+            onChange({
+              ...profile,
+              promptModes: { ...profile.promptModes, refinement: mode },
+              refinement: { ...profile.refinement, prompt: value },
+            })
           }
           value={profile.refinement.prompt}
         />
@@ -205,24 +219,34 @@ function StageFields({
   return (
     <>
       <LanguageSelector
-        autoLabel="Mesmo idioma da reunião"
-        label="Idioma do resumo"
+        autoLabel={t.profiles.sameAsMeeting}
+        label={t.stagePanel.summaryLanguage}
         onChange={(language) => onChange({ ...profile, language })}
         value={profile.language}
       />
       <PromptEditor
-        defaultPrompt={promptDefaults?.summaryExtraction}
-        label="Prompt de extração"
-        onChange={(extractionPrompt) =>
-          onChange({ ...profile, summary: { ...profile.summary, extractionPrompt } })
+        defaultPrompt={defaults?.summaryExtraction}
+        label={t.stagePanel.extractionPrompt}
+        mode={profile.promptModes.summaryExtraction}
+        onChange={({ mode, value }) =>
+          onChange({
+            ...profile,
+            promptModes: { ...profile.promptModes, summaryExtraction: mode },
+            summary: { ...profile.summary, extractionPrompt: value },
+          })
         }
         value={profile.summary.extractionPrompt}
       />
       <PromptEditor
-        defaultPrompt={promptDefaults?.summaryConsolidation}
-        label="Prompt de consolidação"
-        onChange={(consolidationPrompt) =>
-          onChange({ ...profile, summary: { ...profile.summary, consolidationPrompt } })
+        defaultPrompt={defaults?.summaryConsolidation}
+        label={t.stagePanel.consolidationPrompt}
+        mode={profile.promptModes.summaryConsolidation}
+        onChange={({ mode, value }) =>
+          onChange({
+            ...profile,
+            promptModes: { ...profile.promptModes, summaryConsolidation: mode },
+            summary: { ...profile.summary, consolidationPrompt: value },
+          })
         }
         value={profile.summary.consolidationPrompt}
       />

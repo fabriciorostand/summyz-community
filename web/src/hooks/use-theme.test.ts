@@ -24,34 +24,30 @@ afterEach(() => {
 });
 
 describe("useTheme", () => {
-  it("applies the account preference to the document", () => {
-    const { result } = renderHook(() => useTheme("light"));
+  it("applies the preference remembered by this browser", () => {
+    localStorage.setItem("summyz:theme", "light");
+    const { result } = renderHook(() => useTheme());
     expect(result.current.preference).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
-  it("falls back to the remembered preference before the account loads", () => {
-    localStorage.setItem("summyz:theme", "dark");
-    const { result } = renderHook(() => useTheme(undefined));
-    expect(result.current.preference).toBe("dark");
+  it("follows the system when this browser has no preference yet", () => {
+    stubMatchMedia(true);
+    const { result } = renderHook(() => useTheme());
+    expect(result.current.preference).toBe("system");
+    expect(document.documentElement.dataset.theme).toBe("light");
   });
 
   it("stores a preference chosen in this session", () => {
-    const { result } = renderHook(() => useTheme("dark"));
+    const { result } = renderHook(() => useTheme());
     act(() => result.current.setPreference("light"));
     expect(localStorage.getItem("summyz:theme")).toBe("light");
     expect(document.documentElement.dataset.theme).toBe("light");
   });
 
-  it("follows the system while the preference is system", () => {
-    stubMatchMedia(true);
-    renderHook(() => useTheme("system"));
-    expect(document.documentElement.dataset.theme).toBe("light");
-  });
-
   it("stops listening to the system once unmounted", () => {
     const { removeEventListener } = stubMatchMedia(false);
-    const { unmount } = renderHook(() => useTheme("system"));
+    const { unmount } = renderHook(() => useTheme());
     unmount();
     expect(removeEventListener).toHaveBeenCalledTimes(1);
   });
@@ -59,14 +55,14 @@ describe("useTheme", () => {
   it("does not subscribe once an explicit preference is in place", () => {
     localStorage.setItem("summyz:theme", "dark");
     const { removeEventListener } = stubMatchMedia(false);
-    const { unmount } = renderHook(() => useTheme("dark"));
+    const { unmount } = renderHook(() => useTheme());
     unmount();
     expect(removeEventListener).not.toHaveBeenCalled();
   });
 
   it("drops the system listener when the operator picks a fixed theme", () => {
     const { removeEventListener } = stubMatchMedia(false);
-    const { result } = renderHook(() => useTheme(undefined));
+    const { result } = renderHook(() => useTheme());
     expect(result.current.preference).toBe("system");
     act(() => result.current.setPreference("dark"));
     expect(removeEventListener).toHaveBeenCalledTimes(1);

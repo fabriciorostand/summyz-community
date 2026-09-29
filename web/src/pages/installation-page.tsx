@@ -24,10 +24,11 @@ import {
   Notice,
   SectionHeading,
 } from "../components/ui";
+import type { Messages } from "../i18n/messages/pt-BR";
+import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import { type AccessMode, ApiError, api, type InstallationHealth } from "../lib/api";
-import { formatInteger } from "../lib/format";
 import { Screen } from "./screen";
 
 const minimumPasswordLength = 15;
@@ -35,6 +36,7 @@ const minimumPasswordLength = 15;
 /** Every block saves on its own; there is no page-wide form. */
 export function InstallationPage() {
   const { patchSettings, reloadSettings, settings } = useDashboard();
+  const { t } = useI18n();
 
   // The shared snapshot may predate a save made on this screen, so the server decides.
   useEffect(() => {
@@ -43,7 +45,7 @@ export function InstallationPage() {
 
   return (
     <>
-      <TopBar title="Instalação" />
+      <TopBar title={t.installation.title} />
       <Screen>
         <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
@@ -82,6 +84,7 @@ function DiscordApplicationCard({
   onReplaced: () => Promise<void>;
   tokenConfigured: boolean;
 }) {
+  const { t } = useI18n();
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [outcome, setOutcome] = useState<"replaced" | "invalid" | "failed">();
@@ -108,7 +111,10 @@ function DiscordApplicationCard({
 
   return (
     <Card>
-      <SectionHeading icon={<DiscordIcon className="size-4" />} title="Aplicação Discord" />
+      <SectionHeading
+        icon={<DiscordIcon className="size-4" />}
+        title={t.installation.discordApplication}
+      />
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
           <Label>Application ID</Label>
@@ -118,13 +124,13 @@ function DiscordApplicationCard({
           <Field
             autoComplete="off"
             className="flex-1"
-            label="Token do bot"
+            label={t.installation.botToken}
             onChange={(event) => {
               setToken(event.currentTarget.value);
               setOutcome(undefined);
             }}
             placeholder={
-              tokenConfigured ? "Configurado — digite para substituir" : "Ainda não configurado"
+              tokenConfigured ? t.installation.configuredReplace : t.installation.notConfigured
             }
             type="password"
             value={token}
@@ -135,21 +141,19 @@ function DiscordApplicationCard({
             type="button"
             variant="secondary"
           >
-            {busy ? "Validando…" : "Substituir"}
+            {busy ? t.installation.validating : t.installation.replace}
           </Button>
         </div>
         {outcome === "replaced" && (
           <p className="m-0 flex items-center gap-1.5 text-[12.5px] text-ok">
             <Check className="size-3.5" />
-            Token substituído. Reinicie o processo do bot para aplicar.
+            {t.installation.tokenReplaced}
           </p>
         )}
-        {outcome === "invalid" && <FormError>Token recusado pelo Discord.</FormError>}
-        {outcome === "failed" && <FormError>Não foi possível substituir o token.</FormError>}
+        {outcome === "invalid" && <FormError>{t.installation.tokenRejected}</FormError>}
+        {outcome === "failed" && <FormError>{t.installation.tokenFailed}</FormError>}
         <Notice icon={<TriangleAlert className="mt-0.5 size-3.5 shrink-0" />} tone="warn">
-          Substituir o token revalida a aplicação e reescreve o Application ID. O processo do bot
-          precisa ser reiniciado depois da troca, e os servidores visíveis passam a ser os do bot
-          novo.
+          {t.installation.tokenWarning}
         </Notice>
       </div>
     </Card>
@@ -157,6 +161,7 @@ function DiscordApplicationCard({
 }
 
 function ApplicationId({ value }: { value: string | null }) {
+  const { t } = useI18n();
   const [copied, setCopied] = useState(false);
   useEffect(() => {
     if (!copied) return;
@@ -166,7 +171,7 @@ function ApplicationId({ value }: { value: string | null }) {
   if (value === null) {
     return (
       <span className="rounded-lg border border-line bg-surface-raised px-3 py-2 font-mono text-[12.5px] text-ink-dim">
-        Ainda não configurado
+        {t.installation.notConfigured}
       </span>
     );
   }
@@ -174,7 +179,7 @@ function ApplicationId({ value }: { value: string | null }) {
     <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-raised px-3 py-2">
       <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{value}</span>
       <button
-        aria-label="Copiar Application ID"
+        aria-label={t.installation.copyApplicationId}
         className="touch-target grid size-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-inset hover:text-ink"
         onClick={() => {
           void navigator.clipboard.writeText(value).then(
@@ -197,6 +202,7 @@ function ProvidersCard({
   configured: boolean;
   onChange: (configured: boolean) => void;
 }) {
+  const { t } = useI18n();
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
@@ -217,16 +223,16 @@ function ProvidersCard({
 
   return (
     <Card>
-      <SectionHeading icon={<KeyRound className="size-4" />} title="Provedores" />
+      <SectionHeading icon={<KeyRound className="size-4" />} title={t.installation.providers} />
       <div className="flex flex-col gap-3">
         <div className="flex items-end gap-2">
           <Field
             autoComplete="off"
             className="flex-1"
-            label="Chave OpenRouter"
+            label={t.installation.openRouterKey}
             onChange={(event) => setValue(event.currentTarget.value)}
             placeholder={
-              configured ? "Configurado — digite para substituir" : "Ainda não configurado"
+              configured ? t.installation.configuredReplace : t.installation.notConfigured
             }
             type="password"
             value={value}
@@ -237,10 +243,10 @@ function ProvidersCard({
             type="button"
             variant="secondary"
           >
-            Atualizar
+            {t.installation.update}
           </Button>
           <Button
-            aria-label="Remover chave OpenRouter"
+            aria-label={t.installation.removeKey}
             className="px-2.5"
             disabled={busy || !configured}
             onClick={() => void run(() => api.removeSecret("openrouter_api_key"), false)}
@@ -250,7 +256,7 @@ function ProvidersCard({
             <Trash2 className="size-4" />
           </Button>
         </div>
-        {failed && <FormError>Não foi possível salvar a chave. Tente novamente.</FormError>}
+        {failed && <FormError>{t.installation.keyFailed}</FormError>}
       </div>
     </Card>
   );
@@ -258,6 +264,7 @@ function ProvidersCard({
 
 /** Public mode only: local installations have no password, so the block is not rendered. */
 function PasswordCard() {
+  const { t } = useI18n();
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -270,7 +277,7 @@ function PasswordCard() {
     setError(undefined);
     const length = [...newPassword].length;
     if (length < minimumPasswordLength || length > 128) {
-      setError("A nova senha precisa ter de 15 a 128 caracteres.");
+      setError(t.installation.passwordLength);
       return;
     }
     setBusy(true);
@@ -282,8 +289,8 @@ function PasswordCard() {
     } catch (caught) {
       setError(
         caught instanceof ApiError && caught.status === 401
-          ? "A senha atual não confere."
-          : "Não foi possível trocar a senha.",
+          ? t.installation.passwordMismatch
+          : t.installation.passwordFailed,
       );
     } finally {
       setBusy(false);
@@ -293,22 +300,24 @@ function PasswordCard() {
   return (
     <Card>
       <SectionHeading
-        action={<span className="label-mono shrink-0 text-ink-dim">Só modo público</span>}
+        action={
+          <span className="label-mono shrink-0 text-ink-dim">{t.installation.publicOnly}</span>
+        }
         icon={<KeyRound className="size-4" />}
-        title="Senha da instalação"
+        title={t.installation.installationPassword}
       />
       <form className="flex flex-col gap-3" onSubmit={(event) => void submit(event)}>
         <Field
           autoComplete="current-password"
-          label="Senha atual"
+          label={t.installation.currentPassword}
           onChange={(event) => setCurrentPassword(event.currentTarget.value)}
           type="password"
           value={currentPassword}
         />
         <Field
           autoComplete="new-password"
-          hint="De 15 a 128 caracteres. Sem exigência de maiúsculas, números ou símbolos — só o comprimento importa. Senhas comuns são recusadas."
-          label="Nova senha"
+          hint={t.installation.newPasswordHint}
+          label={t.installation.newPassword}
           maxLength={128}
           onChange={(event) => setNewPassword(event.currentTarget.value)}
           type="password"
@@ -318,7 +327,7 @@ function PasswordCard() {
         {done && (
           <p className="m-0 flex items-center gap-1.5 text-[12.5px] text-ok">
             <Check className="size-3.5" />
-            Senha trocada. As outras sessões foram encerradas.
+            {t.installation.passwordChanged}
           </p>
         )}
         <Button
@@ -327,14 +336,13 @@ function PasswordCard() {
           type="submit"
           variant="secondary"
         >
-          {busy ? "Trocando…" : "Trocar senha"}
+          {busy ? t.installation.changing : t.installation.changePassword}
         </Button>
       </form>
       <div className="mt-4">
         <Notice icon={<Terminal className="mt-0.5 size-3.5 shrink-0" />}>
-          Perdeu a senha? Rode <InlineCode accent>recover-access</InlineCode> no host: ele imprime
-          uma URL de uso único, válida por 10 minutos. A senha antiga só deixa de valer quando a
-          nova é gravada.
+          {t.installation.recoverBefore} <InlineCode accent>recover-access</InlineCode>{" "}
+          {t.installation.recoverAfter}
         </Notice>
       </div>
     </Card>
@@ -342,25 +350,26 @@ function PasswordCard() {
 }
 
 function AccessCard({ accessMode }: { accessMode: AccessMode }) {
+  const { t } = useI18n();
   return (
     <Card aria-labelledby="access-title" role="region">
       <SectionHeading
         icon={<GlobeLock className="size-4" />}
         id="access-title"
-        title="Acesso ao dashboard"
+        title={t.installation.access}
       />
       <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
         <AccessModeRow
           active={accessMode === "local"}
           description={<span className="label-mono">127.0.0.1:8787</span>}
           icon={<Monitor className="size-4" />}
-          title="Modo local"
+          title={t.installation.localMode}
         />
         <AccessModeRow
           active={accessMode === "public"}
-          description="Caddy com HTTPS automático, para quem hospeda em VPS."
+          description={t.installation.publicModeDescription}
           icon={<Cloud className="size-4" />}
-          title="Modo público"
+          title={t.installation.publicMode}
         />
       </ul>
     </Card>
@@ -378,6 +387,7 @@ function AccessModeRow({
   icon: ReactNode;
   title: string;
 }) {
+  const { t } = useI18n();
   return (
     <li
       aria-label={title}
@@ -400,7 +410,7 @@ function AccessModeRow({
       </div>
       {active && (
         <span className="label-mono shrink-0 rounded-md bg-action-soft px-2 py-1 text-accent-hover">
-          Ativo
+          {t.installation.active}
         </span>
       )}
     </li>
@@ -411,18 +421,12 @@ function InlineCode({ accent = false, children }: { accent?: boolean; children: 
   return <code className={`font-mono ${accent ? "text-accent-hover" : ""}`}>{children}</code>;
 }
 
-const componentLabels: Record<string, string> = {
-  bot: "Bot autenticado no Discord",
-  database: "Banco de dados conectado",
-  faster_whisper: "faster-whisper",
-  ffmpeg: "FFmpeg com libopus",
-  ollama: "Ollama",
-  openrouter: "OpenRouter",
-  queue: "Fila durável de processamento",
-  worker: "Worker de processamento",
-};
+function componentLabel(component: InstallationHealth["components"][number], t: Messages): string {
+  return t.installation.components[component.componentType];
+}
 
 function HealthCard() {
+  const { format, t } = useI18n();
   const [health, setHealth] = useState<InstallationHealth>();
   const [failed, setFailed] = useState(false);
 
@@ -433,29 +437,30 @@ function HealthCard() {
   return (
     <Card>
       <h2 className="m-0 mb-3 text-[14px] font-semibold tracking-tight text-ink" id="health-title">
-        Estado da instalação
+        {t.installation.health}
       </h2>
       <section aria-labelledby="health-title">
         {failed ? (
-          <p className="m-0 text-[12.5px] text-ink-muted">
-            Não foi possível consultar o estado dos componentes.
-          </p>
+          <p className="m-0 text-[12.5px] text-ink-muted">{t.installation.healthFailed}</p>
         ) : health === undefined ? (
-          <p className="m-0 text-[12.5px] text-ink-muted">Consultando componentes…</p>
+          <p className="m-0 text-[12.5px] text-ink-muted">{t.installation.healthLoading}</p>
         ) : (
           <div className="flex flex-col gap-2.5">
-            <HealthRow label="Banco de dados conectado" status="ready" />
+            <HealthRow label={t.installation.components.database} status="ready" />
             {health.components.map((component) => (
               <HealthRow
-                detail={component.stale ? "sem heartbeat recente" : undefined}
+                detail={component.stale ? t.installation.stale : undefined}
                 key={component.componentId}
-                label={componentLabels[component.componentType] ?? component.componentId}
+                label={componentLabel(component, t)}
                 status={component.status}
               />
             ))}
             <HealthRow
-              detail={`${formatInteger(health.queue.scheduled)} na fila · ${formatInteger(health.queue.failed)} falhas`}
-              label="Fila durável de processamento"
+              detail={t.installation.queueDetail(
+                format.number(health.queue.scheduled),
+                format.number(health.queue.failed),
+              )}
+              label={t.installation.components.queue}
               status={health.queue.failed > 0 ? "degraded" : "ready"}
             />
           </div>

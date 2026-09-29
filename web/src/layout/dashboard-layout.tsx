@@ -4,6 +4,7 @@ import { Outlet, useOutletContext } from "react-router-dom";
 
 import { type GuildSelection, useGuildSelection } from "../hooks/use-guild-selection";
 import { useTheme } from "../hooks/use-theme";
+import { useI18n } from "../i18n/store";
 import { api, type DashboardAnalytics, type DashboardSettings } from "../lib/api";
 import type { ThemePreference } from "../lib/theme";
 import { NavigationContext, type NavigationControl, NavigationDrawer } from "./navigation";
@@ -25,11 +26,9 @@ export interface DashboardContext {
   /** Refreshes the settings from the server; when that fails the current snapshot stays. */
   reloadSettings(): Promise<void>;
   setPeriod(value: DashboardPeriod): void;
-  setPreferences(value: {
-    dashboardLanguage: "en" | "pt-BR";
-    dashboardTheme: ThemePreference;
-  }): void;
-  /** Installation-wide settings: access mode, preferences and which secrets exist. */
+  /** The theme belongs to this browser, like the language and the date formats. */
+  setTheme(value: ThemePreference): void;
+  /** Installation-wide settings: access mode and which secrets exist. */
   settings: DashboardSettings;
   theme: ThemePreference;
 }
@@ -44,8 +43,9 @@ export function useDashboard(): DashboardContext {
  */
 export function DashboardLayout({ settings: initialSettings }: { settings: DashboardSettings }) {
   const guilds = useGuildSelection();
+  const { t, timeZone } = useI18n();
   const [settings, setSettings] = useState(initialSettings);
-  const theme = useTheme(settings.dashboardTheme);
+  const theme = useTheme();
   const [period, setPeriod] = useState<DashboardPeriod>("30d");
   const [dashboard, setDashboard] = useState<DashboardAnalytics>();
   const [dashboardError, setDashboardError] = useState(false);
@@ -68,7 +68,7 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
     setDashboard(undefined);
     setDashboardError(false);
     void api
-      .getDashboard(selectedGuildId, period)
+      .getDashboard(selectedGuildId, period, timeZone)
       .then((next) => {
         if (active) setDashboard(next);
       })
@@ -78,7 +78,7 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
     return () => {
       active = false;
     };
-  }, [period, reloadToken, selectedGuildId]);
+  }, [period, reloadToken, selectedGuildId, timeZone]);
 
   const reloadDashboard = useCallback(() => setReloadToken((token) => token + 1), []);
 
@@ -95,15 +95,6 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
     [],
   );
 
-  function savePreferences(next: {
-    dashboardLanguage: "en" | "pt-BR";
-    dashboardTheme: ThemePreference;
-  }) {
-    patchSettings(next);
-    theme.setPreference(next.dashboardTheme);
-    void api.updatePreferences(next.dashboardLanguage, next.dashboardTheme);
-  }
-
   const context: DashboardContext = {
     controls: (
       <>
@@ -114,20 +105,10 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
             value={guilds.selectedGuildId}
           />
         )}
-        {/* Phones keep only the guild context; language and theme stay in Preferências. */}
+        {/* Phones keep only the guild context; language and theme stay in Preferences. */}
         <div className="hidden items-center gap-2 sm:flex">
-          <LanguagePicker
-            onChange={(dashboardLanguage) =>
-              savePreferences({ dashboardLanguage, dashboardTheme: theme.preference })
-            }
-            value={settings.dashboardLanguage}
-          />
-          <ThemeToggle
-            onChange={(dashboardTheme) =>
-              savePreferences({ dashboardLanguage: settings.dashboardLanguage, dashboardTheme })
-            }
-            value={theme.preference}
-          />
+          <LanguagePicker />
+          <ThemeToggle onChange={theme.setPreference} value={theme.preference} />
         </div>
       </>
     ),
@@ -139,7 +120,7 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
     reloadDashboard,
     reloadSettings,
     setPeriod,
-    setPreferences: savePreferences,
+    setTheme: theme.setPreference,
     settings,
     theme: theme.preference,
   };
@@ -161,7 +142,7 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
           <Sidebar
             action={
               <button
-                aria-label="Fechar menu"
+                aria-label={t.nav.closeMenu}
                 className="grid size-10 shrink-0 place-items-center rounded-lg text-ink-muted transition-colors hover:bg-surface-inset hover:text-ink"
                 onClick={close}
                 type="button"

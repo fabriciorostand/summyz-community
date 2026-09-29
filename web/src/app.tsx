@@ -1,38 +1,54 @@
 import { useCallback, useEffect, useState } from "react";
-import { Navigate, Route, Routes } from "react-router-dom";
+import { Navigate, Outlet, useLocation, useOutletContext } from "react-router-dom";
 
 import { ErrorState, FullPageLoading, SessionExpiredState } from "./components/states";
+import { useI18n } from "./i18n/store";
 import { DashboardLayout } from "./layout/dashboard-layout";
+import { useNavigationProgress } from "./layout/navigation-progress";
 import {
+  type AccessMode,
   type AccessStatus,
   ApiError,
   api,
   type DashboardSettings,
   subscribeToSessionExpiry,
 } from "./lib/api";
-import { CallDetailPage } from "./pages/call-detail-page";
-import { CallsPage } from "./pages/calls-page";
-import { CommandsPage } from "./pages/commands-page";
-import { GuildPage } from "./pages/guild-page";
-import { InstallationPage } from "./pages/installation-page";
-import { OverviewPage } from "./pages/overview-page";
-import { PreferencesPage } from "./pages/preferences-page";
-import { ProfilesPage } from "./pages/profiles/profiles-page";
-import { ServersPage } from "./pages/servers-page";
-import { SetupPage } from "./pages/setup-page";
-import { TasksPage } from "./pages/tasks-page";
-import { UnlockPage } from "./pages/unlock-page";
+
+/** What the setup, unlock and dashboard routes need from the access check above them. */
+export interface AccessContext {
+  accessMode: AccessMode;
+  expireSession(): void;
+  /** Reads the access status again, after the setup or the unlock changed it. */
+  refresh(): void;
+}
+
+export function useAccess(): AccessContext {
+  return useOutletContext<AccessContext>();
+}
+
+/** The only screen each access state may show; anything else redirects there. */
+function allowedPath(status: AccessStatus, pathname: string): string | null {
+  if (!status.setupCompleted) return pathname === "/setup" ? null : "/setup";
+  if (status.accessMode === "public" && !status.authenticated) {
+    return pathname === "/login" ? null : "/login";
+  }
+  return pathname === "/login" || pathname === "/setup" ? "/" : null;
+}
 
 /**
  * There are no user accounts: the access status decides between the first-run setup, the
  * installation password (public mode only) and the dashboard itself.
  */
 export function App() {
+  useNavigationProgress();
+  const { t } = useI18n();
+  const { pathname } = useLocation();
   const [status, setStatus] = useState<AccessStatus>();
   const [unreachable, setUnreachable] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
   const [attempt, setAttempt] = useState(0);
   const expireSession = useCallback(() => setSessionExpired(true), []);
+  const refresh = useCallback(() => setAttempt((current) => current + 1), []);
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: attempt is the explicit retry trigger.
   useEffect(() => {
@@ -56,12 +72,8 @@ export function App() {
     return (
       <div className="grid min-h-screen place-items-center bg-canvas p-6">
         <div className="w-full max-w-md">
-          <ErrorState
-            code="request_failed"
-            onRetry={() => setAttempt((current) => current + 1)}
-            title="Não foi possível falar com o servidor"
-          >
-            O dashboard não conseguiu consultar a API. Isso não afeta as gravações em andamento.
+          <ErrorState code="request_failed" onRetry={refresh} title={t.app.unreachableTitle}>
+            {t.app.unreachableBody}
           </ErrorState>
         </div>
       </div>
@@ -85,72 +97,26 @@ export function App() {
     );
   }
 
-  if (!status.setupCompleted) {
-    return (
-      <Routes>
-        <Route
-          element={
-            <SetupPage
-              accessMode={status.accessMode}
-              onComplete={() => setAttempt((current) => current + 1)}
-            />
-          }
-          path="/setup"
-        />
-        <Route element={<Navigate replace to="/setup" />} path="*" />
-      </Routes>
-    );
-  }
-
-  const locked = status.accessMode === "public" && !status.authenticated;
-  return (
-    <Routes>
-      <Route
-        element={
-          locked ? (
-            <UnlockPage onUnlocked={() => setAttempt((current) => current + 1)} />
-          ) : (
-            <Navigate replace to="/" />
-          )
-        }
-        path="/login"
-      />
-      {locked ? (
-        <Route element={<Navigate replace to="/login" />} path="*" />
-      ) : (
-        <>
-          <Route element={<AuthenticatedArea onSessionExpired={expireSession} />}>
-            <Route element={<OverviewPage />} index />
-            <Route element={<CallsPage />} path="history" />
-            <Route element={<CallDetailPage />} path="history/:meetingId" />
-            <Route element={<TasksPage />} path="tasks" />
-            <Route element={<ServersPage />} path="servers" />
-            <Route element={<GuildPage />} path="guilds/:guildId" />
-            <Route element={<ProfilesPage />} path="profiles" />
-            <Route element={<CommandsPage />} path="commands" />
-            <Route element={<PreferencesPage />} path="settings" />
-            <Route element={<InstallationPage />} path="installation" />
-          </Route>
-          <Route element={<Navigate replace to="/" />} path="*" />
-        </>
-      )}
-    </Routes>
-  );
+  const redirect = allowedPath(status, pathname);
+  if (redirect !== null) return <Navigate replace to={redirect} />;
+  const context: AccessContext = { accessMode: status.accessMode, expireSession, refresh };
+  return <Outlet context={context} />;
 }
 
-function AuthenticatedArea({ onSessionExpired }: { onSessionExpired: () => void }) {
+export function AuthenticatedArea() {
+  const { expireSession } = useAccess();
   const [settings, setSettings] = useState<DashboardSettings>();
 
-  useEffect(() => subscribeToSessionExpiry(onSessionExpired), [onSessionExpired]);
+  useEffect(() => subscribeToSessionExpiry(expireSession), [expireSession]);
 
   useEffect(() => {
     void api
       .getSettings()
       .then(setSettings)
       .catch((error: unknown) => {
-        if (error instanceof ApiError && error.status === 401) onSessionExpired();
+        if (error instanceof ApiError && error.status === 401) expireSession();
       });
-  }, [onSessionExpired]);
+  }, [expireSession]);
 
   if (settings === undefined) return <FullPageLoading />;
   return <DashboardLayout settings={settings} />;

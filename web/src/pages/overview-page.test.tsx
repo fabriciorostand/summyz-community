@@ -2,6 +2,7 @@ import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { setLanguage, setTimeFormat } from "../i18n/store";
 import { api } from "../lib/api";
 import {
   aDashboard,
@@ -184,6 +185,41 @@ describe("OverviewPage", () => {
     expect(screen.getByText("12:41")).toBeInTheDocument();
     expect(screen.getByText("falando")).toBeInTheDocument();
     expect(screen.getByText(/perfil/)).toHaveTextContent("Padrão OpenRouter");
+  });
+
+  it("shows when the live meeting started in the zone the metrics were asked in", async () => {
+    renderScreen(<OverviewPage />, {
+      context: dashboardContext({
+        dashboard: aDashboard({ liveMeeting: aLiveMeeting(), timeZone: "UTC" }),
+      }),
+    });
+    expect(await screen.findByText(/Iniciada às 17:02/)).toBeInTheDocument();
+  });
+
+  it("keeps the day period of the start time on the 12-hour clock", async () => {
+    setTimeFormat("12h");
+    renderScreen(<OverviewPage />, {
+      context: dashboardContext({ dashboard: aDashboard({ liveMeeting: aLiveMeeting() }) }),
+    });
+    expect(await screen.findByText(/Iniciada às 2:02 PM/)).toBeInTheDocument();
+  });
+
+  it("asks for the recent calls in the browser time zone", async () => {
+    renderScreen(<OverviewPage />);
+    await screen.findByText("Launch Week Sync");
+    expect(api.listMeetings).toHaveBeenCalledWith("g1", { page: 1 }, "America/Sao_Paulo");
+  });
+
+  it("reads entirely in English, with English separators", async () => {
+    setLanguage("en");
+    vi.mocked(api.listTasks).mockResolvedValue([aTask()]);
+    renderScreen(<OverviewPage />);
+    expect(await screen.findByRole("heading", { name: "Overview" })).toBeInTheDocument();
+    expect(screen.getByText("38.0")).toBeInTheDocument();
+    expect(screen.getByText("USD 12.48")).toBeInTheDocument();
+    expect(screen.getByText("Top speakers")).toBeInTheDocument();
+    expect(await screen.findByText("FRI 04/09")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "View all 7" })).toBeInTheDocument();
   });
 
   it("groups the open tasks by owner with a link to the full screen", async () => {

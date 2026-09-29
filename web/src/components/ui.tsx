@@ -11,6 +11,7 @@ import {
   useState,
 } from "react";
 
+import { useI18n } from "../i18n/store";
 import { initialsOf } from "../lib/format";
 import { Select } from "./select";
 
@@ -405,7 +406,7 @@ const tipViewportGutter = 16;
  */
 export function HelpTip({
   children,
-  label = "Ajuda",
+  label,
   placement = "below",
 }: {
   children: ReactNode;
@@ -413,6 +414,7 @@ export function HelpTip({
   label?: string;
   placement?: "below" | "left";
 }) {
+  const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const [placementStyle, setPlacementStyle] = useState<CSSProperties | undefined>(undefined);
   const tipRef = useRef<HTMLSpanElement>(null);
@@ -442,7 +444,7 @@ export function HelpTip({
     <span className="relative inline-flex">
       <button
         aria-describedby={open ? id : undefined}
-        aria-label={label}
+        aria-label={label ?? t.common.help}
         className="touch-target grid size-[17px] cursor-help place-items-center rounded-full border border-line-strong font-mono text-[10px] font-bold text-ink-dim transition-colors hover:border-action hover:text-accent-hover focus:border-action focus:text-accent-hover focus:outline-none"
         onBlur={() => setOpen(false)}
         onFocus={() => setOpen(true)}

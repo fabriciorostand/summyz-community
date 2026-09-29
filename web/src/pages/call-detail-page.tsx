@@ -5,23 +5,19 @@ import { Link, useParams } from "react-router-dom";
 import { Disclosure } from "../components/disclosure";
 import { ErrorState, LoadingPanel } from "../components/states";
 import { Avatar, Badge, Button, Card, Meter, Notice } from "../components/ui";
+import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import { api, type MeetingHistoryDetail, type MeetingHistorySummary } from "../lib/api";
 import { downloadTextFile, meetingFileName } from "../lib/download";
-import {
-  formatCost,
-  formatDate,
-  formatDuration,
-  formatInteger,
-  pipelineStatus,
-} from "../lib/format";
+import { formatDuration, pipelineStatus } from "../lib/format";
 import { parseTranscript, transcriptStats } from "../lib/transcript";
 import { Screen } from "./screen";
 
 export function CallDetailPage() {
   const { meetingId = "" } = useParams();
   const { controls, guilds } = useDashboard();
+  const { t, timeZone } = useI18n();
   const guildId = guilds.selectedGuildId;
   const [meeting, setMeeting] = useState<MeetingHistoryDetail>();
   const [loadError, setLoadError] = useState(false);
@@ -34,7 +30,7 @@ export function CallDetailPage() {
     setMeeting(undefined);
     setLoadError(false);
     void api
-      .getMeeting(guildId, meetingId)
+      .getMeeting(guildId, meetingId, timeZone)
       .then((next) => {
         if (active) setMeeting(next);
       })
@@ -44,9 +40,10 @@ export function CallDetailPage() {
     return () => {
       active = false;
     };
-  }, [guildId, meetingId, reloadToken]);
+  }, [guildId, meetingId, reloadToken, timeZone]);
 
-  const status = meeting === undefined ? undefined : pipelineStatus(meeting.pipelineStatus);
+  const status =
+    meeting === undefined ? undefined : pipelineStatus(meeting.pipelineStatus, t.pipeline);
   return (
     <>
       <TopBar
@@ -62,13 +59,13 @@ export function CallDetailPage() {
             to="/history"
           >
             <ArrowLeft className="size-3.5" />
-            Calls
+            {t.nav.calls}
           </Link>
         }
         title={
           <span className="flex min-w-0 items-center gap-3">
             <span className="min-w-0 truncate">
-              {meeting?.voiceChannelName ?? "Detalhes da call"}
+              {meeting?.voiceChannelName ?? t.callDetail.title}
             </span>
             {status !== undefined && (
               <span className="shrink-0">
@@ -96,6 +93,7 @@ function HeaderActions({
   guildId: string;
   meeting: MeetingHistoryDetail | undefined;
 }) {
+  const { t } = useI18n();
   if (meeting === undefined) return null;
   return (
     <>
@@ -108,7 +106,7 @@ function HeaderActions({
           target="_blank"
         >
           <ExternalLink className="size-3.5" />
-          Abrir no Discord
+          {t.callDetail.openInDiscord}
         </a>
       )}
     </>
@@ -124,6 +122,7 @@ function DetailBody({
   meeting: MeetingHistoryDetail | undefined;
   onRetry: () => void;
 }) {
+  const { t } = useI18n();
   if (failed) {
     return (
       <ErrorState
@@ -134,16 +133,16 @@ function DetailBody({
             className="rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink"
             to="/history"
           >
-            Voltar ao histórico
+            {t.callDetail.historyUnavailable}
           </Link>
         }
-        title="Call indisponível"
+        title={t.callDetail.unavailableTitle}
       >
-        Não foi possível carregar os detalhes desta reunião.
+        {t.callDetail.unavailableBody}
       </ErrorState>
     );
   }
-  if (meeting === undefined) return <LoadingPanel label="Carregando a call…" />;
+  if (meeting === undefined) return <LoadingPanel label={t.callDetail.loading} />;
   return (
     <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_300px]">
       <div className="flex min-w-0 flex-col gap-6">
@@ -159,6 +158,7 @@ function DetailBody({
 }
 
 function ExportButton({ guildId, meeting }: { guildId: string; meeting: MeetingHistoryDetail }) {
+  const { dateFormat, t, timeFormat, timeZone } = useI18n();
   const [busy, setBusy] = useState(false);
   const [failed, setFailed] = useState(false);
   const available = meeting.summary?.status === "completed" && meeting.transcript !== null;
@@ -167,8 +167,15 @@ function ExportButton({ guildId, meeting }: { guildId: string; meeting: MeetingH
     setBusy(true);
     setFailed(false);
     try {
-      const contents = await api.getMeetingExport(guildId, meeting.meetingId);
-      downloadTextFile(meetingFileName(meeting.voiceChannelName, meeting.meetingId), contents);
+      const contents = await api.getMeetingExport(guildId, meeting.meetingId, {
+        dateFormat,
+        timeFormat,
+        timeZone,
+      });
+      downloadTextFile(
+        meetingFileName(meeting.voiceChannelName, meeting.meetingId, t.callDetail.fileNameFallback),
+        contents,
+      );
     } catch {
       setFailed(true);
     } finally {
@@ -183,63 +190,82 @@ function ExportButton({ guildId, meeting }: { guildId: string; meeting: MeetingH
       variant={failed ? "danger" : "secondary"}
     >
       <Download className="size-3.5" />
-      {failed ? "Falhou — tentar de novo" : busy ? "Exportando…" : "Exportar"}
+      {failed ? t.callDetail.exportFailed : busy ? t.callDetail.exporting : t.callDetail.export}
     </Button>
   );
 }
 
+/**
+ * Section titles for summaries that did not bring their own. They follow the language of the
+ * summary, not the dashboard, so a card never mixes languages; the export uses the same rule.
+ */
+const summaryFallbackLabels = {
+  en: {
+    deadline: "Deadline",
+    decisions: "Decisions",
+    discussedTopics: "Discussed topics",
+    executiveSummary: "Executive summary",
+    observations: "Open issues and notes",
+    tasks: "Tasks by owner",
+  },
+  pt: {
+    deadline: "Prazo",
+    decisions: "Decisões",
+    discussedTopics: "Tópicos discutidos",
+    executiveSummary: "Resumo executivo",
+    observations: "Pendências e observações",
+    tasks: "Tarefas por responsável",
+  },
+} as const;
+
 function SummaryCard({ summary }: { summary: MeetingHistorySummary | null }) {
+  const { t } = useI18n();
   if (summary === null) {
     return (
       <Card>
-        <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">Resumo</h2>
-        <p className="m-0 text-[12.5px] text-ink-muted">Conteúdo não retido.</p>
+        <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">
+          {t.callDetail.summary}
+        </h2>
+        <p className="m-0 text-[12.5px] text-ink-muted">{t.callDetail.contentNotRetained}</p>
       </Card>
     );
   }
   if (summary.status === "failed") {
     return (
       <Card>
-        <h2 className="m-0 mb-3 text-[15px] font-semibold tracking-tight text-ink">Resumo</h2>
-        <Notice tone="warn">
-          Não foi possível gerar o resumo após as tentativas configuradas. A transcrição completa
-          continua disponível abaixo.
-        </Notice>
+        <h2 className="m-0 mb-3 text-[15px] font-semibold tracking-tight text-ink">
+          {t.callDetail.summary}
+        </h2>
+        <Notice tone="warn">{t.callDetail.summaryFailed}</Notice>
       </Card>
     );
   }
-  const labels = summary.labels;
+  const fallback =
+    summaryFallbackLabels[summary.language.toLowerCase().startsWith("pt") ? "pt" : "en"];
+  const labels = { ...fallback, ...summary.labels };
   const warning = summary.languageWarning;
   return (
     <Card>
       {warning !== undefined && (
         <div className="mb-4">
           <Notice tone="warn">
-            Não foi possível confirmar que o resumo foi gerado em{" "}
-            <strong>{warning.requestedLanguage}</strong>.
+            {t.callDetail.languageUnconfirmed} <strong>{warning.requestedLanguage}</strong>.
             {warning.detectedLanguage !== undefined && (
               <>
                 {" "}
-                Idioma identificado: <strong>{warning.detectedLanguage}</strong>.
+                {t.callDetail.detectedLanguage} <strong>{warning.detectedLanguage}</strong>.
               </>
             )}
           </Notice>
         </div>
       )}
-      <div className="label-mono mb-3 text-ink-muted">
-        {labels?.executiveSummary ?? "Resumo executivo"}
-      </div>
+      <div className="label-mono mb-3 text-ink-muted">{labels.executiveSummary}</div>
       <p className="m-0 text-[14px] leading-relaxed text-ink">{summary.executiveSummary}</p>
-      <SummaryList items={summary.decisions} title={labels?.decisions ?? "Decisões"} withCheck />
-      <SummaryList
-        items={summary.discussedTopics}
-        title={labels?.discussedTopics ?? "Tópicos discutidos"}
-      />
+      <SummaryList items={summary.decisions} title={labels.decisions} withCheck />
+      <SummaryList items={summary.discussedTopics} title={labels.discussedTopics} />
       {summary.tasks.length > 0 && (
         <section className="mt-6">
-          <h3 className="m-0 mb-3 text-[13px] font-semibold text-ink">
-            {labels?.tasks ?? "Tarefas por responsável"}
-          </h3>
+          <h3 className="m-0 mb-3 text-[13px] font-semibold text-ink">{labels.tasks}</h3>
           <div className="flex flex-col gap-2">
             {summary.tasks.map((task, index) => (
               <div
@@ -254,7 +280,7 @@ function SummaryCard({ summary }: { summary: MeetingHistorySummary | null }) {
                       task.ownerName,
                       task.deadlineText === undefined
                         ? undefined
-                        : `${labels?.deadline ?? "Prazo"} ${task.deadlineText}`,
+                        : `${labels.deadline} ${task.deadlineText}`,
                     ]
                       .filter((part): part is string => part !== undefined)
                       .join(" · ")}
@@ -268,9 +294,7 @@ function SummaryCard({ summary }: { summary: MeetingHistorySummary | null }) {
       {summary.observations.length > 0 && (
         <div className="mt-6">
           <Notice icon={<Info className="mt-0.5 size-3.5 shrink-0" />}>
-            <strong className="block text-ink">
-              {labels?.observations ?? "Pendências e observações"}
-            </strong>
+            <strong className="block text-ink">{labels.observations}</strong>
             <span className="mt-1 block">{summary.observations.join(" ")}</span>
           </Notice>
         </div>
@@ -309,13 +333,16 @@ function SummaryList({
 }
 
 function TranscriptCard({ transcript }: { transcript: string | null }) {
+  const { format, t } = useI18n();
   const turns = useMemo(() => parseTranscript(transcript ?? ""), [transcript]);
   const stats = transcriptStats(turns);
   if (transcript === null) {
     return (
       <Card>
-        <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">Transcrição</h2>
-        <p className="m-0 text-[12.5px] text-ink-muted">Conteúdo não retido.</p>
+        <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">
+          {t.callDetail.transcript}
+        </h2>
+        <p className="m-0 text-[12.5px] text-ink-muted">{t.callDetail.contentNotRetained}</p>
       </Card>
     );
   }
@@ -323,11 +350,11 @@ function TranscriptCard({ transcript }: { transcript: string | null }) {
     <Disclosure
       badge={
         <span className="label-mono shrink-0 text-ink-dim">
-          {formatInteger(stats.turns)} falas · {formatInteger(stats.words)} palavras
+          {t.callDetail.transcriptStats(format.number(stats.turns), format.number(stats.words))}
         </span>
       }
       icon={<FileText className="size-4" />}
-      title="Transcrição completa"
+      title={t.callDetail.fullTranscript}
     >
       {turns.length === 0 ? (
         <pre className="m-0 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink-secondary">
@@ -356,21 +383,24 @@ function TranscriptCard({ transcript }: { transcript: string | null }) {
 }
 
 function ParticipantsCard({ meeting }: { meeting: MeetingHistoryDetail }) {
+  const { t } = useI18n();
   if (meeting.participants === null) {
     return (
       <Card>
         <h2 className="m-0 mb-2 text-[15px] font-semibold tracking-tight text-ink">
-          Participantes
+          {t.callDetail.participants}
         </h2>
-        <p className="m-0 text-[12.5px] text-ink-muted">Informação indisponível.</p>
+        <p className="m-0 text-[12.5px] text-ink-muted">{t.callDetail.participantsUnavailable}</p>
       </Card>
     );
   }
   const silent = meeting.participants.every((participant) => participant.percentage === 0);
   return (
     <Card>
-      <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">Participantes</h2>
-      {silent && <p className="m-0 mb-3 text-[12px] text-ink-muted">Nenhuma fala detectada.</p>}
+      <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">
+        {t.callDetail.participants}
+      </h2>
+      {silent && <p className="m-0 mb-3 text-[12px] text-ink-muted">{t.callDetail.noSpeech}</p>}
       <div className="flex flex-col gap-3">
         {meeting.participants.map((participant) => (
           <div className="flex items-center gap-2.5" key={participant.userId}>
@@ -396,21 +426,25 @@ function ParticipantsCard({ meeting }: { meeting: MeetingHistoryDetail }) {
 }
 
 function FactsCard({ meeting }: { meeting: MeetingHistoryDetail }) {
+  const { format, t } = useI18n();
+  const yesNo = (value: boolean) => (value ? t.callDetail.yes : t.callDetail.no);
   const facts: { label: string; value: string }[] = [
-    { label: "Início", value: formatDate(meeting.startedAt, meeting.timeZone) },
-    { label: "Duração", value: formatDuration(meeting.durationMs) },
-    { label: "Perfil usado", value: meeting.aiProfile?.name ?? "—" },
+    { label: t.callDetail.startedAt, value: format.dateTime(meeting.startedAt, meeting.timeZone) },
+    { label: t.callDetail.duration, value: formatDuration(meeting.durationMs) },
+    { label: t.callDetail.profileUsed, value: meeting.aiProfile?.name ?? "—" },
     {
-      label: "Idioma do resumo",
+      label: t.callDetail.summaryLanguage,
       value: meeting.summary === null ? "—" : meeting.summary.language,
     },
-    { label: "Conteúdo retido", value: meeting.contentRetained ? "sim" : "não" },
-    { label: "Áudio retido", value: meeting.audioRetained ? "sim" : "não" },
-    { label: "Custo da call", value: formatCost(meeting.cost.confirmed) },
+    { label: t.callDetail.contentRetained, value: yesNo(meeting.contentRetained) },
+    { label: t.callDetail.audioRetained, value: yesNo(meeting.audioRetained) },
+    { label: t.callDetail.callCost, value: format.cost(meeting.cost.confirmed) },
   ];
   return (
     <Card>
-      <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">Ficha técnica</h2>
+      <h2 className="m-0 mb-4 text-[15px] font-semibold tracking-tight text-ink">
+        {t.callDetail.factSheet}
+      </h2>
       <div className="flex flex-col">
         {facts.map((fact) => (
           <div
@@ -425,7 +459,7 @@ function FactsCard({ meeting }: { meeting: MeetingHistoryDetail }) {
         ))}
       </div>
       <div className="mt-4">
-        <div className="label-mono mb-1.5 text-ink-muted">ID da reunião</div>
+        <div className="label-mono mb-1.5 text-ink-muted">{t.callDetail.meetingId}</div>
         <CopyableId value={meeting.meetingId} />
       </div>
     </Card>
