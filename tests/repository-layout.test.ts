@@ -19,7 +19,6 @@ describe("repository layout", () => {
       "docs/pt-BR/operations.md",
       "docs/pt-BR/reference/bot-commands.md",
       "docs/pt-BR/release-checklist.md",
-      "docs/pt-BR/legal/revisao-juridica-1.0.md",
       "requirements/ci.in",
       "requirements/ci.lock",
     ];
