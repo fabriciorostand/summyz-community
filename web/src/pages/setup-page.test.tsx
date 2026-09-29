@@ -28,9 +28,9 @@ function renderSetup(accessMode: "local" | "public", hash = "") {
 beforeEach(() => {
   vi.mocked(api.setup).mockResolvedValue(undefined);
   vi.mocked(api.getBotInstallation).mockResolvedValue({
-    applicationId: "1289443021764919306",
+    applicationId: "123456789012345678",
     configured: true,
-    installUrl: "https://discord.com/oauth2/authorize?client_id=1289443021764919306",
+    installUrl: "https://discord.com/oauth2/authorize?client_id=123456789012345678",
   });
 });
 
@@ -112,7 +112,7 @@ describe("SetupPage in local mode", () => {
     const link = await screen.findByRole("link", { name: /Adicionar a um servidor/ });
     expect(link).toHaveAttribute(
       "href",
-      "https://discord.com/oauth2/authorize?client_id=1289443021764919306",
+      "https://discord.com/oauth2/authorize?client_id=123456789012345678",
     );
     await userEvent.click(screen.getByRole("button", { name: "Ir para o dashboard" }));
     expect(onComplete).toHaveBeenCalledTimes(1);

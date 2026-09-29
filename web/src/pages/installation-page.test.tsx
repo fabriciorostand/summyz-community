@@ -128,9 +128,9 @@ describe("InstallationPage", () => {
 
   it("shows the read-only Application ID with a copy action", async () => {
     renderScreen(<InstallationPage />);
-    expect(screen.getByText("1289443021764919306")).toBeInTheDocument();
+    expect(screen.getByText("123456789012345678")).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Copiar Application ID" }));
-    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("1289443021764919306");
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith("123456789012345678");
     expect(screen.queryByLabelText(/client secret/i)).toBeNull();
     expect(screen.queryByText(/SMTP/)).toBeNull();
   });
@@ -250,7 +250,7 @@ describe("InstallationPage", () => {
       .mockResolvedValue(aSettings({ discordApplicationId: "222" }));
     render(<SettingsHarness initialSettings={aSettings()} serverSettings={serverSettings} />);
     await waitFor(() => expect(serverSettings).toHaveBeenCalledTimes(1));
-    expect(screen.getByText("1289443021764919306")).toBeInTheDocument();
+    expect(screen.getByText("123456789012345678")).toBeInTheDocument();
     await userEvent.type(screen.getByLabelText("Token do bot"), "new-token");
     await userEvent.click(screen.getByRole("button", { name: "Substituir" }));
     expect(await screen.findByText("222")).toBeInTheDocument();
