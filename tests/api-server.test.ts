@@ -6,6 +6,9 @@ import { type ApiServerDependencies, createApiServer } from "../src/api/server.j
 import { InstallationPasswordError } from "../src/auth/installation-password.js";
 import { createLogger } from "../src/logger.js";
 
+// Browsers always send Origin on mutations; local mode accepts only loopback origins.
+const localOrigin = { origin: "http://127.0.0.1:8787" };
+
 describe("Community dashboard API", () => {
   it("passes each browser zone to history and rolling analytics without persisting it", async () => {
     const dependencies = createDependencies("local");
@@ -73,9 +76,21 @@ describe("Community dashboard API", () => {
     };
     const { promptModes: _modes, ...invalid } = body;
     expect(
-      (await app.inject({ method: "POST", url: "/api/profiles", payload: invalid })).statusCode,
+      (
+        await app.inject({
+          headers: localOrigin,
+          method: "POST",
+          url: "/api/profiles",
+          payload: invalid,
+        })
+      ).statusCode,
     ).toBe(400);
-    const created = await app.inject({ method: "POST", url: "/api/profiles", payload: body });
+    const created = await app.inject({
+      headers: localOrigin,
+      method: "POST",
+      url: "/api/profiles",
+      payload: body,
+    });
     expect(created.statusCode).toBe(201);
     expect(created.json().refinement.prompt).toBe(body.refinement.prompt);
     expect(dependencies.aiProfiles.createProfile).toHaveBeenCalledWith(
@@ -99,8 +114,14 @@ describe("Community dashboard API", () => {
       expect(response.json()).not.toHaveProperty("dashboardTheme");
     }
     expect(
-      (await app.inject({ method: "PUT", url: "/api/settings/preferences", payload: {} }))
-        .statusCode,
+      (
+        await app.inject({
+          headers: localOrigin,
+          method: "PUT",
+          url: "/api/settings/preferences",
+          payload: {},
+        })
+      ).statusCode,
     ).toBe(404);
     await app.close();
   });
@@ -111,6 +132,7 @@ describe("Community dashboard API", () => {
       expect(
         (
           await app.inject({
+            headers: localOrigin,
             method: "POST",
             url: "/api/setup",
             payload: { discordBotToken: "bot-token", setupLanguage },
@@ -179,6 +201,7 @@ describe("Community dashboard API", () => {
       family: "qwen3",
     });
     const download = await app.inject({
+      headers: localOrigin,
       method: "POST",
       url: "/api/models/downloads",
       payload: { phase: "summary", provider: "ollama", model: "qwen3:8b" },
@@ -186,6 +209,7 @@ describe("Community dashboard API", () => {
     expect(download.statusCode).toBe(202);
     expect(download.json()).not.toHaveProperty("partialDigests");
     const cancel = await app.inject({
+      headers: localOrigin,
       method: "POST",
       url: "/api/models/downloads/63d3b8c0-e02a-4fdf-8179-a0feec79e7c1/cancel",
     });
@@ -193,6 +217,7 @@ describe("Community dashboard API", () => {
     expect(
       (
         await app.inject({
+          headers: localOrigin,
           method: "DELETE",
           url: "/api/models",
           payload: { provider: "ollama", model: "qwen3:8b" },
@@ -345,8 +370,14 @@ describe("Community dashboard API", () => {
       summary: { ...body.summary, model: "vendor/text" },
     };
 
-    const accepted = await app.inject({ method: "POST", payload, url: "/api/profiles" });
+    const accepted = await app.inject({
+      headers: localOrigin,
+      method: "POST",
+      payload,
+      url: "/api/profiles",
+    });
     const rejected = await app.inject({
+      headers: localOrigin,
       method: "POST",
       payload: { ...payload, translation: null },
       url: "/api/profiles",
@@ -366,6 +397,7 @@ describe("Community dashboard API", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
+      headers: localOrigin,
       method: "POST",
       payload: { discordBotToken: "bot-token", setupLanguage: "pt-BR" },
       url: "/api/setup",
@@ -508,6 +540,87 @@ describe("Community dashboard API", () => {
     await app.close();
   });
 
+  it("rejects local requests addressed to a non-loopback host", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+
+    for (const host of [
+      "attacker.example.com:8787",
+      "127.0.0.1.attacker.example.com",
+      "localhost.attacker.example.com:8787",
+    ]) {
+      const read = await app.inject({
+        headers: { host },
+        method: "GET",
+        url: "/api/installation/settings",
+      });
+      const write = await app.inject({
+        headers: { host, origin: `http://${host}` },
+        method: "PUT",
+        payload: { value: "attacker-key" },
+        url: "/api/installation/secrets/openrouter_api_key",
+      });
+      expect(read.statusCode).toBe(403);
+      expect(read.json()).toEqual({ error: "invalid_host" });
+      expect(write.statusCode).toBe(403);
+    }
+    expect(dependencies.settings.getSettings).not.toHaveBeenCalled();
+    expect(dependencies.settings.setSecret).not.toHaveBeenCalled();
+
+    for (const host of ["127.0.0.1:8787", "localhost:5173", "[::1]:9000"]) {
+      const response = await app.inject({
+        headers: { host },
+        method: "GET",
+        url: "/api/installation/settings",
+      });
+      expect(response.statusCode).toBe(200);
+    }
+    await app.close();
+  });
+
+  it("rejects local mutations without a loopback origin", async () => {
+    const dependencies = createDependencies("local");
+    const app = await createApiServer(dependencies);
+    const storeKey = (headers: Record<string, string>) =>
+      app.inject({
+        headers,
+        method: "PUT",
+        payload: { value: "openrouter-key" },
+        url: "/api/installation/secrets/openrouter_api_key",
+      });
+
+    for (const origin of [
+      undefined,
+      "null",
+      "https://attacker.example.com",
+      "http://127.0.0.1.attacker.example.com:8787",
+    ]) {
+      const response = await storeKey(origin === undefined ? {} : { origin });
+      expect(response.statusCode).toBe(403);
+      expect(response.json()).toEqual({ error: "invalid_origin" });
+    }
+    expect(dependencies.settings.setSecret).not.toHaveBeenCalled();
+
+    for (const origin of ["http://127.0.0.1:8787", "http://localhost:5173", "http://[::1]:9000"]) {
+      expect((await storeKey({ origin })).statusCode).toBe(204);
+    }
+    expect(dependencies.settings.setSecret).toHaveBeenCalledTimes(3);
+    await app.close();
+  });
+
+  it("serves public mode through its own domain", async () => {
+    const app = await createApiServer(createDependencies("public"));
+
+    const response = await app.inject({
+      headers: { host: "summyz.example.com" },
+      method: "GET",
+      url: "/api/access/status",
+    });
+
+    expect(response.statusCode).toBe(200);
+    await app.close();
+  });
+
   it("rejects public dashboard access without a session and permits local access", async () => {
     const publicApp = await createApiServer(createDependencies("public"));
     const localApp = await createApiServer(createDependencies("local"));
@@ -589,6 +702,7 @@ describe("Community dashboard API", () => {
     const app = await createApiServer(dependencies);
 
     const accepted = await app.inject({
+      headers: localOrigin,
       method: "PUT",
       payload: {
         botLanguage: "pt-BR",
@@ -598,6 +712,7 @@ describe("Community dashboard API", () => {
       url: "/api/guilds/guild-1/settings",
     });
     const rejected = await app.inject({
+      headers: localOrigin,
       method: "PUT",
       payload: {
         botLanguage: "pt-BR",
@@ -634,6 +749,7 @@ describe("Community dashboard API", () => {
     const app = await createApiServer(dependencies);
 
     const response = await app.inject({
+      headers: localOrigin,
       method: "PUT",
       payload: { discordBotToken: "rotated-token" },
       url: "/api/installation/bot",
@@ -678,6 +794,7 @@ describe("Community dashboard API", () => {
     const taskId = "00000000-0000-4000-8000-000000000001";
 
     const response = await app.inject({
+      headers: localOrigin,
       method: "PATCH",
       payload: { completed: true },
       url: `/api/guilds/guild-1/tasks/${taskId}/completion`,

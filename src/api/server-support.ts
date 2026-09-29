@@ -142,6 +142,39 @@ export function clearSessionCookie(reply: FastifyReply): void {
   });
 }
 
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+// Local mode has no password, so only loopback addresses may reach it. This blocks DNS
+// rebinding, where a foreign domain resolves to 127.0.0.1 and keeps its own Host header.
+export function isLoopbackHost(host: string | undefined): boolean {
+  if (host === undefined) return false;
+  const url = URL.parse(`http://${host}`);
+  return (
+    url !== null &&
+    LOOPBACK_HOSTNAMES.has(url.hostname) &&
+    url.username === "" &&
+    url.password === "" &&
+    url.pathname === "/" &&
+    url.search === "" &&
+    url.hash === ""
+  );
+}
+
+export function isTrustedOrigin(
+  origin: string | undefined,
+  dependencies: Pick<ApiServerDependencies, "accessMode" | "publicBaseUrl">,
+): boolean {
+  if (origin === undefined) return false;
+  if (dependencies.accessMode === "public") return origin === dependencies.publicBaseUrl;
+  const url = URL.parse(origin);
+  return (
+    url !== null &&
+    url.origin === origin &&
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    LOOPBACK_HOSTNAMES.has(url.hostname)
+  );
+}
+
 export function safeEqual(left: string, right: string): boolean {
   const leftHash = createHash("sha256").update(left).digest();
   const rightHash = createHash("sha256").update(right).digest();
