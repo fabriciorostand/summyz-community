@@ -16,6 +16,7 @@ describe("logger", () => {
     logger.info(
       {
         audio: "conteúdo do áudio",
+        accessToken: "discord-access-token-sensitive",
         clientSecret: "client-secret-sensitive",
         authorization: "Bearer segredo",
         discordToken: "token-secreto",
@@ -41,6 +42,7 @@ describe("logger", () => {
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(output).not.toContain("Bearer segredo");
+    expect(output).not.toContain("discord-access-token-sensitive");
     expect(output).not.toContain("token-secreto");
     expect(output).not.toContain("openrouter-secreto");
     expect(output).not.toContain("client-secret-sensitive");

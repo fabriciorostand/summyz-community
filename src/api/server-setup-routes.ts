@@ -38,6 +38,9 @@ export function registerSetupRoutes(
       }
       const application = await dependencies.guildDirectory.inspectBotToken(setup.discordBotToken);
       await dependencies.settings.configureDiscordBot(application.id, setup.discordBotToken);
+      if (setup.discordClientSecret !== undefined) {
+        await dependencies.settings.setSecret("discord_client_secret", setup.discordClientSecret);
+      }
       if (dependencies.accessMode === "public") {
         await initializePublicPassword(dependencies, setup.installationPassword ?? "");
       }

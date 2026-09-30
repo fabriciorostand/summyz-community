@@ -3,7 +3,15 @@ import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from "discord.j
 import { type CommandLanguage, commandCatalog } from "./command-catalog.js";
 
 export function createCommandDefinitions(language: CommandLanguage) {
-  const { record, recordingCost, recordingRole, recordingSummaryForum, stop } = commandCatalog;
+  const {
+    record,
+    recordingActivate,
+    recordingCost,
+    recordingProfile,
+    recordingRole,
+    recordingSummaryForum,
+    stop,
+  } = commandCatalog;
   const recordCommand = new SlashCommandBuilder()
     .setName(record.name)
     .setDescription(record.description[language])
@@ -116,11 +124,39 @@ export function createCommandDefinitions(language: CommandLanguage) {
         ),
     );
 
+  const recordingProfileCommand = new SlashCommandBuilder()
+    .setName(recordingProfile.name)
+    .setDescription(recordingProfile.description[language])
+    .setDMPermission(false)
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName(recordingProfile.subcommands.list.name)
+        .setDescription(recordingProfile.subcommands.list.description[language]),
+    )
+    .addSubcommand((subcommand) =>
+      subcommand
+        .setName(recordingProfile.subcommands.set.name)
+        .setDescription(recordingProfile.subcommands.set.description[language])
+        .addStringOption((option) =>
+          option
+            .setName(recordingProfile.subcommands.set.options.profile.name)
+            .setDescription(recordingProfile.subcommands.set.options.profile.description[language])
+            .setRequired(true),
+        ),
+    );
+
+  const recordingActivateCommand = new SlashCommandBuilder()
+    .setName(recordingActivate.name)
+    .setDescription(recordingActivate.description[language])
+    .setDMPermission(false);
+
   return [
     recordCommand,
     stopCommand,
     recordingRoleCommand,
     recordingSummaryForumCommand,
     recordingCostCommand,
+    recordingProfileCommand,
+    recordingActivateCommand,
   ] as const;
 }

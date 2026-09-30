@@ -49,6 +49,11 @@ describe("runtime packaging", () => {
 
     expect(runtimeBase).toContain("rm -rf /usr/local/lib/node_modules/npm");
     expect(botRuntime).toContain('CMD ["node", "dist/main.js"]');
+    const packageJson = JSON.parse(
+      await readFile(new URL("package.json", repositoryRoot), "utf8"),
+    ) as { scripts?: Record<string, string> };
+    expect(packageJson.scripts?.dev).toContain("src/main.ts");
+    expect(packageJson.scripts?.start).toBe("node dist/main.js");
     expect(dashboardRuntime).toContain('CMD ["node", "dist/api/main.js"]');
   });
 

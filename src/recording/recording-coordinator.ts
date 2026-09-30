@@ -1,20 +1,29 @@
 import type { LiveMeetingParticipant } from "../database/postgres-live-meeting-store.js";
 import type { RecordingManifest } from "./manifest.js";
 
-export type RecordingStopReason = "channel_empty" | "command" | "reconnect_exhausted" | "shutdown";
+export type RecordingStopReason =
+  | "bot_left_guild"
+  | "channel_empty"
+  | "command"
+  | "owner_changed"
+  | "reconnect_exhausted"
+  | "shutdown";
 
 export type RecordingStopRequest =
   | { reason: "command"; stoppedByUserId: string }
   | { reason: Exclude<RecordingStopReason, "command"> };
 
 export function shouldStartTranscription(reason: RecordingStopReason): boolean {
-  return reason === "command" || reason === "channel_empty";
+  return reason === "command" || reason === "channel_empty" || reason === "owner_changed";
 }
 
 export interface StartRecordingInput {
   guildId: string;
+  guildIconUrl?: string | null;
+  guildName?: string;
   notificationChannelId: string;
   startedByUserId?: string;
+  verifiedOwnerUserId?: string;
   voiceChannelId: string;
   voiceChannelName?: string;
 }
@@ -41,9 +50,17 @@ export class RecordingAlreadyActiveError extends Error {
   }
 }
 
+export class RecordingRecoveryPendingError extends Error {
+  public constructor() {
+    super("A gravação anterior está suspensa enquanto o acesso ao servidor é verificado");
+    this.name = "RecordingRecoveryPendingError";
+  }
+}
+
 export class RecordingCoordinator {
   readonly #factory: RecordingSessionFactory;
   readonly #pendingGuildIds = new Set<string>();
+  readonly #recoverableGuildIds = new Set<string>();
   readonly #recordings = new Map<string, RecordingHandle>();
 
   public constructor(factory: RecordingSessionFactory) {
@@ -54,7 +71,23 @@ export class RecordingCoordinator {
     return this.#recordings.get(guildId);
   }
 
+  public activeGuildIds(): string[] {
+    return [...this.#recordings.keys()];
+  }
+
+  public isPending(guildId: string): boolean {
+    return this.#pendingGuildIds.has(guildId);
+  }
+
+  public setRecoverable(guildId: string, recoverable: boolean): void {
+    if (recoverable) this.#recoverableGuildIds.add(guildId);
+    else this.#recoverableGuildIds.delete(guildId);
+  }
+
   public async start(input: StartRecordingInput): Promise<RecordingHandle> {
+    if (this.#recoverableGuildIds.has(input.guildId)) {
+      throw new RecordingRecoveryPendingError();
+    }
     if (this.#recordings.has(input.guildId) || this.#pendingGuildIds.has(input.guildId)) {
       throw new RecordingAlreadyActiveError();
     }

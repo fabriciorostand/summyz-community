@@ -65,7 +65,9 @@ export class DurableJobQueue {
 INSERT INTO processing_jobs (
   job_id, meeting_id, job_type, status, available_at, max_attempts,
   transcription_recovery_version
-) VALUES ($1, $2, $3, 'scheduled', $4, $5, $6)
+) SELECT $1, meeting_id, $3, 'scheduled', $4, $5, $6
+FROM meetings
+WHERE meeting_id = $2 AND pipeline_status NOT IN ('completed', 'failed')
 ON CONFLICT (meeting_id, job_type) DO NOTHING
 RETURNING job_id
 `,

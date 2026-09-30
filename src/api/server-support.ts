@@ -10,16 +10,29 @@ import {
   DuplicateProfileNameError,
   StoredAiProfileValidationError,
 } from "../database/postgres-ai-profile-store.js";
+import { DiscordRateLimitError } from "../discord/discord-api-fetch.js";
+import { DiscordConnectionError } from "../discord/installation-discord-connection.js";
 import { ModelOperationError } from "../models/model-catalog.js";
 
 import {
   type ApiAnalyticsStore,
   type ApiServerDependencies,
   guildParametersSchema,
-  type InstalledDiscordGuild,
+  type OwnedDiscordGuild,
 } from "./server-contracts.js";
 
 const authenticatedRequests = new WeakSet<FastifyRequest>();
+
+class GuildAccessError extends Error {
+  public constructor(
+    public readonly code: string,
+    public readonly statusCode: number,
+    public readonly userMessage: string,
+  ) {
+    super(code);
+    this.name = "GuildAccessError";
+  }
+}
 
 export async function authorizeDashboard(
   request: FastifyRequest,
@@ -40,37 +53,86 @@ export async function authorizeGuild(
   request: FastifyRequest,
   dependencies: ApiServerDependencies,
   resolveGuildAccess: GuildAccessResolver,
+): Promise<{ guildId: string; ownerConfirmed: boolean }> {
+  await authorizeDashboard(request, dependencies);
+  const { guildId } = parseRequestInput(guildParametersSchema, request.params);
+  const connectedBefore = await dependencies.discordConnection.getConnectedUserId();
+  const guilds = await resolveGuildAccess();
+  if (!guilds.some((guild) => guild.id === guildId && guild.installed)) {
+    throw new GuildAccessError(
+      "guild_access_denied",
+      403,
+      "Somente o dono do servidor vinculado a esta instalação pode ver ou configurar esse servidor com o bot instalado.",
+    );
+  }
+  const connectedUserId = await dependencies.discordConnection.getConnectedUserId();
+  if (connectedBefore !== connectedUserId) {
+    throw new GuildAccessError(
+      "discord_connection_changed",
+      409,
+      "A conta Discord vinculada mudou durante a solicitação. Entre novamente no dashboard e tente de novo.",
+    );
+  }
+  if (connectedUserId === null) {
+    throw new GuildAccessError(
+      "discord_account_not_connected",
+      403,
+      "Conecte a conta Discord do dono do servidor antes de acessar ou configurar o bot.",
+    );
+  }
+  const ownerConfirmed = await dependencies.guildOwnerApprovals.isConfirmed(
+    guildId,
+    connectedUserId,
+  );
+  return { guildId, ownerConfirmed };
+}
+
+export async function authorizeHistoricalGuild(
+  request: FastifyRequest,
+  dependencies: ApiServerDependencies,
+  resolveGuildAccess: GuildAccessResolver,
 ): Promise<{ guildId: string }> {
   await authorizeDashboard(request, dependencies);
   const { guildId } = parseRequestInput(guildParametersSchema, request.params);
-  const guilds = await resolveGuildAccess();
-  if (!guilds.some((guild) => guild.id === guildId)) {
-    const error = new Error("guild_access_denied") as Error & { statusCode: number };
-    error.statusCode = 403;
-    throw error;
-  }
-  return { guildId };
+  if (await dependencies.guildHistory.hasMeetings(guildId)) return { guildId };
+  return authorizeGuild(request, dependencies, resolveGuildAccess);
 }
 
-export type GuildAccessResolver = () => Promise<readonly InstalledDiscordGuild[]>;
+export type GuildAccessResolver = () => Promise<readonly OwnedDiscordGuild[]>;
 
 export function createGuildAccessResolver(
   dependencies: ApiServerDependencies,
 ): GuildAccessResolver {
-  let cache: { expiresAt: number; request: Promise<readonly InstalledDiscordGuild[]> } | undefined;
   return async () => {
-    const now = Date.now();
-    if (cache !== undefined && cache.expiresAt > now) return cache.request;
-    const request = runApiDependency("discord", "resolve_guild_access", () =>
-      dependencies.guildDirectory.listInstalledGuilds(),
-    );
-    cache = { expiresAt: now + 10_000, request };
-    try {
-      return await request;
-    } catch (error) {
-      if (cache?.request === request) cache = undefined;
-      throw error;
+    const connection = await dependencies.discordConnection.getConnectionStatus();
+    if (!connection.connected) {
+      throw new GuildAccessError(
+        "discord_account_not_connected",
+        403,
+        "Conecte a conta Discord do dono do servidor antes de acessar ou configurar o bot.",
+      );
     }
+    const [owned, installed] = await Promise.all([
+      runApiDependency("discord", "resolve_owned_guilds", () =>
+        dependencies.discordConnection.listOwnedGuilds(),
+      ),
+      runApiDependency("discord", "resolve_installed_guilds", () =>
+        dependencies.guildDirectory.listInstalledGuilds(),
+      ),
+    ]);
+    const currentConnection = await dependencies.discordConnection.getConnectionStatus();
+    if (
+      !currentConnection.connected ||
+      currentConnection.discordUserId !== connection.discordUserId
+    ) {
+      throw new GuildAccessError(
+        "discord_connection_changed",
+        409,
+        "A conta Discord vinculada mudou durante a solicitação. Entre novamente no dashboard e tente de novo.",
+      );
+    }
+    const installedIds = new Set(installed.map((guild) => guild.id));
+    return owned.map((guild) => ({ ...guild, installed: installedIds.has(guild.id) }));
   };
 }
 
@@ -223,6 +285,22 @@ export function getKnownApiError(error: unknown):
       statusCode: number;
     }
   | undefined {
+  const cause = error instanceof ApiDependencyError ? error.cause : error;
+  if (cause instanceof DiscordRateLimitError)
+    return {
+      statusCode: cause.statusCode,
+      body: { error: cause.code },
+      ...(cause.retryAfterSeconds === undefined
+        ? {}
+        : { retryAfterSeconds: cause.retryAfterSeconds }),
+    };
+  if (cause instanceof DiscordConnectionError)
+    return { statusCode: cause.statusCode, body: { error: cause.code } };
+  if (error instanceof GuildAccessError)
+    return {
+      statusCode: error.statusCode,
+      body: { error: error.code, message: error.userMessage },
+    };
   if (error instanceof DuplicateProfileNameError)
     return {
       statusCode: 409,

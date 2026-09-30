@@ -22,9 +22,14 @@ import type {
   RecordingSessionFactory,
   StartRecordingInput,
 } from "./recording-coordinator.js";
-import { getRecordingText } from "./recording-notification.js";
+import { createRecordingStopNotification, getRecordingText } from "./recording-notification.js";
 import { countHumans, getErrorType } from "./recording-utils.js";
-import { finalizeInterruptedRecovery } from "./recovery.js";
+import {
+  completeRecordingAfterStop,
+  finalizeDeletedChannelRecovery,
+  finalizeExpiredRecovery,
+  finalizeInterruptedRecovery,
+} from "./recovery.js";
 
 export class DiscordRecordingFactory implements RecordingSessionFactory {
   readonly #client: Client;
@@ -88,6 +93,7 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
       persistMeetingContent: guildSettings.persistMeetingContent,
       startedAt: new Date().toISOString(),
       startedByUserId: input.startedByUserId,
+      verifiedOwnerUserId: input.verifiedOwnerUserId,
       storageMode: "postgres",
       voiceChannelId: input.voiceChannelId,
       voiceChannelName: input.voiceChannelName,
@@ -163,6 +169,45 @@ export class DiscordRecordingFactory implements RecordingSessionFactory {
         getRecordingText(manifest.botLanguage ?? this.#config.botLanguage).resumeFailed,
       );
       return undefined;
+    }
+  }
+
+  public async finalizeWithoutResuming(
+    manifest: RecordingManifest,
+    reason?:
+      | "owner_changed"
+      | "recovery_expired"
+      | "voice_channel_deleted"
+      | "voice_channel_deleted_unverified",
+  ): Promise<void> {
+    const now = new Date().toISOString();
+    const completed =
+      reason === "owner_changed"
+        ? completeRecordingAfterStop(manifest, now, "owner_changed")
+        : reason === "voice_channel_deleted_unverified" || reason === "voice_channel_deleted"
+          ? finalizeDeletedChannelRecovery(
+              manifest,
+              now,
+              reason === "voice_channel_deleted_unverified",
+            )
+          : reason === "recovery_expired"
+            ? finalizeExpiredRecovery(manifest, now)
+            : finalizeInterruptedRecovery(manifest, now);
+    await this.#manifestStore.save(completed);
+    await this.#enqueueCompleted(completed);
+    if (reason === "owner_changed") {
+      const message = createRecordingStopNotification(
+        manifest,
+        { reason: "owner_changed" },
+        manifest.botLanguage ?? this.#config.botLanguage,
+      );
+      if (message !== undefined) await this.#notify(manifest.notificationChannelId, message);
+    } else if (reason !== undefined) {
+      const text = getRecordingText(manifest.botLanguage ?? this.#config.botLanguage);
+      await this.#notify(
+        manifest.notificationChannelId,
+        reason === "recovery_expired" ? text.recoveryExpired : text.voiceChannelDeleted,
+      );
     }
   }
 

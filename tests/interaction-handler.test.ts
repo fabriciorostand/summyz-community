@@ -17,10 +17,14 @@ import { LocalModelsUnavailableError } from "../src/models/local-model-inventory
 import { ModelOperationError } from "../src/models/model-catalog.js";
 import { OpenRouterModelPreflightError } from "../src/openrouter/model-preflight.js";
 import type { RecordingCoordinator } from "../src/recording/recording-coordinator.js";
-import { RecordingAlreadyActiveError } from "../src/recording/recording-coordinator.js";
+import {
+  RecordingAlreadyActiveError,
+  RecordingRecoveryPendingError,
+} from "../src/recording/recording-coordinator.js";
 import { InMemoryGuildConfigurationStore } from "./in-memory-guild-config-store.js";
 
 interface InteractionOptions {
+  actualGuildOwnerId?: string;
   administrator?: boolean;
   botLanguage?: "en" | "pt-BR";
   botMemberAvailable?: boolean;
@@ -33,9 +37,12 @@ interface InteractionOptions {
   guildAvailable?: boolean;
   guildId?: string | null;
   guildOwner?: boolean;
+  guildLookupFails?: boolean;
   manageGuild?: boolean;
   memberRoleIds?: string[];
   memberJoinedAt?: string;
+  linkedOwnerId?: string | null;
+  ownerConfirmed?: boolean;
   openRouterConfigured?: boolean | (() => Promise<boolean>);
   openRouterProfile?: boolean;
   profileComplete?: boolean;
@@ -96,11 +103,44 @@ async function createHarness(options: InteractionOptions = {}) {
   };
   const listeners = new Map<string, (event: unknown) => Promise<void> | void>();
   const client = {
+    guilds: {
+      fetch: vi.fn(async () => {
+        if (options.guildLookupFails === true) throw new Error("Discord unavailable");
+        return {
+          ownerId:
+            options.actualGuildOwnerId ??
+            (options.guildOwner === false
+              ? "owner-1"
+              : options.guildOwner === true ||
+                  options.administrator === true ||
+                  options.manageGuild === true
+                ? "user-1"
+                : "owner-1"),
+        };
+      }),
+    },
     on: vi.fn((event: string, received: (value: unknown) => Promise<void> | void) => {
       listeners.set(event, received);
     }),
   } as unknown as Client;
   const openRouterConfigured = options.openRouterConfigured;
+  const connectedAccount = {
+    getConnectedUserId: vi.fn(async () =>
+      options.linkedOwnerId === undefined
+        ? options.guildOwner === false
+          ? "owner-1"
+          : options.guildOwner === true ||
+              options.administrator === true ||
+              options.manageGuild === true
+            ? "user-1"
+            : "owner-1"
+        : options.linkedOwnerId,
+    ),
+  };
+  const ownerApprovals = {
+    confirm: vi.fn(async () => true),
+    isConfirmed: vi.fn(async () => options.ownerConfirmed ?? true),
+  };
   installInteractionHandler(
     client,
     store,
@@ -113,6 +153,9 @@ async function createHarness(options: InteractionOptions = {}) {
     typeof openRouterConfigured === "function"
       ? openRouterConfigured
       : () => openRouterConfigured ?? false,
+    async () => options.botLanguage ?? "pt-BR",
+    connectedAccount,
+    ownerApprovals,
   );
 
   const reply = vi.fn(async () => undefined);
@@ -120,6 +163,10 @@ async function createHarness(options: InteractionOptions = {}) {
   const deferReply = vi.fn(async () => undefined);
   const followUp = vi.fn(async () => undefined);
   const member = {
+    guild: {
+      iconURL: () => "https://cdn.discordapp.com/icons/guild-1/icon.png",
+      name: "Example guild",
+    },
     id: "user-1",
     joinedAt: new Date(options.memberJoinedAt ?? "2026-09-08T12:00:00.000Z"),
     permissions: {
@@ -180,6 +227,7 @@ async function createHarness(options: InteractionOptions = {}) {
   }
   return {
     costReport,
+    connectedAccount,
     aiProfileStore,
     deferReply,
     editReply,
@@ -189,6 +237,7 @@ async function createHarness(options: InteractionOptions = {}) {
     listener,
     memberRemovedListener,
     reply,
+    ownerApprovals,
     start,
     stop,
     store,
@@ -196,6 +245,130 @@ async function createHarness(options: InteractionOptions = {}) {
 }
 
 describe("fluxo de comandos do Discord", () => {
+  it("reports a temporary ownership verification failure without running the command", async () => {
+    const context = await createHarness({ guildLookupFails: true });
+
+    await context.listener(context.interaction);
+
+    expect(context.reply).toHaveBeenCalledWith(
+      expect.objectContaining({
+        content: expect.stringMatching(/verificar.*posse.*tente novamente/i),
+      }),
+    );
+    expect(context.start).not.toHaveBeenCalled();
+  });
+
+  it("records the verified owner as the initial authorization for a new recording", async () => {
+    const context = await createHarness({
+      guildOwner: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(context.start).toHaveBeenCalledWith(
+      expect.objectContaining({ verifiedOwnerUserId: "user-1" }),
+    );
+  });
+  it("explains why another recording cannot start while recovery is pending", async () => {
+    const context = await createHarness({
+      guildOwner: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    context.start.mockRejectedValueOnce(new RecordingRecoveryPendingError());
+
+    await context.listener(context.interaction);
+
+    expect(context.editReply).toHaveBeenCalledWith(
+      expect.stringMatching(/gravação.*suspensa.*verificação/i),
+    );
+  });
+  it("blocks recording and configuration when another account owns the installation", async () => {
+    const record = await createHarness({
+      linkedOwnerId: "another-owner",
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await record.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    await record.listener(record.interaction);
+    expect(record.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringMatching(/conta.*vinculada/i) }),
+    );
+    expect(record.start).not.toHaveBeenCalled();
+
+    const config = await createHarness({
+      commandName: "recording-role",
+      guildOwner: true,
+      linkedOwnerId: "another-owner",
+      subcommand: "add",
+    });
+    await config.listener(config.interaction);
+    expect(config.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringMatching(/conta.*vinculada/i) }),
+    );
+    await expect(config.store.getRecordingPermissions("guild-1")).resolves.toMatchObject({
+      roleIds: [],
+    });
+  });
+
+  it("allows the connected guild owner to select a complete installation profile", async () => {
+    const context = await createHarness({
+      commandName: "recording-profile",
+      guildOwner: true,
+      strings: { profile: "local-profile-1" },
+      subcommand: "set",
+    });
+    await context.listener(context.interaction);
+    expect(context.aiProfileStore.setActiveProfile).toHaveBeenCalledWith(
+      "guild-1",
+      "local-profile-1",
+    );
+  });
+
+  it("rejects a stale cached owner after Discord transfers the guild", async () => {
+    const context = await createHarness({
+      actualGuildOwnerId: "new-owner",
+      commandName: "recording-profile",
+      guildOwner: true,
+      strings: { profile: "local-profile-1" },
+      subcommand: "set",
+    });
+    await context.listener(context.interaction);
+    expect(context.aiProfileStore.setActiveProfile).not.toHaveBeenCalled();
+    expect(context.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringMatching(/conta.*vinculada/i) }),
+    );
+  });
+
+  it("does not grant old-owner configuration rights from stale cached guild data", async () => {
+    const context = await createHarness({
+      actualGuildOwnerId: "new-owner",
+      commandName: "recording-role",
+      guildOwner: true,
+      linkedOwnerId: "new-owner",
+      subcommand: "add",
+    });
+    await context.listener(context.interaction);
+    expect(await context.store.getRecordingPermissions("guild-1")).toMatchObject({ roleIds: [] });
+    expect(context.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringMatching(/não pode configurar/i) }),
+    );
+  });
+
+  it("requires the transferred owner to confirm existing settings before recording", async () => {
+    const record = await createHarness({
+      guildOwner: true,
+      ownerConfirmed: false,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await record.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+    await record.listener(record.interaction);
+    expect(record.start).not.toHaveBeenCalled();
+    expect(record.reply).toHaveBeenCalledWith(
+      expect.objectContaining({ content: expect.stringMatching(/novo dono|confirme/i) }),
+    );
+  });
   it("permite somente o dono do servidor consultar custos por reunião", async () => {
     const denied = await createHarness({
       commandName: "recording-cost",
@@ -386,9 +559,12 @@ describe("fluxo de comandos do Discord", () => {
     await context.listener(context.interaction);
 
     expect(context.start).toHaveBeenCalledWith({
+      guildIconUrl: "https://cdn.discordapp.com/icons/guild-1/icon.png",
+      guildName: "Example guild",
       guildId: "guild-1",
       notificationChannelId: "thread-command",
       startedByUserId: "user-1",
+      verifiedOwnerUserId: "user-1",
       voiceChannelId: "voice-1",
       voiceChannelName: "Lobby",
     });

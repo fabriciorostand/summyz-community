@@ -4,7 +4,10 @@ import { join } from "node:path";
 import type { Client } from "discord.js";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DiscordMeetingPublisher } from "../src/discord/discord-meeting-publisher.js";
+import {
+  BotLeftGuildError,
+  DiscordMeetingPublisher,
+} from "../src/discord/discord-meeting-publisher.js";
 import { createLogger } from "../src/logger.js";
 import { createManifest } from "../src/recording/manifest.js";
 import { createPublicationState } from "../src/summary/publication-state.js";
@@ -36,6 +39,49 @@ async function createContext() {
 }
 
 describe("publicação da reunião em fórum do Discord", () => {
+  it("stops publication before creating a forum post when the bot has left", async () => {
+    const context = await createContext();
+    const create = vi.fn();
+    const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => false,
+      client: {
+        channels: { fetch: vi.fn(async () => ({ threads: { create }, type: 15 })) },
+      } as unknown as Client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      store: new PublicationStore(context.root),
+      timeZone: "UTC",
+    });
+
+    await expect(
+      publisher.publishTranscriptOnly(context.manifest, context.transcriptPath),
+    ).rejects.toBeInstanceOf(BotLeftGuildError);
+    expect(create).not.toHaveBeenCalled();
+  });
+  it("rechecks bot presence immediately before creating a post", async () => {
+    const context = await createContext();
+    const create = vi.fn();
+    const canPublish = vi.fn().mockResolvedValueOnce(true).mockResolvedValue(false);
+    const publisher = new DiscordMeetingPublisher({
+      canPublish,
+      client: {
+        channels: { fetch: vi.fn(async () => ({ threads: { create }, type: 15 })) },
+      } as unknown as Client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      store: new PublicationStore(context.root),
+      timeZone: "UTC",
+    });
+
+    await expect(
+      publisher.publishTranscriptOnly(context.manifest, context.transcriptPath),
+    ).rejects.toBeInstanceOf(BotLeftGuildError);
+    expect(create).not.toHaveBeenCalled();
+    expect(canPublish).toHaveBeenCalledTimes(2);
+    expect(canPublish).toHaveBeenCalledWith(context.manifest);
+  });
   it("publica títulos, seções e anexos em inglês com data MM/DD/YYYY", async () => {
     const context = await createContext();
     const send = vi
@@ -55,6 +101,7 @@ describe("publicação da reunião em fórum do Discord", () => {
       },
     } as unknown as Client;
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "en",
@@ -101,6 +148,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const thread = { id: "post-1", isSendable: () => true, isThread: () => true, send };
     const create = vi.fn(async () => thread);
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client: {
         channels: {
           fetch: vi.fn(async (id: string) =>
@@ -171,6 +219,7 @@ describe("publicação da reunião em fórum do Discord", () => {
       },
     } as unknown as Client;
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "en",
@@ -192,6 +241,7 @@ describe("publicação da reunião em fórum do Discord", () => {
 
     await context.configStore.clearSummaryForum("guild-1");
     const secondPublisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "en",
@@ -226,6 +276,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const fetch = vi.fn(async (id: string) => (id === "forum-1" ? forum : thread));
     const client = { channels: { fetch } } as unknown as Client;
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -273,6 +324,7 @@ describe("publicação da reunião em fórum do Discord", () => {
       channels: { fetch: vi.fn(async () => ({ threads: { create }, type: 15 })) },
     } as unknown as Client;
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -307,6 +359,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const client = { channels: { fetch } } as unknown as Client;
     const store = new PublicationStore(context.root);
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -355,6 +408,7 @@ describe("publicação da reunião em fórum do Discord", () => {
       },
     } as unknown as Client;
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -397,6 +451,7 @@ describe("publicação da reunião em fórum do Discord", () => {
       },
     } as unknown as Client;
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -446,6 +501,7 @@ describe("publicação da reunião em fórum do Discord", () => {
       channels: { fetch: vi.fn(async () => ({ threads: { create }, type: 15 })) },
     } as unknown as Client;
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -480,6 +536,7 @@ describe("publicação da reunião em fórum do Discord", () => {
       createPublicationState("meeting-1", "transcript_only", "2026-08-17T15:31:00.000Z"),
     );
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client: { channels: { fetch: vi.fn() } } as unknown as Client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -513,6 +570,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     });
     const thread = { isSendable: () => true, isThread: () => true, send: vi.fn() };
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client: { channels: { fetch: vi.fn(async () => thread) } } as unknown as Client,
       guildConfigStore: context.configStore,
       language: "pt-BR",
@@ -537,6 +595,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     });
     const notify = vi.fn(async () => undefined);
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client: {
         channels: {
           fetch: vi.fn(async (id: string) =>
@@ -561,6 +620,7 @@ describe("publicação da reunião em fórum do Discord", () => {
     const context = await createContext();
     await context.configStore.clearSummaryForum("guild-1");
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client: {
         channels: { fetch: vi.fn(async () => ({ isSendable: () => false })) },
       } as unknown as Client,
@@ -579,6 +639,7 @@ describe("publicação da reunião em fórum do Discord", () => {
   it("trata rejeição não Error ao tentar notificar a falha", async () => {
     const context = await createContext();
     const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
       client: {
         channels: {
           fetch: vi.fn(async (id: string) => {

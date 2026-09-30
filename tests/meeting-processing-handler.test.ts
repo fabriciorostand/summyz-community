@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import { BotLeftGuildError } from "../src/discord/discord-meeting-publisher.js";
 import type { ClaimedProcessingJob } from "../src/processing/durable-job-queue.js";
 import type { ProcessingJobError } from "../src/processing/durable-job-worker.js";
 import { MeetingProcessingHandler } from "../src/processing/meeting-processing-handler.js";
@@ -63,6 +64,7 @@ function createContext(initialTranscription?: TranscriptionState) {
     "2026-08-24T10:04:00.000Z",
   );
   const dependencies = {
+    checkBotAccess: vi.fn<() => Promise<"present" | "absent" | "unknown">>(async () => "present"),
     audioCatalog: { persist: vi.fn(async () => true) },
     finalizer: {
       cleanup: vi.fn(async () => undefined),
@@ -94,6 +96,43 @@ function createContext(initialTranscription?: TranscriptionState) {
 }
 
 describe("MeetingProcessingHandler", () => {
+  it("stops before provider work when the bot has left the guild", async () => {
+    const { dependencies, handler } = createContext();
+    dependencies.checkBotAccess.mockResolvedValueOnce("absent");
+
+    await expect(handler.process(createJob("summary"))).rejects.toEqual(
+      expect.objectContaining({ failureCode: "bot_left_guild", terminal: true }),
+    );
+    expect(dependencies.summarizer.process).not.toHaveBeenCalled();
+    expect(dependencies.finalizer.persist).not.toHaveBeenCalled();
+  });
+  it("continues processing when bot membership cannot be checked", async () => {
+    const { dependencies, handler } = createContext();
+    dependencies.checkBotAccess.mockResolvedValueOnce("unknown");
+
+    await handler.process(createJob("summary"));
+
+    expect(dependencies.summarizer.process).toHaveBeenCalledOnce();
+  });
+  it("processes a job when no membership adapter is configured", async () => {
+    const { dependencies } = createContext();
+    const { checkBotAccess: unusedCheckBotAccess, ...withoutMembershipCheck } = dependencies;
+    expect(unusedCheckBotAccess).toBeDefined();
+    const handler = new MeetingProcessingHandler(withoutMembershipCheck);
+
+    await handler.process(createJob("summary"));
+
+    expect(dependencies.summarizer.process).toHaveBeenCalledOnce();
+  });
+  it("ends summary processing when publication detects confirmed bot departure", async () => {
+    const { dependencies, handler } = createContext();
+    dependencies.summarizer.process.mockRejectedValueOnce(new BotLeftGuildError());
+
+    await expect(handler.process(createJob("summary"))).rejects.toEqual(
+      expect.objectContaining({ failureCode: "bot_left_guild", terminal: true }),
+    );
+    expect(dependencies.finalizer.persist).not.toHaveBeenCalled();
+  });
   it("remove o áudio e enfileira o refinamento após transcrição concluída", async () => {
     const { dependencies, handler } = createContext();
 

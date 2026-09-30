@@ -21,7 +21,6 @@ import { LIVE_STATE_REFRESH_INTERVAL_MS } from "./live-meeting-policy.js";
 import {
   addParticipant,
   addSegment,
-  markManifestCompleted,
   markManifestInterrupted,
   markManifestRecording,
   type RecordingManifest,
@@ -39,6 +38,7 @@ import {
   type RecordingText,
 } from "./recording-notification.js";
 import { getErrorType } from "./recording-utils.js";
+import { completeRecordingAfterStop } from "./recovery.js";
 
 interface ActiveCapture {
   promise: Promise<void>;
@@ -336,7 +336,7 @@ export class DiscordVoiceRecording implements RecordingHandle {
     const reason = request.reason;
     const now = new Date().toISOString();
     if (shouldStartTranscription(reason)) {
-      await this.#updateManifest((manifest) => markManifestCompleted(manifest, now));
+      await this.#updateManifest((manifest) => completeRecordingAfterStop(manifest, now, reason));
       await this.#enqueueCompleted();
     } else {
       await this.#updateManifest((manifest) =>

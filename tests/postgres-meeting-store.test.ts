@@ -22,6 +22,33 @@ function createDatabase(rows: Record<string, unknown>[] = []) {
 }
 
 describe("PostgresMeetingStore", () => {
+  it("refuses a new recording when the bot configuration changed before persistence", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>(async (sql) =>
+      sql.includes("updated_at::text")
+        ? { rowCount: 1, rows: [{ version: "new-version" }] }
+        : { rowCount: 1, rows: [] },
+    );
+    const database: PostgresExecutor = { query, transaction: async (action) => action({ query }) };
+    const store = new PostgresMeetingStore(database, "old-version");
+
+    await expect(store.save(activeManifest)).rejects.toThrow("bot_configuration_changed");
+    expect(query.mock.calls[0]?.[0]).toContain("pg_advisory_xact_lock");
+    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO meetings"))).toBe(false);
+  });
+
+  it("persists a recording under the same configuration lock used by bot rotation", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>(async (sql) =>
+      sql.includes("updated_at::text")
+        ? { rowCount: 1, rows: [{ version: "current-version" }] }
+        : { rowCount: 1, rows: [] },
+    );
+    const database: PostgresExecutor = { query, transaction: async (action) => action({ query }) };
+    const store = new PostgresMeetingStore(database, "current-version");
+
+    await store.save(activeManifest);
+
+    expect(query.mock.calls.some(([sql]) => sql.includes("INSERT INTO meetings"))).toBe(true);
+  });
   it("persiste as políticas fixadas e promove uma reunião concluída para a fila", async () => {
     const { database, query } = createDatabase();
     const store = new PostgresMeetingStore(database);
@@ -59,6 +86,12 @@ describe("PostgresMeetingStore", () => {
         "profile-1",
         "Perfil principal",
       ],
+    );
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "WHERE $5 = 'completed' AND pipeline_status NOT IN ('completed', 'failed')",
+    );
+    expect(query.mock.calls[0]?.[0]).toContain(
+      "WHERE meetings.pipeline_status NOT IN ('completed', 'failed')",
     );
   });
 
@@ -101,6 +134,7 @@ describe("PostgresMeetingStore", () => {
       "Perfil principal",
     ]);
     expect(query.mock.calls[1]?.[0]).toContain("recording_status <>");
+    expect(query.mock.calls[1]?.[0]).toContain("pipeline_status NOT IN ('completed', 'failed')");
   });
 
   it("persists the last known Discord avatar with each participant", async () => {
@@ -155,7 +189,16 @@ describe("PostgresMeetingStore", () => {
     await store.updatePipeline("meeting-1", "failed", "provider_failed");
 
     expect(query.mock.calls[1]?.[0]).toContain("manifest = CASE");
+    expect(query.mock.calls[0]?.[0]).toContain("pipeline_status NOT IN ('completed', 'failed')");
     expect(query.mock.calls[0]?.[1]).toEqual(["meeting-1", "transcribing", null]);
     expect(query.mock.calls[1]?.[1]).toEqual(["meeting-1", "failed", "provider_failed"]);
+  });
+
+  it("checks that a cancelled meeting cannot publish after a running provider call", async () => {
+    const { database, query } = createDatabase([{ processable: false }]);
+    const store = new PostgresMeetingStore(database);
+
+    await expect(store.isProcessable("meeting-1")).resolves.toBe(false);
+    expect(query.mock.calls[0]?.[0]).toContain("pipeline_status NOT IN ('completed', 'failed')");
   });
 });

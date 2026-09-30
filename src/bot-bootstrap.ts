@@ -4,6 +4,7 @@ interface StoredBotConfiguration {
   discordApplicationId: string | null;
   discordToken: string | undefined;
   setupCompleted: boolean;
+  version: string;
 }
 
 interface WaitForBotConfigurationOptions {
@@ -13,7 +14,7 @@ interface WaitForBotConfigurationOptions {
 
 export async function waitForBotConfiguration(
   options: WaitForBotConfigurationOptions,
-): Promise<{ discordApplicationId: string; discordToken: string }> {
+): Promise<{ discordApplicationId: string; discordToken: string; version: string }> {
   const wait = options.delay ?? (() => delay(5_000));
   for (;;) {
     const configuration = await options.read();
@@ -25,6 +26,7 @@ export async function waitForBotConfiguration(
       return {
         discordApplicationId: configuration.discordApplicationId,
         discordToken: configuration.discordToken,
+        version: configuration.version,
       };
     }
     await wait();

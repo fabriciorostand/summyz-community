@@ -1,23 +1,30 @@
 import {
-  ChannelFlags,
   ChannelType,
   type ChatInputCommandInteraction,
   type Client,
   Events,
-  type ForumChannel,
   type GuildMember,
   MessageFlags,
-  PermissionFlagsBits,
 } from "discord.js";
 import type { Logger } from "pino";
 
 import { type AiProfileCompatibilityStatus, isAiProfileComplete } from "../ai-profile.js";
-import { canConfigureSummaryForum, canManageRecordingRoles, canRecord } from "../authorization.js";
+import { canRecord } from "../authorization.js";
 import type { AppConfig } from "../config.js";
 import { CostReportError } from "../cost/cost-report.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
+import type { GuildOwnerApprovalStore } from "../database/postgres-guild-owner-approval-store.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
 import type { RecordingCoordinator } from "../recording/recording-coordinator.js";
+import type { InstallationDiscordConnection } from "./installation-discord-connection.js";
+import {
+  handleRecordingActivation,
+  handleRecordingProfile,
+  handleRecordingRole,
+  handleRecordingSummaryForum,
+} from "./interaction-configuration-commands.js";
+import { resolveGuildContext } from "./interaction-context.js";
+import { authorizeInteractionGuild } from "./interaction-guild-authorization.js";
 import { getInteractionText, type InteractionText } from "./interaction-text.js";
 import { handleRecordingStartError } from "./recording-start-error.js";
 import { createEphemeralReply } from "./responses.js";
@@ -29,6 +36,8 @@ interface CommandDependencies {
   readonly guildConfigStore: GuildConfigurationStore;
   readonly isOpenRouterConfigured: () => boolean | Promise<boolean>;
   readonly logger: Logger;
+  readonly guildOwnerId: string | null;
+  readonly ownerApprovals: GuildOwnerApprovalStore;
   readonly resolveAiProfileCompatibility?: (
     guildId: string,
   ) => Promise<readonly AiProfileCompatibilityStatus[]>;
@@ -41,15 +50,42 @@ const dispatchCommand = async (
 ): Promise<void> => {
   switch (interaction.commandName) {
     case "recording-role":
-      return handleRecordingRole(interaction, dependencies.guildConfigStore, text);
+      return handleRecordingRole(
+        interaction,
+        dependencies.guildConfigStore,
+        text,
+        dependencies.guildOwnerId,
+      );
     case "recording-summary-forum":
-      return handleRecordingSummaryForum(interaction, dependencies.guildConfigStore, text);
+      return handleRecordingSummaryForum(
+        interaction,
+        dependencies.guildConfigStore,
+        text,
+        dependencies.guildOwnerId,
+      );
     case "recording-cost":
       return handleRecordingCost(
         interaction,
         dependencies.coordinator,
         dependencies.costReport,
         text,
+        dependencies.guildOwnerId,
+      );
+    case "recording-profile":
+      return handleRecordingProfile(
+        interaction,
+        dependencies.aiProfileStore,
+        text,
+        dependencies.guildOwnerId,
+      );
+    case "recording-activate":
+      return handleRecordingActivation(
+        interaction,
+        dependencies.guildConfigStore,
+        dependencies.aiProfileStore,
+        dependencies.ownerApprovals,
+        text,
+        dependencies.guildOwnerId,
       );
     case "record":
       return handleRecord(
@@ -61,9 +97,16 @@ const dispatchCommand = async (
         dependencies.resolveAiProfileCompatibility,
         dependencies.isOpenRouterConfigured,
         dependencies.logger,
+        dependencies.guildOwnerId,
       );
     case "stop":
-      return handleStop(interaction, dependencies.guildConfigStore, dependencies.coordinator, text);
+      return handleStop(
+        interaction,
+        dependencies.guildConfigStore,
+        dependencies.coordinator,
+        text,
+        dependencies.guildOwnerId,
+      );
   }
 };
 
@@ -73,13 +116,15 @@ export function installInteractionHandler(
   coordinator: RecordingCoordinator,
   logger: Logger,
   language: AppConfig["botLanguage"],
-  costReport?: CostReportReader,
-  aiProfileStore?: AiProfileStore,
-  resolveAiProfileCompatibility?: (
-    guildId: string,
-  ) => Promise<readonly AiProfileCompatibilityStatus[]>,
-  isOpenRouterConfigured: () => boolean | Promise<boolean> = () => false,
-  resolveBotLanguage: (guildId: string) => Promise<AppConfig["botLanguage"]> = async () => language,
+  costReport: CostReportReader | undefined,
+  aiProfileStore: AiProfileStore | undefined,
+  resolveAiProfileCompatibility:
+    | ((guildId: string) => Promise<readonly AiProfileCompatibilityStatus[]>)
+    | undefined,
+  isOpenRouterConfigured: () => boolean | Promise<boolean>,
+  resolveBotLanguage: (guildId: string) => Promise<AppConfig["botLanguage"]>,
+  connectedAccount: Pick<InstallationDiscordConnection, "getConnectedUserId">,
+  ownerApprovals: GuildOwnerApprovalStore,
 ): void {
   client.on(Events.GuildMemberRemove, (member) => {
     void guildConfigStore
@@ -101,6 +146,15 @@ export function installInteractionHandler(
       text = getInteractionText(
         interaction.guildId === null ? language : await resolveBotLanguage(interaction.guildId),
       );
+      const guildAccess = await authorizeInteractionGuild(
+        interaction,
+        client,
+        connectedAccount,
+        ownerApprovals,
+        text,
+        logger,
+      );
+      if (!guildAccess.allowed) return;
       await dispatchCommand(
         interaction,
         {
@@ -110,6 +164,8 @@ export function installInteractionHandler(
           guildConfigStore,
           isOpenRouterConfigured,
           logger,
+          guildOwnerId: guildAccess.ownerId,
+          ownerApprovals,
           ...(resolveAiProfileCompatibility === undefined ? {} : { resolveAiProfileCompatibility }),
         },
         text,
@@ -156,8 +212,9 @@ async function handleRecordingCost(
   coordinator: RecordingCoordinator,
   report: CostReportReader | undefined,
   text: InteractionText,
+  guildOwnerId: string | null,
 ): Promise<void> {
-  const context = await resolveGuildContext(interaction, text);
+  const context = await resolveGuildContext(interaction, text, guildOwnerId);
   if (context === undefined) return;
   if (!context.isGuildOwner) {
     await interaction.reply(createEphemeralReply(text.cannotViewCosts));
@@ -193,168 +250,6 @@ function costReportErrorMessage(error: unknown, text: InteractionText): string |
   return text.costMeetingNotFound;
 }
 
-async function handleRecordingSummaryForum(
-  interaction: ChatInputCommandInteraction,
-  store: GuildConfigurationStore,
-  text: InteractionText,
-): Promise<void> {
-  const context = await resolveGuildContext(interaction, text);
-  if (context === undefined) {
-    return;
-  }
-  if (
-    !canConfigureSummaryForum({
-      isGuildOwner: context.isGuildOwner,
-    })
-  ) {
-    await interaction.reply(createEphemeralReply(text.cannotConfigureSummaryForum));
-    return;
-  }
-
-  const subcommand = interaction.options.getSubcommand(true);
-  if (subcommand === "show") {
-    return showSummaryForum(interaction, store, context.guildId, text);
-  }
-  if (subcommand === "clear") {
-    return clearSummaryForum(interaction, store, context.guildId, text);
-  }
-  await configureSummaryForum(interaction, store, context.guildId, text);
-}
-
-async function showSummaryForum(
-  interaction: ChatInputCommandInteraction,
-  store: GuildConfigurationStore,
-  guildId: string,
-  text: InteractionText,
-): Promise<void> {
-  const configured = await store.getSummaryForum(guildId);
-  const content =
-    configured === undefined
-      ? text.noSummaryForum
-      : text.forumDisplay(configured.forumId, configured.tagId);
-  await interaction.reply(createEphemeralReply(content));
-}
-
-async function clearSummaryForum(
-  interaction: ChatInputCommandInteraction,
-  store: GuildConfigurationStore,
-  guildId: string,
-  text: InteractionText,
-): Promise<void> {
-  await store.clearSummaryForum(guildId);
-  await interaction.reply(createEphemeralReply(text.summaryForumCleared));
-}
-
-async function configureSummaryForum(
-  interaction: ChatInputCommandInteraction,
-  store: GuildConfigurationStore,
-  guildId: string,
-  text: InteractionText,
-): Promise<void> {
-  const selectedChannel = interaction.options.getChannel("forum", true, [ChannelType.GuildForum]);
-  if (selectedChannel.type !== ChannelType.GuildForum) {
-    await interaction.reply(createEphemeralReply(text.invalidForum));
-    return;
-  }
-  const forum: ForumChannel = selectedChannel;
-  const botMember = await interaction.guild?.members.fetchMe();
-  if (botMember === undefined) {
-    throw new Error("Não foi possível identificar o usuário do bot no servidor");
-  }
-  if (!hasSummaryForumPermissions(forum, botMember)) {
-    await interaction.reply(createEphemeralReply(text.insufficientForumPermissions));
-    return;
-  }
-
-  const tagInput = interaction.options.getString("tag") ?? undefined;
-  const tag = findForumTag(forum, tagInput, text.locale);
-  if (tagInput !== undefined && tag === undefined) {
-    await interaction.reply(createEphemeralReply(text.tagNotFound));
-    return;
-  }
-  if (forum.flags.has(ChannelFlags.RequireTag) && tag === undefined) {
-    await interaction.reply(createEphemeralReply(text.forumRequiresTag));
-    return;
-  }
-
-  await store.setSummaryForum(guildId, {
-    forumId: forum.id,
-    ...(tag === undefined ? {} : { tagId: tag.id }),
-  });
-  await interaction.reply(createEphemeralReply(text.forumConfigured(forum.id, tag?.name)));
-}
-
-function hasSummaryForumPermissions(forum: ForumChannel, botMember: GuildMember): boolean {
-  return (
-    forum
-      .permissionsFor(botMember)
-      ?.has([
-        PermissionFlagsBits.ViewChannel,
-        PermissionFlagsBits.SendMessages,
-        PermissionFlagsBits.SendMessagesInThreads,
-        PermissionFlagsBits.AttachFiles,
-        PermissionFlagsBits.ReadMessageHistory,
-      ]) === true
-  );
-}
-
-function findForumTag(
-  forum: ForumChannel,
-  input: string | undefined,
-  locale: string,
-): ForumChannel["availableTags"][number] | undefined {
-  if (input === undefined) return undefined;
-  return forum.availableTags.find(
-    (candidate) =>
-      candidate.id === input ||
-      candidate.name.localeCompare(input, locale, { sensitivity: "accent" }) === 0,
-  );
-}
-
-async function handleRecordingRole(
-  interaction: ChatInputCommandInteraction,
-  store: GuildConfigurationStore,
-  text: InteractionText,
-): Promise<void> {
-  const context = await resolveGuildContext(interaction, text);
-  if (context === undefined) {
-    return;
-  }
-  if (
-    !canManageRecordingRoles({
-      isGuildOwner: context.isGuildOwner,
-    })
-  ) {
-    await interaction.reply(createEphemeralReply(text.cannotConfigureRecordingRoles));
-    return;
-  }
-
-  const subcommand = interaction.options.getSubcommand(true);
-  if (subcommand === "list") {
-    const roleIds = (await store.getRecordingPermissions(context.guildId)).roleIds;
-    const content = roleIds.length === 0 ? text.noAuthorizedRoles : text.authorizedRoles(roleIds);
-    await interaction.reply(createEphemeralReply(content));
-    return;
-  }
-
-  const role = interaction.options.getRole("role", true);
-  const permissions = await store.getRecordingPermissions(context.guildId);
-  if (subcommand === "add") {
-    await store.setRecordingPermissions(context.guildId, {
-      ...permissions,
-      roleIds: [...new Set([...permissions.roleIds, role.id])],
-    });
-    await interaction.reply(createEphemeralReply(text.roleAuthorized(String(role))));
-    return;
-  }
-
-  await store.setRecordingPermissions(context.guildId, {
-    ...permissions,
-    roleIds: permissions.roleIds.filter((roleId) => roleId !== role.id),
-  });
-  await interaction.reply(createEphemeralReply(text.roleRemoved(String(role))));
-}
-
 async function handleRecord(
   interaction: ChatInputCommandInteraction,
   store: GuildConfigurationStore,
@@ -366,8 +261,9 @@ async function handleRecord(
     | undefined,
   isOpenRouterConfigured: () => boolean | Promise<boolean>,
   logger: Logger,
+  guildOwnerId: string | null,
 ): Promise<void> {
-  const context = await resolveGuildContext(interaction, text);
+  const context = await resolveGuildContext(interaction, text, guildOwnerId);
   if (context === undefined) {
     return;
   }
@@ -406,8 +302,11 @@ async function handleRecord(
   try {
     const handle = await coordinator.start({
       guildId: context.guildId,
+      guildIconUrl: context.member.guild.iconURL({ extension: "png", size: 128 }),
+      guildName: context.member.guild.name,
       notificationChannelId: interaction.channelId,
       startedByUserId: interaction.user.id,
+      ...verifiedOwnerInput(guildOwnerId),
       voiceChannelId: voiceChannel.id,
       voiceChannelName: voiceChannel.name,
     });
@@ -426,13 +325,18 @@ async function handleRecord(
   }
 }
 
+function verifiedOwnerInput(ownerId: string | null): { verifiedOwnerUserId?: string } {
+  return ownerId === null ? {} : { verifiedOwnerUserId: ownerId };
+}
+
 async function handleStop(
   interaction: ChatInputCommandInteraction,
   store: GuildConfigurationStore,
   coordinator: RecordingCoordinator,
   text: InteractionText,
+  guildOwnerId: string | null,
 ): Promise<void> {
-  const context = await resolveGuildContext(interaction, text);
+  const context = await resolveGuildContext(interaction, text, guildOwnerId);
   if (context === undefined) {
     return;
   }
@@ -458,22 +362,6 @@ async function handleStop(
     stoppedByUserId: interaction.user.id,
   });
   await interaction.editReply(text.stopProcessed(activeRecording.notificationChannelId));
-}
-
-async function resolveGuildContext(
-  interaction: ChatInputCommandInteraction,
-  text: InteractionText,
-) {
-  if (interaction.guild === null || interaction.guildId === null) {
-    await interaction.reply(createEphemeralReply(text.guildOnly));
-    return undefined;
-  }
-  const member = await interaction.guild.members.fetch(interaction.user.id);
-  return {
-    guildId: interaction.guildId,
-    isGuildOwner: interaction.guild.ownerId === interaction.user.id,
-    member,
-  };
 }
 
 async function isRecordingAuthorized(

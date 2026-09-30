@@ -6,6 +6,18 @@ import {
 } from "../src/recording/recording-notification.js";
 
 describe("notificações terminais da gravação", () => {
+  it("explains ownership transfer and preserved processing to participants", () => {
+    expect(createRecordingStopNotification({}, { reason: "owner_changed" }, "pt-BR")).toMatch(
+      /dono.*mudou.*preservad.*publicad/i,
+    );
+    expect(createRecordingStopNotification({}, { reason: "owner_changed" }, "en")).toMatch(
+      /owner changed.*preserved.*published/i,
+    );
+  });
+  it("describes publication after recovery and deleted voice channels", () => {
+    expect(getRecordingText("pt-BR").recoveryExpired).toMatch(/processamento/i);
+    expect(getRecordingText("en").voiceChannelDeleted).toMatch(/configured forum/i);
+  });
   it("informa quem encerrou por comando", () => {
     expect(
       createRecordingStopNotification(
@@ -91,8 +103,11 @@ describe("notificações terminais da gravação", () => {
   it("expõe em inglês todos os avisos do ciclo de gravação", () => {
     const text = getRecordingText("en");
 
+    expect(text.recoveryExpired).toContain("30 minutes");
+    expect(text.voiceChannelDeleted).toContain("deleted");
+
     expect(text.startFailed).toContain("Unable to start recording");
-    expect(text.emptyAfterRestart).toContain("empty after the restart");
+    expect(text.emptyAfterRestart).toContain("empty when resumption was checked");
     expect(text.resumingAfterRestart).toContain("Trying to resume");
     expect(text.resumed).toContain("resumed automatically");
     expect(text.resumeFailed).toContain("Unable to resume");

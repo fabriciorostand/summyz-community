@@ -20,7 +20,7 @@
     "check": "npm run check:biome && npm run typecheck && npm run typecheck:web && npm run test:python && npm run test:coverage && npm run test:web",
     "check:biome": "biome check .",
     "cla:sign": "node scripts/cla/create-signature.mjs",
-    "dev": "tsx --env-file=.env src/main.ts",
+    "dev": "node --env-file=.env --import tsx src/main.ts",
     "dev:api": "tsx --env-file=.env src/api/main.ts",
     "dev:web": "npm run dev --workspace web",
     "format": "biome format --write .",

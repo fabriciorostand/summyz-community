@@ -4,6 +4,7 @@ import {
   RecordingAlreadyActiveError,
   RecordingCoordinator,
   type RecordingHandle,
+  RecordingRecoveryPendingError,
   type RecordingSessionFactory,
   shouldStartTranscription,
 } from "../src/recording/recording-coordinator.js";
@@ -22,8 +23,37 @@ describe("RecordingCoordinator", () => {
   it("inicia transcrição somente após comando ou canal vazio", () => {
     expect(shouldStartTranscription("command")).toBe(true);
     expect(shouldStartTranscription("channel_empty")).toBe(true);
+    expect(shouldStartTranscription("owner_changed")).toBe(true);
     expect(shouldStartTranscription("shutdown")).toBe(false);
     expect(shouldStartTranscription("reconnect_exhausted")).toBe(false);
+    expect(shouldStartTranscription("bot_left_guild")).toBe(false);
+  });
+
+  it("blocks a new recording while the previous one awaits ownership verification", async () => {
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async (input) => createHandle(input.guildId, input.voiceChannelId)),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    coordinator.setRecoverable("guild-1", true);
+
+    await expect(
+      coordinator.start({
+        guildId: "guild-1",
+        notificationChannelId: "text-1",
+        voiceChannelId: "voice-1",
+      }),
+    ).rejects.toBeInstanceOf(RecordingRecoveryPendingError);
+    expect(factory.create).not.toHaveBeenCalled();
+
+    coordinator.setRecoverable("guild-1", false);
+    await expect(
+      coordinator.start({
+        guildId: "guild-1",
+        notificationChannelId: "text-1",
+        voiceChannelId: "voice-1",
+      }),
+    ).resolves.toBeDefined();
   });
 
   it("bloqueia inicializações concorrentes no mesmo servidor", async () => {
@@ -48,6 +78,31 @@ describe("RecordingCoordinator", () => {
     await firstStart;
 
     expect(factory.create).toHaveBeenCalledTimes(1);
+    expect(coordinator.activeGuildIds()).toEqual(["guild-1"]);
+  });
+
+  it("reports a session being opened so recovery cannot take over its manifest", async () => {
+    let finishCreate: ((handle: RecordingHandle) => void) | undefined;
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(
+        () =>
+          new Promise<RecordingHandle>((resolve) => {
+            finishCreate = resolve;
+          }),
+      ),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    const starting = coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    expect(coordinator.isPending("guild-1")).toBe(true);
+    finishCreate?.(createHandle("guild-1", "voice-1"));
+    await starting;
+    expect(coordinator.isPending("guild-1")).toBe(false);
   });
 
   it("permite uma gravação por servidor", async () => {

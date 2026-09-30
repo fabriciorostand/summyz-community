@@ -77,8 +77,13 @@ describe("PostgresDatabase", () => {
     expect(queries.some((query) => query.includes("bot_language text"))).toBe(true);
     expect(queries.some((query) => query.includes("owner_discord_user_id text"))).toBe(false);
     expect(queries.some((query) => query.includes("profile_type text"))).toBe(true);
-    expect(queries.some((query) => query.includes("discord_client_secret"))).toBe(false);
-    expect(queries.some((query) => query.includes("discord_oauth_states"))).toBe(false);
+    expect(queries.some((query) => query.includes("discord_client_secret"))).toBe(true);
+    expect(queries.some((query) => query.includes("CREATE TABLE installation_oauth_states"))).toBe(
+      true,
+    );
+    expect(queries.some((query) => query.includes("CREATE TABLE guild_owner_approvals"))).toBe(
+      true,
+    );
     expect(
       queries.some((query) =>
         query.includes("meetings_storage_mode_check CHECK (storage_mode = 'postgres')"),

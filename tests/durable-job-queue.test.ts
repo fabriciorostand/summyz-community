@@ -21,6 +21,13 @@ const claimedRow = {
 };
 
 describe("DurableJobQueue", () => {
+  it("does not enqueue another stage after a meeting has been cancelled", async () => {
+    const { executor, query } = createExecutor([{ rowCount: 0, rows: [] }]);
+    const queue = new DurableJobQueue(executor);
+
+    await expect(queue.enqueue("meeting-1", "refinement")).resolves.toBe(false);
+    expect(query.mock.calls[0]?.[0]).toContain("pipeline_status NOT IN ('completed', 'failed')");
+  });
   it("enfileira uma única etapa por reunião de forma idempotente", async () => {
     const { executor, query } = createExecutor([
       { rowCount: 1, rows: [{ job_id: claimedRow.job_id }] },
