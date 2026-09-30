@@ -16,6 +16,7 @@ import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type { GuildOwnerApprovalStore } from "../database/postgres-guild-owner-approval-store.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
 import type { RecordingCoordinator } from "../recording/recording-coordinator.js";
+import type { RecordingPermissionContext } from "./bot-permissions.js";
 import type { InstallationDiscordConnection } from "./installation-discord-connection.js";
 import {
   handleRecordingActivation,
@@ -31,6 +32,9 @@ import { createEphemeralReply } from "./responses.js";
 
 interface CommandDependencies {
   readonly aiProfileStore?: AiProfileStore;
+  readonly checkRecordingPermissions:
+    | ((context: RecordingPermissionContext) => Promise<void>)
+    | undefined;
   readonly coordinator: RecordingCoordinator;
   readonly costReport?: CostReportReader;
   readonly guildConfigStore: GuildConfigurationStore;
@@ -98,6 +102,7 @@ const dispatchCommand = async (
         dependencies.isOpenRouterConfigured,
         dependencies.logger,
         dependencies.guildOwnerId,
+        dependencies.checkRecordingPermissions,
       );
     case "stop":
       return handleStop(
@@ -125,6 +130,7 @@ export function installInteractionHandler(
   resolveBotLanguage: (guildId: string) => Promise<AppConfig["botLanguage"]>,
   connectedAccount: Pick<InstallationDiscordConnection, "getConnectedUserId">,
   ownerApprovals: GuildOwnerApprovalStore,
+  checkRecordingPermissions?: (context: RecordingPermissionContext) => Promise<void>,
 ): void {
   client.on(Events.GuildMemberRemove, (member) => {
     void guildConfigStore
@@ -159,6 +165,7 @@ export function installInteractionHandler(
         interaction,
         {
           ...(aiProfileStore === undefined ? {} : { aiProfileStore }),
+          checkRecordingPermissions,
           coordinator,
           ...(costReport === undefined ? {} : { costReport }),
           guildConfigStore,
@@ -262,6 +269,7 @@ async function handleRecord(
   isOpenRouterConfigured: () => boolean | Promise<boolean>,
   logger: Logger,
   guildOwnerId: string | null,
+  checkRecordingPermissions?: (context: RecordingPermissionContext) => Promise<void>,
 ): Promise<void> {
   const context = await resolveGuildContext(interaction, text, guildOwnerId);
   if (context === undefined) {
@@ -273,7 +281,8 @@ async function handleRecord(
     await interaction.reply(createEphemeralReply(text.cannotRecord));
     return;
   }
-  if ((await store.getSummaryForum(context.guildId)) === undefined) {
+  const forum = await store.getSummaryForum(context.guildId);
+  if (forum === undefined) {
     await interaction.reply(createEphemeralReply(text.configureForumFirst));
     return;
   }
@@ -299,6 +308,16 @@ async function handleRecord(
   }
 
   await interaction.deferReply();
+  await inspectRecordingPermissions(
+    checkRecordingPermissions,
+    {
+      forumId: forum.forumId,
+      guildId: context.guildId,
+      notificationChannelId: interaction.channelId,
+      voiceChannelId: voiceChannel.id,
+    },
+    logger,
+  );
   try {
     const handle = await coordinator.start({
       guildId: context.guildId,
@@ -322,6 +341,22 @@ async function handleRecord(
   } catch (error) {
     if (await handleRecordingStartError(error, interaction, text, logger)) return;
     throw error;
+  }
+}
+
+async function inspectRecordingPermissions(
+  inspect: ((context: RecordingPermissionContext) => Promise<void>) | undefined,
+  context: RecordingPermissionContext,
+  logger: Pick<Logger, "warn">,
+): Promise<void> {
+  if (inspect === undefined) return;
+  try {
+    await inspect(context);
+  } catch (error) {
+    logger.warn(
+      { errorType: getErrorType(error), guildId: context.guildId },
+      "Unable to inspect bot permissions before recording",
+    );
   }
 }
 

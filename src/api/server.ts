@@ -9,6 +9,7 @@ import { z } from "zod";
 
 import { aiProfileSchema, isAiProfileComplete } from "../ai-profile.js";
 import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
+import { BOT_INSTALL_PERMISSIONS } from "../discord/bot-permissions.js";
 import { createCommandReference } from "../discord/command-catalog.js";
 import { beginDiscordApiRequestWaitBudget } from "../discord/discord-api-fetch.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
@@ -191,7 +192,7 @@ export async function createApiServer(
             : `https://discord.com/oauth2/authorize?${new URLSearchParams({
                 client_id: discordApplicationId,
                 guild_id: guild.id,
-                permissions: "326417521664",
+                permissions: BOT_INSTALL_PERMISSIONS,
                 scope: "bot applications.commands",
               })}`;
         return { ...enriched, installUrl };
@@ -204,7 +205,7 @@ export async function createApiServer(
     if (settings.discordApplicationId === null) return { configured: false };
     const parameters = new URLSearchParams({
       client_id: settings.discordApplicationId,
-      permissions: "326417521664",
+      permissions: BOT_INSTALL_PERMISSIONS,
       scope: "bot applications.commands",
     });
     return {

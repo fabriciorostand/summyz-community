@@ -48,6 +48,7 @@ interface BotProcessingRuntimeOptions {
   readonly database: PostgresDatabase;
   readonly guildConfigStore: PostgresGuildConfigStore;
   readonly logger: Logger;
+  readonly onPublicationFailure?: (guildId: string, forumId: string) => Promise<void>;
   readonly manifestStore: ManifestStore;
   readonly membershipVerifier: GuildMembershipVerifier;
   readonly postgresMeetingStore: PostgresMeetingStore;
@@ -65,6 +66,7 @@ export function createBotProcessingRuntime(options: BotProcessingRuntimeOptions)
     database,
     guildConfigStore,
     logger,
+    onPublicationFailure,
     manifestStore,
     membershipVerifier,
     postgresMeetingStore,
@@ -81,6 +83,7 @@ export function createBotProcessingRuntime(options: BotProcessingRuntimeOptions)
     guildConfigStore,
     language: config.botLanguage,
     logger,
+    ...(onPublicationFailure === undefined ? {} : { onFailure: onPublicationFailure }),
     store: publicationStore,
     timeZone: config.summaryTimeZone,
   });

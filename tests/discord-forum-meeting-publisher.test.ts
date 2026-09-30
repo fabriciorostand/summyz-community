@@ -39,6 +39,68 @@ async function createContext() {
 }
 
 describe("publicação da reunião em fórum do Discord", () => {
+  it("inspects forum permissions after publication fails without replacing the original error", async () => {
+    const context = await createContext();
+    const onFailure = vi.fn(async () => {
+      throw new Error("diagnostic unavailable");
+    });
+    const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
+      client: {
+        channels: { fetch: vi.fn(async () => null) },
+      } as unknown as Client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      onFailure,
+      store: new PublicationStore(context.root),
+      timeZone: "UTC",
+    });
+
+    await expect(
+      publisher.publishTranscriptOnly(context.manifest, context.transcriptPath),
+    ).rejects.toThrow(/fórum/i);
+    expect(onFailure).toHaveBeenCalledWith("guild-1", "forum-1");
+  });
+  it("skips forum diagnostics when the destination was removed", async () => {
+    const context = await createContext();
+    await context.configStore.clearSummaryForum("guild-1");
+    const onFailure = vi.fn(async () => undefined);
+    const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
+      client: { channels: { fetch: vi.fn() } } as unknown as Client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      onFailure,
+      store: new PublicationStore(context.root),
+      timeZone: "UTC",
+    });
+
+    await expect(
+      publisher.publishTranscriptOnly(context.manifest, context.transcriptPath),
+    ).rejects.toThrow(/nenhum fórum/i);
+    expect(onFailure).not.toHaveBeenCalled();
+  });
+  it("does not leak primitive diagnostic errors into the publication result", async () => {
+    const context = await createContext();
+    const publisher = new DiscordMeetingPublisher({
+      canPublish: async () => true,
+      client: { channels: { fetch: vi.fn(async () => null) } } as unknown as Client,
+      guildConfigStore: context.configStore,
+      language: "en",
+      logger: createLogger("silent"),
+      onFailure: async () => {
+        throw "sensitive-token";
+      },
+      store: new PublicationStore(context.root),
+      timeZone: "UTC",
+    });
+
+    await expect(
+      publisher.publishTranscriptOnly(context.manifest, context.transcriptPath),
+    ).rejects.toThrow(/fórum/i);
+  });
   it("stops publication before creating a forum post when the bot has left", async () => {
     const context = await createContext();
     const create = vi.fn();
