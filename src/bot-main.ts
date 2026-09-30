@@ -4,16 +4,17 @@ import { loadEnvFile } from "node:process";
 
 import { AuditLogEvent, Client, Events, GatewayIntentBits } from "discord.js";
 
-import { ApplicationAiRuntime, requireConfigured } from "./application-ai-runtime.js";
+import { ApplicationAiRuntime } from "./application-ai-runtime.js";
 import { waitForBotConfiguration } from "./bot-bootstrap.js";
 import { BotConfigurationMonitor } from "./bot-configuration-monitor.js";
+import { createBotProcessingRuntime } from "./bot-processing-runtime.js";
+import { reconcilePendingRecordings } from "./bot-recording-recovery.js";
 import { BOT_CONFIGURATION_RESTART_EXIT_CODE } from "./bot-supervisor.js";
 import { loadConfig, resolveBotConfig } from "./config.js";
 import { CostReconciler } from "./cost/cost-reconciler.js";
 import { createCostReportService } from "./cost/cost-report.js";
 import { PostgresCostLedgerStore } from "./cost/postgres-cost-ledger-store.js";
 import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js";
-import { PostgresAnalyticsStore } from "./database/postgres-analytics-store.js";
 import { createPostgresDatabase, type PostgresDatabase } from "./database/postgres-database.js";
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
 import { PostgresGuildHistoryStore } from "./database/postgres-guild-history-store.js";
@@ -22,11 +23,8 @@ import { PostgresInstallationDiscordConnectionStore } from "./database/postgres-
 import { PostgresInstallationHealthStore } from "./database/postgres-installation-health-store.js";
 import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
 import { PostgresLiveMeetingStore } from "./database/postgres-live-meeting-store.js";
-import { PostgresMeetingAudioCatalog } from "./database/postgres-meeting-audio-catalog.js";
-import { PostgresMeetingContentStore } from "./database/postgres-meeting-content-store.js";
 import { PostgresMeetingStore } from "./database/postgres-meeting-store.js";
 import { PostgresModelCatalogStore } from "./database/postgres-model-catalog-store.js";
-import { DiscordMeetingPublisher } from "./discord/discord-meeting-publisher.js";
 import { GuildDepartureHandler } from "./discord/guild-departure-handler.js";
 import { GuildMembershipVerifier } from "./discord/guild-membership-verifier.js";
 import { GuildOwnerVerifier } from "./discord/guild-owner-verifier.js";
@@ -35,54 +33,23 @@ import {
   installGuildOwnershipHandler,
 } from "./discord/guild-ownership-handler.js";
 import { installInteractionHandler } from "./discord/interaction-handler.js";
-import { isProvenRecordedOwnerTransfer } from "./discord/meeting-publication-policy.js";
 import { registerCommands } from "./discord/register-commands.js";
-import { notifyTranscriptionFailure } from "./discord/transcription-notifier.js";
 import { VoiceChannelDeletionVerifier } from "./discord/voice-channel-deletion-verifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
 import { detectLocalHardware } from "./local-ai/hardware-detection.js";
 import { createLogger } from "./logger.js";
 import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
-import { LocalModelInventory } from "./models/local-model-inventory.js";
 import { CachedModelCatalog } from "./models/model-catalog.js";
 import { lockModelLifecycle } from "./models/model-lifecycle-lock.js";
-import { DurableJobQueue } from "./processing/durable-job-queue.js";
-import { DurableJobWorker } from "./processing/durable-job-worker.js";
-import { MeetingArtifactMaintenance } from "./processing/meeting-artifact-maintenance.js";
-import { MeetingArtifactRetention } from "./processing/meeting-artifact-retention.js";
-import { MeetingFinalizer } from "./processing/meeting-finalizer.js";
-import { MeetingProcessingHandler } from "./processing/meeting-processing-handler.js";
 import { DiscordRecordingFactory } from "./recording/discord-recording-factory.js";
 import type { RecordingManifest } from "./recording/manifest.js";
 import { ManifestStore } from "./recording/manifest-store.js";
 import { RecordingCoordinator } from "./recording/recording-coordinator.js";
-import {
-  hasRecoveryWindowExpired,
-  interruptAfterRestart,
-  recoverRecording,
-  shouldAttemptPendingRecovery,
-} from "./recording/recovery.js";
-import { MeetingRefinementGenerator } from "./refinement/meeting-refinement-generator.js";
-import { MeetingRefinementService } from "./refinement/meeting-refinement-service.js";
-import { OllamaRefinementProvider } from "./refinement/ollama-refinement-provider.js";
-import { OpenRouterRefinementProvider } from "./refinement/openrouter-refinement-provider.js";
 import { RefinementStore } from "./refinement/refinement-store.js";
 import { SecretBox } from "./security/secret-box.js";
-import { MeetingSummaryGenerator } from "./summary/meeting-summary-generator.js";
-import { MeetingSummaryService } from "./summary/meeting-summary-service.js";
-import { OllamaSummaryProvider } from "./summary/ollama-summary-provider.js";
-import { OpenRouterSummaryProvider } from "./summary/openrouter-summary-provider.js";
 import { PublicationStore } from "./summary/publication-store.js";
-import { resolveSummaryLanguage } from "./summary/summary-language.js";
 import { SummaryStore } from "./summary/summary-store.js";
 import { configureTerminalEncoding } from "./terminal-encoding.js";
-import { MeetingTranscriptionService } from "./transcription/meeting-transcription-service.js";
-import {
-  createAudioDecoder,
-  FullAudioSpeechAnalyzer,
-  SileroSpeechAnalyzer,
-} from "./transcription/speech-analyzer.js";
-import { CURRENT_TRANSCRIPTION_RECOVERY_VERSION } from "./transcription/transcription-recovery-policy.js";
 import { TranscriptionStore } from "./transcription/transcription-store.js";
 
 const terminalEncoding = configureTerminalEncoding();
@@ -242,185 +209,22 @@ async function checkGuildAccess(guildId: string): Promise<GuildAccessResult> {
   if (connectedUserId === undefined) return { status: "denied" };
   return guildOwnerVerifier.check(guildId, connectedUserId);
 }
-const meetingPublisher = new DiscordMeetingPublisher({
-  canPublish: async (manifest) =>
-    (await postgresMeetingStore.isProcessable(manifest.meetingId)) &&
-    (await membershipVerifier.check(manifest.guildId)) !== "absent",
-  client,
-  guildConfigStore,
-  language: config.botLanguage,
-  logger,
-  store: publicationStore,
-  timeZone: config.summaryTimeZone,
-});
-const summaryService = new MeetingSummaryService({
-  logger,
-  publisher: meetingPublisher,
-  refinementStore,
-  resolveGenerator: async (manifest) => {
-    const configuration = aiRuntime.getMeetingConfiguration(manifest);
-    const selection = configuration.summary;
-    const language = resolveSummaryLanguage({
-      detectedLanguage: manifest.predominantLanguage,
-      summaryLanguage: configuration.language,
-      transcriptionLanguage: configuration.transcription.language,
-    });
-    const apiKey =
-      selection.provider === "openrouter" ? await aiRuntime.requireOpenRouterApiKey() : undefined;
-    const costRecorder = aiRuntime.createCostRecorder(manifest, "summary", apiKey);
-    const provider =
-      selection.provider === "ollama"
-        ? new OllamaSummaryProvider({
-            consolidationPrompt: selection.consolidationPrompt,
-            costRecorder,
-            extractionPrompt: selection.extractionPrompt,
-            generation: selection.generation,
-            language,
-            model: selection.model,
-            timeoutMs: config.summaryTimeoutMs,
-          })
-        : new OpenRouterSummaryProvider({
-            apiKey: requireConfigured(apiKey, "OpenRouter API key"),
-            consolidationPrompt: selection.consolidationPrompt,
-            costRecorder,
-            extractionPrompt: selection.extractionPrompt,
-            generation: selection.generation,
-            language,
-            logger,
-            maxAttempts: config.summaryMaxAttempts,
-            model: selection.model,
-            retryBaseMs: config.summaryRetryBaseMs,
-            retryMaxMs: config.summaryRetryMaxMs,
-            timeoutMs: config.summaryTimeoutMs,
-          });
-    const generator = new MeetingSummaryGenerator({
-      maxChunkCharacters: selection.maxChunkCharacters,
-      provider,
-    });
-    return generator;
-  },
-  summaryStore,
-  timeZone: config.summaryTimeZone,
-  transcriptionStore,
-});
-const refinementService = new MeetingRefinementService({
-  logger,
-  refinementStore,
-  resolveGenerator: async (manifest) => {
-    const selection = aiRuntime.getMeetingConfiguration(manifest).refinement;
-    const apiKey =
-      selection.provider === "openrouter" ? await aiRuntime.requireOpenRouterApiKey() : undefined;
-    const costRecorder = aiRuntime.createCostRecorder(manifest, "refinement", apiKey);
-    const provider =
-      selection.provider === "ollama"
-        ? new OllamaRefinementProvider({
-            costRecorder,
-            generation: selection.generation,
-            model: selection.model,
-            prompt: selection.prompt,
-            timeoutMs: config.refinementTimeoutMs,
-          })
-        : new OpenRouterRefinementProvider({
-            apiKey: requireConfigured(apiKey, "OpenRouter API key"),
-            costRecorder,
-            generation: selection.generation,
-            logger,
-            maxAttempts: config.refinementMaxAttempts,
-            model: selection.model,
-            prompt: selection.prompt,
-            retryBaseMs: config.refinementRetryBaseMs,
-            retryMaxMs: config.refinementRetryMaxMs,
-            timeoutMs: config.refinementTimeoutMs,
-          });
-    const generator = new MeetingRefinementGenerator({
-      maxChunkCharacters: selection.maxChunkCharacters,
-      provider,
-    });
-    return generator;
-  },
-  transcriptionStore,
-});
-const decodeMeetingAudio = createAudioDecoder(config.segmentMaxSeconds);
-const transcriptionService = new MeetingTranscriptionService({
-  concurrency: config.transcriptionConcurrency,
-  interSpeechSilenceMs: 0,
-  logger,
-  manifestStore,
-  notifyFailure: (manifest) =>
-    notifyTranscriptionFailure(
-      client,
-      logger,
-      manifest,
-      manifest.botLanguage ?? config.botLanguage,
-    ),
-  publishTranscriptOnly: (manifest, transcriptPath) =>
-    meetingPublisher.publishTranscriptOnly(manifest, transcriptPath),
-  resolveProvider: (manifest) => {
-    const selection = aiRuntime.getMeetingConfiguration(manifest).transcription;
-    return aiRuntime.createTranscriptionProvider(selection, manifest);
-  },
-  resolveSpeechAnalyzer: (manifest) => {
-    const configuration = aiRuntime.getMeetingConfiguration(manifest);
-    if (
-      configuration.transcription.provider === "openrouter" &&
-      configuration.transcription.vad.enabled
-    ) {
-      const vad = configuration.transcription.vad;
-      return new SileroSpeechAnalyzer({
-        decodeAudio: decodeMeetingAudio,
-        minSilenceDurationMs: vad.minSilenceDurationMs,
-        minSpeechDurationMs: vad.minSpeechDurationMs,
-        negativeSpeechThreshold:
-          vad.negativeSpeechThreshold === "auto"
-            ? Math.max(0, vad.threshold - 0.15)
-            : vad.negativeSpeechThreshold,
-        speechPadMs: vad.speechPadMs,
-        threshold: vad.threshold,
-      });
-    }
-    return new FullAudioSpeechAnalyzer({ decodeAudio: decodeMeetingAudio });
-  },
-  transcriptionStore,
-  transcriptionMergeMaxGapMs: 2_000,
-  transcriptionWindowMaxMs: config.transcriptionWindowMaxSeconds * 1_000,
-});
-
-const retention = new MeetingArtifactRetention(transcriptionStore, logger);
-const postgresQueue = new DurableJobQueue(database);
-const postgresFinalizer = new MeetingFinalizer({
-  contentStore: new PostgresMeetingContentStore(database),
-  manifestStore,
-  participationStore: new PostgresAnalyticsStore(database),
-  publicationStore,
-  retention,
-  summaryStore,
-  transcriptionStore,
-});
-const processingHandler = new MeetingProcessingHandler({
-  checkBotAccess: (guildId) => membershipVerifier.check(guildId),
-  requireModels: (manifest) =>
-    new LocalModelInventory().requireInstalled(aiRuntime.getMeetingConfiguration(manifest)),
-  audioCatalog: new PostgresMeetingAudioCatalog(database),
-  finalizer: postgresFinalizer,
-  meetingStore: postgresMeetingStore,
-  queue: postgresQueue,
-  refinementStore,
-  refiner: refinementService,
-  retention,
-  summarizer: summaryService,
-  summaryStore,
-  transcriber: transcriptionService,
-  transcriptionStore,
-});
-const artifactMaintenance = new MeetingArtifactMaintenance({
-  cleanup: (meetingId) => processingHandler.cleanup(meetingId),
-  logger,
-  meetingStore: postgresMeetingStore,
-  queue: postgresQueue,
-  recoveryVersion: CURRENT_TRANSCRIPTION_RECOVERY_VERSION,
-});
-const worker = new DurableJobWorker({ handler: processingHandler, logger, queue: postgresQueue });
-
+const { artifactMaintenance, postgresQueue, processingHandler, worker } =
+  createBotProcessingRuntime({
+    aiRuntime,
+    client,
+    config,
+    database,
+    guildConfigStore,
+    logger,
+    manifestStore,
+    membershipVerifier,
+    postgresMeetingStore,
+    publicationStore,
+    refinementStore,
+    summaryStore,
+    transcriptionStore,
+  });
 async function enqueueCompleted(manifest: RecordingManifest): Promise<void> {
   await postgresCostLedger.saveMeeting(manifest);
   await postgresQueue.enqueue(manifest.meetingId, "transcription");
@@ -458,101 +262,20 @@ const departureHandler = new GuildDepartureHandler({
   stop: (guildId, request) => coordinator.stop(guildId, request),
 });
 
-async function recoverPendingRecordings(): Promise<void> {
-  let manifests: RecordingManifest[];
-  try {
-    manifests = (await manifestStore.listRecoverable()).filter(shouldAttemptPendingRecovery);
-  } catch (error) {
-    logger.error({ errorType: getErrorType(error) }, "Unable to list recoverable recordings");
-    return;
-  }
-  for (const manifest of manifests) {
-    if (needsRecoveryLock(manifest)) {
-      coordinator.setRecoverable(manifest.guildId, true);
-    }
-  }
-  for (const manifest of manifests) {
-    if (
-      coordinator.get(manifest.guildId) !== undefined ||
-      coordinator.isPending(manifest.guildId)
-    ) {
-      continue;
-    }
-    await attemptRecordingRecovery(manifest);
-  }
-  try {
-    const stillRecoverable = (await manifestStore.listRecoverable()).filter(
-      shouldAttemptPendingRecovery,
-    );
-    for (const guildId of new Set(manifests.map((manifest) => manifest.guildId))) {
-      coordinator.setRecoverable(
-        guildId,
-        stillRecoverable.some(
-          (manifest) => manifest.guildId === guildId && needsRecoveryLock(manifest),
-        ),
-      );
-    }
-  } catch (error) {
-    logger.error({ errorType: getErrorType(error) }, "Unable to reconcile recoverable recordings");
-  }
-}
-
-function needsRecoveryLock(manifest: RecordingManifest): boolean {
-  return (
-    !coordinator.isPending(manifest.guildId) &&
-    coordinator.get(manifest.guildId)?.meetingId !== manifest.meetingId
-  );
-}
-
-async function attemptRecordingRecovery(manifest: RecordingManifest): Promise<void> {
-  try {
-    if (!(await postgresMeetingStore.isProcessable(manifest.meetingId))) return;
-    const recoverable = interruptAfterRestart(manifest, previousBotHeartbeatAt);
-    if (recoverable !== manifest) await manifestStore.save(recoverable);
-    if ((await membershipVerifier.check(recoverable.guildId)) === "absent") {
-      await departureHandler.handle(recoverable.guildId);
-      return;
-    }
-    const access = await checkGuildAccess(recoverable.guildId);
-    if (recoverable.verifiedOwnerUserId !== undefined) {
-      const recordedOwnerCheck = await guildOwnerVerifier.check(
-        recoverable.guildId,
-        recoverable.verifiedOwnerUserId,
-      );
-      if (isProvenRecordedOwnerTransfer(recoverable, recordedOwnerCheck)) {
-        await recordingFactory.finalizeWithoutResuming(recoverable, "owner_changed");
-        return;
-      }
-    }
-    const channelAvailability = await voiceChannelDeletionVerifier.check(
-      recoverable.guildId,
-      recoverable.voiceChannelId,
-      recoverable.startedAt,
-    );
-    if (channelAvailability === "deleted") {
-      await recordingFactory.finalizeWithoutResuming(
-        recoverable,
-        access.status === "unknown" ? "voice_channel_deleted_unverified" : "voice_channel_deleted",
-      );
-      return;
-    }
-    if (hasRecoveryWindowExpired(recoverable, new Date().toISOString())) {
-      await recordingFactory.finalizeWithoutResuming(recoverable, "recovery_expired");
-      return;
-    }
-    await recoverRecording(recoverable, {
-      checkAccess: async () => access.status,
-      finalize: (pending) => recordingFactory.finalizeWithoutResuming(pending),
-      resume: (pending) => coordinator.resume(pending),
-    });
-  } catch (error) {
-    logger.error(
-      { errorType: getErrorType(error), guildId: manifest.guildId, meetingId: manifest.meetingId },
-      "Recording recovery attempt failed",
-    );
-  }
-}
-
+const recoveryOptions = {
+  checkGuildAccess,
+  coordinator,
+  departureHandler,
+  guildOwnerVerifier,
+  logger,
+  manifestStore,
+  membershipVerifier,
+  postgresMeetingStore,
+  previousBotHeartbeatAt,
+  recordingFactory,
+  voiceChannelDeletionVerifier,
+};
+const recoverPendingRecordings = () => reconcilePendingRecordings(recoveryOptions);
 installInteractionHandler(
   client,
   guildConfigStore,
