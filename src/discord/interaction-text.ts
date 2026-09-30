@@ -6,12 +6,20 @@ export interface InteractionText {
   authorizedRoles(roleIds: readonly string[]): string;
   cannotConfigureRecordingRoles: string;
   cannotConfigureSummaryForum: string;
+  connectedAccountRequired: string;
+  connectedOwnerRequired: string;
+  ownershipCheckUnavailable: string;
   cannotViewCosts: string;
   cannotRecord: string;
   cannotStop: string;
   commandFailed: string;
   configureAiProfileFirst: string;
   configureForumFirst: string;
+  ownerConfirmationRequired: string;
+  ownerConfirmationCompleted: string;
+  profileNotFound: string;
+  profileSelected(name: string): string;
+  profileList(names: readonly string[]): string;
   forumConfigured(forumId: string, tagName?: string): string;
   forumDisplay(forumId: string, tagId?: string): string;
   forumRequiresTag: string;
@@ -34,6 +42,7 @@ export interface InteractionText {
   costMeetingInProgress: string;
   costMeetingNotFound: string;
   recordingAlreadyActive: string;
+  recordingRecoveryPending: string;
   recordingStarted(voiceChannelName: string, userMention: string, meetingId: string): string;
   roleAuthorized(roleMention: string): string;
   roleRemoved(roleMention: string): string;
@@ -65,12 +74,28 @@ const texts = {
       `Authorized roles:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`,
     cannotConfigureRecordingRoles: "You cannot configure recording roles.",
     cannotConfigureSummaryForum: "You cannot configure the summary forum.",
+    connectedAccountRequired:
+      "Connect the server owner's Discord account to this Summyz installation before using the bot.",
+    connectedOwnerRequired:
+      "This server's owner is not the Discord account linked to this Summyz installation. Only that linked owner can configure or use this bot here.",
+    ownershipCheckUnavailable:
+      "Unable to verify server ownership right now. No changes were made; please try again shortly.",
     cannotViewCosts: "Only the server owner can view recording costs.",
     cannotRecord: "You do not have an authorized role to start recordings.",
     cannotStop: "You do not have an authorized role to stop recordings.",
     commandFailed: "Unable to complete the command. Please try again.",
     configureForumFirst:
       "Configure a forum with `/recording-summary-forum set` before starting a recording.",
+    ownerConfirmationRequired:
+      "The server owner changed. The new owner must review and confirm the forum, AI profile, and recording permissions with `/recording-activate` before recording.",
+    ownerConfirmationCompleted:
+      "Server configuration confirmed by the owner. Recording is available.",
+    profileNotFound: "The selected AI profile does not exist or is incomplete.",
+    profileSelected: (name) => `Active AI profile selected: ${name}.`,
+    profileList: (names) =>
+      names.length === 0
+        ? "No complete AI profiles are available."
+        : `Available AI profiles:\n${names.join("\n")}`,
     configureAiProfileFirst:
       "The active processing profile is incomplete. Choose a provider and model for transcription, refinement, and summary before recording.",
     forumConfigured: (forumId, tagName) =>
@@ -114,6 +139,8 @@ const texts = {
       "Wait for the meeting to end before checking its costs. Processing costs are available after recording ends.",
     costMeetingNotFound: "This completed meeting was not found in this server.",
     recordingAlreadyActive: "There is already an active recording in this server.",
+    recordingRecoveryPending:
+      "A previous recording is suspended while server ownership verification is unavailable. A new recording can start after it resumes or is finalized.",
     recordingStarted: (voiceChannelName, userMention, meetingId) =>
       "🔴 Recording started in **" +
       voiceChannelName +
@@ -140,12 +167,28 @@ const texts = {
       `Cargos autorizados:\n${roleIds.map((roleId) => `- <@&${roleId}>`).join("\n")}`,
     cannotConfigureRecordingRoles: "Você não pode configurar os cargos de gravação.",
     cannotConfigureSummaryForum: "Você não pode configurar o fórum de resumos.",
+    connectedAccountRequired:
+      "Conecte a conta Discord do dono do servidor a esta instalação do Summyz antes de usar o bot.",
+    connectedOwnerRequired:
+      "O dono deste servidor não é a conta Discord vinculada a esta instalação do Summyz. Apenas esse dono vinculado pode configurar ou usar o bot aqui.",
+    ownershipCheckUnavailable:
+      "Não foi possível verificar a posse do servidor agora. Nenhuma alteração foi feita; tente novamente em instantes.",
     cannotViewCosts: "Somente o dono do servidor pode consultar custos de gravações.",
     cannotRecord: "Você não possui um cargo autorizado para gravar.",
     cannotStop: "Você não possui um cargo autorizado para encerrar.",
     commandFailed: "Não foi possível concluir o comando. Tente novamente.",
     configureForumFirst:
       "Configure um fórum com `/recording-summary-forum set` antes de iniciar uma gravação.",
+    ownerConfirmationRequired:
+      "O dono do servidor mudou. O novo dono deve revisar e confirmar o fórum, o perfil de IA e as permissões de gravação com `/recording-activate` antes de gravar.",
+    ownerConfirmationCompleted:
+      "Configuração do servidor confirmada pelo dono. A gravação está disponível.",
+    profileNotFound: "O perfil de IA selecionado não existe ou está incompleto.",
+    profileSelected: (name) => `Perfil de IA ativo selecionado: ${name}.`,
+    profileList: (names) =>
+      names.length === 0
+        ? "Nenhum perfil de IA completo está disponível."
+        : `Perfis de IA disponíveis:\n${names.join("\n")}`,
     configureAiProfileFirst:
       "O perfil de processamento ativo está incompleto. Escolha um provedor e um modelo para transcrição, refinamento e resumo antes de gravar.",
     forumConfigured: (forumId, tagName) =>
@@ -190,6 +233,8 @@ const texts = {
       "Aguarde a reunião terminar para consultar os custos. Os dados ficam disponíveis após o encerramento da gravação.",
     costMeetingNotFound: "Essa reunião concluída não foi encontrada neste servidor.",
     recordingAlreadyActive: "Já existe uma gravação ativa neste servidor.",
+    recordingRecoveryPending:
+      "Uma gravação anterior está suspensa enquanto a verificação da posse do servidor está indisponível. Uma nova gravação poderá começar após a retomada ou finalização da anterior.",
     recordingStarted: (voiceChannelName, userMention, meetingId) =>
       "🔴 Gravação iniciada em **" +
       voiceChannelName +

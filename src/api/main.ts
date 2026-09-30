@@ -11,7 +11,10 @@ import { PostgresAnalyticsStore } from "../database/postgres-analytics-store.js"
 import { PostgresDashboardSessionStore } from "../database/postgres-dashboard-session-store.js";
 import { createPostgresDatabase } from "../database/postgres-database.js";
 import { PostgresGuildConfigStore } from "../database/postgres-guild-config-store.js";
+import { PostgresGuildHistoryStore } from "../database/postgres-guild-history-store.js";
+import { PostgresGuildOwnerApprovalStore } from "../database/postgres-guild-owner-approval-store.js";
 import { PostgresInstallationAccessStore } from "../database/postgres-installation-access-store.js";
+import { PostgresInstallationDiscordConnectionStore } from "../database/postgres-installation-discord-connection-store.js";
 import { PostgresInstallationHealthStore } from "../database/postgres-installation-health-store.js";
 import { PostgresInstallationSettingsStore } from "../database/postgres-installation-settings-store.js";
 import { PostgresLiveMeetingStore } from "../database/postgres-live-meeting-store.js";
@@ -19,7 +22,9 @@ import { PostgresModelCatalogStore } from "../database/postgres-model-catalog-st
 import { PostgresModelDownloadStore } from "../database/postgres-model-download-store.js";
 import { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";
 import { PostgresTaskStore } from "../database/postgres-task-store.js";
+import { createDiscordApiFetch } from "../discord/discord-api-fetch.js";
 import { DiscordRestGuildDirectory } from "../discord/discord-rest-guild-directory.js";
+import { InstallationDiscordConnection } from "../discord/installation-discord-connection.js";
 import { detectLocalHardware } from "../local-ai/hardware-detection.js";
 import { createLogger } from "../logger.js";
 import { LocalModelInventory } from "../models/local-model-inventory.js";
@@ -57,9 +62,19 @@ const recovery = new InstallationAccessRecoveryService({
   hasher: passwordHasher,
   repository: installationAccess,
 });
+const discordFetch = createDiscordApiFetch(globalThis.fetch, (event) => {
+  logger.warn(event, "Discord API rate limited");
+});
 const guildDirectory = new DiscordRestGuildDirectory({
-  fetch: globalThis.fetch,
+  fetch: discordFetch,
   getBotToken: () => settings.getSecret("discord_bot_token"),
+});
+const discordConnection = new InstallationDiscordConnection({
+  applicationId: async () => (await settings.getSettings()).discordApplicationId,
+  clientSecret: () => settings.getSecret("discord_client_secret"),
+  fetch: discordFetch,
+  publicBaseUrl: config.publicBaseUrl,
+  repository: new PostgresInstallationDiscordConnectionStore(database, secretBox),
 });
 const inventory = new LocalModelInventory();
 const catalog = new ModelCatalogService(
@@ -87,8 +102,11 @@ const app = await createApiServer(
     analytics: new PostgresAnalyticsStore(database),
     aiProfiles: new PostgresAiProfileStore(database),
     auth,
+    discordConnection,
     guildConfig: new PostgresGuildConfigStore(database),
     guildDirectory,
+    guildHistory: new PostgresGuildHistoryStore(database),
+    guildOwnerApprovals: new PostgresGuildOwnerApprovalStore(database),
     health: new PostgresInstallationHealthStore(database),
     logger,
     liveMeetings: new PostgresLiveMeetingStore(database),

@@ -1,4 +1,5 @@
 import type { MeetingPipelineStatus } from "../database/postgres-meeting-store.js";
+import { BotLeftGuildError } from "../discord/discord-meeting-publisher.js";
 import type { RecordingManifest } from "../recording/manifest.js";
 import type { RefinementState } from "../refinement/refinement-state.js";
 import type { SummaryState } from "../summary/summary-state.js";
@@ -66,6 +67,7 @@ interface MeetingFinalizer {
 }
 
 interface MeetingProcessingHandlerOptions {
+  checkBotAccess?: (guildId: string) => Promise<"present" | "absent" | "unknown">;
   requireModels?: (manifest: RecordingManifest) => Promise<void>;
   audioCatalog: MeetingAudioCatalog;
   finalizer: MeetingFinalizer;
@@ -82,6 +84,9 @@ interface MeetingProcessingHandlerOptions {
 }
 
 export class MeetingProcessingHandler implements ProcessingJobHandler {
+  readonly #checkBotAccess:
+    | ((guildId: string) => Promise<"present" | "absent" | "unknown">)
+    | undefined;
   readonly #requireModels: ((manifest: RecordingManifest) => Promise<void>) | undefined;
   readonly #audioCatalog: MeetingAudioCatalog;
   readonly #finalizer: MeetingFinalizer;
@@ -97,6 +102,7 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
   readonly #transcriptionStore: TranscriptionStateStore;
 
   public constructor(options: MeetingProcessingHandlerOptions) {
+    this.#checkBotAccess = options.checkBotAccess;
     this.#requireModels = options.requireModels;
     this.#audioCatalog = options.audioCatalog;
     this.#finalizer = options.finalizer;
@@ -114,6 +120,9 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
 
   public async process(job: ClaimedProcessingJob): Promise<void> {
     const manifest = await this.#meetingStore.load(job.meetingId);
+    if ((await this.#checkBotAccess?.(manifest.guildId)) === "absent") {
+      throw new ProcessingJobError("bot_left_guild", true);
+    }
     await this.#requireModels?.(manifest);
     if (job.jobType === "transcription") {
       await this.#processTranscription(job, manifest);
@@ -189,7 +198,10 @@ export class MeetingProcessingHandler implements ProcessingJobHandler {
       await this.#summarizer.process(manifest, {
         fallbackOnProviderFailure: job.finalAttempt,
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof BotLeftGuildError) {
+        throw new ProcessingJobError("bot_left_guild", true);
+      }
       const state = await this.#summaryStore.tryLoad(job.meetingId);
       const failureCode =
         state?.status === "processing" ? "provider_unavailable" : "publication_failed";

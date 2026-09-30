@@ -1,15 +1,123 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 
-import { createInitialAiProfile } from "../src/ai-profile.js";
+import { aiProfileSchema, createInitialAiProfile } from "../src/ai-profile.js";
 import { type ApiServerDependencies, createApiServer } from "../src/api/server.js";
 import { InstallationPasswordError } from "../src/auth/installation-password.js";
+import { DiscordBotRotationError } from "../src/database/postgres-installation-settings-store.js";
+import { createDiscordApiFetch, DiscordRateLimitError } from "../src/discord/discord-api-fetch.js";
+import { DiscordConnectionError } from "../src/discord/installation-discord-connection.js";
 import { createLogger } from "../src/logger.js";
 
 // Browsers always send Origin on mutations; local mode accepts only loopback origins.
 const localOrigin = { origin: "http://127.0.0.1:8787" };
 
 describe("Community dashboard API", () => {
+  it("limits total Discord rate-limit waiting across one dashboard request", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        new Response(null, { status: 429, headers: { "retry-after": "0.02" } }),
+      )
+      .mockResolvedValueOnce(Response.json([]))
+      .mockResolvedValueOnce(new Response(null, { status: 429, headers: { "retry-after": "5" } }));
+    const requestDiscord = createDiscordApiFetch(fetchMock);
+    const app = await createApiServer(createDependencies("local"));
+    app.get("/api/test-discord-wait-budget", async () => {
+      await requestDiscord("https://discord.com/api/v10/users/@me/guilds");
+      await requestDiscord("https://discord.com/api/v10/guilds/guild-1/channels");
+      return { ok: true };
+    });
+
+    const response = await app.inject({ method: "GET", url: "/api/test-discord-wait-budget" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBe("5");
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    await app.close();
+  });
+
+  it("returns a temporary error with Retry-After when Discord delays guild access", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.guildDirectory.listInstalledGuilds).mockRejectedValue(
+      new DiscordRateLimitError(12),
+    );
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/configuration",
+    });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBe("12");
+    expect(response.json()).toEqual({ error: "discord_rate_limited" });
+    await app.close();
+  });
+
+  it("does not disguise Discord rate limiting as a successful server list", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.discordConnection.listOwnedGuilds).mockRejectedValue(
+      new DiscordRateLimitError(12),
+    );
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({ method: "GET", url: "/api/guilds" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.headers["retry-after"]).toBe("12");
+    await app.close();
+  });
+
+  it("preserves a safe Discord connection status through the dependency boundary", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.discordConnection.listOwnedGuilds).mockRejectedValue(
+      new DiscordConnectionError("discord_oauth_unavailable", 502),
+    );
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/configuration",
+    });
+
+    expect(response.statusCode).toBe(502);
+    expect(response.json()).toEqual({ error: "discord_oauth_unavailable" });
+    await app.close();
+  });
+
+  it("keeps saved history readable without Discord OAuth while writes remain restricted", async () => {
+    const dependencies = createDependencies("local");
+    dependencies.analytics = analyticsDependencies();
+    dependencies.guildHistory.list = vi.fn(async () => [
+      { iconUrl: null, id: "guild-1", name: "Equipe antiga" },
+    ]);
+    dependencies.discordConnection.getConnectionStatus = vi.fn(async () => ({
+      connected: false as const,
+    }));
+    dependencies.discordConnection.listOwnedGuilds = vi.fn(async () => {
+      throw new Error("OAuth unavailable");
+    });
+    const app = await createApiServer(dependencies);
+
+    const guilds = await app.inject({ method: "GET", url: "/api/guilds" });
+    const history = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/meetings?timeZone=UTC",
+    });
+    const configuration = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/configuration",
+    });
+
+    expect(guilds.statusCode).toBe(200);
+    expect(guilds.json()).toEqual([
+      expect.objectContaining({ id: "guild-1", name: "Equipe antiga" }),
+    ]);
+    expect(history.statusCode).toBe(200);
+    expect(configuration.statusCode).toBe(403);
+    await app.close();
+  });
   it("passes each browser zone to history and rolling analytics without persisting it", async () => {
     const dependencies = createDependencies("local");
     const analytics = analyticsDependencies();
@@ -727,6 +835,217 @@ describe("Community dashboard API", () => {
     await app.close();
   });
 
+  it("does not expose a bot guild owned by another Discord account", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.guildDirectory.listInstalledGuilds).mockResolvedValue([
+      { iconUrl: null, id: "guild-1", name: "Equipe" },
+      { iconUrl: null, id: "guild-2", name: "Privado" },
+    ]);
+    const app = await createApiServer(dependencies);
+
+    expect((await app.inject({ method: "GET", url: "/api/guilds" })).json()).toEqual([
+      expect.objectContaining({ id: "guild-1" }),
+    ]);
+    const denied = await app.inject({
+      headers: localOrigin,
+      method: "PUT",
+      payload: {
+        botLanguage: "pt-BR",
+        persistMeetingAudio: false,
+        persistMeetingContent: true,
+      },
+      url: "/api/guilds/guild-2/settings",
+    });
+    expect(denied.statusCode).toBe(403);
+    expect(denied.json()).toMatchObject({
+      error: "guild_access_denied",
+      message: expect.stringMatching(/dono.*servidor|servidor.*dono/i),
+    });
+    expect(dependencies.guildConfig.setGuildSettings).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("counts profile activations only in servers owned by the linked account", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.aiProfiles.listActiveProfileCounts).mockResolvedValue(
+      new Map([["external-profile-1", 5]]),
+    );
+    const app = await createApiServer(dependencies);
+
+    const profiles = (await app.inject({ method: "GET", url: "/api/profiles" })).json();
+    expect(profiles[0].activeServerCount).toBe(1);
+    await app.close();
+  });
+
+  it("lists owned servers without the bot but refuses configuration until installation", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.discordConnection.listOwnedGuilds).mockResolvedValue([
+      { iconUrl: null, id: "guild-1", name: "Equipe" },
+      { iconUrl: null, id: "guild-new", name: "Novo" },
+    ]);
+    vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
+      discordApplicationId: "application-1",
+      secrets: { discordBotToken: true, openRouterApiKey: false },
+      setupCompleted: true,
+    });
+    const app = await createApiServer(dependencies);
+
+    const guilds = (await app.inject({ method: "GET", url: "/api/guilds" })).json();
+    expect(guilds).toContainEqual(
+      expect.objectContaining({
+        id: "guild-new",
+        installed: false,
+        installUrl: expect.stringContaining("guild_id=guild-new"),
+      }),
+    );
+    expect(
+      (await app.inject({ method: "GET", url: "/api/guilds/guild-new/configuration" })).statusCode,
+    ).toBe(403);
+    await app.close();
+  });
+
+  it("retains historical guild data when no Discord account is connected", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.discordConnection.getConnectionStatus).mockResolvedValue({
+      connected: false,
+    });
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({ method: "GET", url: "/api/guilds" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toContainEqual(expect.objectContaining({ id: "guild-1" }));
+    expect(dependencies.guildDirectory.listInstalledGuilds).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("returns only saved history if the linked account changes during the request", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.discordConnection.getConnectionStatus)
+      .mockResolvedValueOnce({ connected: true, discordUserId: "owner-a", discordUsername: "A" })
+      .mockResolvedValueOnce({ connected: true, discordUserId: "owner-b", discordUsername: "B" });
+    vi.mocked(dependencies.discordConnection.listOwnedGuilds).mockResolvedValue([
+      { iconUrl: null, id: "guild-new", name: "Novo" },
+    ]);
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({ method: "GET", url: "/api/guilds" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("guild-1");
+    expect(response.body).not.toContain("guild-new");
+    await app.close();
+  });
+
+  it("requires the new owner to confirm a transferred server before activation", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.guildOwnerApprovals.isConfirmed).mockResolvedValue(false);
+    vi.mocked(dependencies.guildConfig.getSummaryForum).mockResolvedValue({ forumId: "forum-1" });
+    const initialProfile = createInitialAiProfile("external", "pt-BR");
+    vi.mocked(dependencies.aiProfiles.getActiveProfile).mockResolvedValue(
+      aiProfileSchema.parse({
+        ...initialProfile,
+        transcription: { ...initialProfile.transcription, model: "vendor/audio" },
+        refinement: { ...initialProfile.refinement, model: "vendor/text" },
+        summary: { ...initialProfile.summary, model: "vendor/text" },
+      }),
+    );
+    const app = await createApiServer(dependencies);
+
+    const configuration = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/configuration",
+    });
+    expect(configuration.json().ownerConfirmationRequired).toBe(true);
+    const confirmed = await app.inject({
+      headers: localOrigin,
+      method: "POST",
+      url: "/api/guilds/guild-1/activation",
+    });
+    expect(confirmed.statusCode).toBe(204);
+    expect(dependencies.guildOwnerApprovals.confirm).toHaveBeenCalledWith("guild-1", "owner-a");
+    await app.close();
+  });
+
+  it("requires the installation session to start and complete Discord linking", async () => {
+    const dependencies = createDependencies("public");
+    const app = await createApiServer(dependencies);
+
+    expect((await app.inject({ method: "GET", url: "/api/discord/connect" })).statusCode).toBe(401);
+    const start = await app.inject({
+      cookies: { summyz_session: "session-token" },
+      method: "GET",
+      url: "/api/discord/connect",
+    });
+    expect(start.json()).toEqual({ authorizationUrl: "https://discord.com/oauth2/authorize" });
+    const oauthBinding = vi.mocked(dependencies.discordConnection.createAuthorizationUrl).mock
+      .calls[0]?.[0];
+    expect(oauthBinding).toBeTruthy();
+    expect(JSON.stringify(start.headers["set-cookie"])).toContain("summyz_oauth=");
+    expect(JSON.stringify(start.headers["set-cookie"])).toContain("SameSite=Lax");
+    const withoutBinding = await app.inject({
+      method: "GET",
+      url: "/api/discord/callback?code=code&state=state",
+    });
+    expect(withoutBinding.statusCode).toBe(302);
+    expect(withoutBinding.headers.location).toBe("/servers?discord=invalid_state");
+    const callback = await app.inject({
+      cookies: { summyz_oauth: oauthBinding ?? "" },
+      method: "GET",
+      url: "/api/discord/callback?code=code&state=state",
+    });
+    expect(callback.statusCode).toBe(302);
+    expect(dependencies.discordConnection.completeAuthorization).toHaveBeenCalledWith(
+      oauthBinding,
+      "code",
+      "state",
+    );
+    expect(JSON.stringify(callback.headers["set-cookie"])).toContain("summyz_session=");
+    await app.close();
+  });
+
+  it("redirects a cancelled Discord authorization without replacing the connection", async () => {
+    const dependencies = createDependencies("public");
+    const app = await createApiServer(dependencies);
+    const response = await app.inject({
+      cookies: { summyz_oauth: "browser-binding" },
+      method: "GET",
+      url: "/api/discord/callback?error=access_denied&state=state",
+    });
+
+    expect(response.statusCode).toBe(302);
+    expect(response.headers.location).toBe("/servers?discord=cancelled");
+    expect(dependencies.discordConnection.cancelAuthorization).toHaveBeenCalledWith(
+      "browser-binding",
+      "state",
+    );
+    expect(dependencies.discordConnection.completeAuthorization).not.toHaveBeenCalled();
+    expect(JSON.stringify(response.headers["set-cookie"])).not.toContain("summyz_session=");
+    await app.close();
+  });
+
+  it("redirects invalid OAuth state and provider failures with distinct safe indicators", async () => {
+    const dependencies = createDependencies("public");
+    const app = await createApiServer(dependencies);
+    const invalidState = await app.inject({
+      method: "GET",
+      url: "/api/discord/callback?error=access_denied&state=state",
+    });
+    expect(invalidState.headers.location).toBe("/servers?discord=invalid_state");
+
+    vi.mocked(dependencies.discordConnection.completeAuthorization).mockRejectedValueOnce(
+      new DiscordConnectionError("discord_oauth_unavailable", 502),
+    );
+    const failed = await app.inject({
+      cookies: { summyz_oauth: "browser-binding" },
+      method: "GET",
+      url: "/api/discord/callback?code=code&state=state",
+    });
+    expect(failed.statusCode).toBe(302);
+    expect(failed.headers.location).toBe("/servers?discord=failed");
+    expect(failed.body).not.toContain("discord_oauth_unavailable");
+    await app.close();
+  });
+
   it("exposes a generic Discord installation URL without user OAuth", async () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
@@ -757,10 +1076,30 @@ describe("Community dashboard API", () => {
 
     expect(response.statusCode).toBe(204);
     expect(dependencies.guildDirectory.inspectBotToken).toHaveBeenCalledWith("rotated-token");
-    expect(dependencies.settings.configureDiscordBot).toHaveBeenCalledWith(
+    expect(dependencies.settings.rotateDiscordBot).toHaveBeenCalledWith(
       "application-1",
       "rotated-token",
     );
+    await app.close();
+  });
+
+  it("returns a conflict when a recording blocks bot rotation", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.settings.rotateDiscordBot).mockRejectedValue(
+      new DiscordBotRotationError("active_recording"),
+    );
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      headers: localOrigin,
+      method: "PUT",
+      payload: { discordBotToken: "rotated-token" },
+      url: "/api/installation/bot",
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toEqual({ error: "active_recording" });
+    expect(response.body).not.toContain("rotated-token");
     await app.close();
   });
 
@@ -805,7 +1144,7 @@ describe("Community dashboard API", () => {
     await app.close();
   });
 
-  it("removes all account and Discord user OAuth routes", async () => {
+  it("does not expose the removed Summyz account routes", async () => {
     const app = await createApiServer(createDependencies("local"));
     const removed = await Promise.all(
       [
@@ -815,9 +1154,6 @@ describe("Community dashboard API", () => {
         "/api/auth/change-password",
         "/api/auth/discord",
         "/api/setup/discord",
-        "/api/discord/connect",
-        "/api/discord/callback",
-        "/api/discord/connection",
       ].map((url) => app.inject({ method: "GET", url })),
     );
 
@@ -914,6 +1250,18 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
       create: vi.fn(async () => "session-token"),
       logout: vi.fn(async () => undefined),
     },
+    discordConnection: {
+      cancelAuthorization: vi.fn(async () => undefined),
+      completeAuthorization: vi.fn(async () => undefined),
+      createAuthorizationUrl: vi.fn(async () => "https://discord.com/oauth2/authorize"),
+      getConnectedUserId: vi.fn(async () => "owner-a"),
+      getConnectionStatus: vi.fn(async () => ({
+        connected: true as const,
+        discordUserId: "owner-a",
+        discordUsername: "Owner A",
+      })),
+      listOwnedGuilds: vi.fn(async () => [{ iconUrl: null, id: "guild-1", name: "Equipe" }]),
+    },
     guildConfig: {
       clearSummaryForum: vi.fn(async () => undefined),
       getGuildSettings: vi.fn(async () => ({
@@ -949,6 +1297,14 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
         total: 0,
       })),
     },
+    guildHistory: {
+      hasMeetings: vi.fn(async (guildId: string) => guildId === "guild-1"),
+      list: vi.fn(async () => [{ iconUrl: null, id: "guild-1", name: "Equipe" }]),
+    },
+    guildOwnerApprovals: {
+      confirm: vi.fn(async () => true),
+      isConfirmed: vi.fn(async () => true),
+    },
     health: {
       getStatus: vi.fn(async () => ({
         checkedAt: "2026-09-09T12:00:00.000Z",
@@ -972,6 +1328,7 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
     settings: {
       completeSetup: vi.fn(async () => undefined),
       configureDiscordBot: vi.fn(async () => undefined),
+      rotateDiscordBot: vi.fn(async () => "rotated" as const),
       getSettings: vi.fn(async () => ({
         discordApplicationId: null,
         secrets: { discordBotToken: false, openRouterApiKey: false },

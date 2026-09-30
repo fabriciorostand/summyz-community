@@ -5,7 +5,10 @@ import { MultilingualCheckpointRequiredError } from "../local-ai/local-model-man
 import { LocalModelsUnavailableError } from "../models/local-model-inventory.js";
 import { ModelOperationError } from "../models/model-catalog.js";
 import { OpenRouterModelPreflightError } from "../openrouter/model-preflight.js";
-import { RecordingAlreadyActiveError } from "../recording/recording-coordinator.js";
+import {
+  RecordingAlreadyActiveError,
+  RecordingRecoveryPendingError,
+} from "../recording/recording-coordinator.js";
 import type { InteractionText } from "./interaction-text.js";
 
 export const handleRecordingStartError = async (
@@ -24,6 +27,10 @@ export const handleRecordingStartError = async (
   }
   if (error instanceof RecordingAlreadyActiveError) {
     await interaction.editReply(text.recordingAlreadyActive);
+    return true;
+  }
+  if (error instanceof RecordingRecoveryPendingError) {
+    await interaction.editReply(text.recordingRecoveryPending);
     return true;
   }
   if (error instanceof MultilingualCheckpointRequiredError) {

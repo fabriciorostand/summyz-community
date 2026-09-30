@@ -10,17 +10,20 @@ describe("waitForBotConfiguration", () => {
         discordApplicationId: "application-id",
         discordToken: "bot-token",
         setupCompleted: false,
+        version: "version-1",
       })
       .mockResolvedValueOnce({
         discordApplicationId: "application-id",
         discordToken: "bot-token",
         setupCompleted: true,
+        version: "version-1",
       });
     const delay = vi.fn(async () => undefined);
 
     await expect(waitForBotConfiguration({ delay, read })).resolves.toEqual({
       discordApplicationId: "application-id",
       discordToken: "bot-token",
+      version: "version-1",
     });
     expect(delay).toHaveBeenCalledOnce();
   });
@@ -32,11 +35,13 @@ describe("waitForBotConfiguration", () => {
         discordApplicationId: null,
         discordToken: undefined,
         setupCompleted: true,
+        version: "version-1",
       })
       .mockResolvedValueOnce({
         discordApplicationId: "application-id",
         discordToken: "bot-token",
         setupCompleted: true,
+        version: "version-1",
       });
     const delay = vi.fn(async () => undefined);
 

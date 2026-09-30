@@ -13,6 +13,36 @@ const localized = (en: string, portuguese: string): LocalizedText => ({
 });
 
 export const commandCatalog = {
+  recordingActivate: {
+    description: localized(
+      "Confirms the server forum, AI profile, and recording permissions after an ownership change",
+      "Confirma o fórum, o perfil de IA e as permissões após troca de dono",
+    ),
+    name: "recording-activate",
+  },
+  recordingProfile: {
+    description: localized(
+      "Selects the server's active AI profile",
+      "Seleciona o perfil de IA ativo do servidor",
+    ),
+    name: "recording-profile",
+    subcommands: {
+      list: {
+        description: localized("Lists complete AI profiles", "Lista os perfis de IA completos"),
+        name: "list",
+      },
+      set: {
+        description: localized("Selects an AI profile", "Seleciona um perfil de IA"),
+        name: "set",
+        options: {
+          profile: {
+            description: localized("AI profile ID", "ID do perfil de IA"),
+            name: "profile",
+          },
+        },
+      },
+    },
+  },
   record: {
     description: localized(
       "Starts recording the voice channel you are in",
@@ -180,7 +210,15 @@ function subcommandReference(command: CatalogEntry, subcommand: CatalogEntry) {
 }
 
 export function createCommandReference() {
-  const { record, recordingCost, recordingRole, recordingSummaryForum, stop } = commandCatalog;
+  const {
+    record,
+    recordingActivate,
+    recordingCost,
+    recordingProfile,
+    recordingRole,
+    recordingSummaryForum,
+    stop,
+  } = commandCatalog;
   return [
     {
       commands: [rootReference(record), rootReference(stop)],
@@ -195,6 +233,9 @@ export function createCommandReference() {
         subcommandReference(recordingRole, recordingRole.subcommands.add),
         subcommandReference(recordingRole, recordingRole.subcommands.remove),
         subcommandReference(recordingRole, recordingRole.subcommands.list),
+        subcommandReference(recordingProfile, recordingProfile.subcommands.list),
+        subcommandReference(recordingProfile, recordingProfile.subcommands.set),
+        rootReference(recordingActivate),
       ],
       id: "administrative",
       label: "Administrative shortcuts",

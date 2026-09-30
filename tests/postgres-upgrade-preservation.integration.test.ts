@@ -27,7 +27,7 @@ const pendingStatuses = [
 describe.skipIf(connectionString === undefined)(
   "contrato real de atualização do PostgreSQL",
   () => {
-    it.each([9, 14, 15])(
+    it.each([9, 14, 15, 17])(
       "preserva calls, jobs, custos e catálogo de áudio ao atualizar da versão %i",
       async (baseline) => {
         const adminPool = new Pool({
@@ -62,6 +62,7 @@ CREATE TABLE schema_migrations (
               notificationChannelId: "text-upgrade-contract",
               startedAt: "2026-09-03T20:00:00.000Z",
               storageMode: "postgres",
+              ...(status === "recording" ? { verifiedOwnerUserId: "owner-upgrade" } : {}),
               voiceChannelId: "voice-upgrade-contract",
             });
             const manifest =
@@ -204,7 +205,9 @@ SELECT
             },
           ]);
 
-          await expect(meetingStore.listRecoverable()).resolves.toHaveLength(1);
+          await expect(meetingStore.listRecoverable()).resolves.toMatchObject([
+            { verifiedOwnerUserId: "owner-upgrade" },
+          ]);
         } finally {
           await scopedDatabase.close();
           await adminPool.query(`DROP SCHEMA "${schemaName}" CASCADE`);

@@ -1,6 +1,11 @@
+import { createHash } from "node:crypto";
 import { z } from "zod";
 
-import type { GuildDirectory, GuildMemberDirectoryItem } from "../api/server-contracts.js";
+import type {
+  GuildDirectory,
+  GuildMemberDirectoryItem,
+  InstalledDiscordGuild,
+} from "../api/server-contracts.js";
 import { memberDirectoryPageOptionsSchema } from "../directory-pagination.js";
 
 const guildsSchema = z.array(
@@ -50,6 +55,7 @@ interface DirectoryOptions {
 export class DiscordRestGuildDirectory implements GuildDirectory {
   readonly #fetch: typeof globalThis.fetch;
   readonly #getBotToken: () => Promise<string | undefined>;
+  #installedGuildLookup: { key: string; request: Promise<InstalledDiscordGuild[]> } | undefined;
 
   public constructor(options: DirectoryOptions) {
     this.#fetch = options.fetch;
@@ -57,15 +63,30 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
   }
 
   public async listInstalledGuilds() {
-    const payload = await this.#request("/users/@me/guilds");
-    return guildsSchema.parse(payload).map((guild) => ({
-      iconUrl:
-        guild.icon === undefined || guild.icon === null
-          ? null
-          : `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`,
-      id: guild.id,
-      name: guild.name,
-    }));
+    const token = await this.#getBotToken();
+    if (token === undefined) throw new Error("Discord bot is not configured");
+    const key = createHash("sha256").update(token).digest("hex");
+    if (this.#installedGuildLookup?.key === key) return this.#installedGuildLookup.request;
+    const request = this.#fetch("https://discord.com/api/v10/users/@me/guilds", {
+      headers: { authorization: `Bot ${token}` },
+    }).then(async (response) => {
+      if (!response.ok) throw new Error("Discord bot API request failed");
+      const payload: unknown = await response.json();
+      return guildsSchema.parse(payload).map((guild) => ({
+        iconUrl:
+          guild.icon === undefined || guild.icon === null
+            ? null
+            : `https://cdn.discordapp.com/icons/${guild.id}/${guild.icon}.png?size=128`,
+        id: guild.id,
+        name: guild.name,
+      }));
+    });
+    this.#installedGuildLookup = { key, request };
+    try {
+      return await request;
+    } finally {
+      if (this.#installedGuildLookup?.request === request) this.#installedGuildLookup = undefined;
+    }
   }
 
   public async inspectBotToken(token: string) {

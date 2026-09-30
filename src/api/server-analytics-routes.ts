@@ -12,6 +12,7 @@ import { createMeetingTextExport, MeetingExportUnavailableError } from "./meetin
 import type { ApiServerDependencies } from "./server-contracts.js";
 import {
   authorizeGuild,
+  authorizeHistoricalGuild,
   type GuildAccessResolver,
   parseRequestInput,
   refreshParticipantProfiles,
@@ -69,7 +70,7 @@ export function registerAnalyticsRoutes(
   resolveGuildAccess: GuildAccessResolver,
 ): void {
   app.get("/api/guilds/:guildId/dashboard", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
     const { period, timeZone } = parseRequestInput(
       z.object({ period: z.enum(["30d", "90d", "all"]).default("30d"), timeZone: timeZoneSchema }),
       request.query,
@@ -108,7 +109,7 @@ export function registerAnalyticsRoutes(
     };
   });
   app.get("/api/guilds/:guildId/meetings", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
     const query = parseRequestInput(meetingListQuerySchema, request.query);
     const { timeZone } = query;
     const analytics = requireAnalytics(dependencies);
@@ -146,7 +147,7 @@ export function registerAnalyticsRoutes(
     };
   });
   app.get("/api/guilds/:guildId/meetings/:meetingId", async (request, reply) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
     const { timeZone } = parseRequestInput(calendarQuerySchema, request.query);
     const { meetingId } = parseRequestInput(
       z.object({ meetingId: z.string().min(1).max(128) }),
@@ -177,7 +178,7 @@ export function registerAnalyticsRoutes(
     };
   });
   app.get("/api/guilds/:guildId/meetings/:meetingId/export", async (request, reply) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
     const presentation = parseRequestInput(exportPresentationSchema, request.query);
     const { meetingId } = parseRequestInput(
       z.object({ meetingId: z.string().min(1).max(128) }),
@@ -199,7 +200,7 @@ export function registerAnalyticsRoutes(
     }
   });
   app.get("/api/guilds/:guildId/participants", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
     const query = parseRequestInput(directoryPageQuerySchema, request.query);
     return runApiDependency("database", "list_meeting_participants", () =>
       dependencies.participants.list(guildId, {
@@ -210,7 +211,7 @@ export function registerAnalyticsRoutes(
     );
   });
   app.get("/api/guilds/:guildId/tasks", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
     const query = parseRequestInput(
       z.object({
         completed: z.stringbool().optional(),

@@ -89,6 +89,17 @@ export class PostgresInstallationHealthStore {
     );
   }
 
+  public async getHeartbeatAt(componentId: string): Promise<string | undefined> {
+    const result = await this.#database.query(
+      "SELECT heartbeat_at FROM runtime_component_heartbeats WHERE component_id = $1",
+      [identifierSchema.parse(componentId)],
+    );
+    const first = result.rows[0];
+    if (first === undefined) return undefined;
+    const row = z.object({ heartbeat_at: z.union([z.date(), z.iso.datetime()]) }).parse(first);
+    return new Date(row.heartbeat_at).toISOString();
+  }
+
   public async getStatus(): Promise<InstallationHealthStatus> {
     const [queueResult, heartbeatResult, localProfiles] = await Promise.all([
       this.#database.query(

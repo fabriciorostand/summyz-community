@@ -10,7 +10,14 @@ import { databaseMigrations } from "../src/database/migrations.js";
 describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
-    expect(databaseMigrations.at(-1)).toMatchObject({ version: 16 });
+    expect(databaseMigrations.at(-1)).toMatchObject({ version: 18 });
+    expect(databaseMigrations.find(({ version }) => version === 18)?.sql).toContain(
+      "CREATE TABLE guild_history",
+    );
+    const ownershipMigration = databaseMigrations.find(({ version }) => version === 17)?.sql;
+    expect(ownershipMigration).toContain("installation_discord_connection");
+    expect(ownershipMigration).toContain("installation_oauth_states");
+    expect(ownershipMigration).toContain("guild_owner_approvals");
     expect(databaseMigrations.find(({ version }) => version === 14)?.sql).toContain(
       "DROP CONSTRAINT ai_profiles_translation_check",
     );

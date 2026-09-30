@@ -11,6 +11,8 @@ import type {
   MeetingHistoryFilters,
   MeetingHistoryPage,
 } from "../database/postgres-analytics-store.js";
+import type { PostgresGuildHistoryStore } from "../database/postgres-guild-history-store.js";
+import type { GuildOwnerApprovalStore } from "../database/postgres-guild-owner-approval-store.js";
 import type { InstallationHealthStatus } from "../database/postgres-installation-health-store.js";
 import type {
   InstallationSecretName,
@@ -19,6 +21,7 @@ import type {
 import type { LiveMeetingState } from "../database/postgres-live-meeting-store.js";
 import type { PostgresParticipantDirectoryStore } from "../database/postgres-participant-directory-store.js";
 import type { DashboardTask } from "../database/postgres-task-store.js";
+import type { InstallationDiscordConnection } from "../discord/installation-discord-connection.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
 import type { LocalModelInventory } from "../models/local-model-inventory.js";
 import type { ModelCatalogService } from "../models/model-catalog-service.js";
@@ -28,6 +31,7 @@ import type { ModelManagement } from "../models/model-management.js";
 export const setupSchema = z.object({
   setupLanguage: z.enum(["en", "pt-BR"]),
   discordBotToken: z.string().min(1),
+  discordClientSecret: z.string().min(1).optional(),
   installationPassword: installationPasswordSchema.optional(),
 });
 export const guildSettingsSchema = z.object({
@@ -73,6 +77,10 @@ export interface ApiRecoveryService {
 export interface ApiSettingsStore {
   completeSetup(): Promise<void>;
   configureDiscordBot(applicationId: string, token: string): Promise<void>;
+  rotateDiscordBot(
+    applicationId: string,
+    token: string,
+  ): Promise<"unchanged" | "rotated" | "replaced">;
   getSettings(): Promise<InstallationSettings>;
   removeSecret(name: InstallationSecretName): Promise<void>;
   setSecret(name: InstallationSecretName, value: string): Promise<void>;
@@ -82,6 +90,10 @@ export interface InstalledDiscordGuild {
   iconUrl: string | null;
   id: string;
   name: string;
+}
+
+export interface OwnedDiscordGuild extends InstalledDiscordGuild {
+  installed: boolean;
 }
 
 export interface DiscordApplication {
@@ -162,8 +174,19 @@ export interface ApiServerDependencies {
   analytics?: ApiAnalyticsStore;
   aiProfiles: AiProfileStore;
   auth: ApiAuthService;
+  discordConnection: Pick<
+    InstallationDiscordConnection,
+    | "cancelAuthorization"
+    | "completeAuthorization"
+    | "createAuthorizationUrl"
+    | "getConnectedUserId"
+    | "getConnectionStatus"
+    | "listOwnedGuilds"
+  >;
   guildConfig: GuildConfigurationStore;
   guildDirectory: GuildDirectory;
+  guildHistory: Pick<PostgresGuildHistoryStore, "hasMeetings" | "list">;
+  guildOwnerApprovals: GuildOwnerApprovalStore;
   health: { getStatus(): Promise<InstallationHealthStatus> };
   logger: Logger;
   liveMeetings: { getForGuild(guildId: string): Promise<LiveMeetingState | null> };

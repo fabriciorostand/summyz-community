@@ -6,6 +6,14 @@ import { type RecordingManifest, recordingManifestSchema } from "../recording/ma
 import type { ManifestIndex } from "../recording/manifest-store.js";
 import { CURRENT_TRANSCRIPTION_RECOVERY_VERSION } from "../transcription/transcription-recovery-policy.js";
 import type { PostgresExecutor } from "./postgres-database.js";
+import { discordBotConfigurationLockSql } from "./postgres-installation-settings-store.js";
+
+export class BotConfigurationChangedError extends Error {
+  public constructor() {
+    super("bot_configuration_changed");
+    this.name = "BotConfigurationChangedError";
+  }
+}
 
 const pipelineStatusSchema = z.enum([
   "recording",
@@ -27,14 +35,36 @@ const failureCodeSchema = z
 
 export class PostgresMeetingStore implements ManifestIndex {
   readonly #database: PostgresExecutor;
+  readonly #expectedBotConfigurationVersion: string | undefined;
 
-  public constructor(database: PostgresExecutor) {
+  public constructor(database: PostgresExecutor, expectedBotConfigurationVersion?: string) {
     this.#database = database;
+    this.#expectedBotConfigurationVersion = expectedBotConfigurationVersion;
   }
 
   public async save(manifest: RecordingManifest): Promise<void> {
     const validated = recordingManifestSchema.parse(manifest);
-    await this.#database.query(
+    if (validated.status === "recording" && this.#expectedBotConfigurationVersion !== undefined) {
+      if (this.#database.transaction === undefined) {
+        throw new Error("A database transaction is required to start a recording");
+      }
+      await this.#database.transaction(async (database) => {
+        await database.query(discordBotConfigurationLockSql);
+        const version = await database.query(
+          "SELECT updated_at::text AS version FROM installation_settings WHERE singleton = true",
+        );
+        if (version.rows[0]?.version !== this.#expectedBotConfigurationVersion) {
+          throw new BotConfigurationChangedError();
+        }
+        await this.#saveValidated(database, validated);
+      });
+      return;
+    }
+    await this.#saveValidated(this.#database, validated);
+  }
+
+  async #saveValidated(database: PostgresExecutor, validated: RecordingManifest): Promise<void> {
+    await database.query(
       `
 WITH saved_meeting AS (
 INSERT INTO meetings (
@@ -71,7 +101,8 @@ ON CONFLICT (meeting_id) DO UPDATE SET
   ai_profile_id = COALESCE(meetings.ai_profile_id, EXCLUDED.ai_profile_id),
   ai_profile_name = COALESCE(meetings.ai_profile_name, EXCLUDED.ai_profile_name),
   updated_at = now()
-RETURNING meeting_id
+WHERE meetings.pipeline_status NOT IN ('completed', 'failed')
+RETURNING meeting_id, pipeline_status
 )
 INSERT INTO processing_jobs (
   job_id, meeting_id, job_type, status, available_at, max_attempts,
@@ -79,12 +110,12 @@ INSERT INTO processing_jobs (
 )
 SELECT $13, meeting_id, 'transcription', 'scheduled', $14, 6, $16
 FROM saved_meeting
-WHERE $5 = 'completed'
+WHERE $5 = 'completed' AND pipeline_status NOT IN ('completed', 'failed')
 ON CONFLICT (meeting_id, job_type) DO NOTHING
 `,
       meetingQueryValues(validated),
     );
-    await persistParticipants(this.#database, validated);
+    await persistParticipants(database, validated);
   }
 
   public async listCompleted(): Promise<RecordingManifest[]> {
@@ -125,10 +156,21 @@ SET
   failure_code = $3,
   manifest = CASE WHEN $2 IN ('completed', 'failed') THEN NULL ELSE manifest END,
   updated_at = now()
-WHERE meeting_id = $1
+WHERE meeting_id = $1 AND pipeline_status NOT IN ('completed', 'failed')
 `,
       [validatedMeetingId, validatedStatus, validatedFailureCode],
     );
+  }
+
+  public async isProcessable(meetingId: string): Promise<boolean> {
+    const result = await this.#database.query(
+      `SELECT EXISTS (
+         SELECT 1 FROM meetings
+         WHERE meeting_id = $1 AND pipeline_status NOT IN ('completed', 'failed')
+       ) AS processable`,
+      [z.string().min(1).max(128).parse(meetingId)],
+    );
+    return z.boolean().parse(result.rows[0]?.processable);
   }
 
   public async listTerminalMeetingIds(): Promise<string[]> {
@@ -163,6 +205,7 @@ WHERE meeting_id = $1
 SELECT manifest
 FROM meetings
 WHERE recording_status ${negate ? "<>" : "="} $1
+  AND pipeline_status NOT IN ('completed', 'failed')
   AND manifest IS NOT NULL
 ORDER BY started_at
 `,

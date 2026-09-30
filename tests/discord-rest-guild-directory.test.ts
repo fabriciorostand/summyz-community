@@ -115,6 +115,29 @@ describe("DiscordRestGuildDirectory", () => {
     ]);
   });
 
+  it("shares an in-flight bot guild lookup but checks Discord again later", async () => {
+    let resolveGuilds: ((response: Response) => void) | undefined;
+    const firstResponse = new Promise<Response>((resolve) => {
+      resolveGuilds = resolve;
+    });
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockReturnValueOnce(firstResponse)
+      .mockResolvedValueOnce(Response.json([{ id: "guild-1", name: "Team" }]));
+    const directory = new DiscordRestGuildDirectory({
+      fetch: fetchMock,
+      getBotToken: async () => "bot-token",
+    });
+
+    const first = directory.listInstalledGuilds();
+    const second = directory.listInstalledGuilds();
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    resolveGuilds?.(Response.json([{ id: "guild-1", name: "Team" }]));
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    await directory.listInstalledGuilds();
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it("keeps resources available when the privileged members intent is disabled", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

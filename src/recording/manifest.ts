@@ -119,6 +119,7 @@ const recordingManifestBaseShape = {
   segments: z.array(segmentSchema),
   startedAt: z.iso.datetime(),
   startedByUserId: storageIdentifierSchema.optional(),
+  verifiedOwnerUserId: storageIdentifierSchema.optional(),
   status: manifestStatusSchema,
   storageMode: z.literal("postgres"),
   voiceChannelId: z.string().min(1),
@@ -166,6 +167,7 @@ export type CreateManifestInput = Pick<
   | "notificationChannelId"
   | "startedAt"
   | "startedByUserId"
+  | "verifiedOwnerUserId"
   | "voiceChannelId"
   | "voiceChannelName"
 > &

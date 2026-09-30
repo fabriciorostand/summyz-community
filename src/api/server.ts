@@ -7,9 +7,10 @@ import staticFiles from "@fastify/static";
 import Fastify from "fastify";
 import { z } from "zod";
 
-import { aiProfileSchema } from "../ai-profile.js";
+import { aiProfileSchema, isAiProfileComplete } from "../ai-profile.js";
 import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
 import { createCommandReference } from "../discord/command-catalog.js";
+import { beginDiscordApiRequestWaitBudget } from "../discord/discord-api-fetch.js";
 import type { RecordingUserGrant } from "../guild-config-store.js";
 import { registerAnalyticsRoutes } from "./server-analytics-routes.js";
 import { registerAuthRoutes } from "./server-auth-routes.js";
@@ -39,7 +40,7 @@ import {
 export type { ApiServerDependencies, GuildDirectory } from "./server-contracts.js";
 
 type InstalledGuild = Awaited<
-  ReturnType<ApiServerDependencies["guildDirectory"]["listInstalledGuilds"]>
+  ReturnType<ApiServerDependencies["discordConnection"]["listOwnedGuilds"]>
 >[number];
 
 const loadGuildForums = async (dependencies: ApiServerDependencies, guildId: string) => {
@@ -49,7 +50,13 @@ const loadGuildForums = async (dependencies: ApiServerDependencies, guildId: str
   return dependencies.guildDirectory.getResources(guildId).then((resources) => resources.forums);
 };
 
-const enrichInstalledGuild = async (guild: InstalledGuild, dependencies: ApiServerDependencies) => {
+const enrichInstalledGuild = async (
+  guild: InstalledGuild & { installed: boolean },
+  dependencies: ApiServerDependencies,
+) => {
+  if (!guild.installed) {
+    return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
+  }
   if (dependencies.analytics === undefined) {
     return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
   }
@@ -106,6 +113,7 @@ export async function createApiServer(
   });
   await app.register(rateLimit, { max: 120, timeWindow: "1 minute" });
   app.addHook("onRequest", async (request, reply) => {
+    beginDiscordApiRequestWaitBudget();
     if (dependencies.accessMode === "local" && !isLoopbackHost(request.headers.host)) {
       return reply.status(403).send({ error: "invalid_host" });
     }
@@ -134,6 +142,7 @@ export async function createApiServer(
   app.setErrorHandler((error, request, reply) => {
     const knownError = getKnownApiError(error);
     if (knownError !== undefined) {
+      if (knownError.statusCode >= 500) logApiFailure(dependencies.logger, request, error);
       if (knownError.retryAfterSeconds !== undefined) {
         reply.header("retry-after", knownError.retryAfterSeconds);
       }
@@ -157,8 +166,37 @@ export async function createApiServer(
   });
   app.get("/api/guilds", async (request) => {
     await authorizeDashboard(request, dependencies);
-    const guilds = await resolveGuildAccess();
-    return Promise.all(guilds.map((guild) => enrichInstalledGuild(guild, dependencies)));
+    const historical = await dependencies.guildHistory.list();
+    let owned: (InstalledGuild & { installed: boolean })[] = [];
+    try {
+      owned = [...(await resolveGuildAccess())];
+    } catch (error) {
+      if (getKnownApiError(error)?.body.error === "discord_rate_limited") throw error;
+      dependencies.logger.warn(
+        { errorType: error instanceof Error ? error.name : typeof error },
+        "Unable to list currently owned guilds for dashboard",
+      );
+    }
+    const guildsById = new Map<string, InstalledGuild & { installed: boolean }>(
+      historical.map((guild) => [guild.id, { ...guild, installed: false }]),
+    );
+    for (const guild of owned) guildsById.set(guild.id, guild);
+    const { discordApplicationId } = await dependencies.settings.getSettings();
+    return Promise.all(
+      [...guildsById.values()].map(async (guild) => {
+        const enriched = await enrichInstalledGuild(guild, dependencies);
+        const installUrl =
+          discordApplicationId === null
+            ? null
+            : `https://discord.com/oauth2/authorize?${new URLSearchParams({
+                client_id: discordApplicationId,
+                guild_id: guild.id,
+                permissions: "326417521664",
+                scope: "bot applications.commands",
+              })}`;
+        return { ...enriched, installUrl };
+      }),
+    );
   });
   app.get("/api/installation/bot", async (request) => {
     await authorizeDashboard(request, dependencies);
@@ -182,12 +220,16 @@ export async function createApiServer(
       request.body,
     );
     const application = await dependencies.guildDirectory.inspectBotToken(discordBotToken);
-    await dependencies.settings.configureDiscordBot(application.id, discordBotToken);
+    await dependencies.settings.rotateDiscordBot(application.id, discordBotToken);
     return reply.status(204).send();
   });
   registerAnalyticsRoutes(app, dependencies, resolveGuildAccess);
   app.get("/api/guilds/:guildId/configuration", async (request) => {
-    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const { guildId, ownerConfirmed } = await authorizeGuild(
+      request,
+      dependencies,
+      resolveGuildAccess,
+    );
     const [settings, recordingPermissions, summaryForum, profiles, activeProfile] =
       await runApiDependency("database", "load_guild_configuration", async () => {
         return Promise.all([
@@ -229,6 +271,7 @@ export async function createApiServer(
     }
     return {
       activeProfileId,
+      ownerConfirmationRequired: !ownerConfirmed,
       profiles: await Promise.all(
         profiles.map(async (profile) => ({
           ...profile,
@@ -244,6 +287,24 @@ export async function createApiServer(
       settings,
       summaryForum,
     };
+  });
+  app.post("/api/guilds/:guildId/activation", async (request, reply) => {
+    const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
+    const [forum, profile] = await Promise.all([
+      dependencies.guildConfig.getSummaryForum(guildId),
+      dependencies.aiProfiles.getActiveProfile(guildId),
+    ]);
+    if (forum === undefined || profile === undefined || !isAiProfileComplete(profile)) {
+      return reply.status(409).send({ error: "guild_configuration_incomplete" });
+    }
+    const ownerUserId = await dependencies.discordConnection.getConnectedUserId();
+    if (
+      ownerUserId === null ||
+      !(await dependencies.guildOwnerApprovals.confirm(guildId, ownerUserId))
+    ) {
+      return reply.status(409).send({ error: "guild_owner_changed" });
+    }
+    return reply.status(204).send();
   });
   app.put("/api/guilds/:guildId/settings", async (request, reply) => {
     const { guildId } = await authorizeGuild(request, dependencies, resolveGuildAccess);
@@ -317,16 +378,26 @@ export async function createApiServer(
   });
   app.get("/api/profiles", async (request) => {
     await authorizeDashboard(request, dependencies);
-    const [profiles, activeProfileCounts] = await runApiDependency(
-      "database",
-      "list_ai_profiles",
-      async () => {
-        return Promise.all([
-          dependencies.aiProfiles.listProfiles(),
-          dependencies.aiProfiles.listActiveProfileCounts(),
-        ]);
-      },
+    const [profiles, guilds] = await Promise.all([
+      runApiDependency("database", "list_ai_profiles", () =>
+        dependencies.aiProfiles.listProfiles(),
+      ),
+      resolveGuildAccess(),
+    ]);
+    const activeProfiles = await Promise.all(
+      guilds
+        .filter((guild) => guild.installed)
+        .map((guild) => dependencies.aiProfiles.getActiveProfile(guild.id)),
     );
+    const activeProfileCounts = new Map<string, number>();
+    for (const profile of activeProfiles) {
+      if (profile !== undefined) {
+        activeProfileCounts.set(
+          profile.profileId,
+          (activeProfileCounts.get(profile.profileId) ?? 0) + 1,
+        );
+      }
+    }
     return Promise.all(
       profiles.map(async (profile) => ({
         active: (activeProfileCounts.get(profile.profileId) ?? 0) > 0,
@@ -342,6 +413,7 @@ export async function createApiServer(
   });
   app.post("/api/profiles", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
+    await resolveGuildAccess();
     const profile = aiProfileSchema.parse({
       ...parseRequestInput(profileBodySchema, request.body),
       profileId: randomUUID(),
@@ -352,6 +424,7 @@ export async function createApiServer(
   });
   app.put("/api/profiles/:profileId", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
+    await resolveGuildAccess();
     const parameters = parseRequestInput(profileParametersSchema, request.params);
     const profile = aiProfileSchema.parse({
       ...parseRequestInput(profileBodySchema, request.body),
@@ -363,6 +436,7 @@ export async function createApiServer(
   });
   app.delete("/api/profiles/:profileId", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
+    await resolveGuildAccess();
     const parameters = parseRequestInput(profileParametersSchema, request.params);
     await dependencies.aiProfiles.deleteProfile(parameters.profileId);
     return reply.status(204).send();
@@ -394,7 +468,7 @@ export async function createApiServer(
   app.put("/api/installation/secrets/:secretName", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
     const parameters = parseRequestInput(
-      z.object({ secretName: z.enum(["openrouter_api_key"]) }),
+      z.object({ secretName: z.enum(["discord_client_secret", "openrouter_api_key"]) }),
       request.params,
     );
     const body = parseRequestInput(z.object({ value: z.string().min(1) }), request.body);
@@ -404,7 +478,7 @@ export async function createApiServer(
   app.delete("/api/installation/secrets/:secretName", async (request, reply) => {
     await authorizeDashboard(request, dependencies);
     const parameters = parseRequestInput(
-      z.object({ secretName: z.enum(["openrouter_api_key"]) }),
+      z.object({ secretName: z.enum(["discord_client_secret", "openrouter_api_key"]) }),
       request.params,
     );
     await dependencies.settings.removeSecret(parameters.secretName);

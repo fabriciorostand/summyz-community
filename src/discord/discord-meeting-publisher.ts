@@ -100,6 +100,7 @@ const resolvePublicationText = (
 });
 
 interface DiscordMeetingPublisherOptions {
+  canPublish(manifest: RecordingManifest): Promise<boolean>;
   client: Client;
   guildConfigStore: GuildConfigurationStore;
   language: AppConfig["botLanguage"];
@@ -118,7 +119,15 @@ export interface MeetingPublisher {
   publishTranscriptOnly(manifest: RecordingManifest, transcriptPath: string): Promise<void>;
 }
 
+export class BotLeftGuildError extends Error {
+  public constructor() {
+    super("bot_left_guild");
+    this.name = "BotLeftGuildError";
+  }
+}
+
 export class DiscordMeetingPublisher implements MeetingPublisher {
+  readonly #canPublish: (manifest: RecordingManifest) => Promise<boolean>;
   readonly #client: Client;
   readonly #guildConfigStore: GuildConfigurationStore;
   readonly #language: AppConfig["botLanguage"];
@@ -128,6 +137,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   readonly #timeZone: string;
 
   public constructor(options: DiscordMeetingPublisherOptions) {
+    this.#canPublish = options.canPublish;
     this.#client = options.client;
     this.#guildConfigStore = options.guildConfigStore;
     this.#language = options.language;
@@ -158,6 +168,9 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     transcriptPath: string,
     summary?: PublicSummary,
   ): Promise<void> {
+    if (!(await this.#canPublish(manifest))) {
+      throw new BotLeftGuildError();
+    }
     let state =
       (await this.#store.tryLoad(manifest.meetingId)) ??
       createPublicationState(manifest.meetingId, mode, this.#now().toISOString());
@@ -171,9 +184,11 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     try {
       state = await this.#publishPending(state, manifest, mode, transcriptPath, summary);
     } catch (error) {
-      const persistedState = await this.#store.tryLoad(manifest.meetingId).catch(() => undefined);
-      const failureState = persistedState?.status === "publishing" ? persistedState : state;
-      await this.#notifyFailureOnce(failureState, manifest);
+      if (!(error instanceof BotLeftGuildError)) {
+        const persistedState = await this.#store.tryLoad(manifest.meetingId).catch(() => undefined);
+        const failureState = persistedState?.status === "publishing" ? persistedState : state;
+        await this.#notifyFailureOnce(failureState, manifest);
+      }
       throw error;
     }
 
@@ -233,16 +248,10 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     state = await this.#publishSummaryChunks(
       publication.state,
       publication.thread,
-      manifest.meetingId,
+      manifest,
       summaryChunks,
     );
-    return this.#publishTranscript(
-      state,
-      publication.thread,
-      manifest.meetingId,
-      transcriptPath,
-      text,
-    );
+    return this.#publishTranscript(state, publication.thread, manifest, transcriptPath, text);
   }
 
   async #resolvePublicationThread(
@@ -273,6 +282,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
         : `${text.meetingId}: \`${manifest.meetingId}\`\n\n${text.summaryUnavailable}`;
     if (firstContent === undefined)
       throw new Error("O resumo não possui conteúdo para iniciar o post");
+    await this.#requirePublicationAccess(manifest);
     const thread = await forum.threads.create({
       ...(destination.tagId === undefined ? {} : { appliedTags: [destination.tagId] }),
       autoArchiveDuration: ThreadAutoArchiveDuration.OneWeek,
@@ -296,7 +306,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   async #publishSummaryChunks(
     state: PublishingState,
     thread: GuildTextBasedChannel,
-    meetingId: string,
+    manifest: RecordingManifest,
     summaryChunks: readonly string[],
   ): Promise<PublishingState> {
     for (let index = state.summaryMessageIds.length; index < summaryChunks.length; index += 1) {
@@ -304,11 +314,12 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       if (content === undefined) {
         throw new Error("O conteúdo do resumo ficou inconsistente");
       }
+      await this.#requirePublicationAccess(manifest);
       const message = await thread.send({
         allowedMentions: { parse: [] },
         content,
         enforceNonce: true,
-        nonce: createNonce(meetingId, `summary:${index}`),
+        nonce: createNonce(manifest.meetingId, `summary:${index}`),
       });
       state = await this.#saveProgress(state, {
         summaryMessageIds: [...state.summaryMessageIds, message.id],
@@ -320,17 +331,18 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   async #publishTranscript(
     state: PublishingState,
     thread: GuildTextBasedChannel,
-    meetingId: string,
+    manifest: RecordingManifest,
     transcriptPath: string,
     text: PublicationText,
   ): Promise<PublishingState> {
     if (state.transcriptMessageId !== undefined) return state;
+    await this.#requirePublicationAccess(manifest);
     const transcriptMessage = await thread.send({
       allowedMentions: { parse: [] },
       content: text.fullTranscript,
       enforceNonce: true,
       files: [transcriptPath],
-      nonce: createNonce(meetingId, "transcript"),
+      nonce: createNonce(manifest.meetingId, "transcript"),
     });
     return this.#saveProgress(state, { transcriptMessageId: transcriptMessage.id });
   }
@@ -341,6 +353,12 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       throw new Error("Nenhum fórum de resumos está configurado neste servidor");
     }
     return destination;
+  }
+
+  async #requirePublicationAccess(manifest: RecordingManifest): Promise<void> {
+    if (!(await this.#canPublish(manifest))) {
+      throw new BotLeftGuildError();
+    }
   }
 
   async #resolveForum(channelId: string): Promise<ForumChannel> {

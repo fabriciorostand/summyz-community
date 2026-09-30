@@ -1,4 +1,5 @@
-import type { FastifyInstance } from "fastify";
+import { randomBytes } from "node:crypto";
+import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 import { z } from "zod";
 
 import { profileLanguageSchema } from "../ai-profile.js";
@@ -6,10 +7,12 @@ import { createDefaultAiPrompts } from "../ai-prompts.js";
 import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { InstallationLoginThrottle } from "../auth/installation-login-throttle.js";
 import { installationPasswordSchema } from "../auth/installation-password.js";
+import { DiscordConnectionError } from "../discord/installation-discord-connection.js";
 import type { ApiServerDependencies } from "./server-contracts.js";
 import {
   authorizeDashboard,
   clearSessionCookie,
+  logApiFailure,
   parseRequestInput,
   setSessionCookie,
 } from "./server-support.js";
@@ -20,12 +23,98 @@ const changePasswordSchema = z.object({
   newPassword: installationPasswordSchema,
 });
 const recoverySchema = z.object({ newPassword: installationPasswordSchema });
+const discordCallbackSchema = z.object({
+  code: z.string().min(1).max(2048).optional(),
+  error: z.string().min(1).max(128).optional(),
+  state: z.string().min(1).max(512),
+});
+
+async function finishDiscordCallback(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  dependencies: ApiServerDependencies,
+  browserBinding: string,
+  callback: z.infer<typeof discordCallbackSchema>,
+): Promise<FastifyReply> {
+  try {
+    if (callback.error !== undefined) {
+      await dependencies.discordConnection.cancelAuthorization(browserBinding, callback.state);
+      return reply.redirect(
+        callback.error === "access_denied"
+          ? "/servers?discord=cancelled"
+          : "/servers?discord=failed",
+      );
+    }
+    if (callback.code === undefined) return reply.redirect("/servers?discord=failed");
+    await dependencies.discordConnection.completeAuthorization(
+      browserBinding,
+      callback.code,
+      callback.state,
+    );
+    if (dependencies.accessMode === "public") clearSessionCookie(reply);
+    return reply.redirect("/servers?discord=connected");
+  } catch (error) {
+    if (error instanceof DiscordConnectionError && error.code === "invalid_oauth_state") {
+      return reply.redirect("/servers?discord=invalid_state");
+    }
+    logApiFailure(dependencies.logger, request, error);
+    return reply.redirect("/servers?discord=failed");
+  }
+}
 
 export function registerAuthRoutes(
   app: FastifyInstance,
   dependencies: ApiServerDependencies,
 ): void {
   const throttle = new InstallationLoginThrottle();
+
+  app.get("/api/discord/connect", async (request, reply) => {
+    await authorizeDashboard(request, dependencies);
+    const browserBinding =
+      dependencies.accessMode === "public"
+        ? randomBytes(32).toString("base64url")
+        : "local-installation-browser";
+    const authorizationUrl =
+      await dependencies.discordConnection.createAuthorizationUrl(browserBinding);
+    if (dependencies.accessMode === "public") {
+      reply.setCookie("summyz_oauth", browserBinding, {
+        httpOnly: true,
+        maxAge: 10 * 60,
+        path: "/api/discord/callback",
+        sameSite: "lax",
+        secure: true,
+      });
+    }
+    return {
+      authorizationUrl,
+    };
+  });
+
+  app.get("/api/discord/callback", async (request, reply) => {
+    if (dependencies.accessMode === "local") await authorizeDashboard(request, dependencies);
+    const browserBinding =
+      dependencies.accessMode === "local"
+        ? "local-installation-browser"
+        : request.cookies.summyz_oauth;
+    if (dependencies.accessMode === "public") {
+      reply.clearCookie("summyz_oauth", {
+        httpOnly: true,
+        path: "/api/discord/callback",
+        sameSite: "lax",
+        secure: true,
+      });
+    }
+    const callback = discordCallbackSchema.safeParse(request.query);
+    if (browserBinding === undefined || browserBinding.length === 0 || !callback.success) {
+      return reply.redirect("/servers?discord=invalid_state");
+    }
+    return finishDiscordCallback(request, reply, dependencies, browserBinding, callback.data);
+  });
+
+  app.get("/api/discord/connection", async (request) => {
+    await authorizeDashboard(request, dependencies);
+    return dependencies.discordConnection.getConnectionStatus();
+  });
 
   app.get("/api/access/status", async (request) => {
     const settings = await dependencies.settings.getSettings();
