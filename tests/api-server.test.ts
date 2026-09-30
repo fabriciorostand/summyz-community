@@ -898,6 +898,8 @@ describe("Community dashboard API", () => {
         installUrl: expect.stringContaining("guild_id=guild-new"),
       }),
     );
+    const newGuild = guilds.find((guild: { id: string }) => guild.id === "guild-new");
+    expect(new URL(newGuild.installUrl).searchParams.get("permissions")).toBe("274879057024");
     expect(
       (await app.inject({ method: "GET", url: "/api/guilds/guild-new/configuration" })).statusCode,
     ).toBe(403);
@@ -1060,6 +1062,9 @@ describe("Community dashboard API", () => {
     expect(response.json()).toMatchObject({ applicationId: "application-1", configured: true });
     expect(response.json().installUrl).toContain("client_id=application-1");
     expect(response.json().installUrl).toContain("applications.commands");
+    expect(new URL(response.json().installUrl).searchParams.get("permissions")).toBe(
+      "274879057024",
+    );
     await app.close();
   });
 

@@ -24,6 +24,13 @@ import {
 import { InMemoryGuildConfigurationStore } from "./in-memory-guild-config-store.js";
 
 interface InteractionOptions {
+  aiProfileStoreAvailable?: boolean;
+  checkRecordingPermissions?: (context: {
+    forumId: string;
+    guildId: string;
+    notificationChannelId: string;
+    voiceChannelId: string;
+  }) => Promise<void>;
   actualGuildOwnerId?: string;
   administrator?: boolean;
   botLanguage?: "en" | "pt-BR";
@@ -32,6 +39,7 @@ interface InteractionOptions {
   chatInput?: boolean;
   commandName?: string;
   compatibility?: AiProfileCompatibilityStatus[];
+  compatibilityCheckAvailable?: boolean;
   deferred?: boolean;
   forum?: object;
   guildAvailable?: boolean;
@@ -148,14 +156,17 @@ async function createHarness(options: InteractionOptions = {}) {
     createLogger("silent"),
     options.botLanguage ?? "pt-BR",
     costReport,
-    aiProfileStore,
-    async () => options.compatibility ?? [],
+    options.aiProfileStoreAvailable === false ? undefined : aiProfileStore,
+    options.compatibilityCheckAvailable === false
+      ? undefined
+      : async () => options.compatibility ?? [],
     typeof openRouterConfigured === "function"
       ? openRouterConfigured
       : () => openRouterConfigured ?? false,
     async () => options.botLanguage ?? "pt-BR",
     connectedAccount,
     ownerApprovals,
+    options.checkRecordingPermissions,
   );
 
   const reply = vi.fn(async () => undefined);
@@ -269,6 +280,47 @@ describe("fluxo de comandos do Discord", () => {
 
     expect(context.start).toHaveBeenCalledWith(
       expect.objectContaining({ verifiedOwnerUserId: "user-1" }),
+    );
+  });
+  it("inspects recording permissions without blocking a valid recording", async () => {
+    const checkRecordingPermissions = vi.fn(async () => {
+      throw new Error("Permission diagnostics unavailable");
+    });
+    const context = await createHarness({
+      checkRecordingPermissions,
+      guildOwner: true,
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(checkRecordingPermissions).toHaveBeenCalledWith({
+      forumId: "forum-1",
+      guildId: "guild-1",
+      notificationChannelId: "command-chat",
+      voiceChannelId: "voice-1",
+    });
+    expect(context.start).toHaveBeenCalledOnce();
+  });
+  it("keeps role-based recording authorization independent of bot command permissions", async () => {
+    const context = await createHarness({
+      aiProfileStoreAvailable: false,
+      compatibilityCheckAvailable: false,
+      memberRoleIds: ["recorders"],
+      voiceChannel: { id: "voice-1", name: "Lobby", type: ChannelType.GuildVoice },
+    });
+    await context.store.setRecordingPermissions("guild-1", {
+      roleIds: ["recorders"],
+      userGrants: [],
+    });
+    await context.store.setSummaryForum("guild-1", { forumId: "forum-1" });
+
+    await context.listener(context.interaction);
+
+    expect(context.start).toHaveBeenCalledOnce();
+    expect(context.start).toHaveBeenCalledWith(
+      expect.objectContaining({ verifiedOwnerUserId: "owner-1" }),
     );
   });
   it("explains why another recording cannot start while recovery is pending", async () => {

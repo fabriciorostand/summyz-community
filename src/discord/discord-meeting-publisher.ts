@@ -106,6 +106,7 @@ interface DiscordMeetingPublisherOptions {
   language: AppConfig["botLanguage"];
   logger: Logger;
   now?: () => Date;
+  onFailure?: (guildId: string, forumId: string) => Promise<void>;
   store: PublicationStore;
   timeZone: string;
 }
@@ -133,6 +134,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
   readonly #language: AppConfig["botLanguage"];
   readonly #logger: Logger;
   readonly #now: () => Date;
+  readonly #onFailure: ((guildId: string, forumId: string) => Promise<void>) | undefined;
   readonly #store: PublicationStore;
   readonly #timeZone: string;
 
@@ -143,6 +145,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     this.#language = options.language;
     this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
+    this.#onFailure = options.onFailure;
     this.#store = options.store;
     this.#timeZone = options.timeZone;
   }
@@ -184,11 +187,7 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     try {
       state = await this.#publishPending(state, manifest, mode, transcriptPath, summary);
     } catch (error) {
-      if (!(error instanceof BotLeftGuildError)) {
-        const persistedState = await this.#store.tryLoad(manifest.meetingId).catch(() => undefined);
-        const failureState = persistedState?.status === "publishing" ? persistedState : state;
-        await this.#notifyFailureOnce(failureState, manifest);
-      }
+      await this.#handlePublicationFailure(error, state, manifest);
       throw error;
     }
 
@@ -221,6 +220,34 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
       { meetingId: manifest.meetingId, publicationMode: mode, threadId: completed.threadId },
       "Resultado da reunião publicado no Discord",
     );
+  }
+
+  async #handlePublicationFailure(
+    error: unknown,
+    state: PublishingState,
+    manifest: RecordingManifest,
+  ): Promise<void> {
+    if (error instanceof BotLeftGuildError) return;
+    if (this.#onFailure !== undefined) {
+      try {
+        const destination = await this.#guildConfigStore.getSummaryForum(manifest.guildId);
+        if (destination !== undefined) {
+          await this.#onFailure(manifest.guildId, destination.forumId);
+        }
+      } catch (diagnosticError) {
+        this.#logger.warn(
+          {
+            errorType:
+              diagnosticError instanceof Error ? diagnosticError.name : typeof diagnosticError,
+            guildId: manifest.guildId,
+          },
+          "Unable to inspect bot permissions after publication failure",
+        );
+      }
+    }
+    const persistedState = await this.#store.tryLoad(manifest.meetingId).catch(() => undefined);
+    const failureState = persistedState?.status === "publishing" ? persistedState : state;
+    await this.#notifyFailureOnce(failureState, manifest);
   }
 
   async #publishPending(

@@ -25,6 +25,10 @@ import { PostgresInstallationSettingsStore } from "./database/postgres-installat
 import { PostgresLiveMeetingStore } from "./database/postgres-live-meeting-store.js";
 import { PostgresMeetingStore } from "./database/postgres-meeting-store.js";
 import { PostgresModelCatalogStore } from "./database/postgres-model-catalog-store.js";
+import {
+  BotPermissionMonitor,
+  createDiscordBotPermissionReader,
+} from "./discord/bot-permissions.js";
 import { GuildDepartureHandler } from "./discord/guild-departure-handler.js";
 import { GuildMembershipVerifier } from "./discord/guild-membership-verifier.js";
 import { GuildOwnerVerifier } from "./discord/guild-owner-verifier.js";
@@ -136,6 +140,13 @@ const client = new Client({
     GatewayIntentBits.GuildVoiceStates,
   ],
 });
+const permissionMonitor = new BotPermissionMonitor(
+  createDiscordBotPermissionReader(client),
+  logger,
+);
+client.on(Events.GuildCreate, (guild) => {
+  if (client.isReady()) void permissionMonitor.checkGuild(guild.id);
+});
 const membershipVerifier = new GuildMembershipVerifier(
   (guildId) => client.guilds.fetch({ guild: guildId, force: true }),
   logger,
@@ -182,7 +193,13 @@ const voiceChannelDeletionVerifier = new VoiceChannelDeletionVerifier(
   (channelId) => client.channels.fetch(channelId, { force: true }),
   async (guildId, channelId, startedAt) => {
     const guild = await client.guilds.fetch({ guild: guildId, force: true });
-    const auditLogs = await guild.fetchAuditLogs({ limit: 100, type: AuditLogEvent.ChannelDelete });
+    let auditLogs: Awaited<ReturnType<typeof guild.fetchAuditLogs>>;
+    try {
+      auditLogs = await guild.fetchAuditLogs({ limit: 100, type: AuditLogEvent.ChannelDelete });
+    } catch (error) {
+      await permissionMonitor.checkGuild(guildId);
+      throw error;
+    }
     return auditLogs.entries.some(
       (entry) => entry.targetId === channelId && entry.createdTimestamp >= Date.parse(startedAt),
     );
@@ -217,6 +234,8 @@ const { artifactMaintenance, postgresQueue, processingHandler, worker } =
     database,
     guildConfigStore,
     logger,
+    onPublicationFailure: (guildId, forumId) =>
+      permissionMonitor.checkPublication(guildId, forumId),
     manifestStore,
     membershipVerifier,
     postgresMeetingStore,
@@ -292,6 +311,7 @@ installInteractionHandler(
       (await discordConnectionStore.getConnection())?.discordUserId ?? null,
   },
   ownerApprovals,
+  (context) => permissionMonitor.checkRecording(context),
 );
 installVoiceStateHandler(client, coordinator, logger);
 installGuildOwnershipHandler(client, coordinator, ownerApprovals, logger);
@@ -327,6 +347,13 @@ const botConfigurationMonitor = new BotConfigurationMonitor({
 
 client.once(Events.ClientReady, async (readyClient) => {
   logger.info({ botUserId: readyClient.user.id }, "Summyz connected to Discord");
+  void (async () => {
+    for (const guildId of readyClient.guilds.cache.keys()) {
+      await permissionMonitor.checkGuild(guildId);
+    }
+  })().catch((error: unknown) => {
+    logger.warn({ errorType: getErrorType(error) }, "Unable to inspect startup bot permissions");
+  });
   try {
     await registerCommands(config);
     logger.info(
