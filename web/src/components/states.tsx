@@ -115,11 +115,10 @@ export function ErrorState({
 }
 
 const primaryLinkClass =
-  "inline-flex items-center gap-2 rounded-lg bg-action-gradient px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-action-gradient-hover";
+  "inline-flex items-center justify-center gap-2 rounded-lg bg-action-gradient px-3.5 py-2 text-[13.5px] font-medium text-white transition-colors hover:bg-action-gradient-hover";
 export const secondaryLinkClass =
-  "inline-flex items-center gap-2 rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink transition-colors hover:border-line-strong";
+  "inline-flex items-center justify-center gap-2 rounded-lg border border-line bg-surface-raised px-3.5 py-2 text-[13.5px] text-ink transition-colors hover:border-line-strong";
 
-/** Link to Discord's authorization page; the backend builds the URL from the bot's own token. */
 export function InstallBotLink({
   children,
   installUrl,
@@ -161,7 +160,6 @@ export function NoServerState({ installUrl }: { installUrl: string | undefined }
   );
 }
 
-/** Public mode only: the cookie is gone, so the operator has to type the installation password. */
 export function SessionExpiredState({ onUnlock }: { onUnlock: () => void }) {
   const { t } = useI18n();
   return (
@@ -186,7 +184,23 @@ export function SessionExpiredState({ onUnlock }: { onUnlock: () => void }) {
   );
 }
 
-/** The API answered 403 for this server: the bot left it, but nothing was deleted. */
+export function DiscordNotConnectedState() {
+  const { t } = useI18n();
+  return (
+    <EmptyState
+      action={
+        <Link className={primaryLinkClass} to="/installation">
+          {t.states.openInstallation}
+        </Link>
+      }
+      icon={<DiscordIcon className="size-5" />}
+      title={t.states.discordNotConnectedTitle}
+    >
+      {t.states.discordNotConnectedBody}
+    </EmptyState>
+  );
+}
+
 export function GuildRemovedState({
   guildName,
   installUrl,

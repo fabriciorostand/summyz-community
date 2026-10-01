@@ -1,9 +1,9 @@
-import { SquareCheckBig } from "lucide-react";
+import { Eye, SquareCheckBig } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { EmptyState, ErrorState, LoadingPanel } from "../components/states";
-import { Avatar, Badge, Card } from "../components/ui";
+import { Avatar, Badge, Card, Notice } from "../components/ui";
 import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
@@ -66,6 +66,8 @@ export function TasksPage() {
     [guildId, reloadDashboard],
   );
 
+  // Completing tasks needs the connected owner and the bot; history-only servers are read only.
+  const readOnly = guilds.selectedGuild?.installed === false;
   const groups = tasks === undefined ? undefined : groupByOwner(tasks, t.tasks.noOwner);
   const visibleGroups = groups?.filter((group) => ownerFilter === "" || group.key === ownerFilter);
   const openCount = tasks?.filter((task) => task.completedAt === null).length ?? 0;
@@ -82,11 +84,14 @@ export function TasksPage() {
           ownerFilter={ownerFilter}
           showCompleted={showCompleted}
         />
+        {readOnly && (
+          <Notice icon={<Eye className="mt-0.5 size-3.5 shrink-0" />}>{t.tasks.readOnly}</Notice>
+        )}
         <TasksBody
           failed={loadError || guilds.error}
           hasGuild={guilds.guilds?.length !== 0}
           onRetry={() => setReloadToken((token) => token + 1)}
-          onToggle={toggleTask}
+          onToggle={readOnly ? undefined : toggleTask}
           tasks={tasks}
           visibleGroups={visibleGroups}
         />
@@ -154,7 +159,8 @@ function TasksBody({
   failed: boolean;
   hasGuild: boolean;
   onRetry: () => void;
-  onToggle: (task: DashboardTask) => Promise<void>;
+  /** Absent when the server is read only. */
+  onToggle: ((task: DashboardTask) => Promise<void>) | undefined;
   tasks: DashboardTask[] | undefined;
   visibleGroups: OwnerGroup[] | undefined;
 }) {
@@ -222,7 +228,8 @@ function OwnerSection({
   onToggle,
 }: {
   group: OwnerGroup;
-  onToggle: (task: DashboardTask) => Promise<void>;
+  /** Absent when the server is read only. */
+  onToggle: ((task: DashboardTask) => Promise<void>) | undefined;
 }) {
   const { t } = useI18n();
   return (
@@ -246,7 +253,8 @@ function TaskRow({
   onToggle,
   task,
 }: {
-  onToggle: (task: DashboardTask) => Promise<void>;
+  /** Absent when the server is read only. */
+  onToggle: ((task: DashboardTask) => Promise<void>) | undefined;
   task: DashboardTask;
 }) {
   const { format, t } = useI18n();
@@ -254,12 +262,13 @@ function TaskRow({
   return (
     // Phones put the call link and the deadline under the task text; wider screens keep one row.
     <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 border-b border-line-soft py-2.5 last:border-0 sm:flex sm:items-center">
-      <label className="touch-target flex shrink-0 cursor-pointer pt-0.5 sm:pt-0">
+      <label className="touch-target flex shrink-0 cursor-pointer pt-0.5 has-disabled:cursor-not-allowed sm:pt-0">
         <input
           aria-label={task.text}
           checked={completed}
-          className="size-4 accent-action"
-          onChange={() => void onToggle(task)}
+          className="size-4 accent-action disabled:cursor-not-allowed"
+          disabled={onToggle === undefined}
+          onChange={() => void onToggle?.(task)}
           type="checkbox"
         />
       </label>

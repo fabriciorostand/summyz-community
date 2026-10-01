@@ -137,6 +137,8 @@ export const meetingsMessages = {
     noOwner: "Sem responsável",
     open: (count: number) => `${String(count)} ${plural(count, "aberta", "abertas")}`,
     overdue: (count: number) => `${String(count)} ${plural(count, "atrasada", "atrasadas")}`,
+    readOnly:
+      "Somente leitura: o bot não está neste servidor ou ele é de outra conta. Concluir ou reabrir tarefas exige o dono conectado e o bot instalado.",
     showCompleted: "Mostrar concluídas",
     title: "Tarefas",
     unavailableBody: "Não foi possível carregar as tarefas deste servidor.",

@@ -14,6 +14,7 @@ export type InstallationSecretName = z.infer<typeof installationSecretNameSchema
 
 export interface InstallationSecretStatus {
   discordBotToken: boolean;
+  discordClientSecret: boolean;
   openRouterApiKey: boolean;
 }
 
@@ -62,6 +63,7 @@ export class PostgresInstallationSettingsStore {
       discordApplicationId: row.discord_application_id,
       secrets: {
         discordBotToken: secretNames.has("discord_bot_token"),
+        discordClientSecret: secretNames.has("discord_client_secret"),
         openRouterApiKey: secretNames.has("openrouter_api_key"),
       },
       setupCompleted: row.setup_completed_at !== null,

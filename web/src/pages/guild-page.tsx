@@ -15,7 +15,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 
 import { Disclosure } from "../components/disclosure";
-import { ErrorState, GuildRemovedState, LoadingPanel } from "../components/states";
+import { LoadingPanel } from "../components/states";
 import {
   Avatar,
   Badge,
@@ -26,12 +26,17 @@ import {
   SelectField,
   Toggle,
 } from "../components/ui";
-import { useBotInstallation } from "../hooks/use-bot-installation";
 import { languageNames, languages } from "../i18n/preferences";
 import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
-import { ApiError, api, type GuildConfiguration, type GuildResources } from "../lib/api";
+import { api, type GuildConfiguration, type GuildResources } from "../lib/api";
+import {
+  type GuildLoadFailure,
+  GuildLoadFailureState,
+  guildLoadFailureOf,
+} from "./guild/load-failure";
+import { OwnerConfirmation } from "./guild/owner-confirmation";
 import { availabilityLine, missingSummary } from "./profiles/profile-availability";
 import { Screen } from "./screen";
 
@@ -41,7 +46,7 @@ export function GuildPage() {
   const { t } = useI18n();
   const [configuration, setConfiguration] = useState<GuildConfiguration>();
   const [resources, setResources] = useState<GuildResources>();
-  const [loadError, setLoadError] = useState<"request_failed" | "guild_access_denied">();
+  const [loadError, setLoadError] = useState<GuildLoadFailure>();
   const [saved, setSaved] = useState(false);
 
   const load = useCallback(async () => {
@@ -56,12 +61,7 @@ export function GuildPage() {
       setConfiguration(nextConfiguration);
       setResources(nextResources);
     } catch (caught) {
-      // A 403 means the bot left this server; everything else is a plain failure.
-      setLoadError(
-        caught instanceof ApiError && caught.status === 403
-          ? "guild_access_denied"
-          : "request_failed",
-      );
+      setLoadError(guildLoadFailureOf(caught));
     }
   }, [guildId]);
 
@@ -104,37 +104,33 @@ export function GuildPage() {
         title={guild?.name ?? t.guild.title}
       />
       <Screen>
-        {loadError === "guild_access_denied" ? (
-          <RemovedGuild guildName={guild?.name} />
-        ) : loadError === "request_failed" ? (
-          <ErrorState
-            code="request_failed"
-            onRetry={() => void load()}
-            title={t.guild.unavailableTitle}
-          >
-            {t.guild.unavailableBody}
-          </ErrorState>
+        {loadError !== undefined ? (
+          <GuildLoadFailureState failure={loadError} guild={guild} onRetry={() => void load()} />
         ) : configuration === undefined || resources === undefined ? (
           <LoadingPanel label={t.guild.loading} />
         ) : (
-          <GuildBody
-            configuration={configuration}
-            dashboard={dashboard}
-            guildId={guildId}
-            onChange={setConfiguration}
-            onSaved={flashSaved}
-            periodLabel={t.guild.periods[period]}
-            resources={resources}
-          />
+          <>
+            <OwnerConfirmation
+              guildId={guildId}
+              onConfirmed={() =>
+                setConfiguration({ ...configuration, ownerConfirmationRequired: false })
+              }
+              required={configuration.ownerConfirmationRequired}
+            />
+            <GuildBody
+              configuration={configuration}
+              dashboard={dashboard}
+              guildId={guildId}
+              onChange={setConfiguration}
+              onSaved={flashSaved}
+              periodLabel={t.guild.periods[period]}
+              resources={resources}
+            />
+          </>
         )}
       </Screen>
     </>
   );
-}
-
-function RemovedGuild({ guildName }: { guildName: string | undefined }) {
-  const { installUrl } = useBotInstallation();
-  return <GuildRemovedState guildName={guildName} installUrl={installUrl} />;
 }
 
 function GuildBody({

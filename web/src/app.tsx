@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
-import { Navigate, Outlet, useLocation, useOutletContext } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { type Location, Navigate, Outlet, useLocation, useOutletContext } from "react-router-dom";
+import { z } from "zod";
 
 import { ErrorState, FullPageLoading, SessionExpiredState } from "./components/states";
 import { useI18n } from "./i18n/store";
@@ -26,23 +27,38 @@ export function useAccess(): AccessContext {
   return useOutletContext<AccessContext>();
 }
 
-/** The only screen each access state may show; anything else redirects there. */
-function allowedPath(status: AccessStatus, pathname: string): string | null {
-  if (!status.setupCompleted) return pathname === "/setup" ? null : "/setup";
-  if (status.accessMode === "public" && !status.authenticated) {
-    return pathname === "/login" ? null : "/login";
-  }
-  return pathname === "/login" || pathname === "/setup" ? "/" : null;
+const returnStateSchema = z.object({ from: z.string().regex(/^\/(?![/\\])/u) });
+
+function returnPath(state: unknown): string {
+  const parsed = returnStateSchema.safeParse(state);
+  return parsed.success ? parsed.data.from : "/";
 }
 
-/**
- * There are no user accounts: the access status decides between the first-run setup, the
- * installation password (public mode only) and the dashboard itself.
- */
+interface Redirect {
+  from?: string;
+  to: string;
+}
+
+function RedirectTo({ from, to }: Redirect) {
+  const state = useMemo(() => (from === undefined ? undefined : { from }), [from]);
+  return <Navigate replace state={state} to={to} />;
+}
+
+function allowedPath(status: AccessStatus, location: Location): Redirect | null {
+  const { pathname } = location;
+  if (!status.setupCompleted) return pathname === "/setup" ? null : { to: "/setup" };
+  if (status.accessMode === "public" && !status.authenticated) {
+    if (pathname === "/login") return null;
+    return { from: `${pathname}${location.search}`, to: "/login" };
+  }
+  if (pathname === "/login") return { to: returnPath(location.state) };
+  return pathname === "/setup" ? { to: "/" } : null;
+}
+
 export function App() {
   useNavigationProgress();
   const { t } = useI18n();
-  const { pathname } = useLocation();
+  const location = useLocation();
   const [status, setStatus] = useState<AccessStatus>();
   const [unreachable, setUnreachable] = useState(false);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -67,7 +83,6 @@ export function App() {
     };
   }, [attempt]);
 
-  // Without this the dashboard would spin forever whenever the API is down.
   if (unreachable) {
     return (
       <div className="grid min-h-screen place-items-center bg-canvas p-6">
@@ -97,8 +112,8 @@ export function App() {
     );
   }
 
-  const redirect = allowedPath(status, pathname);
-  if (redirect !== null) return <Navigate replace to={redirect} />;
+  const redirect = allowedPath(status, location);
+  if (redirect !== null) return <RedirectTo {...redirect} />;
   const context: AccessContext = { accessMode: status.accessMode, expireSession, refresh };
   return <Outlet context={context} />;
 }

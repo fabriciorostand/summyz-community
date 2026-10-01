@@ -15,6 +15,7 @@ vi.mock("./lib/api", async () => {
       getAccessStatus: vi.fn(),
       getBotInstallation: vi.fn(),
       getDashboard: vi.fn(),
+      getDiscordConnection: vi.fn(),
       getSettings: vi.fn(),
       getSetupStatus: vi.fn(),
       listCommands: vi.fn(),
@@ -27,8 +28,7 @@ vi.mock("./lib/api", async () => {
   };
 });
 
-/** The same route tree the browser uses, lazy screens included, on an in-memory history. */
-function renderApp(route: string) {
+function renderApp(route: string | { pathname: string; state: unknown }) {
   return render(
     <RouterProvider router={createMemoryRouter(routes, { initialEntries: [route] })} />,
   );
@@ -44,6 +44,7 @@ beforeEach(() => {
   });
   vi.mocked(api.getSetupStatus).mockResolvedValue({
     accessMode: "local",
+    discordRedirectUri: "http://127.0.0.1:8787/api/discord/callback",
     passwordConfigured: false,
     setupCompleted: false,
     technicalSetupCompleted: false,
@@ -52,6 +53,11 @@ beforeEach(() => {
   vi.mocked(api.getBotInstallation).mockResolvedValue({ configured: false });
   vi.mocked(api.listGuilds).mockResolvedValue([aGuild()]);
   vi.mocked(api.getDashboard).mockResolvedValue(aDashboard());
+  vi.mocked(api.getDiscordConnection).mockResolvedValue({
+    connected: true,
+    discordUserId: "owner-1",
+    discordUsername: "pixel.owner",
+  });
   vi.mocked(api.listMeetings).mockResolvedValue({
     items: [],
     page: 1,
@@ -126,6 +132,44 @@ describe("App", () => {
       setupCompleted: true,
     });
     renderApp("/login");
+    expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
+  });
+
+  it("returns to the Discord authorization outcome after signing in again", async () => {
+    // Connecting the owner ends the public session, so the callback lands on the lock screen.
+    vi.mocked(api.getAccessStatus)
+      .mockResolvedValueOnce({
+        accessMode: "public",
+        authenticated: false,
+        passwordConfigured: true,
+        setupCompleted: true,
+      })
+      .mockResolvedValue({
+        accessMode: "public",
+        authenticated: true,
+        passwordConfigured: true,
+        setupCompleted: true,
+      });
+    vi.mocked(api.login).mockResolvedValue(undefined);
+    renderApp("/servers?discord=connected");
+    await userEvent.type(
+      await screen.findByLabelText("Senha da instalação"),
+      "uma frase bem longa mesmo",
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Entrar" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Ir para o dashboard" }));
+    expect(await screen.findByRole("heading", { name: "Servidores" })).toBeInTheDocument();
+    expect(screen.getByText(/Conta Discord conectada/)).toBeInTheDocument();
+  });
+
+  it("never follows a return path that leaves the dashboard", async () => {
+    vi.mocked(api.getAccessStatus).mockResolvedValue({
+      accessMode: "public",
+      authenticated: true,
+      passwordConfigured: true,
+      setupCompleted: true,
+    });
+    renderApp({ pathname: "/login", state: { from: "//evil.example/servers" } });
     expect(await screen.findByRole("heading", { name: "Visão geral" })).toBeInTheDocument();
   });
 

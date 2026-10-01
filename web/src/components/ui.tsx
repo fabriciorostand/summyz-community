@@ -17,7 +17,6 @@ import { Select } from "./select";
 
 type ButtonVariant = "primary" | "secondary" | "ghost" | "danger";
 
-// Hover styles are guarded by `enabled:` so a disabled button does not react to the pointer.
 const buttonVariants: Record<ButtonVariant, string> = {
   danger: "border border-fail/40 bg-fail-soft text-fail enabled:hover:bg-fail/20",
   ghost:
@@ -28,7 +27,6 @@ const buttonVariants: Record<ButtonVariant, string> = {
 
 type ButtonSize = "default" | "toolbar";
 
-// The toolbar size matches the header pickers and theme toggle, so a header row lines up.
 const buttonSizes: Record<ButtonSize, string> = {
   default: "px-3.5 py-2 text-[13.5px]",
   toolbar: "h-[34px] px-3 text-[12.5px]",
@@ -55,10 +53,6 @@ export function Label({ children }: { children: ReactNode }) {
 const controlClass =
   "w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action disabled:cursor-not-allowed disabled:opacity-50";
 
-/**
- * iOS Safari zooms into any field under 16px when it gains focus, so touch screens keep 16px
- * and the compact design size applies only with a precise pointer.
- */
 const fieldTextClass = "text-base pointer-fine:text-[13.5px]";
 
 interface FieldIds {
@@ -67,10 +61,6 @@ interface FieldIds {
   hintId: string;
 }
 
-/**
- * The hint sits outside the label and is wired through aria-describedby, so a screen reader
- * announces the field name on its own instead of reading the help text as part of it.
- */
 function useFieldIds(hint: string | undefined): FieldIds {
   const id = useId();
   return {
@@ -330,17 +320,20 @@ export function Meter({ percentage, tone = "action" }: { percentage: number; ton
 }
 
 export function Notice({
+  action,
   children,
   icon,
   tone = "neutral",
 }: {
+  action?: ReactNode;
   children: ReactNode;
   icon?: ReactNode;
-  tone?: "neutral" | "warn" | "fail";
+  tone?: "neutral" | "ok" | "warn" | "fail";
 }) {
   const tones = {
     fail: "border-fail/30 bg-fail-soft text-fail",
     neutral: "border-line bg-surface-raised text-ink-muted",
+    ok: "border-ok/30 bg-ok-soft text-ok",
     warn: "border-warn/30 bg-warn/10 text-warn",
   } as const;
   return (
@@ -348,7 +341,8 @@ export function Notice({
       className={`flex items-start gap-2.5 rounded-lg border px-3.5 py-3 text-[12px] leading-relaxed ${tones[tone]}`}
     >
       {icon}
-      <span className="min-w-0">{children}</span>
+      <span className="min-w-0 flex-1">{children}</span>
+      {action}
     </div>
   );
 }

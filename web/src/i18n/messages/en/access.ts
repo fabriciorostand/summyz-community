@@ -5,7 +5,13 @@ export const accessMessages: typeof portuguese = {
     addToServer: "Add to a server",
     back: "Back",
     bot: "Bot",
+    clientSecretLabel: "Client Secret",
     continue: "Continue",
+    copyRedirect: "Copy redirect URL",
+    discordHelp:
+      "Developer Portal → your application → OAuth2 → Client Secret. It lets you connect the Discord account that owns the servers; you can also do it later under Installation.",
+    discordLabel: "Owner account (optional)",
+    discordTitle: "Prepare the owner connection",
     doneHelpAfter: ".",
     doneHelpBefore:
       "An AI profile still needs to be activated in the server — that is what enables",
@@ -34,6 +40,12 @@ export const accessMessages: typeof portuguese = {
     passwordShort: (length: number) => `Short · ${String(length)} of 15`,
     passwordTitle: "Choose the password for this installation",
     public: "Public",
+    publicConnectNotice:
+      "When you come back from Discord, sign in with the installation password you just created.",
+    redirectLabel: "Register this URL under OAuth2 → Redirects",
+    skip: "Skip for now",
+    skippedNotice:
+      "Without the Client Secret no server can be configured. Save it later under Installation and connect the owner's account.",
     tokenHelp:
       "Developer Portal → your application → Bot → Reset Token. The Application ID is derived from it.",
     tokenLabel: "Bot token",

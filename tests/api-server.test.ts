@@ -233,6 +233,27 @@ describe("Community dashboard API", () => {
     ).toBe(404);
     await app.close();
   });
+  it("exposes the Discord OAuth redirect and client secret status to the dashboard", async () => {
+    const dependencies = createDependencies("local");
+    vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
+      discordApplicationId: "application-1",
+      secrets: { discordBotToken: true, discordClientSecret: true, openRouterApiKey: false },
+      setupCompleted: true,
+    });
+    const app = await createApiServer(dependencies);
+
+    const settings = await app.inject({ method: "GET", url: "/api/settings" });
+    const setupStatus = await app.inject({ method: "GET", url: "/api/setup/status" });
+
+    expect(settings.json()).toMatchObject({
+      discordRedirectUri: "https://summyz.example.com/api/discord/callback",
+      secrets: { discordClientSecret: true },
+    });
+    expect(setupStatus.json()).toMatchObject({
+      discordRedirectUri: "https://summyz.example.com/api/discord/callback",
+    });
+    await app.close();
+  });
   it("requires setup language before inspecting or storing credentials", async () => {
     const dependencies = createDependencies("local");
     const app = await createApiServer(dependencies);
@@ -745,7 +766,7 @@ describe("Community dashboard API", () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
       discordApplicationId: null,
-      secrets: { discordBotToken: false, openRouterApiKey: false },
+      secrets: { discordBotToken: false, discordClientSecret: false, openRouterApiKey: false },
       setupCompleted: false,
     });
     const app = await createApiServer(dependencies);
@@ -885,16 +906,20 @@ describe("Community dashboard API", () => {
     ]);
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
       discordApplicationId: "application-1",
-      secrets: { discordBotToken: true, openRouterApiKey: false },
+      secrets: { discordBotToken: true, discordClientSecret: false, openRouterApiKey: false },
       setupCompleted: true,
     });
     const app = await createApiServer(dependencies);
 
     const guilds = (await app.inject({ method: "GET", url: "/api/guilds" })).json();
     expect(guilds).toContainEqual(
+      expect.objectContaining({ id: "guild-1", installed: true, owned: true }),
+    );
+    expect(guilds).toContainEqual(
       expect.objectContaining({
         id: "guild-new",
         installed: false,
+        owned: true,
         installUrl: expect.stringContaining("guild_id=guild-new"),
       }),
     );
@@ -915,7 +940,9 @@ describe("Community dashboard API", () => {
 
     const response = await app.inject({ method: "GET", url: "/api/guilds" });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toContainEqual(expect.objectContaining({ id: "guild-1" }));
+    expect(response.json()).toContainEqual(
+      expect.objectContaining({ id: "guild-1", installed: false, owned: false }),
+    );
     expect(dependencies.guildDirectory.listInstalledGuilds).not.toHaveBeenCalled();
     await app.close();
   });
@@ -1052,7 +1079,7 @@ describe("Community dashboard API", () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
       discordApplicationId: "application-1",
-      secrets: { discordBotToken: true, openRouterApiKey: false },
+      secrets: { discordBotToken: true, discordClientSecret: false, openRouterApiKey: false },
       setupCompleted: true,
     });
     const app = await createApiServer(dependencies);
@@ -1336,7 +1363,7 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
       rotateDiscordBot: vi.fn(async () => "rotated" as const),
       getSettings: vi.fn(async () => ({
         discordApplicationId: null,
-        secrets: { discordBotToken: false, openRouterApiKey: false },
+        secrets: { discordBotToken: false, discordClientSecret: false, openRouterApiKey: false },
         setupCompleted: false,
       })),
       removeSecret: vi.fn(async () => undefined),

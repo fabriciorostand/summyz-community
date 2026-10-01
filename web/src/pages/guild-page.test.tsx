@@ -20,6 +20,7 @@ vi.mock("../lib/api", async () => {
   return {
     ApiError: actual.ApiError,
     api: {
+      activateGuild: vi.fn(),
       getBotInstallation: vi.fn(),
       getGuildConfiguration: vi.fn(),
       getGuildResources: vi.fn(),
@@ -296,22 +297,85 @@ describe("GuildPage", () => {
     expect(await screen.findByText("Métricas indisponíveis.")).toBeInTheDocument();
   });
 
-  it("explains a 403 as the bot having left the server", async () => {
+  it("explains a 403 as a server without the bot or of another owner", async () => {
     vi.mocked(api.getGuildConfiguration).mockRejectedValue(
       new ApiError(403, "guild_access_denied"),
     );
     renderGuild();
     expect(
-      await screen.findByRole("heading", { name: "O bot não está mais neste servidor" }),
+      await screen.findByRole("heading", { name: "Este servidor não pode ser configurado" }),
     ).toBeInTheDocument();
     expect(screen.getByRole("alert")).toHaveTextContent("Pixelforge");
-    expect(await screen.findByRole("link", { name: /Adicionar de volta/ })).toHaveAttribute(
+    // The server's own link preselects it on Discord.
+    expect(screen.getByRole("link", { name: /Adicionar o bot/ })).toHaveAttribute(
       "href",
-      "https://discord.com/oauth2/authorize?client_id=1",
+      "https://discord.com/oauth2/authorize?client_id=123456789012345678&guild_id=g1",
     );
     expect(screen.getByRole("link", { name: "Ver servidores" })).toHaveAttribute(
       "href",
       "/servers",
     );
+  });
+
+  it("sends the operator to Installation when the owner's account is not connected", async () => {
+    vi.mocked(api.getGuildConfiguration).mockRejectedValue(
+      new ApiError(403, "discord_account_not_connected"),
+    );
+    renderGuild();
+    expect(
+      await screen.findByRole("heading", { name: "Conta do dono não conectada" }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Ir para Instalação" })).toHaveAttribute(
+      "href",
+      "/installation",
+    );
+  });
+
+  it("asks to wait when Discord rate limits the dashboard", async () => {
+    vi.mocked(api.getGuildConfiguration)
+      .mockRejectedValueOnce(new ApiError(503, "discord_rate_limited", 5))
+      .mockResolvedValue(aGuildConfiguration());
+    renderGuild();
+    expect(
+      await screen.findByRole("heading", { name: "Discord pediu uma pausa" }),
+    ).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Tentar novamente/ }));
+    expect(await screen.findByText("Perfil de IA usado neste servidor")).toBeInTheDocument();
+  });
+
+  it("asks the new owner to confirm the configuration before recording resumes", async () => {
+    vi.mocked(api.getGuildConfiguration).mockResolvedValue(
+      aGuildConfiguration({ ownerConfirmationRequired: true }),
+    );
+    vi.mocked(api.activateGuild).mockResolvedValue(undefined);
+    renderGuild();
+    expect(await screen.findByText("Confirme a configuração deste servidor")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Confirmar e liberar gravações" }));
+    expect(api.activateGuild).toHaveBeenCalledWith("g1");
+    expect(await screen.findByText(/Configuração confirmada/)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Confirmar e liberar gravações" })).toBeNull();
+  });
+
+  it.each([
+    ["guild_configuration_incomplete", "Defina o fórum de resumos"],
+    ["guild_owner_changed", "não é a dona atual deste servidor"],
+    ["internal_error", "Não foi possível confirmar agora"],
+  ])("explains why the configuration was not confirmed (%s)", async (code, message) => {
+    vi.mocked(api.getGuildConfiguration).mockResolvedValue(
+      aGuildConfiguration({ ownerConfirmationRequired: true }),
+    );
+    vi.mocked(api.activateGuild).mockRejectedValue(new ApiError(409, code));
+    renderGuild();
+    await userEvent.click(
+      await screen.findByRole("button", { name: "Confirmar e liberar gravações" }),
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(message);
+    expect(screen.getByRole("button", { name: "Confirmar e liberar gravações" })).toBeEnabled();
+  });
+
+  it("asks for no confirmation while the owner is unchanged", async () => {
+    renderGuild();
+    expect(await screen.findByText("Perfil de IA usado neste servidor")).toBeInTheDocument();
+    expect(screen.queryByText("Confirme a configuração deste servidor")).toBeNull();
   });
 });

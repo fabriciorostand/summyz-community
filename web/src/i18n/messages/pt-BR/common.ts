@@ -15,11 +15,17 @@ export const commonMessages = {
     unreachableTitle: "Não foi possível falar com o servidor",
   },
   states: {
-    addBack: "Adicionar de volta",
+    addBack: "Adicionar o bot",
+    discordNotConnectedBody:
+      "Configurar servidores e perfis exige a conta Discord do dono conectada. Conecte-a em Instalação.",
+    discordNotConnectedTitle: "Conta do dono não conectada",
+    discordRateLimitedBody:
+      "O Discord pediu uma pausa nas consultas. Aguarde alguns segundos e tente de novo.",
+    discordRateLimitedTitle: "Discord pediu uma pausa",
     guildRemovedBody:
-      "saiu da lista porque o bot foi removido de lá. As calls e as configurações continuam no banco e reaparecem se ele for adicionado de novo.",
+      "precisa estar com o bot instalado e pertencer à conta Discord conectada. As calls e as configurações continuam salvas.",
     guildRemovedThisServer: "Este servidor",
-    guildRemovedTitle: "O bot não está mais neste servidor",
+    guildRemovedTitle: "Este servidor não pode ser configurado",
     installBot: "Adicionar o bot a um servidor",
     noServerBody:
       "Autorize o bot em um servidor do Discord. Ele aparece aqui sozinho, sem precisar cadastrar nada.",
@@ -27,8 +33,19 @@ export const commonMessages = {
     sessionExpiredBody:
       "A sessão cai após 7 dias sem uso, ou 30 dias no total. Digite a senha da instalação para continuar.",
     sessionExpiredTitle: "Sua sessão expirou",
+    openInstallation: "Ir para Instalação",
     unlock: "Desbloquear",
     viewServers: "Ver servidores",
+  },
+  discordConnect: {
+    connect: "Conectar conta Discord",
+    connecting: "Abrindo o Discord…",
+    failures: {
+      discord_bot_not_configured: "Configure o token do bot antes de conectar a conta.",
+      discord_client_secret_missing: "Salve o Client Secret da aplicação antes de conectar.",
+      discord_rate_limited: "O Discord pediu uma pausa. Tente de novo em alguns segundos.",
+      request_failed: "Não foi possível abrir a autorização do Discord. Tente de novo.",
+    },
   },
   nav: {
     calls: "Calls",

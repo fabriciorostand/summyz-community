@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setDateFormat, setLanguage, setTimeFormat } from "../i18n/store";
 import { api } from "../lib/api";
-import { aTask, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
+import { aGuild, aTask, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
 import { TasksPage } from "./tasks-page";
 
 vi.mock("../lib/api", () => ({
@@ -37,6 +37,28 @@ afterEach(() => {
 });
 
 describe("TasksPage", () => {
+  it("shows a server without the bot or of another owner as read only", async () => {
+    const guild = aGuild({ installed: false, owned: false });
+    renderScreen(<TasksPage />, {
+      context: dashboardContext({
+        guilds: guildSelection({ guilds: [guild], selectedGuild: guild }),
+      }),
+    });
+    const checkbox = await screen.findByRole("checkbox", { name: "Marcar a branch de release" });
+    expect(checkbox).toBeDisabled();
+    expect(screen.getByText(/Somente leitura/)).toBeInTheDocument();
+    await userEvent.click(checkbox);
+    expect(setTaskCompleted).not.toHaveBeenCalled();
+  });
+
+  it("keeps tasks editable where the connected owner has the bot", async () => {
+    renderScreen(<TasksPage />);
+    expect(
+      await screen.findByRole("checkbox", { name: "Marcar a branch de release" }),
+    ).toBeEnabled();
+    expect(screen.queryByText(/Somente leitura/)).toBeNull();
+  });
+
   it("groups the open tasks by owner", async () => {
     renderScreen(<TasksPage />);
     expect(await screen.findByText("Marcar a branch de release")).toBeInTheDocument();

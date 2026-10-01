@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 import { createEmptyInitialAiProfile } from "../ai-profile.js";
 import { InstallationPasswordError } from "../auth/installation-password.js";
+import { createDiscordOAuthRedirectUri } from "../discord/installation-discord-connection.js";
 import type { ApiServerDependencies } from "./server-contracts.js";
 import { setupSchema } from "./server-contracts.js";
 import { parseRequestInput, safeEqual, setSessionCookie } from "./server-support.js";
@@ -14,6 +15,7 @@ export function registerSetupRoutes(
     const settings = await dependencies.settings.getSettings();
     return {
       accessMode: dependencies.accessMode,
+      discordRedirectUri: createDiscordOAuthRedirectUri(dependencies.publicBaseUrl),
       passwordConfigured: await dependencies.passwords.isConfigured(),
       setupCompleted: settings.setupCompleted,
       technicalSetupCompleted:

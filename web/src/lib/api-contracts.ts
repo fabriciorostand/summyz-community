@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import { profileAvailabilitySchema, profileSchema } from "./profile-contracts";
 
-// Profile and model contracts live in their own module; the API client imports both from here.
 export * from "./profile-contracts";
 
 const accessModeSchema = z.enum(["local", "public"]);
@@ -15,6 +14,7 @@ export const accessStatusSchema = z.object({
 });
 export const setupStatusSchema = z.object({
   accessMode: accessModeSchema,
+  discordRedirectUri: z.url(),
   passwordConfigured: z.boolean(),
   setupCompleted: z.boolean(),
   technicalSetupCompleted: z.boolean(),
@@ -22,8 +22,10 @@ export const setupStatusSchema = z.object({
 export const dashboardSettingsSchema = z.object({
   accessMode: accessModeSchema,
   discordApplicationId: z.string().nullable(),
+  discordRedirectUri: z.url(),
   secrets: z.object({
     discordBotToken: z.boolean(),
+    discordClientSecret: z.boolean(),
     openRouterApiKey: z.boolean(),
   }),
 });
@@ -35,6 +37,16 @@ export const botInstallationSchema = z.discriminatedUnion("configured", [
     installUrl: z.url(),
   }),
 ]);
+export const discordConnectionSchema = z.discriminatedUnion("connected", [
+  z.object({ connected: z.literal(false) }),
+  z.object({
+    connected: z.literal(true),
+    discordUserId: z.string(),
+    discordUsername: z.string(),
+  }),
+]);
+export const discordAuthorizationSchema = z.object({ authorizationUrl: z.url() });
+
 export const guildSchema = z.object({
   activeProfile: z
     .object({
@@ -47,7 +59,10 @@ export const guildSchema = z.object({
   callCount: z.number().int().nullable().optional(),
   iconUrl: z.url().nullable(),
   id: z.string(),
+  installed: z.boolean(),
+  installUrl: z.url().nullable(),
   name: z.string(),
+  owned: z.boolean(),
   summaryForum: z
     .object({
       forumId: z.string(),
@@ -60,6 +75,7 @@ export const guildSchema = z.object({
 });
 export const guildConfigurationSchema = z.object({
   activeProfileId: z.string().nullable(),
+  ownerConfirmationRequired: z.boolean(),
   profiles: z.array(profileSchema.extend({ availability: profileAvailabilitySchema })),
   recordingRoleIds: z.array(z.string()),
   recordingUserIds: z.array(z.string()),
@@ -354,6 +370,7 @@ export type AccessStatus = z.infer<typeof accessStatusSchema>;
 export type SetupStatus = z.infer<typeof setupStatusSchema>;
 export type DashboardSettings = z.infer<typeof dashboardSettingsSchema>;
 export type BotInstallation = z.infer<typeof botInstallationSchema>;
+export type DiscordConnection = z.infer<typeof discordConnectionSchema>;
 export type Guild = z.infer<typeof guildSchema>;
 export type GuildConfiguration = z.infer<typeof guildConfigurationSchema>;
 export type GuildResources = z.infer<typeof resourcesSchema>;

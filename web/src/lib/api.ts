@@ -9,6 +9,8 @@ import {
   dashboardAnalyticsSchema,
   dashboardSettingsSchema,
   dashboardTaskSchema,
+  discordAuthorizationSchema,
+  discordConnectionSchema,
   type GuildConfiguration,
   guildConfigurationSchema,
   guildMemberPageSchema,
@@ -36,6 +38,7 @@ export type {
   DashboardAnalytics,
   DashboardSettings,
   DashboardTask,
+  DiscordConnection,
   Guild,
   GuildConfiguration,
   GuildMemberPage,
@@ -124,9 +127,13 @@ async function throwIfFailed(response: Response): Promise<void> {
 const emptySchema = z.undefined();
 type ModelPhase = "transcription" | "refinement" | "summary";
 type LocalModelProvider = "ollama" | "faster-whisper";
+export type InstallationSecret = "discord_client_secret" | "openrouter_api_key";
 const json = (value: unknown) => JSON.stringify(value);
 
 export const api = {
+  /** Confirms a server's configuration after an owner change, which resumes recording. */
+  activateGuild: (guildId: string) =>
+    request(`/api/guilds/${guildId}/activation`, emptySchema, { method: "POST" }),
   changePassword: (currentPassword: string, newPassword: string) =>
     request("/api/access/password", emptySchema, {
       body: json({ currentPassword, newPassword }),
@@ -145,6 +152,7 @@ export const api = {
     request(`/api/profiles/${profileId}`, emptySchema, { method: "DELETE" }),
   getAccessStatus: () => request("/api/access/status", accessStatusSchema),
   getBotInstallation: () => request("/api/installation/bot", botInstallationSchema),
+  getDiscordConnection: () => request("/api/discord/connection", discordConnectionSchema),
   getDashboard: (guildId: string, period: "30d" | "90d" | "all", timeZone: string) =>
     request(
       `/api/guilds/${guildId}/dashboard?${new URLSearchParams(
@@ -238,7 +246,7 @@ export const api = {
   login: (password: string) =>
     request("/api/access/login", emptySchema, { body: json({ password }), method: "POST" }),
   logout: () => request("/api/access/logout", emptySchema, { method: "POST" }),
-  removeSecret: (name: "openrouter_api_key") =>
+  removeSecret: (name: InstallationSecret) =>
     request(`/api/installation/secrets/${name}`, emptySchema, { method: "DELETE" }),
   replaceBotToken: (discordBotToken: string) =>
     request("/api/installation/bot", emptySchema, {
@@ -247,6 +255,11 @@ export const api = {
     }),
   setActiveProfile: (guildId: string, profileId: string) =>
     request(`/api/guilds/${guildId}/profiles/${profileId}/active`, emptySchema, { method: "PUT" }),
+  /** Returns the Discord authorization page; the backend redirects back to /servers. */
+  startDiscordConnection: () =>
+    request("/api/discord/connect", discordAuthorizationSchema).then(
+      ({ authorizationUrl }) => authorizationUrl,
+    ),
   startModelDownload: (phase: ModelPhase, provider: LocalModelProvider, model: string) =>
     request("/api/models/downloads", modelDownloadSchema, {
       body: json({ model, phase, provider }),
@@ -260,7 +273,12 @@ export const api = {
   /** The claim token only exists in public mode; local installations skip it entirely. */
   setup: (
     claimToken: string | undefined,
-    value: { discordBotToken: string; installationPassword?: string; setupLanguage: Language },
+    value: {
+      discordBotToken: string;
+      discordClientSecret?: string;
+      installationPassword?: string;
+      setupLanguage: Language;
+    },
   ) =>
     request("/api/setup", emptySchema, {
       body: json(value),
@@ -294,7 +312,7 @@ export const api = {
       body: json(permissions),
       method: "PUT",
     }),
-  updateSecret: (name: "openrouter_api_key", value: string) =>
+  updateSecret: (name: InstallationSecret, value: string) =>
     request(`/api/installation/secrets/${name}`, emptySchema, {
       body: json({ value }),
       method: "PUT",

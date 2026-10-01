@@ -8,7 +8,7 @@ import {
   useState,
 } from "react";
 
-import { ErrorState, LoadingPanel } from "../../components/states";
+import { DiscordNotConnectedState, ErrorState, LoadingPanel } from "../../components/states";
 import { Button } from "../../components/ui";
 import { invalidateModelCatalogs } from "../../hooks/use-model-catalog";
 import { type ModelDownloads, useModelDownloads } from "../../hooks/use-model-downloads";
@@ -149,11 +149,30 @@ function usePromptDefaults(
   return defaults;
 }
 
+type LoadFailure = "discord_account_not_connected" | "request_failed";
+
+/** Profiles are only listed for the connected owner of the servers. */
+function loadFailureOf(caught: unknown): LoadFailure {
+  return caught instanceof ApiError && caught.code === "discord_account_not_connected"
+    ? caught.code
+    : "request_failed";
+}
+
+function LoadFailureState({ failure, onRetry }: { failure: LoadFailure; onRetry: () => void }) {
+  const { t } = useI18n();
+  if (failure === "discord_account_not_connected") return <DiscordNotConnectedState />;
+  return (
+    <ErrorState code={failure} onRetry={onRetry} title={t.profiles.unavailableTitle}>
+      {t.profiles.unavailableBody}
+    </ErrorState>
+  );
+}
+
 export function ProfilesPage() {
   const i18n = useI18n();
   const { format, language, t } = i18n;
   const [items, setItems] = useState<ProfileListItem[]>();
-  const [loadError, setLoadError] = useState(false);
+  const [loadError, setLoadError] = useState<LoadFailure>();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [draft, setDraft] = useState<Profile | null>(null);
   const [stage, setStage] = useState<Stage>("transcription");
@@ -185,14 +204,14 @@ export function ProfilesPage() {
   }, []);
 
   const load = useCallback(async () => {
-    setLoadError(false);
+    setLoadError(undefined);
     setItems(undefined);
     try {
       const next = await api.listProfiles();
       setItems(next);
       open(next[0]?.profile.profileId ?? "", next);
-    } catch {
-      setLoadError(true);
+    } catch (caught) {
+      setLoadError(loadFailureOf(caught));
     }
   }, [open]);
 
@@ -298,14 +317,8 @@ export function ProfilesPage() {
         title={t.profiles.title}
       />
       <Screen>
-        {loadError ? (
-          <ErrorState
-            code="request_failed"
-            onRetry={() => void load()}
-            title={t.profiles.unavailableTitle}
-          >
-            {t.profiles.unavailableBody}
-          </ErrorState>
+        {loadError !== undefined ? (
+          <LoadFailureState failure={loadError} onRetry={() => void load()} />
         ) : items === undefined ? (
           <LoadingPanel label={t.profiles.loading} />
         ) : draft === null || selected === undefined ? (

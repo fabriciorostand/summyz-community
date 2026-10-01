@@ -7,7 +7,10 @@ import { createDefaultAiPrompts } from "../ai-prompts.js";
 import { DashboardSessionError } from "../auth/dashboard-session.js";
 import { InstallationLoginThrottle } from "../auth/installation-login-throttle.js";
 import { installationPasswordSchema } from "../auth/installation-password.js";
-import { DiscordConnectionError } from "../discord/installation-discord-connection.js";
+import {
+  createDiscordOAuthRedirectUri,
+  DiscordConnectionError,
+} from "../discord/installation-discord-connection.js";
 import type { ApiServerDependencies } from "./server-contracts.js";
 import {
   authorizeDashboard,
@@ -203,6 +206,7 @@ export function registerAuthRoutes(
     return {
       accessMode: dependencies.accessMode,
       discordApplicationId: settings.discordApplicationId,
+      discordRedirectUri: createDiscordOAuthRedirectUri(dependencies.publicBaseUrl),
       secrets: settings.secrets,
     };
   });

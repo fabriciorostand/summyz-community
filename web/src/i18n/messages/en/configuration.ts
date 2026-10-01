@@ -10,16 +10,36 @@ export const configurationMessages: typeof portuguese = {
     callsInPeriod: "Calls in the period",
     configure: "Configure",
     configured: "Installed and configured",
+    connectBody:
+      "Without it, the list only shows servers with history and no server can be configured.",
+    connectNeedsClientSecret: "First, save the application's Client Secret under Installation.",
+    connectTitle: "Connect the owner's Discord account",
+    dismiss: "Dismiss notice",
+    historyOnly: "History only",
+    historyOnlyBody:
+      "The bot is not here or the server belongs to another account. Recorded calls stay available.",
+    installHere: "Install in this server",
     loading: "Loading servers…",
     missingSetup: "Needs configuration",
     none: "None",
     notConfigured: "Not configured",
+    notInstalled: "Bot not installed",
+    notInstalledBody:
+      "This server belongs to the connected account. Install the bot to configure it.",
+    oauthResults: {
+      cancelled: "The connection was cancelled on Discord. Nothing changed.",
+      connected: "Discord account connected. Its servers are listed below.",
+      failed: "Unable to connect the Discord account. Try again.",
+      invalid_state:
+        "The connection link expired or was opened in another browser. Start again from the connect button.",
+    },
     refresh: "Refresh list",
     summaryForum: "Summary forum",
     title: "Servers",
     unavailableBody:
       "The bot could not list the servers it is in. Check the token under Installation and try again.",
     unavailableTitle: "Servers unavailable",
+    viewHistory: "View history",
     viewInstallation: "View installation",
   },
   guild: {
@@ -55,6 +75,20 @@ export const configurationMessages: typeof portuguese = {
     noTagOption: "No tag",
     notConfigured: "Not configured",
     openProfiles: "Open AI profiles",
+    ownerConfirmation: {
+      body: "The server owner changed. Recording stays suspended until you review the forum, the active profile and the authorizations and confirm.",
+      confirm: "Confirm and resume recording",
+      confirmed: "Configuration confirmed. Recording is enabled.",
+      confirming: "Confirming…",
+      failures: {
+        guild_configuration_incomplete:
+          "Set the summary forum and a complete active profile before confirming.",
+        guild_owner_changed:
+          "The connected account is not the current owner of this server. Reconnect the owner's account under Installation.",
+        request_failed: "Unable to confirm right now. Try again.",
+      },
+      title: "Confirm this server's configuration",
+    },
     periods: {
       "30d": "Last 30 days.",
       "90d": "Last 90 days.",
@@ -84,11 +118,13 @@ export const configurationMessages: typeof portuguese = {
     unavailableBody: "Unable to complete the requests this server needs.",
     unavailableTitle: "Configuration unavailable",
     whoCanRecord: "Who can start a recording",
-    whoCanRecordDescription: "Server owners and administrators always can. Add extra roles.",
+    whoCanRecordDescription: "The server owner always can. Also authorize roles or members.",
   },
   installation: {
     access: "Dashboard access",
     active: "Active",
+    applicationReplaced:
+      "Application replaced. Save the new application's Client Secret, reconnect the owner's account and install the new bot in your servers.",
     botToken: "Bot token",
     changePassword: "Change password",
     changing: "Changing…",
@@ -106,6 +142,24 @@ export const configurationMessages: typeof portuguese = {
     copyApplicationId: "Copy Application ID",
     currentPassword: "Current password",
     discordApplication: "Discord application",
+    discordOwner: {
+      clientSecret: "Client Secret",
+      clientSecretFailed: "Unable to save the Client Secret. Try again.",
+      connectedAs: (name: string) => `Connected as ${name}`,
+      copyRedirectUri: "Copy redirect URL",
+      description:
+        "Connecting the owner's account unlocks the configuration of their servers. Summyz only asks for the identify and guilds scopes.",
+      needsClientSecret: "Save the Client Secret before connecting.",
+      notConnected: "No account connected",
+      publicSessionNotice:
+        "Connecting or switching the account ends the dashboard sessions. When you come back from Discord, sign in again with the installation password.",
+      redirectHint: "Register exactly this URL under OAuth2 → Redirects in the Developer Portal.",
+      redirectUri: "Redirect URL",
+      removeClientSecret: "Remove Client Secret",
+      statusFailed: "Unable to check the connected account.",
+      switchAccount: "Switch account",
+      title: "Owner's Discord account",
+    },
     health: "Installation status",
     healthFailed: "Unable to check the status of the components.",
     healthLoading: "Checking components…",
@@ -131,13 +185,26 @@ export const configurationMessages: typeof portuguese = {
     recoverBefore: "Lost the password? Run",
     removeKey: "Remove OpenRouter key",
     replace: "Replace",
+    replaceDialog: {
+      confirm: "Replace token",
+      otherApplication:
+        "A token from another application: the owner's account and the Client Secret are erased, every dashboard session ends, and the change is refused while any meeting is still processing.",
+      sameApplication:
+        "A token from the same application: only the credential changes. The change is refused while a recording is in progress.",
+      title: "Replace the bot token?",
+    },
     stale: "no recent heartbeat",
     title: "Installation",
+    tokenBlocked: {
+      active_recording: "A recording is in progress. Stop it before replacing the token.",
+      pending_meetings:
+        "Some meetings are still processing. Wait for them to finish before switching applications.",
+    },
     tokenFailed: "Unable to replace the token.",
     tokenRejected: "Discord rejected the token.",
-    tokenReplaced: "Token replaced. Restart the bot process to apply it.",
+    tokenRotated: "Token saved. The bot restarts on its own with the new credential.",
     tokenWarning:
-      "Replacing the token revalidates the application and rewrites the Application ID. The bot process must be restarted after the change, and the visible servers become the new bot's.",
+      "Replacing the token revalidates the application and rewrites the Application ID. The bot restarts on its own with the new credential.",
     update: "Update",
     validating: "Validating…",
   },

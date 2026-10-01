@@ -30,7 +30,9 @@ function Probe() {
       </button>
       <button
         onClick={() =>
-          patchSettings({ secrets: { discordBotToken: true, openRouterApiKey: true } })
+          patchSettings({
+            secrets: { discordBotToken: true, discordClientSecret: true, openRouterApiKey: true },
+          })
         }
         type="button"
       >
@@ -170,7 +172,7 @@ describe("DashboardLayout", () => {
     vi.mocked(api.getSettings).mockResolvedValue(
       aSettings({
         discordApplicationId: "999",
-        secrets: { discordBotToken: true, openRouterApiKey: false },
+        secrets: { discordBotToken: true, discordClientSecret: true, openRouterApiKey: false },
       }),
     );
     renderLayout();
@@ -192,7 +194,11 @@ describe("DashboardLayout", () => {
   });
 
   it("applies a local settings patch shared with every route", async () => {
-    renderLayout(aSettings({ secrets: { discordBotToken: true, openRouterApiKey: false } }));
+    renderLayout(
+      aSettings({
+        secrets: { discordBotToken: true, discordClientSecret: true, openRouterApiKey: false },
+      }),
+    );
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
     expect(screen.getByTestId("openrouter")).toHaveTextContent("false");
     await userEvent.click(screen.getByRole("button", { name: "patch" }));

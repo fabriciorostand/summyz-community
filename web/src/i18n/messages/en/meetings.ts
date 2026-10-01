@@ -136,6 +136,8 @@ export const meetingsMessages: typeof portuguese = {
     noOwner: "No owner",
     open: (count: number) => `${String(count)} open`,
     overdue: (count: number) => `${String(count)} overdue`,
+    readOnly:
+      "Read only: the bot is not in this server or it belongs to another account. Completing or reopening tasks requires the connected owner and the installed bot.",
     showCompleted: "Show completed",
     title: "Tasks",
     unavailableBody: "Unable to load the tasks of this server.",
