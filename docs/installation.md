@@ -2,30 +2,39 @@
 
 [Português](./pt-BR/installation.md) · [Documentation home](../README.md)
 
-This guide installs Summyz Community from source. The project does not publish prebuilt
-Summyz images for version 1.0.0.
+This guide installs Summyz Community from source. The project does not publish prebuilt Summyz
+images for version 1.0.0.
 
-## Supported launch paths
+## Requirements and supported hosts
 
-| Host | CPU | NVIDIA CUDA | AMD ROCm | Validation status for 1.0.0 preparation |
+Install Git and Docker with the Compose plugin. Prepare a Discord bot application and the Discord
+account that owns the servers to be configured. OpenRouter credits are required only for stages
+that use OpenRouter. GPU execution also requires compatible host drivers and Docker integration.
+
+| Host | CPU | NVIDIA CUDA | AMD ROCm | Validation during 1.0.0 preparation |
 | --- | --- | --- | --- | --- |
 | Windows with Docker Desktop/WSL2 | Supported | Supported | Not exposed by Docker Desktop | NVIDIA validated on an RTX 2060; CPU build validated |
-| Linux with Docker Engine + Compose | Supported | Supported | Supported | Launch paths retained; physical-host validation remains pending |
-| macOS with Docker Desktop | Supported | Not applicable | Not applicable | Launch path retained; physical-host validation remains pending |
+| Linux with Docker Engine + Compose | Supported | Supported | Supported for Ollama | Physical-host validation remains pending |
+| macOS with Docker Desktop | Supported | Not applicable | Not applicable | Physical-host validation remains pending |
 
-“Pending validation” is not an experimental feature label. It records the test evidence
-available for this release candidate. Hardware must also be supported by the installed
-driver, Docker integration, CUDA, or ROCm version.
+Pending validation records the available evidence, rather than changing the support status.
+faster-whisper GPU transcription supports NVIDIA/CUDA; AMD ROCm supports Ollama on Linux.
+See [execution settings](./configuration.md#local-execution-and-vad) before choosing a local profile.
 
-## Requirements
+## Prepare the Discord application
 
-- Git;
-- Docker with the Compose plugin;
-- a Discord bot application;
-- compatible host GPU drivers and Docker integration when acceleration is requested;
-- optional OpenRouter account and credits only for profile stages that use OpenRouter.
+1. Create or select the bot application in the Discord Developer Portal.
+2. Under **Bot**, obtain its token and enable **Server Members Intent** for member lists and counts.
+3. Under **Installation**, enable **Guild Install** with `bot` and `applications.commands` scopes.
+   Configure the [bot permissions](./configuration.md#forum-and-recording-authorizations).
+4. Under **OAuth2**, obtain the application's **Client Secret** and register the exact redirect URL
+   `<PUBLIC_BASE_URL>/api/discord/callback`. With the default local origin, it is
+   `http://127.0.0.1:8787/api/discord/callback`; public installations use their configured HTTPS origin.
 
-## Start the stack
+The bot token authenticates the bot. The Client Secret allows Summyz to connect the server owner's
+Discord account. Keep both private and configure them as installation credentials.
+
+## Start a local installation
 
 Clone the repository and run from its root:
 
@@ -39,63 +48,78 @@ On Windows PowerShell:
 .\summyz-community.ps1 up
 ```
 
-On the first `up` or `restart`, the launcher copies `.env.example` to `.env` and creates
-random PostgreSQL, encryption, and setup secrets. It prints no secret values. Preserve
-that file privately; replacing `SUMMYZ_SECRETS_KEY` makes encrypted stored credentials
-unreadable.
+On the first `up` or `restart`, the launcher copies `.env.example` to `.env` and generates random
+PostgreSQL, encryption, and setup secrets without printing their values. Preserve this file:
+replacing `SUMMYZ_SECRETS_KEY` makes encrypted stored credentials unreadable.
 
-The launcher detects CPU, NVIDIA, or AMD before entering the containers and selects the
-corresponding Compose overlay. It never mounts the Docker socket into the application.
-AMD ROCm acceleration is available only on Linux. If an explicitly requested GPU is not
-usable, startup stops unless `LOCAL_AI_FALLBACK=cpu` was deliberately configured.
+The launcher detects hardware on the host and selects the Compose overlays before starting the
+containers. It never mounts the Docker socket into the application. If requested GPU execution is
+unavailable, startup stops unless `LOCAL_AI_FALLBACK=cpu` was explicitly configured. The dashboard
+and PostgreSQL bind to `127.0.0.1`; local dashboard access requires no password.
 
-The launcher opens a private setup URL whose fragment contains the automatically generated setup
-claim. Enter only the Discord bot token; the backend validates it with Discord and derives the
-Application ID. Public mode also requires one installation-wide password. The bot connects when
-setup finishes. `/record` remains unavailable until a valid AI profile is active for the server.
+The local launcher opens the setup URL on Windows or opens/prints it on Linux/macOS according to
+browser availability. Its fragment carries the setup claim; do not share it.
 
-## Administration
+## Start a public installation
+
+Set `PUBLIC_BASE_URL` in `.env` to the exact HTTPS origin, point DNS to the host, and run:
 
 ```sh
-./summyz-community status
-./summyz-community logs
-./summyz-community restart
-./summyz-community down
-./summyz-community recover-access
+./summyz-community-public up
 ```
 
-Use the `.ps1` launcher on Windows. Direct Compose is retained for advanced operators,
-but they must choose the correct overlay and provide a complete `.env` themselves.
+On Windows, use `.\summyz-community-public.ps1 up`. If `.env` is missing, the public launcher creates
+it and exits so you can configure the origin before running it again. This mode adds Caddy,
+publishes ports 80/443, and obtains TLS certificates automatically. Keep PostgreSQL private;
+firewall and cloud security-group configuration belong to the operator.
 
-`recover-access` is available only in public mode. It prints a single-use URL valid for ten minutes
-to choose a new installation password. The old password remains valid until replacement succeeds;
-all previous sessions are then revoked. Recovery is impossible without host access. Local mode has
-no dashboard password.
+Register the HTTPS OAuth callback for this origin in the Discord application. Public setup also
+requires an installation password of 15–128 characters. See
+[access and recovery](./operations.md#installation-access-and-password-recovery) for session and
+password recovery behavior.
 
-PostgreSQL and dashboard ports bind to `127.0.0.1` by default. For a VPS, set the exact public HTTPS
-origin in `PUBLIC_BASE_URL` in `.env`, point its DNS records to the host, and run
-`./summyz-community-public up` (or `.\summyz-community-public.ps1 up` on Windows). This optional
-overlay publishes only ports 80/443 through Caddy and obtains TLS certificates automatically.
-Never expose PostgreSQL publicly. Firewall and cloud security-group configuration remain the
-operator's responsibility. On first execution, the public launcher creates a missing `.env`, asks
-for the HTTPS origin, and exits so that the operator can edit it before starting the stack.
+## First access and first recording
 
-## Native development
+1. Complete setup with the bot token and, in public mode, the installation password. Summyz
+   validates the token with Discord and derives the Application ID automatically.
+2. Configure the application's Client Secret and connect the server owner's Discord account.
+   Authorize the `identify guilds` scopes. In public mode, sign in again after completing the
+   connection because previous dashboard sessions are revoked.
+3. Install the bot in a server owned by the connected account. Configure its publication forum
+   and the roles or individual members allowed to record.
+4. Complete the initial AI profile by selecting a provider and model for transcription, refinement,
+   and summary. Configure the OpenRouter key if any stage uses it; install local models as needed.
+5. Activate the profile for the server. Join a standard voice channel and run `/record`. Use `/stop`
+   in the same channel; recording also ends when everyone leaves.
 
-Install Node.js 22.12 or later, npm, and FFmpeg with libopus on the host. Set an absolute
-`FFMPEG_PATH` or place `ffmpeg`/`ffmpeg.exe` in `PATH`. Then run `npm install` and the
-desired development scripts. Python, PostgreSQL, Ollama, and faster-whisper can remain in
-Docker.
+New installations start with one incomplete profile and no active profile per server. A configured
+forum, complete profile, available local models, and verified ownership are required before recording.
+After an ownership change, the new connected owner must review the configuration and confirm it with
+`/recording-activate` or the server activation flow. See [configuration](./configuration.md) and
+[commands](./reference/bot-commands.md) for details.
 
-The controlled LGPL FFmpeg build is automatic only inside Docker. Native developers are
-responsible for the license and codec configuration of their locally installed FFmpeg.
+## Direct Compose and native development
 
-## Data and backups
+Advanced operators can supply a complete `.env` and choose overlays explicitly:
 
-Named volumes preserve PostgreSQL, model caches, and Summyz data. `down` does not delete
-them; do not add `--volumes` unless permanent deletion is intended. Back up PostgreSQL,
-the Summyz data volume, and `.env` together. Never publish `.env`, raw recordings, full
-transcripts, database dumps, or model caches.
+```sh
+docker compose up -d --build
+docker compose -f compose.yaml -f docker/compose.nvidia.yaml up -d --build
+docker compose -f compose.yaml -f docker/compose.amd.yaml up -d --build
+```
 
-Review [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) before selecting models or
-redistributing any locally built image.
+These are alternative launch commands: the base configuration uses CPU, while NVIDIA and AMD select
+their respective overlays. AMD acceleration is available only on Linux.
+
+Native development requires Node.js 22.23.2, npm 10.9.8, and FFmpeg with `libopus`. Configure an
+absolute `FFMPEG_PATH` or make `ffmpeg`/`ffmpeg.exe` available through `PATH`. See the
+[development guide](./development.md) for scripts, database connections, and local-service networking.
+
+## Administration and data
+
+Use the launcher for `status`, `logs`, `restart`, and `down`. See [operations](./operations.md) for
+recovery, credential replacement, backups, and retention. Named volumes preserve the database,
+recordings, and model caches; `down` does not delete them.
+
+Review [THIRD_PARTY_NOTICES.md](../THIRD_PARTY_NOTICES.md) before selecting models or redistributing
+locally built images. Never publish `.env`, recordings, transcripts, or database dumps.
