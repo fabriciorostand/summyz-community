@@ -2,54 +2,164 @@
 
 [English](../development.md) · [Início da documentação](./README.md)
 
-## Qualidade
+## Ambiente e comandos
 
-Use `npm run check` antes de enviar mudanças. Esse comando valida formatação, lint, tipos, testes e
-cobertura. Use `npm run security:audit` para verificar as dependências.
+Use Node.js 22.23.2 e npm 10.9.8, fixados em `package.json` e na CI. Docker prepara esses runtimes,
+Python 3.12.14 e o build controlado LGPL do FFmpeg. A execução nativa exige FFmpeg com `libopus`:
+configure `FFMPEG_PATH` absoluto ou disponibilize `ffmpeg`/`ffmpeg.exe` no `PATH`. O bot o valida
+antes de conectar ao Discord. A licença e os codecs do FFmpeg nativo são responsabilidade do desenvolvedor.
 
-O decodificador Opus do MVP é `opusscript`, evitando a cadeia vulnerável encontrada na dependência
-nativa avaliada. O smoke test dos serviços locais é automatizado e executado dentro da rede privada
-com `docker compose --profile smoke run --rm smoke`; ele baixa modelos pequenos e pode demorar na
-primeira execução. Interações reais no Discord não são apresentadas como teste automatizado.
+Instale as dependências fixadas na raiz:
 
-O benchmark de faster-whisper usa `transcript.raw.txt` como referência, calcula WER, CER, tempo e
-fator de tempo real, e não inclui o conteúdo das reuniões no relatório. Configure
-`BENCHMARK_DEVICE`, `BENCHMARK_BATCH_SIZE` e `BENCHMARK_MODEL`, depois execute
-`docker compose --profile benchmark run --rm benchmark`. Ele só mede reuniões
-que ainda possuem todos os áudios.
+```sh
+npm ci
+```
+
+Prepare `.env` pelo [fluxo de instalação](./installation.md). Não o versione. Para banco nativo,
+troque `DATABASE_URL` gerada para Compose de `postgres:5432` pelo endereço do host e `POSTGRES_PORT`
+publicado. Defina `DISCORD_GUILD_ID` para registrar comandos em um servidor de desenvolvimento;
+sem essa variável, o registro é global.
+
+| Comando | Finalidade |
+| --- | --- |
+| `npm run dev` | Bot supervisionado em desenvolvimento |
+| `npm run dev:api` | API do dashboard |
+| `npm run dev:web` | Dashboard Vite em `127.0.0.1:5173`, com proxy de `/api` para `127.0.0.1:8787` |
+| `npm run build` | Compilar servidor e dashboard |
+| `npm start` | Bot supervisionado compilado |
+| `npm run start:api` | API compilada do dashboard |
+
+Execute bot, API e Vite em terminais separados conforme necessário. Vite é a origem do navegador
+no desenvolvimento frontend, enquanto `PUBLIC_BASE_URL` determina a origem do callback Discord;
+registre esse callback exato na aplicação Discord.
+
+Os clientes de IA local usam `http://ollama:11434` e `http://faster-whisper:8000`. Esses nomes resolvem
+dentro do Compose e a pilha base não publica as portas no host. IA local nativa exige configuração
+deliberada de rede e resolução de nomes; apenas iniciar serviços privados em Compose não torna
+essas URLs acessíveis ao processo nativo. O fluxo Compose fornece a rede compartilhada automaticamente.
+
+## Estrutura e convenções do projeto
+
+- `src/discord`, `src/recording`: comandos, propriedade, captura de voz, manifestos e recuperação;
+- `src/transcription`, `src/refinement`, `src/summary`, `src/processing`: etapas validadas e jobs duráveis;
+- `src/models`, `src/local-ai`, `src/openrouter`, `src/cost`: catálogos, modelos, execução e custos;
+- `src/api`, `src/auth`, `src/database`: contratos do dashboard, acesso à instalação, banco e migrations;
+- `web/src`: rotas React, telas, preferências do navegador e mensagens inglês/pt-BR;
+- `services/faster-whisper`: serviço Python de transcrição;
+- `tests`, `web/src/**/*.test.*`, `scripts/ci`: testes e gates de qualidade.
+
+Siga [AGENTS.md](../../AGENTS.md). TypeScript é estrito; valide dados externos, modele estados
+opcionais e trate rejeições e ciclos de vida explicitamente. Use identificadores de código/banco
+e comentários em inglês. Segredos, cabeçalhos de autorização e áudio não devem aparecer nos logs;
+erros Discord não podem expor detalhes internos. Há testes que falham quando credenciais vazam nos logs.
+
+## TDD e verificações locais de qualidade
+
+Para mudanças de lógica, use Vitest em red-green-refactor: escreva o teste falhando, implemente o
+mínimo e refatore. Isole integrações substituíveis em fronteiras reais. Smoke tests de IA local
+são separados da suíte rápida; interações manuais reais no Discord não são critérios automatizados.
+
+```sh
+npm run check
+npm run security:audit
+```
+
+`check` executa Biome, typechecks do servidor e web, testes unitários Python, cobertura do servidor
+e testes web. Use os scripts separadamente para diagnosticar falhas:
+
+| Comando | Verificação |
+| --- | --- |
+| `npm test` | Suíte rápida do servidor, incluindo integrações de banco configuradas |
+| `npm run test:coverage` | Cobertura do servidor; limites de 85% para linhas, branches, funções e statements |
+| `npm run test:web` / `npm run test:web:coverage` | Testes do dashboard / configuração de cobertura CI |
+| `npm run test:python` / `npm run test:python:coverage` | Testes unitários Python / cobertura e relatórios |
+| `npm run typecheck` / `npm run typecheck:web` | Tipos do servidor / dashboard |
+| `npm run lint` / `npm run format:check` | Lint / formatação |
+| `npm run format` | Aplicar formatação |
+
+A cobertura Python precisa das ferramentas de `requirements/ci.lock`; o script unitário usa
+`unittest`. `check` não executa o gate de cobertura web, cobertura por domínio ou smoke local.
+A CI também inclui mais módulos na cobertura do servidor que a configuração local.
+
+## Testes de integração PostgreSQL
+
+As suítes locais usam `POSTGRES_TEST_URL` e são ignoradas quando ela não existe. Aponte-a para um
+banco PostgreSQL dedicado e descartável, nunca para a instalação em uso ou um backup: testes de
+migração recriam schema e fixtures. A CI fornece PostgreSQL 18.4 real e executa essas suítes.
+
+Para reproduzir a configuração mais ampla de cobertura do servidor na CI com esse banco configurado:
+
+```sh
+npm run test:coverage:ci
+```
+
+## Smoke de IA local e benchmark de transcrição
+
+Com a pilha Docker configurada, execute a suíte isolada na rede privada:
+
+```sh
+docker compose --profile smoke run --rm smoke
+```
+
+Ela executa inferência local real, baixa modelos pequenos e pode demorar na primeira execução.
+`npm run test:smoke:local-ai` é a entrada Vitest isolada; Compose fornece rede e runtime.
+Escolha os overlays apropriados ao testar aceleração explicitamente. A inferência CI usa CPU;
+construir o pacote CUDA não valida uma GPU física.
+
+O benchmark usa áudio retido e `transcript.raw.txt` como referência e informa WER, CER, tempo e
+fator de tempo real sem conteúdo da reunião. Por padrão, monta `./data` do host somente para
+leitura, em vez do volume nomeado do bot. Forneça uma montagem somente leitura do diretório retido
+desejado ao medir gravações feitas pelo Docker.
+
+```sh
+docker compose --profile benchmark run --rm -e BENCHMARK_DEVICE -e BENCHMARK_BATCH_SIZE -e BENCHMARK_MODEL benchmark
+```
+
+Defina essas variáveis no host antes do comando. `BENCHMARK_DATA_DIR` é o diretório dentro do
+contêiner (`/benchmark-data/recordings` por padrão). Somente reuniões com todos os áudios restantes
+são medidas.
+O conjunto também exige `manifest.json` e `transcript.raw.txt` por reunião. A limpeza terminal
+remove esses arquivos locais mesmo com áudio retido; prepare um conjunto isolado somente leitura
+com conteúdo e áudio preservados, sem presumir que o diretório terminal esteja completo.
+
+## Migrations e preservação em upgrades
+
+Migrations são definições SQL TypeScript ordenadas em `src/database/migrations*.ts`.
+Depois de aplicadas são imutáveis: PostgreSQL registra checksum SHA-256 e a inicialização falha
+de forma fechada se o SQL versionado divergir. Não corrija uma migration aplicada editando seu SQL histórico.
+
+Da versão 10 em diante, migrations devem ser expand-only: sem exclusão de dados de negócio,
+truncamento, remoção de tabelas/colunas, exclusão em cascata ou atualização do processamento de
+reuniões. Limpeza pertence ao ciclo explícito de retenção após estado terminal. A inicialização
+deve preservar artefatos pendentes. Upgrades de processamento/manifesto exigem testes de contrato
+que comprovem preservação e recuperação de reuniões, jobs, custos, manifestos e catálogos de áudio.
+Consulte os testes de integração de upgrade e `tests/database-migration-safety.test.ts`.
 
 ## Integração contínua
 
-O workflow `CI` é executado em pull requests para `main` e após merges, por meio do evento de push
-em `main`. Os jobs aparecem diretamente como `CI / Quality`, `CI / Security`, `CI / Tests`,
-`CI / Runtime / Images`, `CI / Quality Gate / Analysis` e `CI / Quality Gate`. `Analysis` reúne os
-relatórios dos quatro primeiros jobs, publica o resumo e atualiza o baseline após um merge.
-`Quality Gate` aplica o resultado agregado e atualiza o comentário persistente nos pull requests
-internos. Um commit novo cancela a execução anterior do mesmo pull request; as execuções em `main`
-podem ocorrer em paralelo e não cancelam umas às outras. O bloqueio de pushes diretos em `main`
-depende da proteção configurada no GitHub.
+`CI` executa em PRs para `main` e pushes em `main`. Os jobs são `Quality`, `Security`, `Tests`,
+`Runtime / Images`, `Quality Gate / Analysis` e `Quality Gate`. Novos commits cancelam execuções
+anteriores do mesmo PR; pushes em `main` não cancelam uns aos outros. A proteção de branch determina
+se pushes diretos são bloqueados.
 
-Os testes do servidor sempre usam PostgreSQL 18.4 real. Servidor, dashboard e serviço Python
-precisam atingir pelo menos 85% de cobertura global por linhas e 85% em cada grupo de domínio. A
-cobertura do código novo ou modificado é calculada uma vez, como agregado ponderado por linhas dos
-três componentes, e também precisa atingir 85%. Relatórios HTML, JUnit, JSON e SARIF ficam
-disponíveis como artefatos, além do resumo da execução. Pull requests internos recebem um único
-comentário persistente do Quality Gate, integralmente em inglês e atualizado a cada execução; pull
-requests de forks recebem os mesmos checks, resumo e artefatos sem precisar expor secrets nem
-conceder permissão de escrita.
+Servidor, dashboard e Python exigem ao menos 85% de cobertura global por linhas e 85% em cada grupo
+de domínio. A cobertura alterada é um agregado ponderado por linhas dos três componentes, também
+de pelo menos 85%. Relatórios HTML, JUnit, JSON e SARIF são preservados como artefatos. PRs internos
+recebem um comentário persistente em inglês; forks recebem checks, resumo e artefatos sem segredos
+nem permissão de escrita. Analysis reúne resultados e guarda o baseline de main após pushes.
 
-A medida `Security` contabiliza somente vulnerabilidades únicas `HIGH` ou `CRITICAL` que tenham
-correção disponível. Esses achados reprovam o gate. Achados de severidade inferior e
-vulnerabilidades para as quais ainda não foi publicada uma correção não entram na medida nem
-reprovam o gate, mas continuam visíveis junto às issues de qualidade e segurança em `Issue details`
-e nos artefatos completos.
+Security conta vulnerabilidades únicas HIGH/CRITICAL com correção disponível como bloqueantes.
+Severidades menores e achados sem correção publicada continuam nos detalhes e artefatos. Checks
+de segredos e configuração têm regras próprias de reprovação no workflow.
 
-O gate de runtime constrói as imagens do bot, dashboard, faster-whisper para CPU e o pacote NVIDIA,
-valida as variantes Compose e executa uma inferência local real em CPU com revisões verificadas dos
-modelos. A execução em uma GPU real fica fora deste workflow. Node.js 22.23.2, npm 10.9.8, Python
-3.12.14, imagens-base, actions, locks e snapshots dos repositórios Debian/Ubuntu estão fixados. O
-runner `ubuntu-24.04` e as bases de vulnerabilidades dos scanners permanecem serviços atualizados
-do GitHub e dos fornecedores. Caches de npm, pip, BuildKit e modelos reduzem as execuções seguintes
-sem dispensar as verificações de versão, hash e digest. O dashboard reutiliza o cache BuildKit do
-bot sem sobrescrevê-lo. O cache dos modelos é salvo somente após o smoke test passar e contém apenas
-os artefatos de Ollama e faster-whisper, não o diretório inteiro dos serviços.
+Runtime constrói imagens de bot, dashboard e transcrição CPU, valida usuários/versões e variantes
+Compose e analisa essas imagens. Em pushes de `main`, inferência CPU local e pacote CUDA sempre
+executam. Em PRs, alterações de transcrição, FFmpeg, locks Python ou workflow selecionam ambos;
+dependências de smoke/runtime/modelos selecionam smoke; alterações não relacionadas podem dispensar
+ambos. Os filtros de caminhos do workflow são a fonte de verdade dessa seleção.
+
+Node.js 22.23.2, npm 10.9.8, Python 3.12.14, digests de imagens, actions, locks de pacotes e snapshots
+Debian estão fixados. Pacotes de sistema NVIDIA são obtidos nos repositórios oficiais HTTPS Ubuntu
+durante o build. Runner GitHub e bases de vulnerabilidades dos scanners são serviços atualizados.
+Caches de npm, pip, BuildKit e modelos verificados reduzem o tempo; o dashboard lê o cache de build
+do bot sem substituí-lo. Novas entradas de cache de modelos só são salvas após smoke bem-sucedido em main.

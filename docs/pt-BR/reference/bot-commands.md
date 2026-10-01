@@ -2,144 +2,140 @@
 
 [English](../../reference/bot-commands.md) · [Início da documentação](../README.md)
 
-## `/record`
+## Pré-condições e acesso
 
-Inicia a gravação do canal de voz em que você está.
+Comandos são usados em servidores Discord. A instalação deve ter uma conta Discord conectada do
+dono literal do servidor; o Summyz verifica a propriedade antes de executar comandos conhecidos.
+Sem conta, com conta de outro proprietário ou sem conseguir verificar, o comando é recusado
+com mensagem efêmera.
 
-Pode usar:
+| Ação | Quem pode usar |
+| --- | --- |
+| Iniciar/encerrar gravação | Dono, cargos autorizados ou membros autorizados individualmente |
+| Gerenciar fórum, cargos, perfil ativo, ativação e custos | Somente o dono |
 
-- dono do servidor;
-- membro com um dos cargos autorizados para gravação.
+Administrar ou Gerenciar servidor, isoladamente, não concede acesso. Autorizar cargo/membro não
+concede gestão. Autorizações individuais dependem da participação atual e são revogadas ao sair.
+Após trocar de proprietário, `/record` também exige confirmação explícita da configuração.
+Consulte [configuração](../configuration.md#propriedade-e-acesso-aos-servidores).
 
-O Summyz publica no canal de texto onde o comando foi usado que a gravação começou. Apenas uma
-gravação pode ficar ativa por servidor. O comando pode ser executado em qualquer chat do servidor,
-mas o usuário precisa estar em um canal de voz convencional. Também é necessário configurar um
-fórum e completar o perfil de processamento ativo. Um perfil incompleto ou incompatível bloqueia a
-gravação.
+## Gravação
 
-## `/stop`
+### `/record`
 
-Encerra a gravação ativa do servidor.
+Inicia a gravação do canal de voz convencional onde a pessoa está. Apenas uma gravação pode ficar
+ativa por servidor. Fórum e perfil ativo completo precisam estar configurados; modelos locais
+selecionados devem estar instalados e provedores disponíveis. Etapas OpenRouter exigem chave da
+instalação e verificação de capacidades. faster-whisper exige checkpoint multilíngue verificado.
+Essas verificações bloqueiam a captura quando faltam requisitos; o dono também está sujeito a elas.
 
-Para usar o comando, você precisa:
+O Summyz anuncia publicamente a gravação no chat de texto do comando. Bots são excluídos; pessoas
+que entram depois são incluídas. Avaliações locais acima da recomendação ou desconhecidas avisam
+somente quem executou, sem trocar o modelo nem expor hardware publicamente.
 
-- ser o dono do servidor ou possuir um cargo autorizado;
-- estar no mesmo canal de voz que está sendo gravado.
+### `/stop`
 
-Quem executa `/stop` recebe uma confirmação efêmera no chat do comando. O encerramento público,
-com a menção de quem o solicitou, é publicado no chat onde `/record` iniciou a sessão.
+Encerra a gravação ativa. A pessoa deve estar autorizada e no mesmo canal gravado. A confirmação
+é efêmera no chat da interação; o aviso público menciona a pessoa no chat original do `/record`.
 
-Se todas as pessoas saírem do canal, o Summyz encerra a gravação e sai do canal automaticamente. O
-chat original recebe uma mensagem com o nome do canal de voz, informa que os segmentos foram
-preservados e que serão processados. Gravações antigas sem o nome salvo usam a descrição genérica
-“canal de voz”.
+Quando todos os humanos saem, a gravação termina automaticamente e o bot sai. O chat original
+identifica o canal quando seu nome salvo está disponível e informa que o áudio será processado.
+Transcrição, refinamento, resumo e publicação continuam pela fila durável. Consulte
+[operação](../operations.md#ciclo-de-gravação-e-processamento) para retries e recuperação.
 
-Depois de um encerramento por `/stop` ou canal vazio, a transcrição e o resumo começam em segundo
-plano por uma fila durável. O arquivo completo é publicado como anexo em um post no fórum
-configurado.
-Antes de enviar áudio ao provedor configurado, o servidor do bot descarta localmente trechos sem voz
-e consolida falas próximas da mesma pessoa sem misturar participantes.
-Quando um modelo local escolhido excede a recomendação de hardware, somente quem executou `/record`
-recebe um aviso efêmero. O canal público não recebe detalhes do hardware. O Summyz preserva a
-escolha explícita e não substitui o modelo por outro menor.
-Se a reunião não puder ser transcrita integralmente, o canal onde `/record` foi executado recebe
-somente um aviso genérico.
+## Configuração de fórum e cargos
 
-Quando o resumo é concluído, o post contém resumo executivo, tópicos discutidos, decisões,
-tarefas e pendências ou observações. Responsável e prazo só aparecem quando foram ditos
-explicitamente. Se o resumo falhar depois das tentativas configuradas, o Summyz ainda cria um
-post com a transcrição completa e informa que o resumo está indisponível.
+### `/recording-summary-forum set forum:<fórum> tag:<tag opcional>`
 
-## `/recording-role add role:<cargo>`
+Seleciona o fórum de publicação. `tag` aceita nome ou ID de tag existente e é obrigatória se o fórum
+exigir tags. O bot valida Ver canais, Enviar mensagens, Enviar mensagens em threads, Ler histórico
+e Anexar arquivos antes de salvar. Somente o dono; resposta efêmera.
 
-Autoriza um cargo a iniciar e encerrar gravações.
+### `/recording-summary-forum show`
 
-Somente o dono do servidor pode usar este comando.
+Mostra fórum e tag configurados ou informa sua ausência. Somente o dono; efêmero.
 
-## `/recording-role remove role:<cargo>`
+### `/recording-summary-forum clear`
 
-Remove a autorização de gravação de um cargo.
+Remove o destino e bloqueia novas gravações até configurar outro fórum. Publicações não iniciadas
+não concluem sem destino e seguem a política de retry durável; isso não garante espera ilimitada.
+Posts já iniciados continuam na thread salva. Somente o dono; efêmero.
 
-Somente o dono do servidor pode usar este comando.
+### `/recording-role add role:<cargo>`
 
-## `/recording-role list`
+Autoriza um cargo a iniciar e encerrar gravações. Somente o dono; efêmero.
 
-Mostra os cargos autorizados a controlar gravações no servidor.
+### `/recording-role remove role:<cargo>`
 
-Somente o dono do servidor pode usar este comando.
+Remove a autorização desse cargo. Somente o dono; efêmero.
 
-## `/recording-summary-forum set forum:<fórum> tag:<tag opcional>`
+### `/recording-role list`
 
-Define o fórum que receberá os resumos e as transcrições. A tag precisa existir no fórum; quando o
-fórum exige tags, a opção é obrigatória. O comando valida as permissões do bot antes de salvar.
+Lista os cargos autorizados. Somente o dono; efêmero. Autorizações individuais são configuradas
+separadamente pelo fluxo de configuração do servidor, e não por esses comandos de cargos.
 
-Somente o dono do servidor pode usar este comando.
+## Perfil de IA ativo
 
-## `/recording-summary-forum show`
+### `/recording-profile list`
 
-Mostra o fórum e a tag configurados no servidor. Possui as mesmas regras de acesso do `set`.
+Lista perfis completos da instalação com nomes e IDs. Somente o dono; efêmero. Estar completo não
+garante arquivos locais instalados nem aprovação dos modelos na verificação anterior à gravação.
 
-## `/recording-summary-forum clear`
+### `/recording-profile set profile:<ID do perfil>`
 
-Remove o destino. Novas gravações ficam bloqueadas e reuniões ainda não publicadas permanecem
-pendentes até que outro fórum seja configurado. Possui as mesmas regras de acesso do `set`.
+Seleciona um perfil completo existente como ativo do servidor. Somente o dono; efêmero.
+O perfil pode ser externo, local ou híbrido. Use o ID retornado por `list`. A seleção vale para
+novas gravações e não modifica o perfil fixado em uma reunião em andamento.
 
-## `/recording-cost meeting id:<ID da reunião>`
+## Confirmação de propriedade
 
-Mostra os custos de uma reunião concluída. Somente o dono do servidor pode usar o
-comando, e a resposta é efêmera. Um ID só pode ser consultado no servidor em que a reunião foi
-gravada.
+### `/recording-activate`
 
-Para cada fase, o relatório informa se a execução usou uma API externa ou um serviço local, o
-modelo efetivo informado pelo provedor e a quantidade de requisições externas. Fases locais mostram
-o modelo, mas não apresentam custo: o custo computacional local não é medido. Valores externos são
-os montantes exatos em USD informados pelo OpenRouter e aparecem sem arredondamento.
+Confirma a configuração após troca de proprietário. Somente o dono atual pode executar e sua conta
+deve estar conectada à instalação. Revise antes fórum, perfil ativo e autorizações. Fórum e perfil
+ativo completo são obrigatórios. Confirmar permite que novas gravações sigam para verificações
+normais de autorização, modelos e voz; não baixa modelos nem retoma jobs cancelados.
+A resposta é efêmera.
 
-O relatório inclui tentativas cobradas que falharam, reconciliações pendentes e tentativas cuja
-cobrança não pôde ser confirmada automaticamente. Uma reunião em andamento é recusada com uma
-mensagem efêmera; aguarde a gravação terminar antes de consultá-la.
+O primeiro dono observado é confirmado automaticamente; o seguinte exige essa confirmação explícita
+ou o fluxo equivalente de ativação do servidor.
 
-## `/recording-cost period from:<AAAA-MM-DD> to:<AAAA-MM-DD>`
+## Custos
 
-Mostra os custos agregados das reuniões concluídas e iniciadas no intervalo inclusivo. Reuniões em
-andamento não entram no relatório. As datas são interpretadas com `SUMMARY_TIME_ZONE`. O relatório
-inclui quantidade e duração das reuniões, requisições aos provedores, execuções locais, totais por
-fase, médias confirmadas, falhas cobradas e reconciliações não concluídas. Somente o dono do
-servidor pode usar o comando, e a resposta é efêmera.
+### `/recording-cost meeting id:<ID da reunião>`
 
-## Avisos importantes
+Mostra custos confirmados de reunião cuja gravação terminou. Somente o dono; efêmero e restrito
+ao servidor atual. Uma reunião ainda gravando é recusada. O processamento em segundo plano pode
+continuar após o encerramento, por isso novas consultas podem incluir mais tentativas e cobranças.
 
-- O dono do servidor sempre pode controlar gravações. As permissões Administrador e Gerenciar
-  servidor, isoladamente, não concedem gestão do Summyz.
-- A falta de autorização tem prioridade sobre os demais erros de `/record`; para usuários
-  autorizados, a falta de fórum configurado tem prioridade sobre a ausência no canal de voz.
-- Bots não são gravados.
-- Pessoas que entrarem no canal depois do início também serão gravadas.
-- Se a conexão de voz cair, o Summyz avisa no canal de texto e tenta retomar por até cinco minutos.
-- Avisos públicos de início, conexão, encerramento, transcrição e publicação permanecem no chat em
-  que `/record` foi executado, formando um único histórico da sessão.
-- Se o processo reiniciar, o áudio já capturado é preservado e a gravação é retomada quando ainda
-  houver pessoas no canal.
-- Se o canal estiver vazio após o reinício, o Summyz finaliza e processa a gravação parcial.
-- Falhas transitórias são repetidas internamente; não existem comandos públicos de status, retry ou
-  exclusão nesta etapa.
-- A retenção de conteúdo é ativada e a de áudio é desativada por padrão em novos servidores. Ambas
-  podem ser alteradas no dashboard.
-- As políticas de conteúdo e áudio são fixadas quando `/record` inicia; alterações posteriores no
-  dashboard valem somente para novas reuniões.
-- O tipo do perfil ativo, o provedor, os modelos explícitos, os idiomas do resumo e da transcrição,
-  o VAD, os prompts e os demais parâmetros de cada fase também ficam fixos nesse
-  momento. Um perfil local nunca usa OpenRouter como fallback.
-- O `/record` é bloqueado antes da captura de áudio quando o catálogo da OpenRouter está indisponível,
-  um modelo externo está ausente ou suas modalidades exigidas são incompatíveis. A resposta de
-  transcrição com timestamps é validada durante o processamento. O comando também bloqueia quando
-  o checkpoint carregado do faster-whisper é monolíngue
-  ou tem capacidade desconhecida.
-- A transcrição com `auto` detecta os idiomas falados; um idioma explícito orienta o provedor. Um
-  idioma explícito do resumo tem prioridade. Com resumo em `auto`, o Summyz usa o idioma explícito
-  da transcrição ou, se ambos forem `auto`, o idioma predominante detectado.
-- O resumo é gerado diretamente no idioma escolhido. Se o idioma não puder ser confirmado, o
-  Summyz faz até três gerações no total e publica o último resultado. Um aviso aparece somente no
-  detalhe da reunião no dashboard; o post no fórum permanece igual.
-- Registros financeiros são mantidos indefinidamente, independentemente da retenção de áudio e
-  transcrições.
+Para cada etapa, informa execução externa/local, modelo efetivo e quantidade de requisições externas.
+Etapas locais não têm custo computacional medido. Valores externos são os montantes exatos em USD
+confirmados pela OpenRouter, sem arredondamento de apresentação. Tentativas cobradas com falha,
+reconciliações pendentes e cobranças não atribuíveis automaticamente são informadas.
+
+### `/recording-cost period from:<AAAA-MM-DD> to:<AAAA-MM-DD>`
+
+Agrega reuniões cuja gravação terminou e que começaram no intervalo inclusivo. Somente o dono;
+efêmero. Datas devem ser válidas no formato `YYYY-MM-DD` e `from` não pode ser posterior a `to`.
+Os limites usam `SUMMARY_TIME_ZONE`.
+
+O relatório inclui quantidade/duração de reuniões, execuções locais, requisições externas, totais
+por etapa, médias confirmadas, falhas cobradas e tentativas não resolvidas. Processamento após
+encerrar a gravação ainda pode mudar os totais. Registros financeiros são independentes da retenção
+de conteúdo/áudio. Consulte [medição de custos](../operations.md#medição-de-custos-dos-provedores).
+
+## Comportamento automático e restrições
+
+- Perfil, provedores, modelos, idiomas, prompts, VAD, geração e retenção ficam fixados no início;
+  edições posteriores valem para novas reuniões.
+- Não há substituição silenciosa de provedor/modelo. Etapas locais não têm fallback para OpenRouter.
+- Idioma do resumo e idioma do bot/interface são escolhas separadas; consulte
+  [idiomas e prompts](../configuration.md#idiomas-e-prompts).
+- A publicação exige transcrição completa. Falha de refinamento pode preservar a original;
+  falha de resumo pode gerar post somente com transcrição.
+- Queda de voz inicia reconexão automática. Recuperação após reinício também verifica propriedade,
+  presença do bot e disponibilidade do canal antes de retomar.
+- Troca de dono encerra gravação ativa e suspende novas gravações até confirmar a configuração.
+  Saída do bot cancela reuniões não terminais; o histórico da instalação é preservado.
+- Discord não expõe comando público de status, retry ou exclusão. Downloads, histórico, retenção,
+  tarefas e administração pertencem aos respectivos fluxos de configuração/operação.

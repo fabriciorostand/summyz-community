@@ -2,144 +2,220 @@
 
 [English](../configuration.md) · [Início da documentação](./README.md)
 
-## Medição de custos dos provedores
+Siga [instalação](./installation.md) para o setup inicial. Este guia explica as credenciais da
+instalação, acesso aos servidores, escolhas de IA e parâmetros de execução. Comportamento no uso,
+custos e recuperação estão em [operação](./operations.md).
 
-Cada execução de modelo é registrada antes de ser enviada. Respostas do OpenRouter usam o
-`usage.cost` em USD informado pelo próprio provedor; o Summyz não calcula estimativas de preço.
-Retries da aplicação são tentativas separadas, e uma chamada que falhou é incluída sempre que o
-OpenRouter confirma uma cobrança. O `generation_id` é preservado e consultado para reconciliar
-respostas sem metadados completos de custo ou modelo efetivo.
+## Credenciais da instalação e conexão Discord
 
-Se uma falha de transporte impedir que a resposta e o identificador da geração cheguem ao Summyz,
-a tentativa será marcada como não confirmável automaticamente, nunca como gratuita. Os relatórios
-expõem essa condição e não apresentam o subtotal confirmado como necessariamente completo.
-Chamadas locais ao Ollama e faster-whisper preservam o modelo efetivo com o campo de custo externo
-como `null`, pois o custo computacional não faz parte desta etapa.
+Token do bot, Client Secret Discord e chave OpenRouter são segredos da instalação criptografados
+no PostgreSQL com `SUMMYZ_SECRETS_KEY`, mantida no `.env`. Configure as credenciais pelo fluxo da
+instalação; os valores armazenados não são devolvidos ao dashboard.
 
-Somente o dono do servidor pode consultar uma reunião concluída com `/recording-cost meeting` ou agregar
-reuniões concluídas pela data em que começaram com `/recording-cost period`; reuniões em andamento
-ficam fora do relatório. As respostas são efêmeras e sempre limitadas ao servidor atual do Discord.
-Os limites de data usam `SUMMARY_TIME_ZONE`; valores financeiros são armazenados e exibidos sem
-arredondamento.
+O token é validado no Discord e determina o Application ID. O Client Secret deve pertencer à mesma
+aplicação. Registre `<PUBLIC_BASE_URL>/api/discord/callback` como redirecionamento OAuth e conecte
+a conta Discord do dono dos servidores. O Summyz solicita `identify guilds`, armazena tokens de
+acesso e renovação criptografados e os renova quando necessário. O estado da autorização é de uso
+único e expira em dez minutos. Conectar ou substituir a conta revoga as sessões existentes do
+dashboard; no modo público, é necessário entrar novamente com a senha.
 
-As escolhas de persistência e o perfil ativo completo — provedores, modelos, idiomas e parâmetros —
-são copiados para o manifesto no início da reunião. Alterar ou ativar outro perfil depois não muda
-uma reunião já iniciada.
+Acesso ao dashboard e propriedade do servidor são verificações separadas. O modo local não exige
+senha; o público usa uma senha da instalação. Nenhum modo cria contas Summyz ou cadastro público.
+A conexão Discord estabelece quais servidores podem ser configurados.
 
-O processamento usa uma fila durável no PostgreSQL. A entrega é *at least once*: se o processo cair
-depois de reservar um job e antes de confirmar
-o resultado, esse job pode executar novamente após o reinício ou vencimento do lease. As etapas e a
-publicação são idempotentes para que a repetição não crie intencionalmente outra reunião. Além dos
-retries rápidos dos provedores, uma falha transitória agenda execuções duráveis após 1 minuto,
-5 minutos, 15 minutos, 1 hora e 6 horas (seis execuções no total, contando a inicial).
+Configure uma chave OpenRouter somente se alguma etapa o utilizar. Uma etapa local nunca envia
+seu conteúdo ao OpenRouter como fallback. Rotação do token e troca da aplicação possuem restrições
+diferentes; consulte [operação](./operations.md#substituição-do-token-e-da-aplicação-do-bot).
 
-## Configuração no Discord Developer Portal
+## Propriedade e acesso aos servidores
 
-1. Abra a aplicação do Summyz no Discord Developer Portal.
-2. Em **Bot**, crie ou redefina o token e informe-o no setup do dashboard. Ele será criptografado
-   no PostgreSQL com a chave mestra mantida no `.env`.
-3. Ainda em **Bot**, ative o intent privilegiado **Server Members Intent**. O Summyz usa os
-   intents `Guilds`, `Guild Members` e `Guild Voice States`; o intent de membros permite contar
-   somente os membros humanos visíveis ao bot em cada cargo. Se ele estiver desativado, gravação e
-   publicação continuam funcionando, mas a API informa
-   `discord_members_intent_unavailable` e não exibe contagens possivelmente incorretas.
-4. Em **Installation**, configure **Guild Install** com os escopos `bot` e
-   `applications.commands`.
-5. Nas permissões padrão da instalação, conceda ao bot:
+Configurar um servidor exige bot instalado e conta Discord conectada do dono literal do servidor.
+Permissões Administrador ou Gerenciar servidor não concedem gestão do Summyz. Todos os comandos
+conhecidos do bot também exigem que essa conexão corresponda ao proprietário atual.
 
+O dono pode gerenciar fórum, autorizações, perfil ativo, ativação e consultas de custo. Cargos e
+membros individuais autorizados podem iniciar e encerrar gravações, sem adquirir poderes de gestão.
+Autorizações individuais ficam vinculadas à participação atual do membro; sair e entrar novamente
+não restaura automaticamente a autorização individual anterior.
+
+O primeiro proprietário observado é confirmado automaticamente. Se houver troca de dono, o acesso
+à gravação é suspenso. Conecte o novo proprietário, revise fórum, perfil e autorizações e confirme
+a configuração com `/recording-activate` ou pelo fluxo de ativação do servidor. A confirmação exige
+fórum e perfil ativo completo. Ativar não instala modelos nem ignora as verificações anteriores à gravação.
+
+A lista também inclui servidores históricos com reuniões gravadas e servidores da conta conectada
+onde o bot pode ser instalado. O acesso às reuniões históricas está descrito em
+[operação](./operations.md#histórico-custos-e-tarefas).
+
+## Fórum e autorizações de gravação
+
+Use Guild Install com os escopos `bot` e `applications.commands`. O link de instalação solicita:
+
+- Ver registro de auditoria;
 - Ver canais;
 - Conectar;
 - Enviar mensagens;
 - Enviar mensagens em threads;
 - Ler histórico de mensagens;
-- Anexar arquivos;
-- Usar comandos de aplicativo.
+- Anexar arquivos.
 
-O dashboard mostra apenas os servidores nos quais o bot configurado está instalado e fornece uma
-ação genérica para instalar o bot em outro servidor. Se o bot já
-estiver instalado, alterar as permissões padrão no Developer Portal não atualiza automaticamente o
-cargo existente: ajuste as permissões do cargo do bot e as sobrescritas do canal onde as reuniões
-serão publicadas, ou reinstale o bot com o novo link.
+Ver registro de auditoria permite verificar se um canal de voz ausente foi excluído durante a
+recuperação. O bot verifica permissões efetivas no servidor, canal de voz, chat de avisos e fórum.
+Permissões ausentes ou falhas na inspeção geram avisos estruturados; operações reais no Discord
+ainda podem falhar. Reinstalar ou mudar as permissões padrão da aplicação não elimina a necessidade
+de conferir o cargo existente do bot e as sobrescritas dos canais.
 
-As permissões Enviar mensagens, Enviar mensagens em threads, Ler histórico de mensagens e Anexar
-arquivos devem estar liberadas também nas configurações específicas do fórum, quando houver
-sobrescritas. `Enviar mensagens` sozinho não permite responder dentro de um post.
+Configure um fórum e, se ele exigir tags, selecione uma tag existente. Ver canais, Enviar mensagens,
+Enviar mensagens em threads, Ler histórico de mensagens e Anexar arquivos precisam estar liberadas
+nesse fórum. Enviar mensagens sozinho não permite respostas em posts. O comando
+`/recording-summary-forum set` valida as permissões do fórum antes de salvar.
 
-Depois de adicionar o bot, use `/recording-role add` para autorizar os cargos desejados e
-`/recording-summary-forum set` para definir o fórum das publicações. Novas gravações ficam
-bloqueadas enquanto não houver um fórum configurado. Consulte a [referência de comandos](./reference/bot-commands.md)
-para ver todos os comandos e regras de acesso.
+Autorize cargos com `/recording-role add` ou configure cargos e membros individuais no servidor.
+Ative **Server Members Intent** no Developer Portal para listagens de membros e contagens humanas
+por cargo. Sem esse intent, os recursos de diretório informam `discord_members_intent_unavailable`;
+gravação e publicação não dependem da exibição dessas contagens. Consulte a
+[referência de comandos](./reference/bot-commands.md).
 
-Somente o dono literal do servidor Discord pode gerenciar fórum, cargos autorizados e custos.
-Permissões de Administrador ou Gerenciar servidor não concedem essa gestão. O dono e os cargos que
-ele autorizar podem usar `/record` e `/stop`; os cargos não recebem outros poderes.
+## Perfis e provedores por etapa
 
-## Perfis de processamento
+Perfis são globais da instalação. Cada servidor mantém no máximo um perfil ativo e começa sem
+nenhum. Uma instalação nova cria apenas `Perfil 1`/`Profile 1`, nomeado no idioma do setup, sem
+provedores nem modelos selecionados.
 
-Os perfis são globais da instalação e podem ser reutilizados em todos os servidores nos quais o bot
-está instalado. Cada etapa escolhe seu provedor independentemente; o backend calcula os tipos
-**API externa**, **Local** ou **Híbrido**. Uma instalação nova recebe apenas `Perfil 1`/`Profile 1`,
-com provedores e modelos vazios. Um perfil ativo não pode ser excluído.
+| Etapa | Provedor externo | Provedor local |
+| --- | --- | --- |
+| Transcrição | OpenRouter | faster-whisper |
+| Refinamento | OpenRouter | Ollama |
+| Resumo | OpenRouter | Ollama |
 
-Cada servidor mantém no máximo um desses perfis como ativo, independentemente do tipo. Servidores
-novos começam sem perfil ativo; enquanto transcrição, refinamento e resumo do perfil escolhido não
-tiverem modelos explícitos, `/record` mostra um aviso efêmero e não inicia a gravação. Trocar um
-modelo preserva os demais parâmetros do perfil. Se
-o bot sair de um servidor, ele deixa de aparecer no dashboard, mas seus dados persistidos são
-preservados. Reinstalar o mesmo bot nesse servidor torna esses dados visíveis novamente.
+Escolha a execução e o modelo de cada etapa independentemente. O Summyz calcula o tipo: externo
+quando todas usam OpenRouter, local quando todas são locais e híbrido quando há uma combinação.
+Salvar exige as três etapas completas e modelos pertencentes ao catálogo de cada provedor. Os
+arquivos locais podem ser instalados depois; sua ausência bloqueia a gravação.
 
-O Summyz não escolhe modelos automaticamente. A escolha deve pertencer ao catálogo do provedor e
-o Summyz nunca substitui o modelo selecionado. Salvar exige as três etapas completas; arquivos locais
-podem ser instalados depois, mas sua ausência bloqueia a gravação. A avaliação local usa os estados
-`recommended`, `compatible`,
-`above_recommended`, `unknown` e `incompatible`: somente `incompatible` bloqueia a gravação;
-`above_recommended` e `unknown` geram avisos privados. O `language` do resumo e o
-`transcription.language` do perfil usam um catálogo de tags BCP 47 e têm `auto` como
-padrão. Cada fase guarda o provedor, modelo e parâmetros próprios. Isso inclui batching e opções de
-STT, tamanho de chunks e as opções de geração `temperature`, `seed` e `think` quando aplicáveis.
-Valores não definidos não são
-forçados pelo Summyz, preservando os padrões do provedor.
+Um perfil ativo não pode ser excluído. Alterar uma etapa preserva os parâmetros das demais.
+Perfil ativo, provedores e modelos efetivos, idiomas,
+prompts, VAD, parâmetros de geração e retenção ficam fixados no manifesto quando `/record` começa.
+Edições posteriores valem para novas reuniões e não alteram silenciosamente a recuperação.
 
-O dashboard mostra integralmente os prompts editáveis de transcrição, refinamento, extração e
-consolidação. **Sem prompt** remove apenas a personalização: um prompt-base imutável do Summyz
-sempre é enviado para fixar idioma, estrutura, evidências, preservação literal e regras de segurança.
-Transcrições e prompts editáveis são tratados como conteúdo não confiável. O padrão de transcrição
-não possui bloco editável. Os demais padrões são armazenados em inglês e apresentados pelo front
-no idioma do dashboard. A tela busca os prompts padrão do resumo para o idioma efetivo:
-o `language` explícito do resumo ou `transcription.language` quando o resumo está em `auto`.
-Alterar esse idioma adapta somente os campos com modo `default`; campos `custom` são preservados
-literalmente. O botão **Restaurar padrão** envia o modo `default` para o campo; o backend restaura
-o padrão em inglês e o front apresenta a versão localizada. Os prompts e modelos efetivos são
-fixados no manifesto quando a reunião começa, sem mudança silenciosa em retomadas.
+## Catálogos e modelos locais
 
-Com `transcription.language: auto`, a transcrição detecta o idioma falado e preserva as alternâncias;
-cada lote contribui uma vez para determinar o idioma primário predominante. Um
-`transcription.language` explícito é enviado ao provedor de transcrição. Um `language` explícito para
-o resumo tem prioridade. Se o `language` do resumo for `auto`, o Summyz usa o idioma explícito da
-transcrição, quando houver, ou o idioma predominante detectado. O modelo gera o resumo diretamente
-nesse idioma; não há fase separada de tradução.
+Catálogos OpenRouter são filtrados pela capacidade da etapa: transcrição exige entrada de áudio e
+saída de transcrição; refinamento e resumo exigem entrada/saída de texto e suporte anunciado a
+`response_format`. O catálogo STT não informa esse parâmetro de forma confiável, por isso timestamps
+por palavra são validados na resposta real da transcrição. Catálogo indisponível ou seleção inválida
+bloqueia a validação; o Summyz nunca escolhe nem substitui modelos automaticamente.
+Snapshots ficam atualizados por quinze minutos; se a atualização falhar, o cache pode ser usado
+por até 24 horas com estado desatualizado. Sem snapshot utilizável, o catálogo fica indisponível.
 
-O Summyz confere o idioma primário do resumo gerado. Se não conseguir confirmar o idioma solicitado,
-gera o resumo inteiro novamente, até três gerações no total. Após a terceira sem confirmação,
-publica o último resumo no fórum sem alteração e mostra um aviso somente no detalhe da reunião no
-dashboard. Nenhum aviso de idioma ou DM privada é enviado pelo Discord. A detecção pode ser
-inconclusiva para textos curtos; variantes regionais do mesmo idioma primário são aceitas.
+Ollama usa famílias e variantes do catálogo. faster-whisper usa o catálogo do serviço. O inventário
+local informa modelos instalados separadamente do catálogo. Baixe os modelos escolhidos e acompanhe
+os estados em fila, baixando, concluído, cancelando, cancelado ou falhou. Transferências podem ser
+canceladas. A fila gerenciada aceita até vinte jobs ativos de download; eles são persistidos para
+que trabalho incompleto possa ser recuperado após reinício.
 
-Perfis externos exigem que o catálogo da OpenRouter esteja acessível antes de gravar. O modelo de
-transcrição deve anunciar entrada de áudio e saída de transcrição. O catálogo STT não informa de
-forma confiável o parâmetro `response_format`, por isso a resposta com timestamps é validada durante
-o processamento. Refinamento e resumo exigem entrada e saída de texto e suporte anunciado
-a `response_format`. Perfis locais carregam o checkpoint faster-whisper e exigem a capacidade
-`multilingual=true` reportada pelo checkpoint real. `tiny.en`, `base.en`, `small.en`, `medium.en`,
-convertidos equivalentes e checkpoints cuja capacidade não possa ser determinada são bloqueados
-antes de qualquer áudio ou chamada de processamento. Não há detector auxiliar de transcrição nem
-catálogo de compatibilidade entre modelos generativos e idiomas. O idioma do resumo é conferido
-separadamente.
+A exclusão local é bloqueada enquanto o modelo for necessário para reunião não terminal, janela
+de recuperação preservada ou download ativo. Excluir arquivos não altera a seleção do perfil;
+ele fica indisponível para gravar até que esses arquivos sejam instalados novamente.
 
-As migrations normalizam perfis criados antes de as chaves de prompt se tornarem obrigatórias. O
-texto existente é preservado, prompts de transcrição ausentes viram `null` e prompts de refinamento
-ou resumo ausentes recebem os padrões localizados. O runtime aceita somente o contrato atual de
-perfil.
+A avaliação de hardware usa `recommended`, `compatible`, `above_recommended`, `unknown` e
+`incompatible`. O último bloqueia a gravação; `above_recommended` e `unknown` geram avisos privados
+sem trocar o modelo. Arquivos instalados e disponibilidade dos provedores são verificações adicionais.
+faster-whisper carrega o checkpoint real e exige `multilingual=true`; checkpoints monolíngues como
+`tiny.en`, `base.en`, `small.en`, `medium.en`, conversões equivalentes e capacidades desconhecidas
+são bloqueados antes da captura. Modelos Ollama são verificados quanto ao contrato de saída
+estruturada na inicialização. Modelos reprovados são descarregados e removidos quando nenhuma etapa
+válida os utiliza.
+
+## Idiomas e prompts
+
+Dashboard, mensagens do bot, transcrição e resumo possuem escolhas de idioma separadas. O dashboard
+suporta `en` e `pt-BR`, detecta o primeiro idioma suportado do navegador e usa inglês como fallback.
+Idioma da interface, tema e formatos de data/hora são preferências do navegador. Datas e filtros
+usam seu fuso IANA aceito, com UTC como fallback. Essas escolhas não alteram mensagens do bot ou
+processamento das reuniões.
+
+O idioma do bot por servidor controla avisos de gravação e formatação de datas nas publicações.
+`transcription.language` e `language` do resumo usam o catálogo BCP 47 suportado e têm `auto` como
+padrão. Um idioma explícito de transcrição orienta o provedor; `auto` detecta o idioma falado e
+preserva alternâncias. Cada lote contribui uma vez para o idioma primário predominante.
+
+Um idioma explícito de resumo tem prioridade. Com resumo em `auto`, o Summyz usa o idioma explícito
+da transcrição ou, se ambos forem `auto`, o idioma predominante detectado. O resumo é gerado
+diretamente nesse idioma, sem etapa de tradução. Se o idioma primário não puder ser confirmado,
+o Summyz gera o resumo inteiro novamente, até três gerações no total. Depois publica o último
+resultado sem alterações e mostra um aviso somente no detalhe da reunião. Textos curtos podem ser
+inconclusivos; variantes regionais do mesmo idioma primário são aceitas.
+
+Transcrição, refinamento, extração e consolidação do resumo possuem prompts editáveis. Remover uma
+personalização nunca remove o prompt-base imutável que impõe idioma, estrutura, evidências,
+preservação literal e segurança. Transcrições e prompts editáveis são entradas não confiáveis.
+A transcrição não tem instrução editável por padrão; os demais padrões são armazenados em inglês
+e apresentados no idioma do dashboard.
+
+Cada prompt usa explicitamente o modo `default` ou `custom`. Mudar o idioma efetivo do resumo adapta
+os padrões e preserva literalmente os textos customizados. Restaurar o padrão envia o modo, em vez
+de reconhecer padrões por comparação de texto. Os prompts efetivos permanecem fixados na reunião.
+
+## Escolhas de retenção
+
+Servidores novos retêm conteúdo por padrão e não retêm áudio. Configure cada política separadamente
+por servidor. As escolhas ficam fixadas no início da gravação; editá-las não remove retroativamente
+reuniões já preservadas. Conteúdo fica no PostgreSQL; bytes de áudio ficam em `DATA_DIR`, com
+metadados e caminhos relativos no PostgreSQL. Dados preservados não expiram automaticamente.
+Consulte [retenção e backups](./operations.md#retenção-e-backups) para os momentos de exclusão e
+o escopo do backup.
+
+## Execução local e VAD
+
+`LOCAL_AI_DEVICE=auto|gpu|cpu` vale para as etapas locais. `auto` detecta o hardware mais potente;
+uma GPU detectada incompatível não muda silenciosamente a etapa para CPU. `gpu` exige aceleração
+compatível. `cpu` não concede acesso à GPU. `LOCAL_AI_FALLBACK=none` é o padrão; `cpu` autoriza
+explicitamente fallback após incompatibilidade ou falha de inicialização da GPU. No modo CPU,
+o fallback efetivo é sempre `none`. O dispositivo ativo é informado nos logs estruturados.
+
+Ollama e faster-whisper ficam na rede privada do Compose. faster-whisper faz warm-up e verifica CUDA
+antes do processamento. AMD ROCm acelera somente Ollama no Linux; faster-whisper exige NVIDIA para
+transcrever por GPU. Em um host apenas AMD, use execução CPU explicitamente autorizada para
+transcrição ou uma etapa externa. Docker Desktop no Windows expõe GPUs NVIDIA, não AMD.
+GPUs Intel, Apple e de fabricante desconhecido não possuem perfil de contêiner de aceleração
+compatível nesta etapa.
+
+O VAD pertence à etapa de transcrição. OpenRouter usa o detector Silero do Summyz; faster-whisper
+usa somente seu VAD nativo, sem aplicar dois detectores em sequência. O VAD pode ser desativado.
+Seus parâmetros incluem limiar, limiar negativo, fala mínima, silêncio de encerramento e margem
+de fala; faster-whisper também aceita duração máxima de região de fala e valores nativos `auto`.
+
+Com VAD externo ativo, segmentos sem voz terminam como silêncio, sem tentativas externas. Falas
+da mesma pessoa são consolidadas em WAV sem perdas, com silêncio sintético opcional entre falas.
+Um mapa temporal restaura os timestamps originais sem misturar participantes. A transcrição local
+recebe áudio consolidado e aplica o VAD do faster-whisper.
+
+O Summyz não força globalmente `think=false`, `temperature=0` ou `seed=0`. Opções omitidas preservam
+padrões do provedor/modelo. OpenRouter pode rotear entre provedores compatíveis do modelo escolhido;
+nenhuma etapa tem fallback automático para outro provedor configurado.
+
+## Ambiente e parâmetros de execução
+
+Use `.env.example` como modelo de infraestrutura. Os launchers geram segredos; provedor, modelo,
+idioma, retenção e prompts pertencem às configurações persistidas da instalação/servidor/perfil.
+
+| Variável | Finalidade / padrão |
+| --- | --- |
+| `DATABASE_URL` | URL PostgreSQL obrigatória; `postgres:5432` dentro do Compose |
+| `SUMMYZ_SECRETS_KEY` | Chave de criptografia obrigatória gerada pelo launcher |
+| `SUMMYZ_SETUP_TOKEN` | Obrigatória na inicialização da API; gerada pelo launcher e verificada no setup público |
+| `DASHBOARD_ACCESS_MODE` | `local` por padrão; o launcher público seleciona `public` |
+| `WEB_HOST`, `WEB_PORT` | Listener no host: `127.0.0.1`, `8787`; Compose expõe o dashboard em loopback |
+| `PUBLIC_BASE_URL` | Origem do dashboard e base do callback OAuth; padrão `http://127.0.0.1:8787` |
+| `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credenciais do banco Compose; senha gerada pelo launcher |
+| `POSTGRES_PORT` | Porta no host; `.env.example` define `5433`, mas Compose usa `5432` quando omitida |
+| `DISCORD_GUILD_ID` | Servidor opcional de desenvolvimento para registrar comandos imediatamente; sem ele, o registro é global |
+| `FFMPEG_PATH` | Caminho absoluto opcional do FFmpeg nativo; sem ele, usa `PATH` |
+
+O launcher cria `DATABASE_URL` para a rede Compose com `postgres:5432`. Na execução nativa, ajuste-a
+para o endereço do host e `POSTGRES_PORT` publicado. Os demais parâmetros estão abaixo.
+
 
 ## Configurações de gravação
 
@@ -175,8 +251,9 @@ Na fase de transcrição, cada perfil define:
 - timestamps por palavra são obrigatórios; uma API externa incompatível encerra a transcrição sem
   aproximação por segmento ou pela duração inteira do lote;
 - `interSpeechSilenceMs`: silêncio WAV inserido somente entre intervalos reais de voz do lote;
-- `mergeMaxGapMs`: sobrescrita opcional do intervalo máximo global para consolidar falas da mesma
-  pessoa;
+  padrão `0` ms;
+- `mergeMaxGapMs`: intervalo máximo para consolidar falas da mesma pessoa neste perfil;
+  padrão `2000` ms;
 - `prompt`: instrução editável para orientar o estilo da transcrição, ou `null` para usar somente o
   prompt-base;
 - `providerOptions`: opções opcionais agrupadas pelo slug do provedor conforme o contrato do
@@ -187,89 +264,10 @@ No faster-whisper, o lote é uma otimização de inferência e continua produzin
 palavra. Para APIs externas, o Summyz otimiza requisições independentes por meio de
 `TRANSCRIPTION_CONCURRENCY`.
 
-## Dashboard e histórico
-
-Consultas usam o fuso enviado pelo front; a exportação TXT recebe formato de data, hora e fuso
-por requisição. Tema e idioma da interface são preferências do navegador, sem persistência no backend.
-
-O Dashboard e o Histórico mostram apenas servidores onde o bot configurado está instalado. O seletor
-é compartilhado entre as páginas e preservado no navegador. Os totais de calls e duração consideram
-reuniões antigas e novas cujo pipeline terminou; o ranking de falantes começa nas reuniões gravadas
-com o manifesto v3. A participação soma os intervalos de cada palavra, une sobreposições da mesma
-pessoa e distribui o arredondamento inteiro para totalizar exatamente 100%. Participantes silenciosos
-permanecem visíveis com `0%`.
-
-Datas, limites dos filtros e agrupamentos do dashboard usam o `timeZone` obrigatório enviado
-pelo front em cada consulta. Os timestamps permanecem em UTC e os filtros em `YYYY-MM-DD`. Conteúdo de resumo e transcrição só aparece
-quando a retenção estava habilitada para a reunião. O custo do Dashboard soma valores confirmados de
-todas as tentativas e avisa quando ainda existem valores pendentes ou não atribuídos.
-
-Se a lista de perfis ou a configuração de um servidor não puder ser carregada, o dashboard mostra
-um erro genérico e permite tentar novamente na própria página. Detalhes sobre dependências e dados
-persistidos permanecem somente nos logs estruturados do servidor.
-
-O VAD é configurado na aba própria do perfil e pode ser desativado. Etapas de transcrição com OpenRouter usam o
-detector Silero do Summyz antes de enviar áudio. Transcrição com faster-whisper não executa esse
-detector: somente o VAD nativo do faster-whisper faz o pré-processamento. Assim, nunca há dois VADs
-em sequência. Cada tipo preserva os padrões e limites próprios do seu detector; limiar de fala,
-limiar negativo, fala mínima, silêncio de encerramento e margem de fala são persistidos no perfil.
-A transcrição com faster-whisper também permite controlar a duração máxima de uma região de fala. Valores `auto`
-mantêm o comportamento nativo conhecido do faster-whisper para o modo normal ou em lote.
-
-Com transcrição OpenRouter e VAD ativo, segmentos sem voz são concluídos como silêncio, com zero
-tentativas externas. Somente os intervalos detectados como voz são consolidados em WAV sem perdas
-dentro dos limites configurados. Pequenos silêncios sintéticos podem preservar fronteiras de
-enunciados. Um mapa temporal exclui essas pausas e recoloca cada trecho no relógio original depois
-da transcrição, sem misturar participantes. Com transcrição local, o áudio consolidado chega ao
-faster-whisper, que aplica seu próprio VAD conforme o perfil.
-
-O OpenRouter pode rotear uma requisição entre provedores compatíveis com o modelo selecionado. O
-Summyz aceita esse roteamento dentro da fase OpenRouter. Uma fase configurada como local nunca envia
-seu conteúdo ao OpenRouter e não possui fallback cruzado.
-
-O Compose mantém Ollama e faster-whisper apenas na rede privada. Ollama usa saída JSON estruturada;
-modelos que não cumprem a validação de contrato feita na inicialização são descarregados e, quando
-nenhuma outra fase válida os utiliza, removidos do volume gerenciado. Uma resposta isolada
-incompatível durante uma reunião não condena o modelo: se o lote tiver várias falas, o Summyz o
-subdivide automaticamente e tenta novamente com partes menores. Indisponibilidade do serviço e uma
-resposta incompatível para uma única fala continuam sob a política de retry durável. O
-faster-whisper executa um warm-up real antes de declarar CUDA pronta, evitando descobrir bibliotecas
-ou VRAM incompatíveis somente na primeira reunião.
-
-O Summyz não força `think=false`, `temperature=0` nem `seed=0` globalmente. Essa combinação pode ser
-salva no perfil para o hardware em que foi validada; quando omitida, os padrões do modelo e do
-provedor são preservados.
-
-`LOCAL_AI_DEVICE` controla todas as fases locais:
-
-- `auto` detecta o hardware mais potente. Se houver GPU, mas ela for incompatível com a fase, não
-  troca implicitamente para CPU;
-- `gpu` exige uma GPU compatível para cada fase local configurada;
-- `cpu` nunca disponibiliza nem utiliza GPU.
-
-`LOCAL_AI_FALLBACK=none` é o padrão e não permite fallback implícito. Com o fallback `cpu`, uma GPU
-incompatível ou uma falha ao inicializá-la pode usar CPU e gera aviso estruturado. Quando
-`LOCAL_AI_DEVICE=cpu`, o fallback
-efetivo é sempre `none`, mesmo que outro valor tenha sido escrito. O dispositivo efetivamente ativo
-é exposto somente nos logs estruturados.
-
-Nesta etapa, a transcrição faster-whisper acelera somente em NVIDIA/CUDA. Uma máquina apenas com AMD
-pode usar a AMD no Ollama em Linux via ROCm, mas um perfil que exigir faster-whisper na GPU é
-incompatível e não inicia a gravação. AMD para transcrição via whisper.cpp/Vulkan ou ROCm fica para
-uma etapa futura.
-Docker Desktop no Windows expõe GPU NVIDIA, não AMD; por isso o inicializador interrompe uma fase
-Ollama/AMD nesse ambiente, salvo quando o fallback para CPU foi autorizado. GPUs Intel, Apple e de
-fabricante desconhecido são detectadas, mas sem um perfil de container compatível nesta etapa o
-mesmo princípio se aplica. Use `./summyz-community down` ou `.\summyz-community.ps1 down` para encerrar
-a pilha.
-
-Se o modelo escolhido estiver acima da recomendação de hardware, o Summyz mantém a escolha e avisa
-somente o usuário que executou `/record`; não troca para um modelo menor. Modelos incompatíveis
-bloqueiam a gravação.
-
 ## Configurações de refinamento
 
 - `provider`, `model`, `maxChunkCharacters`, `prompt` e opções de geração pertencem ao perfil;
+  `maxChunkCharacters` tem padrão `500000`;
 - `REFINEMENT_MAX_ATTEMPTS`: total de tentativas por bloco; padrão `3`;
 - `REFINEMENT_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
 - `REFINEMENT_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
@@ -277,7 +275,7 @@ bloqueiam a gravação.
 
 O refinamento recebe os blocos estruturados produzidos pelo STT e devolve somente pares de
 `id` e `text`. O código rejeita qualquer resposta que remova, acrescente ou reordene IDs e sempre
-reutiliza falante e timestamps do Whisper. O prompt pede uma revisão conservadora de erros
+reutiliza falante e timestamps da transcrição. O prompt pede uma revisão conservadora de erros
 ortográficos, fonéticos e contextuais evidentes, preservando o idioma original de cada fala; ele não
 contém lista de nomes, palavras-chave ou vocabulário controlado e nunca traduz a reunião.
 Quando uma tentativa excede o timeout durante o envio ou a leitura da resposta, ou quando o modelo
@@ -288,15 +286,17 @@ Indisponibilidade sem timeout e falha em uma única fala continuam seguindo a po
 durável.
 
 Antes da primeira chamada, o Summyz preserva atomicamente a saída original em
-`transcript.raw.txt`. Se o modelo ou a resposta estruturada falhar nas três tentativas, restaura o
-original em `transcript.txt`, registra o fallback em `refinement.json` e continua normalmente para
-o resumo e a publicação. O Discord não recebe um aviso específico desse fallback, pois a
-transcrição original continua disponível.
+`transcript.raw.txt`. Falhas do provedor seguem primeiro as tentativas por chamada configuradas e
+a política de retry durável do processamento. Se o provedor ainda falhar na última tentativa
+durável, o Summyz restaura o original em `transcript.txt`, registra o fallback em `refinement.json`
+e segue para o resumo e a publicação. O Discord não recebe um aviso específico desse fallback,
+pois a transcrição original continua disponível.
 
 ## Configurações de resumo
 
 - `provider`, `model`, `language`, `maxChunkCharacters`, `extractionPrompt`,
   `consolidationPrompt` e opções de geração pertencem ao perfil;
+  `maxChunkCharacters` tem padrão `500000`;
 - `SUMMARY_MAX_ATTEMPTS`: total de tentativas por chamada ao modelo; padrão `4`;
 - `SUMMARY_TIMEOUT_MS`: timeout de cada tentativa; padrão `120000` ms;
 - `SUMMARY_RETRY_BASE_MS`: espera inicial entre retries; padrão `1000` ms;
@@ -311,5 +311,7 @@ sem referência válida é removida. Responsável e prazo só são preservados q
 na fala referenciada; tarefas explícitas podem permanecer sem esses campos.
 
 Pedidos vagos, como “alguém precisa decidir a ferramenta”, não são promovidos a decisão ou tarefa:
-eles aparecem em **Pendências e observações**. Prazos são mantidos no texto original, sem conversão
-automática de expressões como “amanhã” ou “até sexta-feira”.
+eles aparecem em **Pendências e observações**. O Discord preserva o texto original do prazo.
+O resultado estruturado também pode manter uma data ou prazo com precisão de minuto validado e seu
+fuso da reunião para organizar tarefas no dashboard; esses metadados nunca substituem o texto
+literal no post.

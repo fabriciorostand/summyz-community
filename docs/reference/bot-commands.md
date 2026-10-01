@@ -1,142 +1,143 @@
-# Summyz Commands
+# Summyz commands
 
 [Português](../pt-BR/reference/bot-commands.md) · [Documentation home](../../README.md)
 
-## `/record`
+## Preconditions and access
 
-Starts recording the voice channel you are in.
+Commands are used in Discord servers. The installation must have a connected Discord account
+matching the literal server owner; Summyz verifies that ownership before executing known commands.
+If the account is absent, belongs to another owner, or ownership cannot be checked, the command
+is refused with an ephemeral message.
 
-Who can use it:
+| Action | Who can use it |
+| --- | --- |
+| Start/stop recording | Server owner, authorized roles, or individually authorized members |
+| Manage forum, roles, active profile, activation, and costs | Server owner only |
 
-- the server owner;
-- members with one of the roles authorized to record.
+Administrator and Manage Server permissions alone do not grant access. Role/member authorization
+does not grant management powers. Individual grants depend on current membership and are revoked
+when a member leaves. After an ownership change, `/record` also requires explicit configuration
+confirmation. See [configuration](../configuration.md#server-ownership-and-access).
 
-Summyz posts a message in the text channel where the command was used to announce that recording
-has started. Only one recording can be active per server. The command can be run in any server
-chat, but the user must be in a standard voice channel. A forum and a complete active processing
-profile must also be configured beforehand. An incomplete or incompatible profile blocks recording.
+## Recording
 
-## `/stop`
+### `/record`
 
-Stops the server's active recording.
+Starts recording the standard voice channel the caller is in. Only one recording can be active
+per server. The forum and complete active profile must already be configured; selected local models
+must be installed and providers available. OpenRouter stages require the installation key and
+capability preflight. faster-whisper requires a verified multilingual checkpoint. These checks
+block capture when prerequisites fail; the owner is subject to them too.
 
-To use the command, you must:
+Summyz announces recording publicly in the text chat where the command was used. Bots are excluded;
+people who join the channel afterward are included. Above-recommended or unknown local hardware
+assessments warn only the caller, without changing the chosen model or exposing hardware publicly.
 
-- be the server owner or have an authorized role;
-- be in the same voice channel that is being recorded.
+### `/stop`
 
-The person who runs `/stop` receives an ephemeral confirmation in the command's chat. The public
-stop notification, mentioning who requested it, is posted in the chat where `/record` started the
-session.
+Stops the active recording. The caller must be authorized and in the same voice channel being
+recorded. The confirmation is ephemeral in the interaction chat; the public stop notice mentions
+the caller in the original `/record` chat.
 
-If everyone leaves the channel, Summyz stops recording and leaves the channel automatically. The
-original chat receives a message with the voice channel's name, stating that the segments were
-preserved and will be processed. Older recordings without a saved name use the generic description
-“voice channel.”
+When all humans leave, recording stops automatically and the bot leaves. The original chat identifies
+the channel when its saved name is available and reports that audio will be processed. Transcription,
+refinement, summary, and publication continue in the durable queue. See
+[operations](../operations.md#recording-and-processing-lifecycle) for retries and recovery.
 
-After a recording is stopped with `/stop` or because the channel is empty, transcription and
-summarization begin in the background through a durable queue. The complete file is posted as an
-attachment in the configured forum.
-Before sending audio to the configured provider, the bot server locally discards sections without
-speech and merges nearby speech from the same person without mixing participants.
-When a selected local model exceeds the recommended hardware, only the person who ran `/record`
-receives an ephemeral warning. The public channel receives no hardware details. Summyz preserves
-the explicit choice and does not substitute a smaller model.
-If the meeting cannot be fully transcribed, the channel where `/record` was run receives only a
-generic warning.
+## Forum and role configuration
 
-When the summary is complete, the post contains an executive summary, discussed topics, decisions,
-tasks, and pending items or notes. An assignee and deadline appear only when they were explicitly
-stated. If summarization fails after the configured attempts, Summyz still creates a post with the
-complete transcript and reports that the summary is unavailable.
+### `/recording-summary-forum set forum:<forum> tag:<optional tag>`
 
-## `/recording-role add role:<role>`
+Selects the publication forum. `tag` accepts the name or ID of an existing tag and is required if
+the forum requires tags. The bot validates View Channels, Send Messages, Send Messages in Threads,
+Read Message History, and Attach Files before saving. Owner only; the response is ephemeral.
 
-Authorizes a role to start and stop recordings.
+### `/recording-summary-forum show`
 
-Only the server owner can use this command.
+Shows the configured forum and tag, or reports that none exists. Owner only; ephemeral.
 
-## `/recording-role remove role:<role>`
+### `/recording-summary-forum clear`
 
-Removes a role's authorization to record.
+Removes the destination and blocks new recordings until another forum is configured. Publications
+not yet started cannot finish without a destination and follow the durable retry policy; this does
+not guarantee an unlimited wait. Posts already started continue in the saved thread. Owner only;
+ephemeral.
 
-Only the server owner can use this command.
+### `/recording-role add role:<role>`
 
-## `/recording-role list`
+Authorizes a role to start and stop recordings. Owner only; ephemeral.
 
-Shows the roles authorized to control recordings on the server.
+### `/recording-role remove role:<role>`
 
-Only the server owner can use this command.
+Removes that role's authorization. Owner only; ephemeral.
 
-## `/recording-summary-forum set forum:<forum> tag:<optional tag>`
+### `/recording-role list`
 
-Sets the forum that will receive summaries and transcripts. The tag must exist in the forum; when
-the forum requires tags, this option is mandatory. The command validates the bot's permissions
-before saving.
+Lists authorized roles. Owner only; ephemeral. Individual member grants are configured separately
+through the server configuration flow, rather than these role commands.
 
-Only the server owner can use it.
+## Active AI profile
 
-## `/recording-summary-forum show`
+### `/recording-profile list`
 
-Shows the forum and tag configured for the server. It follows the same access rules as `set`.
+Lists complete installation profiles with their names and IDs. Owner only; ephemeral. Completeness
+does not guarantee that local files are installed or that the chosen models pass recording preflight.
 
-## `/recording-summary-forum clear`
+### `/recording-profile set profile:<profile ID>`
 
-Removes the destination. New recordings are blocked, and meetings that have not yet been published
-remain pending until another forum is configured. It follows the same access rules as `set`.
+Selects an existing complete profile as the server's active profile. Owner only; ephemeral.
+The profile can be external, local, or hybrid. Use the ID returned by `list`. It changes the choice
+for new recordings and does not modify the profile pinned in an in-progress meeting.
 
-## `/recording-cost meeting id:<meeting ID>`
+## Ownership confirmation
 
-Shows the cost of a completed meeting. Only the server owner can use it, and the response is
-ephemeral. A meeting ID can be queried only in the server where that meeting was recorded.
+### `/recording-activate`
 
-For every phase, the report shows whether execution used an external API or a local service, the
-effective model reported by the provider, and the number of external requests. Local phases show
-their model but no cost: local computational cost is not measured. External values are the exact
-USD amounts reported by OpenRouter and are displayed without rounding.
+Confirms the server configuration after an ownership change. Only the current server owner can run
+it, and that owner's account must be connected to the installation. First review the forum, active
+profile, and recording permissions. A forum and complete active profile are required. Confirmation
+allows new recordings to proceed to their normal permission, model, and voice checks; it does not
+download models or resume cancelled jobs. The response is ephemeral.
 
-The report includes charged failed attempts, pending reconciliations, and attempts whose charge
-could not be confirmed automatically. An active meeting is rejected with an ephemeral message;
-wait until recording has ended before querying it.
+The first observed owner is confirmed automatically; a later owner requires this explicit confirmation
+or the equivalent server activation flow.
 
-## `/recording-cost period from:<YYYY-MM-DD> to:<YYYY-MM-DD>`
+## Costs
 
-Shows aggregate costs for completed meetings that started in the inclusive date interval. Meetings
-still in progress are excluded. Dates are interpreted with `SUMMARY_TIME_ZONE`. The report includes
-the number and duration of meetings, external provider requests, local executions, phase totals,
-confirmed averages, charged failures, and unresolved reconciliation counts. Only the server owner
-can use it, and the response is ephemeral.
+### `/recording-cost meeting id:<meeting ID>`
 
-## Important Notes
+Shows confirmed costs for a meeting whose recording has ended. Owner only; ephemeral and scoped
+to the current server. A still-recording meeting is refused. Background processing may still be
+running after recording ends, so later queries can include additional attempts and charges.
 
-- The server owner can always control recordings. Administrator and Manage Server permissions do
-  not grant Summyz management access by themselves.
-- Lack of authorization takes precedence over other `/record` errors; for authorized users, a
-  missing forum configuration takes precedence over not being in a voice channel.
-- Bots are not recorded.
-- People who join the channel after recording starts are also recorded.
-- If the voice connection drops, Summyz posts a warning in the text channel and attempts to resume
-  for up to five minutes.
-- Public notifications about recording start, connection, recording end, transcription, and
-  publication remain in the chat where `/record` was run, forming a single session history.
-- If the process restarts, audio already captured is preserved, and recording resumes if people are
-  still in the channel.
-- If the channel is empty after a restart, Summyz finalizes and processes the partial recording.
-- Transient failures are retried internally; there are no public status, retry, or deletion commands
-  at this stage.
-- Content retention is enabled and audio retention is disabled by default for new servers. Both can
-  be changed in the dashboard.
-- Content and audio policies are pinned when `/record` starts; later dashboard changes apply only
-  to new meetings.
-- The active profile type, provider, explicit models, summary and transcription languages,
-  VAD, prompts, and other phase parameters are pinned then. A local profile never uses OpenRouter
-  as fallback.
-- `/record` is blocked before audio capture when an external model fails its OpenRouter capability
-  preflight, or when the loaded faster-whisper checkpoint is monolingual or unknown.
-- Transcription with `auto` detects spoken languages; an explicit transcription language guides
-  the provider. An explicit summary language takes precedence. With summary `auto`, Summyz uses
-  the explicit transcription language or, if both are `auto`, the predominant detected language.
-- The summary is generated directly in the chosen language. If its language cannot be confirmed,
-  Summyz makes up to three total generations, then publishes the last result. A warning appears
-  only in the dashboard meeting detail; the forum post is unchanged.
-- Financial records are retained indefinitely, independently of audio and transcript retention.
+For each stage the report identifies external/local execution, the effective model, and external
+request count. Local stages report no measured computational cost. External amounts are the exact
+USD values confirmed by OpenRouter, without display rounding. Charged failed attempts, pending
+reconciliation, and automatically unattributable charges are disclosed.
+
+### `/recording-cost period from:<YYYY-MM-DD> to:<YYYY-MM-DD>`
+
+Aggregates meetings whose recording has ended and whose start date falls within the inclusive
+interval. Owner only; ephemeral. Dates must be valid `YYYY-MM-DD`, and `from` cannot follow `to`.
+Boundaries use `SUMMARY_TIME_ZONE`.
+
+The report includes meeting counts/durations, local executions, external requests, stage totals,
+confirmed averages, charged failures, and unresolved attempts. Processing after recording ends
+can still change these totals. Financial records are kept independently of content/audio retention.
+See [cost accounting](../operations.md#provider-cost-accounting).
+
+## Automatic behavior and restrictions
+
+- Profile, providers, models, languages, prompts, VAD, generation parameters, and retention choices
+  are pinned when recording starts; later edits apply to new meetings.
+- No provider or model is silently substituted. Local stages do not fall back to OpenRouter.
+- Summary language and bot/interface language are separate choices; see
+  [languages and prompts](../configuration.md#languages-and-prompts).
+- A complete transcript is required for publication. Refinement failure can preserve the original
+  transcript; summary failure can produce a transcript-only post.
+- Losing voice connection starts automatic reconnection. Restart recovery also verifies ownership,
+  bot membership, and channel availability before resuming.
+- A changed owner stops active recording and suspends new recordings until configuration confirmation.
+  Bot departure cancels non-terminal meetings; installation history is preserved.
+- Discord exposes no public status, retry, or deletion command. Model downloads, history, retention,
+  tasks, and installation administration are handled through their respective configuration/operation flows.
