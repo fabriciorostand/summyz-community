@@ -275,8 +275,12 @@ export class InstallationDiscordConnection {
   }
 
   #redirectUri(): string {
-    return new URL("/api/discord/callback", this.#publicBaseUrl).toString();
+    return createDiscordOAuthRedirectUri(this.#publicBaseUrl);
   }
+}
+
+export function createDiscordOAuthRedirectUri(publicBaseUrl: string): string {
+  return new URL("/api/discord/callback", publicBaseUrl).toString();
 }
 
 function hash(value: string): string {

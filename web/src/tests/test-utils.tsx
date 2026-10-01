@@ -20,7 +20,8 @@ export function aSettings(overrides: Partial<DashboardSettings> = {}): Dashboard
   return {
     accessMode: "local",
     discordApplicationId: "123456789012345678",
-    secrets: { discordBotToken: true, openRouterApiKey: true },
+    discordRedirectUri: "http://127.0.0.1:8787/api/discord/callback",
+    secrets: { discordBotToken: true, discordClientSecret: true, openRouterApiKey: true },
     ...overrides,
   };
 }
@@ -31,7 +32,10 @@ export function aGuild(overrides: Partial<Guild> = {}): Guild {
     callCount: 42,
     iconUrl: null,
     id: "g1",
+    installed: true,
+    installUrl: "https://discord.com/oauth2/authorize?client_id=123456789012345678&guild_id=g1",
     name: "Pixelforge",
+    owned: true,
     summaryForum: { forumId: "f1", name: "#atas-de-reuniao" },
     ...overrides,
   };
@@ -266,6 +270,7 @@ export function aGuildConfiguration(
 ): GuildConfiguration {
   return {
     activeProfileId: "p1",
+    ownerConfirmationRequired: false,
     profiles: [aConfigurationProfile(aProfile())],
     recordingRoleIds: ["r1"],
     recordingUserIds: [],
@@ -311,7 +316,7 @@ export function dashboardContext(overrides: Partial<DashboardContext> = {}): Das
     patchSettings: () => undefined,
     period: "30d",
     reloadDashboard: () => undefined,
-    reloadSettings: () => Promise.resolve(),
+    reloadSettings: () => Promise.resolve(undefined),
     setPeriod: () => undefined,
     setTheme: () => undefined,
     settings: aSettings(),

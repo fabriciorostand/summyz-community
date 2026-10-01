@@ -23,8 +23,7 @@ export interface DashboardContext {
   patchSettings(patch: Partial<DashboardSettings>): void;
   period: DashboardPeriod;
   reloadDashboard(): void;
-  /** Refreshes the settings from the server; when that fails the current snapshot stays. */
-  reloadSettings(): Promise<void>;
+  reloadSettings(): Promise<DashboardSettings | undefined>;
   setPeriod(value: DashboardPeriod): void;
   /** The theme belongs to this browser, like the language and the date formats. */
   setTheme(value: ThemePreference): void;
@@ -91,7 +90,14 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
   // refresh instead of trusting a local copy. A failed refresh keeps the last known state: the
   // API client already reports an expired session, and the screens stay usable otherwise.
   const reloadSettings = useCallback(
-    () => api.getSettings().then(setSettings, () => undefined),
+    () =>
+      api.getSettings().then(
+        (next) => {
+          setSettings(next);
+          return next;
+        },
+        () => undefined,
+      ),
     [],
   );
 

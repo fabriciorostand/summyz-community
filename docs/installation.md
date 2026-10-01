@@ -83,8 +83,10 @@ password recovery behavior.
 1. Complete setup with the bot token and, in public mode, the installation password. Summyz
    validates the token with Discord and derives the Application ID automatically.
 2. Configure the application's Client Secret and connect the server owner's Discord account.
-   Authorize the `identify guilds` scopes. In public mode, sign in again after completing the
-   connection because previous dashboard sessions are revoked.
+   Setup offers an optional Client Secret step and shows the redirect URL to register; the
+   **Installation** screen does the same later. Authorize the `identify guilds` scopes. In public
+   mode, sign in again after completing the connection because previous dashboard sessions are
+   revoked; the dashboard then returns to **Servers** with the outcome.
 3. Install the bot in a server owned by the connected account. Configure its publication forum
    and the roles or individual members allowed to record.
 4. Complete the initial AI profile by selecting a provider and model for transcription, refinement,

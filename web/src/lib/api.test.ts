@@ -216,8 +216,16 @@ describe("dashboard API client", () => {
       userIds: ["user-1"],
     });
     await api.updateSecret("openrouter_api_key", "secret");
+    await api.updateSecret("discord_client_secret", "client-secret");
+    await api.removeSecret("discord_client_secret");
+    await api.activateGuild("guild-1");
+    await api.setup(undefined, {
+      discordBotToken: "bot-token",
+      discordClientSecret: "client-secret",
+      setupLanguage: "en",
+    });
 
-    expect(fetchMock).toHaveBeenCalledTimes(16);
+    expect(fetchMock).toHaveBeenCalledTimes(20);
     const claimedSetup = findRequest(fetchMock, "/api/setup", 0);
     expect(claimedSetup.method).toBe("POST");
     expect(claimedSetup.headers.get("content-type")).toBe("application/json");
@@ -255,6 +263,23 @@ describe("dashboard API client", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/installation/secrets/openrouter_api_key",
       expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(JSON.parse(findRequest(fetchMock, "/api/setup", 2).body)).toEqual({
+      discordBotToken: "bot-token",
+      discordClientSecret: "client-secret",
+      setupLanguage: "en",
+    });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/installation/secrets/discord_client_secret",
+      expect.objectContaining({ body: JSON.stringify({ value: "client-secret" }), method: "PUT" }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/installation/secrets/discord_client_secret",
+      expect.objectContaining({ method: "DELETE" }),
+    );
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/guilds/guild-1/activation",
+      expect.objectContaining({ method: "POST" }),
     );
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/guilds/guild-1/recording-permissions",
@@ -319,7 +344,8 @@ describe("dashboard API client", () => {
     const settings = {
       accessMode: "local",
       discordApplicationId: null,
-      secrets: { discordBotToken: true, openRouterApiKey: false },
+      discordRedirectUri: "http://127.0.0.1:8787/api/discord/callback",
+      secrets: { discordBotToken: true, discordClientSecret: false, openRouterApiKey: false },
     };
     vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json(settings)));
 
@@ -411,33 +437,73 @@ describe("dashboard API client", () => {
     });
   });
 
-  it("accepts a guild list that no longer carries installation flags", async () => {
+  it("reads whether each server has the bot, belongs to the owner and how to install it", async () => {
+    const guild = {
+      activeProfile: null,
+      callCount: null,
+      iconUrl: null,
+      id: "guild-1",
+      installed: false,
+      installUrl: "https://discord.com/oauth2/authorize?client_id=1&guild_id=guild-1",
+      name: "Pixelforge",
+      owned: true,
+      summaryForum: null,
+    };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json([guild])));
+
+    await expect(api.listGuilds()).resolves.toEqual([guild]);
+  });
+
+  it("rejects a guild list without the installation and ownership flags", async () => {
     vi.stubGlobal(
       "fetch",
-      vi.fn<typeof fetch>().mockResolvedValue(
-        Response.json([
-          {
-            activeProfile: null,
-            callCount: 3,
-            iconUrl: null,
-            id: "guild-1",
-            name: "Pixelforge",
-            summaryForum: null,
-          },
-        ]),
-      ),
+      vi
+        .fn<typeof fetch>()
+        .mockResolvedValue(Response.json([{ iconUrl: null, id: "guild-1", name: "Pixelforge" }])),
     );
 
-    await expect(api.listGuilds()).resolves.toEqual([
-      {
-        activeProfile: null,
-        callCount: 3,
-        iconUrl: null,
-        id: "guild-1",
-        name: "Pixelforge",
-        summaryForum: null,
-      },
+    await expect(api.listGuilds()).rejects.toThrow();
+  });
+
+  it("reads the owner's Discord connection and starts its authorization", async () => {
+    const fetchMock = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(Response.json({ connected: false }))
+      .mockResolvedValueOnce(
+        Response.json({ connected: true, discordUserId: "u1", discordUsername: "owner" }),
+      )
+      .mockResolvedValueOnce(
+        Response.json({ authorizationUrl: "https://discord.com/oauth2/authorize?state=s" }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(api.getDiscordConnection()).resolves.toEqual({ connected: false });
+    await expect(api.getDiscordConnection()).resolves.toEqual({
+      connected: true,
+      discordUserId: "u1",
+      discordUsername: "owner",
+    });
+    await expect(api.startDiscordConnection()).resolves.toBe(
+      "https://discord.com/oauth2/authorize?state=s",
+    );
+    expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
+      "/api/discord/connection",
+      "/api/discord/connection",
+      "/api/discord/connect",
     ]);
+  });
+
+  it("reads the redirect URL the setup asks the owner to register", async () => {
+    const status = {
+      accessMode: "local",
+      discordRedirectUri: "http://127.0.0.1:8787/api/discord/callback",
+      passwordConfigured: false,
+      setupCompleted: false,
+      technicalSetupCompleted: false,
+    };
+    vi.stubGlobal("fetch", vi.fn<typeof fetch>().mockResolvedValue(Response.json(status)));
+
+    await expect(api.getSetupStatus()).resolves.toEqual(status);
   });
 });
 
@@ -530,6 +596,7 @@ describe("per-stage profiles and local models", () => {
               availability: { missingModels: [], status: "ready", unavailableProviders: [] },
             },
           ],
+          ownerConfirmationRequired: true,
           recordingRoleIds: [],
           recordingUserIds: [],
           settings: {
@@ -544,6 +611,7 @@ describe("per-stage profiles and local models", () => {
     const configuration = await api.getGuildConfiguration("guild-1");
 
     expect(configuration.profiles[0]?.availability.status).toBe("ready");
+    expect(configuration.ownerConfirmationRequired).toBe(true);
   });
 
   it("reads a hybrid active profile in the guild list", async () => {
@@ -555,7 +623,10 @@ describe("per-stage profiles and local models", () => {
             activeProfile: { name: "Misto", profileId: "p1", profileType: "hybrid" },
             iconUrl: null,
             id: "guild-1",
+            installed: true,
+            installUrl: null,
             name: "Pixelforge",
+            owned: true,
           },
         ]),
       ),

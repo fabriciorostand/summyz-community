@@ -4,10 +4,25 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setLanguage } from "../i18n/store";
 import { api } from "../lib/api";
-import { aGuild, dashboardContext, guildSelection, renderScreen } from "../tests/test-utils";
+import { leaveDashboardFor } from "../lib/browser-navigation";
+import {
+  aGuild,
+  aSettings,
+  dashboardContext,
+  guildSelection,
+  renderScreen,
+} from "../tests/test-utils";
 import { ServersPage } from "./servers-page";
 
-vi.mock("../lib/api", () => ({ api: { getBotInstallation: vi.fn() } }));
+vi.mock("../lib/api", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../lib/api")>()),
+  api: {
+    getBotInstallation: vi.fn(),
+    getDiscordConnection: vi.fn(),
+    startDiscordConnection: vi.fn(),
+  },
+}));
+vi.mock("../lib/browser-navigation", () => ({ leaveDashboardFor: vi.fn() }));
 
 const installUrl = "https://discord.com/oauth2/authorize?client_id=123456789012345678";
 
@@ -17,6 +32,12 @@ beforeEach(() => {
     configured: true,
     installUrl,
   });
+  vi.mocked(api.getDiscordConnection).mockResolvedValue({
+    connected: true,
+    discordUserId: "owner-1",
+    discordUsername: "pixel.owner",
+  });
+  vi.mocked(api.startDiscordConnection).mockResolvedValue("https://discord.com/oauth2/authorize");
 });
 
 afterEach(() => {
@@ -127,5 +148,104 @@ describe("ServersPage", () => {
       "href",
       "/installation",
     );
+  });
+
+  it("offers to install the bot in an owned server that does not have it", () => {
+    const guild = aGuild({
+      activeProfile: null,
+      callCount: null,
+      id: "g2",
+      installed: false,
+      installUrl: `${installUrl}&guild_id=g2`,
+      name: "Engine Guild",
+      summaryForum: null,
+    });
+    renderScreen(<ServersPage />, {
+      context: dashboardContext({ guilds: guildSelection({ guilds: [guild] }) }),
+    });
+    expect(screen.getByText("Bot não instalado")).toBeInTheDocument();
+    expect(screen.getByText(/Instale o bot para configurá-lo/)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Instalar neste servidor/ })).toHaveAttribute(
+      "href",
+      `${installUrl}&guild_id=g2`,
+    );
+    expect(screen.queryByRole("link", { name: /Configurar/ })).toBeNull();
+    expect(screen.queryByText("Perfil ativo")).toBeNull();
+  });
+
+  it("keeps a server with only recorded history one click away from its calls", async () => {
+    const setSelectedGuildId = vi.fn();
+    const guild = aGuild({
+      activeProfile: null,
+      callCount: null,
+      id: "g3",
+      installed: false,
+      name: "Old Guild",
+      owned: false,
+      summaryForum: null,
+    });
+    renderScreen(<ServersPage />, {
+      context: dashboardContext({
+        guilds: guildSelection({ guilds: [guild], setSelectedGuildId }),
+      }),
+      path: "/servers",
+      route: "/servers",
+    });
+    expect(screen.getByText("Somente histórico")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Instalar neste servidor/ })).toBeNull();
+    const history = screen.getByRole("link", { name: /Ver histórico/ });
+    expect(history).toHaveAttribute("href", "/history");
+    await userEvent.click(history);
+    expect(setSelectedGuildId).toHaveBeenCalledWith("g3");
+  });
+
+  it("asks to connect the owner's account when none is connected", async () => {
+    vi.mocked(api.getDiscordConnection).mockResolvedValue({ connected: false });
+    renderScreen(<ServersPage />);
+    expect(await screen.findByText("Conecte a conta Discord do dono")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Conectar conta Discord/ }));
+    expect(leaveDashboardFor).toHaveBeenCalledWith("https://discord.com/oauth2/authorize");
+  });
+
+  it("points to Installation when the Client Secret is still missing", async () => {
+    vi.mocked(api.getDiscordConnection).mockResolvedValue({ connected: false });
+    renderScreen(<ServersPage />, {
+      context: dashboardContext({
+        settings: aSettings({
+          secrets: { discordBotToken: true, discordClientSecret: false, openRouterApiKey: true },
+        }),
+      }),
+    });
+    expect(
+      await screen.findByText("Antes, salve o Client Secret da aplicação em Instalação."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Conectar conta Discord/ })).toBeNull();
+    expect(screen.getByRole("link", { name: "Ver instalação" })).toHaveAttribute(
+      "href",
+      "/installation",
+    );
+  });
+
+  it("asks nothing once the owner's account is connected", async () => {
+    renderScreen(<ServersPage />);
+    await waitFor(() => expect(api.getDiscordConnection).toHaveBeenCalled());
+    expect(screen.queryByText("Conecte a conta Discord do dono")).toBeNull();
+  });
+
+  it.each([
+    ["connected", "Conta Discord conectada."],
+    ["cancelled", "A conexão foi cancelada no Discord."],
+    ["failed", "Não foi possível conectar a conta Discord."],
+    ["invalid_state", "O link de conexão expirou"],
+  ])("reports the outcome of the Discord authorization (%s)", async (outcome, message) => {
+    renderScreen(<ServersPage />, { path: "/servers", route: `/servers?discord=${outcome}` });
+    expect(screen.getByText(new RegExp(message))).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: "Fechar aviso" }));
+    expect(screen.queryByText(new RegExp(message))).toBeNull();
+  });
+
+  it("ignores an unknown authorization outcome", () => {
+    renderScreen(<ServersPage />, { path: "/servers", route: "/servers?discord=<script>" });
+    expect(screen.queryByRole("button", { name: "Fechar aviso" })).toBeNull();
   });
 });

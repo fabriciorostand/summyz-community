@@ -178,10 +178,10 @@ export async function createApiServer(
         "Unable to list currently owned guilds for dashboard",
       );
     }
-    const guildsById = new Map<string, InstalledGuild & { installed: boolean }>(
-      historical.map((guild) => [guild.id, { ...guild, installed: false }]),
+    const guildsById = new Map<string, InstalledGuild & { installed: boolean; owned: boolean }>(
+      historical.map((guild) => [guild.id, { ...guild, installed: false, owned: false }]),
     );
-    for (const guild of owned) guildsById.set(guild.id, guild);
+    for (const guild of owned) guildsById.set(guild.id, { ...guild, owned: true });
     const { discordApplicationId } = await dependencies.settings.getSettings();
     return Promise.all(
       [...guildsById.values()].map(async (guild) => {

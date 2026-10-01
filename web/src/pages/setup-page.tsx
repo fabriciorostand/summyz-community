@@ -1,16 +1,34 @@
-import { ArrowUpRight, Check, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Check, Info, TriangleAlert } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 
+import { DiscordConnectButton } from "../components/discord-connect-button";
 import { InstallBotLink } from "../components/states";
-import { HelpTip } from "../components/ui";
+import { HelpTip, Notice } from "../components/ui";
 import { useI18n } from "../i18n/store";
 import { Brand } from "../layout/sidebar";
 import { LanguagePicker } from "../layout/top-bar";
 import { type AccessMode, ApiError, api } from "../lib/api";
+import { DiscordStep } from "./setup/discord-step";
+import {
+  FailureLine,
+  PrimaryButton,
+  SecondaryButton,
+  type SetupFailure,
+} from "./setup/setup-controls";
 
-type Step = "token" | "password" | "done";
-type SetupFailure = "invalid_discord_bot_token" | "invalid_setup_token" | "request_failed";
+type Step = "token" | "discord" | "password" | "done";
+
+/** Public mode adds the installation password; the owner connection is optional in both. */
+function stepsFor(isPublic: boolean): Step[] {
+  return isPublic ? ["token", "discord", "password", "done"] : ["token", "discord", "done"];
+}
+
+function railState(steps: Step[], current: Step, target: Step): "done" | "active" | "idle" {
+  const distance = steps.indexOf(current) - steps.indexOf(target);
+  if (distance === 0) return "active";
+  return distance > 0 ? "done" : "idle";
+}
 
 const minimumPasswordLength = 15;
 
@@ -39,15 +57,33 @@ export function SetupPage({
   const [claim] = useState(() => readClaim(location.hash));
   const [step, setStep] = useState<Step>("token");
   const [token, setToken] = useState("");
+  const [clientSecret, setClientSecret] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<SetupFailure>();
   const [installUrl, setInstallUrl] = useState<string>();
+  const [redirectUri, setRedirectUri] = useState<string>();
 
   useEffect(() => {
     if (location.hash.length === 0) return;
     window.history.replaceState(null, "", `${location.pathname}${location.search}`);
   }, [location.hash, location.pathname, location.search]);
+
+  useEffect(() => {
+    let active = true;
+    // The redirect URL is only a convenience here; Installation shows it again later.
+    void api.getSetupStatus().then(
+      (status) => {
+        if (active) setRedirectUri(status.discordRedirectUri);
+      },
+      () => {
+        if (active) setRedirectUri(undefined);
+      },
+    );
+    return () => {
+      active = false;
+    };
+  }, []);
 
   useEffect(() => {
     if (step !== "done") return;
@@ -58,19 +94,22 @@ export function SetupPage({
   }, [step]);
 
   const isPublic = accessMode === "public";
+  const steps = stepsFor(isPublic);
   const passwordReady = [...password].length >= minimumPasswordLength;
 
-  async function finish() {
+  /** Takes the secret explicitly: skipping clears it in the same click that finishes. */
+  async function finish(secret: string) {
     setBusy(true);
     setFailure(undefined);
+    const discordClientSecret = secret.trim();
     try {
       // The language on screen names the first AI profile the server creates.
-      await api.setup(
-        isPublic ? claim : undefined,
-        isPublic
-          ? { discordBotToken: token, installationPassword: password, setupLanguage: language }
-          : { discordBotToken: token, setupLanguage: language },
-      );
+      await api.setup(isPublic ? claim : undefined, {
+        discordBotToken: token,
+        ...(discordClientSecret === "" ? {} : { discordClientSecret }),
+        ...(isPublic ? { installationPassword: password } : {}),
+        setupLanguage: language,
+      });
       setStep("done");
     } catch (caught) {
       const next = failureOf(caught);
@@ -85,14 +124,25 @@ export function SetupPage({
     event.preventDefault();
     if (token.trim().length === 0) return;
     setFailure(undefined);
+    setStep("discord");
+  }
+
+  function leaveDiscordStep(secret: string) {
+    setClientSecret(secret);
     if (isPublic) setStep("password");
-    else void finish();
+    else void finish(secret);
+  }
+
+  function submitDiscord(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (clientSecret.trim().length === 0) return;
+    leaveDiscordStep(clientSecret);
   }
 
   function submitPassword(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!passwordReady) return;
-    void finish();
+    void finish(clientSecret);
   }
 
   return (
@@ -108,7 +158,6 @@ export function SetupPage({
             <TokenStep
               busy={busy}
               failure={failure}
-              isPublic={isPublic}
               onChange={(value) => {
                 setToken(value);
                 setFailure(undefined);
@@ -117,18 +166,38 @@ export function SetupPage({
               token={token}
             />
           )}
+          {step === "discord" && (
+            <DiscordStep
+              busy={busy}
+              clientSecret={clientSecret}
+              failure={failure}
+              isLastStep={!isPublic}
+              onBack={() => setStep("token")}
+              onChange={setClientSecret}
+              onSkip={() => leaveDiscordStep("")}
+              onSubmit={submitDiscord}
+              redirectUri={redirectUri}
+            />
+          )}
           {step === "password" && (
             <PasswordStep
               busy={busy}
               failure={failure}
-              onBack={() => setStep("token")}
+              onBack={() => setStep("discord")}
               onChange={setPassword}
               onSubmit={submitPassword}
               password={password}
               ready={passwordReady}
             />
           )}
-          {step === "done" && <DoneStep installUrl={installUrl} onComplete={onComplete} />}
+          {step === "done" && (
+            <DoneStep
+              canConnect={clientSecret.trim().length > 0}
+              installUrl={installUrl}
+              isPublic={isPublic}
+              onComplete={onComplete}
+            />
+          )}
         </div>
       </section>
 
@@ -141,19 +210,24 @@ export function SetupPage({
             alert={failure === "invalid_discord_bot_token"}
             label={t.setup.tokenLabel}
             number={1}
-            state={step === "token" ? "active" : "done"}
+            state={railState(steps, step, "token")}
+          />
+          <RailStep
+            label={t.setup.discordLabel}
+            number={2}
+            state={railState(steps, step, "discord")}
           />
           {isPublic && (
             <RailStep
               label={t.setup.passwordLabel}
-              number={2}
-              state={step === "password" ? "active" : step === "done" ? "done" : "idle"}
+              number={3}
+              state={railState(steps, step, "password")}
             />
           )}
           <RailStep
             label={t.setup.addToServer}
-            number={isPublic ? 3 : 2}
-            state={step === "done" ? "active" : "idle"}
+            number={steps.length}
+            state={railState(steps, step, "done")}
           />
         </ol>
         <dl className="mt-auto m-0 grid gap-2.5 font-mono text-[11px] text-ink-dim">
@@ -179,14 +253,12 @@ export function SetupPage({
 function TokenStep({
   busy,
   failure,
-  isPublic,
   onChange,
   onSubmit,
   token,
 }: {
   busy: boolean;
   failure: SetupFailure | undefined;
-  isPublic: boolean;
   onChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   token: string;
@@ -214,7 +286,7 @@ function TokenStep({
       {failure !== undefined && <FailureLine failure={failure} />}
       <div className="mt-6 flex justify-center">
         <PrimaryButton busy={busy} busyLabel={t.setup.validating}>
-          {isPublic ? t.setup.continue : t.setup.finish}
+          {t.setup.continue}
         </PrimaryButton>
       </div>
     </form>
@@ -265,28 +337,27 @@ function PasswordStep({
         <PrimaryButton busy={busy} busyLabel={t.setup.finishing} disabled={!ready}>
           {t.setup.finish}
         </PrimaryButton>
-        <button
-          className="rounded-[10px] border border-line px-4.5 py-3 text-[14px] text-ink-secondary transition-colors hover:border-line-strong hover:text-ink"
-          onClick={onBack}
-          type="button"
-        >
-          {t.setup.back}
-        </button>
+        <SecondaryButton onClick={onBack}>{t.setup.back}</SecondaryButton>
       </div>
     </form>
   );
 }
 
 function DoneStep({
+  canConnect,
   installUrl,
+  isPublic,
   onComplete,
 }: {
+  /** Only a stored Client Secret lets the owner's account be connected. */
+  canConnect: boolean;
   installUrl: string | undefined;
+  isPublic: boolean;
   onComplete: () => void;
 }) {
   const { t } = useI18n();
   return (
-    <div className="w-full max-w-[400px]">
+    <div className="w-full max-w-[440px]">
       <span className="mb-5 grid size-11 place-items-center rounded-xl border border-ok/40 bg-ok-soft text-ok">
         <Check className="size-5" />
       </span>
@@ -299,8 +370,14 @@ function DoneStep({
           {t.setup.doneHelpAfter}
         </HelpTip>
       </div>
-      <div className="mt-6 flex flex-wrap items-center gap-2.5">
-        <InstallBotLink installUrl={installUrl}>
+      {/* Connecting the owner comes first; the other actions stay one row below it. */}
+      {canConnect && (
+        <div className="mt-6">
+          <DiscordConnectButton />
+        </div>
+      )}
+      <div className={`${canConnect ? "mt-3" : "mt-6"} flex flex-wrap items-center gap-2.5`}>
+        <InstallBotLink installUrl={installUrl} variant={canConnect ? "secondary" : "primary"}>
           {t.setup.addToServer}
           <ArrowUpRight className="size-3.5" />
         </InstallBotLink>
@@ -312,6 +389,29 @@ function DoneStep({
           {t.setup.goToDashboard}
         </button>
       </div>
+      <DoneNotice canConnect={canConnect} isPublic={isPublic} />
+    </div>
+  );
+}
+
+function DoneNotice({ canConnect, isPublic }: { canConnect: boolean; isPublic: boolean }) {
+  const { t } = useI18n();
+  if (!canConnect) {
+    return (
+      <div className="mt-5">
+        <Notice icon={<TriangleAlert className="mt-0.5 size-3.5 shrink-0" />} tone="warn">
+          {t.setup.skippedNotice}
+        </Notice>
+      </div>
+    );
+  }
+  if (!isPublic) return null;
+  // The OAuth callback ends the session the setup just opened.
+  return (
+    <div className="mt-5">
+      <Notice icon={<Info className="mt-0.5 size-3.5 shrink-0" />}>
+        {t.setup.publicConnectNotice}
+      </Notice>
     </div>
   );
 }
@@ -349,45 +449,6 @@ function RailStep({
       </span>
       {alert && <TriangleAlert className="ml-auto size-3.5 text-fail" />}
     </li>
-  );
-}
-
-function PrimaryButton({
-  busy,
-  busyLabel,
-  children,
-  disabled = false,
-}: {
-  busy: boolean;
-  busyLabel: string;
-  children: string;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      className="flex items-center justify-center gap-2 rounded-[10px] bg-action-gradient px-6 py-3 text-[14px] font-medium text-white transition-colors enabled:hover:bg-action-gradient-hover disabled:cursor-not-allowed disabled:bg-surface-inset disabled:bg-none disabled:text-ink-dim"
-      disabled={busy || disabled}
-      type="submit"
-    >
-      {busy ? (
-        <>
-          <span className="live-dot size-1.5 rounded-full bg-white" />
-          {busyLabel}
-        </>
-      ) : (
-        children
-      )}
-    </button>
-  );
-}
-
-function FailureLine({ failure }: { failure: SetupFailure }) {
-  const { t } = useI18n();
-  return (
-    <div className="mt-2.5 flex items-start gap-2" role="alert">
-      <TriangleAlert className="mt-0.5 size-3.5 shrink-0 text-fail" />
-      <span className="text-[12.5px] text-fail">{t.setup.failures[failure]}</span>
-    </div>
   );
 }
 

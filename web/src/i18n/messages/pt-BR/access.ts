@@ -4,7 +4,13 @@ export const accessMessages = {
     addToServer: "Adicionar a um servidor",
     back: "Voltar",
     bot: "Bot",
+    clientSecretLabel: "Client Secret",
     continue: "Continuar",
+    copyRedirect: "Copiar URL de redirecionamento",
+    discordHelp:
+      "Developer Portal → sua aplicação → OAuth2 → Client Secret. Ele permite conectar a conta Discord do dono dos servidores; dá para fazer isso depois em Instalação.",
+    discordLabel: "Conta do dono (opcional)",
+    discordTitle: "Prepare a conexão do dono",
     doneHelpAfter: ".",
     doneHelpBefore: "Falta ativar um perfil de IA no servidor — é o que libera o",
     doneTitle: "Bot conectado",
@@ -32,6 +38,12 @@ export const accessMessages = {
     passwordShort: (length: number) => `Curta · ${String(length)} de 15`,
     passwordTitle: "Escolha a senha desta instalação",
     public: "Público",
+    publicConnectNotice:
+      "Ao voltar do Discord, entre com a senha da instalação que você acabou de criar.",
+    redirectLabel: "Cadastre esta URL em OAuth2 → Redirects",
+    skip: "Pular por enquanto",
+    skippedNotice:
+      "Sem o Client Secret, nenhum servidor pode ser configurado. Salve-o depois em Instalação e conecte a conta do dono.",
     tokenHelp:
       "Developer Portal → sua aplicação → Bot → Reset Token. O Application ID é derivado dele.",
     tokenLabel: "Token do bot",

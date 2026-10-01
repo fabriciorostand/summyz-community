@@ -30,10 +30,36 @@ describe("PostgresInstallationSettingsStore", () => {
     expect(status).not.toHaveProperty("dashboardLanguage");
     expect(status).not.toHaveProperty("dashboardTheme");
     expect(query.mock.calls[1]?.[0]).not.toContain("dashboard_language");
-    expect(status.secrets).toEqual({ discordBotToken: true, openRouterApiKey: false });
+    expect(status.secrets).toEqual({
+      discordBotToken: true,
+      discordClientSecret: false,
+      openRouterApiKey: false,
+    });
     expect(JSON.stringify(status)).not.toContain("real-token");
     expect(JSON.stringify(status)).not.toContain("clientSecret");
     expect(JSON.stringify(status)).not.toContain("smtp");
+  });
+
+  it("reports whether the Discord client secret is configured without exposing it", async () => {
+    const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({
+      rowCount: 1,
+      rows: [
+        {
+          configured_secrets: ["discord_bot_token", "discord_client_secret"],
+          discord_application_id: "application-1",
+          setup_completed_at: null,
+        },
+      ],
+    });
+    const store = new PostgresInstallationSettingsStore({ database: { query }, secretBox: box });
+
+    const status = await store.getSettings();
+
+    expect(status.secrets).toEqual({
+      discordBotToken: true,
+      discordClientSecret: true,
+      openRouterApiKey: false,
+    });
   });
 
   it("derives and stores the application id with the validated bot token", async () => {

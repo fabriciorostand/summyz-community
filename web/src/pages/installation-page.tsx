@@ -4,31 +4,28 @@ import {
   CircleCheck,
   CircleX,
   Cloud,
-  Copy,
   GlobeLock,
   KeyRound,
   Monitor,
   Terminal,
-  Trash2,
-  TriangleAlert,
 } from "lucide-react";
-import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
 
-import {
-  Button,
-  Card,
-  DiscordIcon,
-  Field,
-  FormError,
-  Label,
-  Notice,
-  SectionHeading,
-} from "../components/ui";
+import { Button, Card, Field, FormError, Notice, SectionHeading } from "../components/ui";
 import type { Messages } from "../i18n/messages/pt-BR";
 import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
-import { type AccessMode, ApiError, api, type InstallationHealth } from "../lib/api";
+import {
+  type AccessMode,
+  ApiError,
+  api,
+  type DashboardSettings,
+  type InstallationHealth,
+} from "../lib/api";
+import { DiscordApplicationCard } from "./installation/discord-application-card";
+import { DiscordOwnerCard } from "./installation/discord-owner-card";
+import { SecretField } from "./installation/secret-field";
 import { Screen } from "./screen";
 
 const minimumPasswordLength = 15;
@@ -37,6 +34,12 @@ const minimumPasswordLength = 15;
 export function InstallationPage() {
   const { patchSettings, reloadSettings, settings } = useDashboard();
   const { t } = useI18n();
+
+  // The write succeeded, so reflect it right away and let the reload confirm it.
+  const secretChanged = (secret: keyof DashboardSettings["secrets"]) => (configured: boolean) => {
+    patchSettings({ secrets: { ...settings.secrets, [secret]: configured } });
+    void reloadSettings();
+  };
 
   // The shared snapshot may predate a save made on this screen, so the server decides.
   useEffect(() => {
@@ -54,13 +57,16 @@ export function InstallationPage() {
               onReplaced={reloadSettings}
               tokenConfigured={settings.secrets.discordBotToken}
             />
+            <DiscordOwnerCard
+              accessMode={settings.accessMode}
+              applicationId={settings.discordApplicationId}
+              clientSecretConfigured={settings.secrets.discordClientSecret}
+              onClientSecretChange={secretChanged("discordClientSecret")}
+              redirectUri={settings.discordRedirectUri}
+            />
             <ProvidersCard
               configured={settings.secrets.openRouterApiKey}
-              onChange={(openRouterApiKey) => {
-                // The write succeeded, so reflect it right away and let the reload confirm it.
-                patchSettings({ secrets: { ...settings.secrets, openRouterApiKey } });
-                void reloadSettings();
-              }}
+              onChange={secretChanged("openRouterApiKey")}
             />
             {settings.accessMode === "public" && <PasswordCard />}
           </div>
@@ -74,127 +80,6 @@ export function InstallationPage() {
   );
 }
 
-function DiscordApplicationCard({
-  applicationId,
-  onReplaced,
-  tokenConfigured,
-}: {
-  applicationId: string | null;
-  /** The server derives a new Application ID from the token, so the caller refreshes it. */
-  onReplaced: () => Promise<void>;
-  tokenConfigured: boolean;
-}) {
-  const { t } = useI18n();
-  const [token, setToken] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [outcome, setOutcome] = useState<"replaced" | "invalid" | "failed">();
-
-  async function replace() {
-    if (token === "") return;
-    setBusy(true);
-    setOutcome(undefined);
-    try {
-      await api.replaceBotToken(token);
-      setToken("");
-      setOutcome("replaced");
-      await onReplaced();
-    } catch (caught) {
-      setOutcome(
-        caught instanceof ApiError && caught.code === "invalid_discord_bot_token"
-          ? "invalid"
-          : "failed",
-      );
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <Card>
-      <SectionHeading
-        icon={<DiscordIcon className="size-4" />}
-        title={t.installation.discordApplication}
-      />
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-col gap-1.5">
-          <Label>Application ID</Label>
-          <ApplicationId value={applicationId} />
-        </div>
-        <div className="flex items-end gap-2">
-          <Field
-            autoComplete="off"
-            className="flex-1"
-            label={t.installation.botToken}
-            onChange={(event) => {
-              setToken(event.currentTarget.value);
-              setOutcome(undefined);
-            }}
-            placeholder={
-              tokenConfigured ? t.installation.configuredReplace : t.installation.notConfigured
-            }
-            type="password"
-            value={token}
-          />
-          <Button
-            disabled={busy || token === ""}
-            onClick={() => void replace()}
-            type="button"
-            variant="secondary"
-          >
-            {busy ? t.installation.validating : t.installation.replace}
-          </Button>
-        </div>
-        {outcome === "replaced" && (
-          <p className="m-0 flex items-center gap-1.5 text-[12.5px] text-ok">
-            <Check className="size-3.5" />
-            {t.installation.tokenReplaced}
-          </p>
-        )}
-        {outcome === "invalid" && <FormError>{t.installation.tokenRejected}</FormError>}
-        {outcome === "failed" && <FormError>{t.installation.tokenFailed}</FormError>}
-        <Notice icon={<TriangleAlert className="mt-0.5 size-3.5 shrink-0" />} tone="warn">
-          {t.installation.tokenWarning}
-        </Notice>
-      </div>
-    </Card>
-  );
-}
-
-function ApplicationId({ value }: { value: string | null }) {
-  const { t } = useI18n();
-  const [copied, setCopied] = useState(false);
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1_600);
-    return () => clearTimeout(timer);
-  }, [copied]);
-  if (value === null) {
-    return (
-      <span className="rounded-lg border border-line bg-surface-raised px-3 py-2 font-mono text-[12.5px] text-ink-dim">
-        {t.installation.notConfigured}
-      </span>
-    );
-  }
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-line bg-surface-raised px-3 py-2">
-      <span className="min-w-0 flex-1 truncate font-mono text-[12.5px] text-ink">{value}</span>
-      <button
-        aria-label={t.installation.copyApplicationId}
-        className="touch-target grid size-6 place-items-center rounded text-ink-dim transition-colors hover:bg-surface-inset hover:text-ink"
-        onClick={() => {
-          void navigator.clipboard.writeText(value).then(
-            () => setCopied(true),
-            () => setCopied(false),
-          );
-        }}
-        type="button"
-      >
-        {copied ? <Check className="size-3.5 text-ok" /> : <Copy className="size-3.5" />}
-      </button>
-    </div>
-  );
-}
-
 function ProvidersCard({
   configured,
   onChange,
@@ -203,61 +88,22 @@ function ProvidersCard({
   onChange: (configured: boolean) => void;
 }) {
   const { t } = useI18n();
-  const [value, setValue] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [failed, setFailed] = useState(false);
-
-  async function run(action: () => Promise<void>, nextConfigured: boolean) {
-    setBusy(true);
-    setFailed(false);
-    try {
-      await action();
-      setValue("");
-      onChange(nextConfigured);
-    } catch {
-      setFailed(true);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+  const titleId = useId();
   return (
-    <Card>
-      <SectionHeading icon={<KeyRound className="size-4" />} title={t.installation.providers} />
-      <div className="flex flex-col gap-3">
-        <div className="flex items-end gap-2">
-          <Field
-            autoComplete="off"
-            className="flex-1"
-            label={t.installation.openRouterKey}
-            onChange={(event) => setValue(event.currentTarget.value)}
-            placeholder={
-              configured ? t.installation.configuredReplace : t.installation.notConfigured
-            }
-            type="password"
-            value={value}
-          />
-          <Button
-            disabled={busy || value === ""}
-            onClick={() => void run(() => api.updateSecret("openrouter_api_key", value), true)}
-            type="button"
-            variant="secondary"
-          >
-            {t.installation.update}
-          </Button>
-          <Button
-            aria-label={t.installation.removeKey}
-            className="px-2.5"
-            disabled={busy || !configured}
-            onClick={() => void run(() => api.removeSecret("openrouter_api_key"), false)}
-            type="button"
-            variant="ghost"
-          >
-            <Trash2 className="size-4" />
-          </Button>
-        </div>
-        {failed && <FormError>{t.installation.keyFailed}</FormError>}
-      </div>
+    <Card aria-labelledby={titleId} role="region">
+      <SectionHeading
+        icon={<KeyRound className="size-4" />}
+        id={titleId}
+        title={t.installation.providers}
+      />
+      <SecretField
+        configured={configured}
+        failedMessage={t.installation.keyFailed}
+        label={t.installation.openRouterKey}
+        name="openrouter_api_key"
+        onChange={onChange}
+        removeLabel={t.installation.removeKey}
+      />
     </Card>
   );
 }

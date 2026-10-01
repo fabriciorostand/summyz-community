@@ -16,11 +16,17 @@ export const commonMessages: typeof portuguese = {
     unreachableTitle: "Unable to reach the server",
   },
   states: {
-    addBack: "Add it back",
+    addBack: "Add the bot",
+    discordNotConnectedBody:
+      "Configuring servers and profiles requires the owner's Discord account to be connected. Connect it under Installation.",
+    discordNotConnectedTitle: "Owner account not connected",
+    discordRateLimitedBody:
+      "Discord asked the dashboard to slow down. Wait a few seconds and try again.",
+    discordRateLimitedTitle: "Discord asked for a pause",
     guildRemovedBody:
-      "left the list because the bot was removed from it. Calls and settings stay in the database and come back if the bot is added again.",
+      "needs the bot installed and must belong to the connected Discord account. Calls and settings stay saved.",
     guildRemovedThisServer: "This server",
-    guildRemovedTitle: "The bot is no longer in this server",
+    guildRemovedTitle: "This server cannot be configured",
     installBot: "Add the bot to a server",
     noServerBody:
       "Authorize the bot in a Discord server. It shows up here on its own, with nothing to register.",
@@ -28,8 +34,19 @@ export const commonMessages: typeof portuguese = {
     sessionExpiredBody:
       "Sessions end after 7 days without use, or 30 days in total. Enter the installation password to continue.",
     sessionExpiredTitle: "Your session has expired",
+    openInstallation: "Go to Installation",
     unlock: "Unlock",
     viewServers: "View servers",
+  },
+  discordConnect: {
+    connect: "Connect Discord account",
+    connecting: "Opening Discord…",
+    failures: {
+      discord_bot_not_configured: "Configure the bot token before connecting the account.",
+      discord_client_secret_missing: "Save the application's Client Secret before connecting.",
+      discord_rate_limited: "Discord asked for a pause. Try again in a few seconds.",
+      request_failed: "Unable to open the Discord authorization. Try again.",
+    },
   },
   nav: {
     calls: "Calls",
