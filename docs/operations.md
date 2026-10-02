@@ -25,6 +25,30 @@ heartbeats. Structured logs include failures and retry context. Discord receives
 without stack traces, internal paths, credentials, or raw audio. Keep recordings, transcripts,
 database dumps, and setup/recovery URLs private.
 
+## Refresh hardware on Windows and Linux
+
+Containers started by Windows and Linux launchers offer `POST /api/local-ai/hardware/refresh`. Send no body
+or `{}` and the dashboard's origin in the `Origin` header. Public mode also requires the installation's
+authenticated session (`summyz_session`); local mode retains its loopback host/origin restrictions.
+The request accepts no URLs, commands, or paths and neither changes model settings nor recreates
+containers. The old host agent endpoint has been removed;
+manual refresh is available in container inventory mode on Windows and Linux.
+
+Success returns HTTP 200 with `source: "container"`, `status: "current"`, `detectedAt`, and
+`hardware`. Hardware includes `cpuCores`, `memoryBytes`, and `accelerators` (with `id`, `name`,
+`vendor`, and `memoryBytes` when known). Fractional CPU quotas are preserved. Failure returns HTTP
+503 with `error: "hardware_detection_failed"` and `inventory` holding the last valid reading with
+`status: "stale"`. Its `detectedAt` remains the time of the valid reading. Logs and responses expose
+no internal error details. Ongoing recordings and processing continue; already-started meeting
+profiles are unchanged. The next successful reading clears the stale state.
+
+A request during another refresh returns HTTP 409 (`hardware_refresh_in_progress`) without
+cancelling the first. Unexpected input returns HTTP 400. `GET /api/local-ai/hardware` reads the
+latest inventory and status; `GET /api/local-ai/hardware/events` announces changes to clients.
+Catalog and provider availability queries do not trigger a new reading. After changing Docker/WSL
+limits or devices, restart containers or request manual refresh. This implementation prepares the
+API for a future button; the frontend has neither that button nor a visual stale indicator yet.
+
 ## Recording and processing lifecycle
 
 Only one recording can be active per server. `/record` requires a verified connected owner,

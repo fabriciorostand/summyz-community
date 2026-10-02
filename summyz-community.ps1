@@ -143,12 +143,12 @@ function Find-Acceleration {
   if ($null -ne $nvidiaSmi) {
     $output = @(
       & $nvidiaSmi.Source `
-        "--query-gpu=index,name,memory.total" `
+        "--query-gpu=index,name" `
         "--format=csv,noheader,nounits" 2>$null
     )
     if ($LASTEXITCODE -eq 0 -and $output.Count -gt 0) {
       $fields = ([string]$output[0]).Split(",")
-      if ($fields.Count -ge 3) {
+      if ($fields.Count -ge 2) {
         $script:profile = "nvidia"
         $script:gpuName = $fields[1].Trim()
         [Environment]::SetEnvironmentVariable(
@@ -156,19 +156,6 @@ function Find-Acceleration {
           "nvidia",
           "Process"
         )
-        [Environment]::SetEnvironmentVariable(
-          "SUMMYZ_DETECTED_GPU_NAME",
-          $script:gpuName,
-          "Process"
-        )
-        $memoryMebibytes = 0L
-        if ([long]::TryParse($fields[2].Trim(), [ref]$memoryMebibytes) -and $memoryMebibytes -gt 0) {
-          [Environment]::SetEnvironmentVariable(
-            "SUMMYZ_DETECTED_GPU_MEMORY_BYTES",
-            [string]($memoryMebibytes * 1024L * 1024L),
-            "Process"
-          )
-        }
         return
       }
     }
@@ -187,7 +174,7 @@ function Find-Acceleration {
 function Invoke-Compose {
   param([Parameter(ValueFromRemainingArguments = $true)][string[]]$ComposeCommand)
 
-  $composeArguments = @("-f", "compose.yaml")
+  $composeArguments = @("-f", "compose.yaml", "-f", "docker/compose.hardware.yaml")
   if ($script:profile -eq "nvidia") {
     $composeArguments += @("-f", "docker/compose.nvidia.yaml")
   } elseif ($script:profile -eq "amd") {
@@ -232,28 +219,6 @@ function Start-GpuServices {
   }
 }
 
-function Invoke-HardwareAgentSetup {
-  param([Parameter(Mandatory = $true)][ValidateSet("install", "stop")][string]$Action)
-  if ($script:dryRun) {
-    Write-Output "Hardware event detector: $Action at system startup (dry run)"
-    return
-  }
-  $installerPath = Join-Path $repositoryDirectory "scripts/install-hardware-agent.ps1"
-  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
-  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
-  if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
-    & $installerPath -Action $Action -RepositoryDirectory $repositoryDirectory -InstallationUser $identity.Name
-    return
-  }
-  $installerArguments = @(
-    "-NoProfile", "-NonInteractive", "-File", ('"' + $installerPath + '"'),
-    "-Action", $Action, "-RepositoryDirectory", ('"' + $repositoryDirectory + '"'),
-    "-InstallationUser", ('"' + $identity.Name + '"')
-  )
-  $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $installerArguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
-  if ($process.ExitCode -ne 0) { throw "Unable to configure the host hardware event detector" }
-}
-
 function Open-SetupPage {
   $setupToken = Get-DotEnvSetting -Name "SUMMYZ_SETUP_TOKEN"
   if ([string]::IsNullOrWhiteSpace($setupToken)) {
@@ -284,9 +249,9 @@ switch ($commandName) {
     } else {
       Write-Output "Profile: CPU"
     }
-    Invoke-Compose "up" "-d" "--build"
+    Invoke-Compose "up" "-d" "--build" "postgres" "ollama" "faster-whisper"
     Start-GpuServices
-    Invoke-HardwareAgentSetup -Action "install"
+    Invoke-Compose "up" "-d" "--build"
     if (-not $dryRun) { Open-SetupPage }
   }
   "restart" {
@@ -297,12 +262,11 @@ switch ($commandName) {
     } else {
       Write-Output "Profile: CPU"
     }
-    Invoke-Compose "up" "-d" "--build" "--force-recreate"
+    Invoke-Compose "up" "-d" "--build" "postgres" "ollama" "faster-whisper"
     Start-GpuServices
-    Invoke-HardwareAgentSetup -Action "install"
+    Invoke-Compose "up" "-d" "--build" "--force-recreate"
   }
   "down" {
-    Invoke-HardwareAgentSetup -Action "stop"
     Invoke-Compose "down" "--remove-orphans"
   }
   "status" { Invoke-Compose "ps" }

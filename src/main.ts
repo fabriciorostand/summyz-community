@@ -1,3 +1,4 @@
+import "./runtime-platform.js";
 import { spawn } from "node:child_process";
 import { extname } from "node:path";
 import { fileURLToPath } from "node:url";

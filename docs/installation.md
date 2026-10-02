@@ -7,19 +7,22 @@ images for version 1.0.0.
 
 ## Requirements and supported hosts
 
-Install Git and Docker with the Compose plugin. Prepare a Discord bot application and the Discord
-account that owns the servers to be configured. OpenRouter credits are required only for stages
+Use Windows or Linux and install Git and Docker with the Compose plugin. Prepare a Discord bot
+application and the Discord account that owns the servers to be configured. OpenRouter credits are required only for stages
 that use OpenRouter. GPU execution also requires compatible host drivers and Docker integration.
 
 | Host | CPU | NVIDIA CUDA | AMD ROCm | Validation during 1.0.0 preparation |
 | --- | --- | --- | --- | --- |
 | Windows with Docker Desktop/WSL2 | Supported | Supported | Not exposed by Docker Desktop | NVIDIA validated on an RTX 2060; CPU build validated |
 | Linux with Docker Engine + Compose | Supported | Supported | Supported for Ollama | Physical-host validation remains pending |
-| macOS with Docker Desktop | Supported | Not applicable | Not applicable | Physical-host validation remains pending |
 
 Pending validation records the available evidence, rather than changing the support status.
 faster-whisper GPU transcription supports NVIDIA/CUDA; AMD ROCm supports Ollama on Linux.
 See [execution settings](./configuration.md#local-execution-and-vad) before choosing a local profile.
+
+Launchers and native bot/API entry points reject unsupported operating systems before creating
+configuration or initializing services. This check uses the operating system visible to the process;
+Linux containers do not identify the physical host's operating system.
 
 ## Prepare the Discord application
 
@@ -66,21 +69,63 @@ and PostgreSQL are published on `127.0.0.1` by default; local dashboard access r
 [configuration guide](./configuration.md#environment-and-runtime-parameters). Keep local mode
 on loopback; network access requires public mode.
 
-The local launcher opens the setup URL on Windows or opens/prints it on Linux/macOS according to
+The local launcher opens the setup URL on Windows or opens/prints it on Linux according to
 browser availability. Its fragment carries the setup claim; do not share it.
 
-On Windows, `up` and `restart` register the host hardware detector in Task Scheduler to start at
-system boot. Registration requires elevation; the task runs as the user with limited privileges.
-`down` stops and disables the task, and the next `up` enables it again. The detector reads inventory
-once at startup and subscribes to Windows device events, without periodic scans or a manual
-dashboard button. When the API is unavailable, it retries delivery of the existing report.
-The dashboard catalog and preparation of new meetings use updated inventory; detecting a new GPU
-does not change device access for existing containers.
+On Windows and Linux, local and public launchers add `docker/compose.hardware.yaml`. Detection runs inside
+the bot and API, without administrator elevation, scheduled tasks, or a resident host process.
+Each process waits for a valid initial reading before starting its functions, including automatic
+Docker restarts; a failed reading prevents initialization. The launcher prepares CPU providers and
+attempts GPU providers before starting bot/API. An absent optional GPU provider keeps CPU available;
+invalid responses or declared sensor failures prevent a reading. Later changes can be read through
+[manual API refresh](./operations.md#refresh-hardware-on-windows-and-linux). This stage adds neither a dashboard
+button nor automatic event or timer detection. Stopping a container stops its detection; the other
+continues independently. The old host-report endpoint has been removed. These launchers do not
+automatically remove old Windows tasks or Linux services.
 
-On Linux, the host detector requires `systemd`, `udev`, and `curl`. The launcher registers a system
-unit using `sudo` or root privileges, and the detector runs as the installation user. It subscribes
-to `udev` events; `up`/`restart` enable the unit and `down` disables it. macOS retains launcher
-startup detection and is outside the device-event scope.
+An invalid stored inventory is replaced only after a successful, validated new detection. Database
+access errors still prevent initialization. This recovery changes only hardware inventory and never
+meeting, audio, or processing data.
+
+An existing Linux installation may still have a legacy system service registered. Before upgrading,
+review its name and `ExecStart` to confirm that it belongs to this repository, then remove only that
+unit with administrator privileges. From the repository root:
+
+```sh
+repository_path=$(pwd -P)
+unit_name="summyz-hardware-$(printf '%s' "$repository_path" | sha256sum | cut -c1-12).service"
+systemctl cat "$unit_name"
+# After confirming the unit points to this repository:
+sudo systemctl disable --now "$unit_name"
+sudo rm -- "/etc/systemd/system/$unit_name"
+sudo systemctl daemon-reload
+```
+
+This is manual cleanup of a previously installed service; new startup installs no host service.
+
+### Windows resources
+
+Inventory describes CPU and RAM exposed to the container, including CPU affinity, cgroup v2 CPU
+quotas, and memory limits. GPU metadata comes from faster-whisper GPU; when only Ollama GPU is
+reachable, model and VRAM remain unknown. Old launcher metadata never replaces a new reading.
+On Linux, AMD/ROCm is recognized through the available Ollama GPU service; its model and VRAM
+remain unknown. AMD acceleration remains available for summaries, with CPU transcription.
+Detecting a GPU does not expand existing containers' device access: you may need to recreate GPU
+services with Compose, run the launcher again, and then request a new reading.
+
+To use the physical machine's maximum available computing capacity, you will likely need to
+configure Docker Desktop/WSL 2 resources. Summyz Compose sets no CPU/RAM quotas and the NVIDIA
+profile requests all GPUs, but containers can only use resources exposed by Docker/WSL. Exposing
+resources does not guarantee simultaneous use of every CPU or GPU: this depends on the model,
+provider, and workload.
+
+WSL 2 exposes all logical processors by default, but limits RAM to 50% of Windows memory. Review
+the [official WSL configuration](https://learn.microsoft.com/en-us/windows/wsl/wsl-config) and the
+limits in your installation. `%UserProfile%\.wslconfig` applies globally to all WSL 2 distributions;
+individual container limits cannot increase the VM's memory. Summyz never changes this file.
+Reserve memory for Windows and other applications. Applying changes may require restarting
+WSL/Docker; `wsl --shutdown` stops every WSL 2 distribution, so finish their work before running it.
+Restart Summyz after applying settings to read the new resources at startup.
 
 ## Start a public installation
 

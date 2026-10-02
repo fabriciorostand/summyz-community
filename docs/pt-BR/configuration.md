@@ -189,13 +189,17 @@ com acesso somente para leitura. Cada etapa é encaminhada à instância do disp
 faster-whisper faz warm-up e verifica CUDA antes do processamento. AMD ROCm acelera somente
 Ollama no Linux; faster-whisper exige NVIDIA para transcrever por GPU. Em um host apenas AMD,
 a transcrição local em `auto` usa CPU; GPU permanece indisponível nessa etapa. Docker Desktop
-no Windows expõe GPUs NVIDIA, não AMD. Intel, Apple e fabricantes desconhecidos não possuem
+no Windows expõe GPUs NVIDIA, não AMD. Intel e fabricantes desconhecidos não possuem
 perfil de contêiner de aceleração compatível nesta etapa.
 
-Mudanças de hardware detectadas no host atualizam o dashboard por eventos, sem verificações
-periódicas do inventário. A disponibilidade dos serviços também é verificada ao consultar o
-catálogo ou preparar uma gravação. Uma GPU nova pode exigir executar o launcher novamente para
-preparar seu serviço; a detecção não recria containers nem amplia seu acesso a dispositivos.
+No Windows e no Linux, o bot/API
+detectam os recursos expostos aos containers na inicialização e oferecem [redetecção manual pela
+API](./operations.md#redetectar-hardware-no-windows-e-linux), sem verificações periódicas do inventário.
+A disponibilidade dos serviços continua sendo verificada ao consultar o catálogo ou preparar uma
+gravação; essa consulta não refaz o inventário. Uma GPU nova pode exigir executar o launcher
+novamente para preparar seu serviço; a detecção não recria containers nem amplia seu acesso a
+dispositivos. Para disponibilizar a capacidade máxima da máquina no Windows, consulte os
+[limites do Docker/WSL](./installation.md#recursos-no-windows).
 
 O VAD pertence à etapa de transcrição. OpenRouter usa o detector Silero do Summyz; faster-whisper
 usa somente seu VAD nativo, sem aplicar dois detectores em sequência. O VAD pode ser desativado.

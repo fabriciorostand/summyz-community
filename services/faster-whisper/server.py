@@ -22,6 +22,7 @@ from execution_policy import (
 )
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from faster_whisper import BatchedInferencePipeline, WhisperModel
+from hardware_inventory import read_hardware_inventory
 from model_capability import require_multilingual_capability
 from model_downloads import ModelDownloads, catalog, installed_models, is_installed
 from pydantic import BaseModel, Field, ValidationError, model_validator
@@ -256,6 +257,18 @@ async def hardware() -> dict[str, int]:
         "cpuCores": os.cpu_count() or 1,
         "cudaDevices": ctranslate2.get_cuda_device_count(),
     }
+
+
+@app.get("/hardware/inventory")
+async def hardware_inventory() -> dict[str, object]:
+    try:
+        inventory: dict[str, object] = await run_in_threadpool(
+            lambda: read_hardware_inventory(ctranslate2.get_cuda_device_count())
+        )
+        return inventory
+    except Exception as error:
+        logger.error("Hardware inventory failed", extra={"error_type": type(error).__name__})
+        raise HTTPException(status_code=503, detail="Hardware inventory is unavailable") from error
 
 
 @app.post("/models/prepare", response_model=ModelStatus)
