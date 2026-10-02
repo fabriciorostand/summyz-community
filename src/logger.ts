@@ -12,6 +12,7 @@ const REDACTED_PATHS = [
   "headers.authorization",
   "headers.cookie",
   "headers.set-cookie",
+  "headers.x-summyz-hardware-token",
   "headers.x-summyz-recovery-token",
   "headers.x-summyz-setup-token",
   "SUMMYZ_SECRETS_KEY",

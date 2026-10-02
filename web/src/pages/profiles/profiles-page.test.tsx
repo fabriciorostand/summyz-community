@@ -24,6 +24,9 @@ vi.mock("../../lib/api", async () => {
       createProfile: vi.fn(),
       deleteProfile: vi.fn(),
       getPromptDefaults: vi.fn(),
+      getHardware: vi.fn().mockResolvedValue({
+        hardware: { gpuAvailability: { ollama: false, "faster-whisper": false } },
+      }),
       listModelDownloads: vi.fn(),
       listModels: vi.fn(),
       listProfiles: vi.fn(),
@@ -56,6 +59,7 @@ const localProfile: Profile = aProfile({
     model: "qwen3:8b",
     prompt: null,
     provider: "ollama",
+    device: "auto",
   },
   summary: {
     consolidationPrompt: null,
@@ -64,6 +68,7 @@ const localProfile: Profile = aProfile({
     maxChunkCharacters: 8_000,
     model: "qwen3:8b",
     provider: "ollama",
+    device: "auto",
   },
   transcription: {
     batchSize: "auto",
@@ -73,6 +78,7 @@ const localProfile: Profile = aProfile({
     model: "large-v3",
     prompt: null,
     provider: "faster-whisper",
+    device: "auto",
     vad: {
       enabled: true,
       maxSpeechDurationSeconds: "auto",
@@ -546,9 +552,9 @@ describe("ProfilesPage", () => {
     const setup = aProfile({
       name: "Perfil 1",
       profileType: null,
-      refinement: { ...aProfile().refinement, model: null, provider: null },
-      summary: { ...aProfile().summary, model: null, provider: null },
-      transcription: { ...apiTranscription(), model: null, provider: null },
+      refinement: { ...aProfile().refinement, model: null, provider: null, device: undefined },
+      summary: { ...aProfile().summary, model: null, provider: null, device: undefined },
+      transcription: { ...apiTranscription(), model: null, provider: null, device: undefined },
     });
     listProfiles.mockResolvedValue([
       item(setup, {

@@ -1,0 +1,42 @@
+#!/bin/sh
+set -eu
+umask 077
+ready_file=${SUMMYZ_GPU_READY_PATH:-/tmp/summyz-gpu-ready}
+rm -f "$ready_file"
+log_directory=$(mktemp -d)
+mkfifo "$log_directory/events"
+server_pid=
+reader_pid=
+cleanup() {
+  trap - EXIT INT TERM
+  if [ -n "$server_pid" ]; then kill "$server_pid" 2>/dev/null || true; fi
+  if [ -n "$reader_pid" ]; then kill "$reader_pid" 2>/dev/null || true; fi
+  rm -f "$ready_file" "$log_directory/events"
+  rmdir "$log_directory"
+}
+trap cleanup EXIT
+trap 'exit 143' TERM
+trap 'exit 130' INT
+
+while IFS= read -r line; do
+  printf '%s\n' "$line"
+  case "$line" in
+    *'msg="vram-based default context"'*'total_vram='*)
+      value=${line#*total_vram=}
+      value=${value#\"}
+      case "$value" in
+        [1-9]*|0.[1-9]*) : > "$ready_file" ;;
+        *) rm -f "$ready_file" ;;
+      esac
+      ;;
+  esac
+done < "$log_directory/events" &
+reader_pid=$!
+ollama serve > "$log_directory/events" 2>&1 &
+server_pid=$!
+status=0
+wait "$server_pid" || status=$?
+server_pid=
+wait "$reader_pid" || true
+reader_pid=
+exit "$status"

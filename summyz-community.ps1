@@ -34,10 +34,11 @@ function Initialize-DotEnv {
     }
     $databasePassword = New-RandomBase64Url -ByteCount 32
     $contents = [IO.File]::ReadAllText($templatePath)
-    $contents = $contents -replace '(?m)^SUMMYZ_SECRETS_KEY=.*$', "SUMMYZ_SECRETS_KEY=$(New-RandomBase64Url -ByteCount 32)"
-    $contents = $contents -replace '(?m)^SUMMYZ_SETUP_TOKEN=.*$', "SUMMYZ_SETUP_TOKEN=$(New-RandomBase64Url -ByteCount 32)"
     $contents = $contents -replace '(?m)^DATABASE_URL=.*$', "DATABASE_URL=postgresql://summyz_community:$databasePassword@postgres:5432/summyz-community-db"
     $contents = $contents -replace '(?m)^POSTGRES_PASSWORD=.*$', "POSTGRES_PASSWORD=$databasePassword"
+    $contents = $contents.TrimEnd([char[]]"`r`n") + [Environment]::NewLine
+    $contents += "SUMMYZ_SECRETS_KEY=$(New-RandomBase64Url -ByteCount 32)" + [Environment]::NewLine
+    $contents += "SUMMYZ_SETUP_TOKEN=$(New-RandomBase64Url -ByteCount 32)" + [Environment]::NewLine
     [IO.File]::WriteAllText($environmentPath, $contents, [Text.UTF8Encoding]::new($false))
     Write-Output "Created .env with random local secrets. Keep this file private."
   }
@@ -105,40 +106,17 @@ if ($commandName -in @("up", "restart")) {
   Initialize-DotEnv
 }
 
-$device = Get-Setting -Name "LOCAL_AI_DEVICE" -Default "auto"
-$fallback = Get-Setting -Name "LOCAL_AI_FALLBACK" -Default "none"
-if ($device -notin @("auto", "gpu", "cpu")) {
-  [Console]::Error.WriteLine("LOCAL_AI_DEVICE must be auto, gpu, or cpu")
-  exit 2
-}
-if ($fallback -notin @("none", "cpu")) {
-  [Console]::Error.WriteLine("LOCAL_AI_FALLBACK must be none or cpu")
-  exit 2
-}
-
 $profile = "cpu"
 $gpuName = ""
 
-function Use-CpuFallback {
+function Use-CpuOnly {
   param([Parameter(Mandatory = $true)][string]$Reason)
-
-  if ($script:fallback -eq "cpu") {
-    Write-Warning "$Reason; authorized CPU fallback selected"
-    $script:profile = "cpu"
-    $script:gpuName = ""
-    return
-  }
-  [Console]::Error.WriteLine(
-    "$Reason. Set LOCAL_AI_FALLBACK=cpu to authorize CPU fallback."
-  )
-  exit 1
+  Write-Warning "$Reason; GPU unavailable, CPU instances remain available"
+  $script:profile = "cpu"
+  $script:gpuName = ""
 }
 
 function Find-Acceleration {
-  if ($script:device -eq "cpu") {
-    return
-  }
-
   $injectedVendor = [Environment]::GetEnvironmentVariable(
     "SUMMYZ_DETECTED_GPU_VENDOR",
     "Process"
@@ -151,11 +129,11 @@ function Find-Acceleration {
         return
       }
       "amd" {
-        Use-CpuFallback -Reason "AMD GPU acceleration through Docker is unavailable on Windows"
+        Use-CpuOnly -Reason "AMD GPU acceleration through Docker is unavailable on Windows"
         return
       }
       default {
-        Use-CpuFallback -Reason "GPU vendor $injectedVendor has no supported Docker profile"
+        Use-CpuOnly -Reason "GPU vendor $injectedVendor has no supported Docker profile"
         return
       }
     }
@@ -201,11 +179,8 @@ function Find-Acceleration {
     $_.Name -match '(?i)AMD|ATI|Radeon' -or $_.PNPDeviceID -match '(?i)VEN_1002'
   } | Select-Object -First 1
   if ($null -ne $amdAdapter) {
-    Use-CpuFallback -Reason "AMD GPU detected, but Docker Desktop on Windows does not expose ROCm"
+    Use-CpuOnly -Reason "AMD GPU detected, but Docker Desktop on Windows does not expose ROCm"
     return
-  }
-  if ($script:device -eq "gpu") {
-    Use-CpuFallback -Reason "No compatible GPU and driver were detected"
   }
 }
 
@@ -229,17 +204,54 @@ function Invoke-Compose {
   }
   if ($null -eq (Get-Command "docker.exe" -ErrorAction SilentlyContinue)) {
     [Console]::Error.WriteLine("Docker is not installed or is unavailable in PATH")
-    exit 1
+    throw "Docker executable unavailable"
   }
   & docker info *> $null
   if ($LASTEXITCODE -ne 0) {
     [Console]::Error.WriteLine("Docker daemon is unavailable")
-    exit 1
+    throw "Docker daemon unavailable"
   }
   & docker compose @composeArguments
   if ($LASTEXITCODE -ne 0) {
-    exit $LASTEXITCODE
+    throw "Docker Compose failed with exit code $LASTEXITCODE"
   }
+}
+
+function Start-GpuServices {
+  if ($script:profile -eq "cpu") { return }
+  $gpuServices = @("ollama-gpu")
+  if ($script:profile -eq "nvidia") { $gpuServices += "faster-whisper-gpu" }
+  foreach ($gpuService in $gpuServices) {
+    try {
+      Invoke-Compose "up" "-d" "--build" "--no-deps" "--wait" "--wait-timeout" "90" $gpuService
+    } catch {
+      Write-Warning "$gpuService failed to start; this provider's GPU is unavailable, CPU remains available"
+      try { Invoke-Compose "stop" $gpuService } catch { Write-Warning "Unable to stop unavailable GPU service" }
+      try { Invoke-Compose "rm" "-f" $gpuService } catch { Write-Warning "Unable to remove unavailable GPU service" }
+    }
+  }
+}
+
+function Invoke-HardwareAgentSetup {
+  param([Parameter(Mandatory = $true)][ValidateSet("install", "stop")][string]$Action)
+  if ($script:dryRun) {
+    Write-Output "Hardware event detector: $Action at system startup (dry run)"
+    return
+  }
+  $installerPath = Join-Path $repositoryDirectory "scripts/install-hardware-agent.ps1"
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  $principal = [Security.Principal.WindowsPrincipal]::new($identity)
+  if ($principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    & $installerPath -Action $Action -RepositoryDirectory $repositoryDirectory -InstallationUser $identity.Name
+    return
+  }
+  $installerArguments = @(
+    "-NoProfile", "-NonInteractive", "-File", ('"' + $installerPath + '"'),
+    "-Action", $Action, "-RepositoryDirectory", ('"' + $repositoryDirectory + '"'),
+    "-InstallationUser", ('"' + $identity.Name + '"')
+  )
+  $process = Start-Process -FilePath "$env:SystemRoot\System32\WindowsPowerShell\v1.0\powershell.exe" -ArgumentList $installerArguments -Verb RunAs -WindowStyle Hidden -Wait -PassThru
+  if ($process.ExitCode -ne 0) { throw "Unable to configure the host hardware event detector" }
 }
 
 function Open-SetupPage {
@@ -273,6 +285,8 @@ switch ($commandName) {
       Write-Output "Profile: CPU"
     }
     Invoke-Compose "up" "-d" "--build"
+    Start-GpuServices
+    Invoke-HardwareAgentSetup -Action "install"
     if (-not $dryRun) { Open-SetupPage }
   }
   "restart" {
@@ -284,11 +298,16 @@ switch ($commandName) {
       Write-Output "Profile: CPU"
     }
     Invoke-Compose "up" "-d" "--build" "--force-recreate"
+    Start-GpuServices
+    Invoke-HardwareAgentSetup -Action "install"
   }
-  "down" { Invoke-Compose "down" }
+  "down" {
+    Invoke-HardwareAgentSetup -Action "stop"
+    Invoke-Compose "down" "--remove-orphans"
+  }
   "status" { Invoke-Compose "ps" }
   "logs" { Invoke-Compose "logs" "--follow" }
-  "recover-access" { Invoke-Compose "exec" "dashboard" "node" "dist/api/installation-access-recovery.js" }
+  "recover-access" { Invoke-Compose "exec" "dashboard" "node" "dist/api/installation-access-recovery.js" "--access-mode" "public" }
   default {
     [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-access> [--dry-run]")
     exit 2

@@ -8,6 +8,7 @@ const responseSchema = z.object({
 
 export interface OllamaStructuredRequestOptions<T> {
   baseUrl?: string;
+  device?: "cpu" | "gpu";
   fetch?: Fetch;
   generation?: {
     seed?: number | undefined;
@@ -80,6 +81,8 @@ export async function requestOllamaStructured<T>(
     throw new OllamaRequestError(response.status);
   }
 
+  if (options.device === "gpu") await requireOllamaGpu(options);
+
   try {
     const body: unknown = await response.json();
     const content = responseSchema.parse(body).message.content;
@@ -88,5 +91,39 @@ export async function requestOllamaStructured<T>(
   } catch {
     await options.onIncompatibleModel?.(options.model);
     throw new IncompatibleOllamaModelError();
+  }
+}
+
+async function requireOllamaGpu<T>(options: OllamaStructuredRequestOptions<T>): Promise<void> {
+  try {
+    const response = await (options.fetch ?? fetch)(
+      `${options.baseUrl ?? "http://ollama:11434"}/api/ps`,
+      {
+        method: "GET",
+        signal: AbortSignal.timeout(options.timeoutMs),
+      },
+    );
+    if (!response.ok) throw new Error("OllamaProcessesUnavailable");
+    const payload = z
+      .object({
+        models: z.array(
+          z.object({
+            model: z.string().optional(),
+            name: z.string().optional(),
+            size: z.number().positive(),
+            size_vram: z.number().nonnegative(),
+          }),
+        ),
+      })
+      .parse(await response.json());
+    const model = payload.models.find(
+      (candidate) => candidate.model === options.model || candidate.name === options.model,
+    );
+    if (model === undefined || model.size_vram === 0 || model.size_vram > model.size)
+      throw new Error("OllamaGpuUnavailable");
+  } catch {
+    const error = new Error("Ollama did not activate the required GPU");
+    error.name = "OllamaGpuExecutionError";
+    throw error;
   }
 }

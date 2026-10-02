@@ -27,6 +27,7 @@ export const profilesMessages: typeof portuguese = {
     reviewFields: (count: number) => `Review ${String(count)} ${plural(count, "field", "fields")}`,
     sameAsMeeting: "Same language as the meeting",
     saveErrors: {
+      local_gpu_unavailable: "The selected GPU is unavailable. Select CPU or automatic.",
       catalog_unavailable:
         "Unable to validate the models right now because the catalog is unavailable. Try again in a moment.",
       invalid_request: "Choose the execution and the model of every stage before saving.",
@@ -132,6 +133,14 @@ export const profilesMessages: typeof portuguese = {
     unsavedIn: (changes: string) => ` in ${changes}`,
   },
   stagePanel: {
+    hardware: "Stage hardware",
+    automaticDevice: "Automatic",
+    gpuUnavailable: "GPU unavailable for this stage.",
+    hardwareLoading: "Checking hardware…",
+    deviceHint:
+      "Automatic uses an available GPU or CPU. Recommendations estimate quality and speed.",
+    gpuSelectionUnavailable: "The selected GPU is unavailable. Select CPU or automatic.",
+
     chooseExecutionHint:
       "Choose whether this stage runs on this installation or on the external API to see the models.",
     consolidationPrompt: "Consolidation prompt",

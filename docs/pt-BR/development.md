@@ -17,21 +17,36 @@ npm ci
 
 Prepare `.env` pelo [fluxo de instalação](./installation.md). Não o versione. Para banco nativo,
 troque `DATABASE_URL` gerada para Compose de `postgres:5432` pelo endereço do host e `POSTGRES_PORT`
-publicado. Defina `DISCORD_GUILD_ID` para registrar comandos em um servidor de desenvolvimento;
-sem essa variável, o registro é global.
+publicado.
 
 | Comando | Finalidade |
 | --- | --- |
 | `npm run dev` | Bot supervisionado em desenvolvimento |
-| `npm run dev:api` | API do dashboard |
+| `npm run dev:api:local` | API do dashboard em desenvolvimento, modo local |
+| `npm run dev:api:public` | API do dashboard em desenvolvimento, modo público |
 | `npm run dev:web` | Dashboard Vite em `127.0.0.1:5173`, com proxy de `/api` para `127.0.0.1:8787` |
 | `npm run build` | Compilar servidor e dashboard |
 | `npm start` | Bot supervisionado compilado |
-| `npm run start:api` | API compilada do dashboard |
+| `npm run api:local` | API compilada do dashboard, modo local |
+| `npm run api:public` | API compilada do dashboard, modo público |
 
 Execute bot, API e Vite em terminais separados conforme necessário. Vite é a origem do navegador
 no desenvolvimento frontend, enquanto `PUBLIC_BASE_URL` determina a origem do callback Discord;
 registre esse callback exato na aplicação Discord.
+
+O script seleciona o modo de acesso por argumento `--access-mode local` ou `--access-mode public`.
+O modo não é lido do `.env`; uma entrada antiga de `DASHBOARD_ACCESS_MODE` é ignorada. Sem argumento,
+a API assume o modo local. No Docker, o launcher seleciona o comando correspondente da API.
+
+`WEB_HOST` define o listener da API nativa e o endereço de publicação da porta do dashboard no
+Docker. O listener interno do contêiner permanece em `0.0.0.0:8787`. Alterar o host não altera
+as regras de autenticação, os cabeçalhos `Host` ou as origens aceitas pelo modo selecionado.
+Use `WEB_HOST=127.0.0.1` ao executar o modo local, que dispensa senha. Ao alternar os scripts,
+verifique esse valor: ele é compartilhado entre os modos.
+
+Os scripts npm do modo público exigem `PUBLIC_BASE_URL` com origem HTTPS e `WEB_HOST` que aceite
+conexões externas, como `0.0.0.0`. Eles não iniciam o Caddy nem configuram certificados: prepare o
+proxy HTTPS antes de acessar esse modo. O launcher Docker público fornece o Caddy automaticamente.
 
 Os clientes de IA local usam `http://ollama:11434` e `http://faster-whisper:8000`. Esses nomes resolvem
 dentro do Compose e a pilha base não publica as portas no host. IA local nativa exige configuração

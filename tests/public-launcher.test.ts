@@ -65,9 +65,7 @@ async function createFixture(publicSetting: string | undefined): Promise<string>
     const template = await readFile(join(root, ".env.example"), "utf8");
     await writeFile(
       join(root, ".env"),
-      `${publicSetting}${template}`
-        .replace(/^SUMMYZ_SETUP_TOKEN=.*$/m, "SUMMYZ_SETUP_TOKEN=setup-token-sensitive")
-        .replace(/^SUMMYZ_SECRETS_KEY=.*$/m, `SUMMYZ_SECRETS_KEY=${"a".repeat(43)}`)
+      `${publicSetting}SUMMYZ_SETUP_TOKEN=setup-token-sensitive\nSUMMYZ_SECRETS_KEY=${"a".repeat(43)}\n${template}`
         .replace(/^POSTGRES_PASSWORD=.*$/m, "POSTGRES_PASSWORD=database-password")
         .replace(
           /^DATABASE_URL=.*$/m,

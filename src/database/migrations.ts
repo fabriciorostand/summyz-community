@@ -8,6 +8,7 @@ import { databaseMigrations15 } from "./migrations-15.js";
 import { databaseMigrations16 } from "./migrations-16.js";
 import { databaseMigrations17 } from "./migrations-17.js";
 import { databaseMigrations18 } from "./migrations-18.js";
+import { databaseMigrations19 } from "./migrations-19.js";
 
 export type { DatabaseMigration } from "./database-migration.js";
 
@@ -21,4 +22,5 @@ export const databaseMigrations = [
   ...databaseMigrations16,
   ...databaseMigrations17,
   ...databaseMigrations18,
+  ...databaseMigrations19,
 ] as const;

@@ -5,6 +5,7 @@ import { z } from "zod";
 import {
   calculateProfileType,
   externalVadSchema,
+  localAiDeviceSchema,
   localVadSchema,
   profileLanguageSchema,
 } from "../ai-profile.js";
@@ -62,20 +63,30 @@ const currentTranscriptionBase = selectedModelSchema.and(
   }),
 );
 
+const generativeProviderSchema = z.discriminatedUnion("provider", [
+  z.object({ provider: z.literal("openrouter"), device: z.never().optional() }),
+  z.object({ provider: z.literal("ollama"), device: localAiDeviceSchema.default("auto") }),
+]);
+
 export const meetingAiConfigurationSchema = z
   .object({
     language: profileLanguageSchema.default("auto"),
     profileType: z.enum(["external", "local", "hybrid"]).nullable().optional(),
-    refinement: currentRefinementBase.and(z.object({ provider: z.enum(["openrouter", "ollama"]) })),
-    summary: currentSummaryBase.and(z.object({ provider: z.enum(["openrouter", "ollama"]) })),
+    refinement: currentRefinementBase.and(generativeProviderSchema),
+    summary: currentSummaryBase.and(generativeProviderSchema),
     transcription: z.union([
       currentTranscriptionBase.and(
-        z.object({ provider: z.literal("openrouter"), vad: externalVadSchema }),
+        z.object({
+          provider: z.literal("openrouter"),
+          device: z.never().optional(),
+          vad: externalVadSchema,
+        }),
       ),
       currentTranscriptionBase.and(
         z.object({
           batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
           provider: z.literal("faster-whisper"),
+          device: localAiDeviceSchema.default("auto"),
           vad: localVadSchema,
         }),
       ),

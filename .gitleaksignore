@@ -4,3 +4,6 @@
 171a32e2e5d4a0ca497977b14c5b2b89f63bee89:tests/postgres-dashboard-session-store.test.ts:discord-client-id:51
 171a32e2e5d4a0ca497977b14c5b2b89f63bee89:tests/dashboard-session.test.ts:discord-client-id:11
 7b6570d85cc8ec21817f8f6c649fcd64e232a350:web/src/tests/test-utils.tsx:discord-client-id:22
+
+# Synthetic Discord application ID used only by mocked REST command-registration tests.
+0bd299c4d5ca2631b9c88cd4121d364c8595f61a:tests/register-commands.test.ts:discord-client-id:14

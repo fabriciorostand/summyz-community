@@ -7,11 +7,32 @@ import { promisify } from "node:util";
 
 import { describe, expect, it } from "vitest";
 
+import { SecretBox } from "../src/security/secret-box.js";
+
 const execFileAsync = promisify(execFile);
 const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const launcherName = process.platform === "win32" ? "summyz-community.ps1" : "summyz-community";
 
 describe("Community launcher", () => {
+  it("passes public mode explicitly to the password recovery command", async () => {
+    const fixtureRoot = await createLauncherFixture();
+    try {
+      const output = await runLauncher({ LOCAL_AI_DEVICE: "cpu" }, fixtureRoot, "recover-access");
+
+      expect(output).toContain(
+        "exec dashboard node dist/api/installation-access-recovery.js --access-mode public",
+      );
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps generated setup and encryption secrets out of the example", async () => {
+    const template = await readFile(join(repositoryRoot, ".env.example"), "utf8");
+
+    expect(template).not.toMatch(/^SUMMYZ_(?:SECRETS_KEY|SETUP_TOKEN)=/m);
+  });
+
   it("seleciona CPU sem adicionar overlay", async () => {
     const output = await runLauncher({ LOCAL_AI_DEVICE: "cpu" });
 
@@ -63,7 +84,7 @@ describe("Community launcher", () => {
     };
 
     if (process.platform === "win32") {
-      await expect(runLauncher(environment)).rejects.toThrow(
+      expect(await runLauncher(environment)).toMatch(
         /AMD GPU acceleration.*unavailable on Windows/i,
       );
       return;
@@ -74,13 +95,11 @@ describe("Community launcher", () => {
     expect(output).toContain("AMD Radeon RX");
   });
 
-  it("não aplica fallback silencioso para fabricante incompatível", async () => {
-    await expect(
-      runLauncher({
-        LOCAL_AI_DEVICE: "auto",
-        SUMMYZ_DETECTED_GPU_VENDOR: "intel",
-      }),
-    ).rejects.toThrow(/no supported Docker profile/i);
+  it("completes with CPU when the detected GPU has no compatible Docker service", async () => {
+    const output = await runLauncher({ SUMMYZ_DETECTED_GPU_VENDOR: "intel" });
+    expect(output).toContain("CPU instances remain available");
+    expect(output).toContain("up -d --build");
+    expect(output).not.toContain("compose.nvidia.yaml");
   });
 
   it("gera segredos fortes no primeiro uso sem imprimi-los", async () => {
@@ -97,15 +116,81 @@ describe("Community launcher", () => {
       expect(output).toContain("Created .env with random local secrets");
       expect(new Set(secrets).size).toBe(3);
       for (const secret of secrets) {
-        expect(secret).toMatch(/^(?:[0-9a-f]{64}|[A-Za-z0-9_-]{43})$/);
+        expect(secret).toMatch(/^[A-Za-z0-9_-]{43}$/);
         expect(output).not.toContain(secret);
       }
+      const key = settings.SUMMYZ_SECRETS_KEY;
+      if (key === undefined) throw new Error("The launcher did not generate an encryption key");
+      const secretBox = new SecretBox(key);
+      expect(secretBox.decrypt(secretBox.encrypt("stored-credential"))).toBe("stored-credential");
+      expect(output).not.toContain(settings.DATABASE_URL);
       expect(settings.DATABASE_URL).toBe(
         `postgresql://summyz_community:${settings.POSTGRES_PASSWORD}@postgres:5432/summyz-community-db`,
       );
       if (process.platform !== "win32") {
         expect((await stat(join(fixtureRoot, ".env"))).mode & 0o777).toBe(0o600);
       }
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("generates setup and encryption secrets without template placeholders", async () => {
+    const fixtureRoot = await createLauncherFixture();
+    try {
+      const templatePath = join(fixtureRoot, ".env.example");
+      const template = await readFile(templatePath, "utf8");
+      await writeFile(
+        templatePath,
+        template.replace(/^SUMMYZ_(?:SECRETS_KEY|SETUP_TOKEN)=.*\r?\n/gm, "").trimEnd(),
+      );
+
+      await runLauncher({ LOCAL_AI_DEVICE: "cpu" }, fixtureRoot);
+
+      const contents = await readFile(join(fixtureRoot, ".env"), "utf8");
+      expect(contents.match(/^SUMMYZ_SECRETS_KEY=[A-Za-z0-9_-]{43}$/gm)).toHaveLength(1);
+      expect(contents.match(/^SUMMYZ_SETUP_TOKEN=[A-Za-z0-9_-]{43}$/gm)).toHaveLength(1);
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  });
+
+  it.each(["SUMMYZ_SECRETS_KEY", "SUMMYZ_SETUP_TOKEN"])(
+    "rejects an existing environment missing %s without changing it",
+    async (name) => {
+      const fixtureRoot = await createLauncherFixture();
+      try {
+        await runLauncher({ LOCAL_AI_DEVICE: "cpu" }, fixtureRoot);
+        const environmentPath = join(fixtureRoot, ".env");
+        const original = await readFile(environmentPath, "utf8");
+        const incomplete = original.replace(new RegExp(`^${name}=.*\\r?\\n`, "m"), "");
+        await writeFile(environmentPath, incomplete);
+
+        await expect(runLauncher({ LOCAL_AI_DEVICE: "cpu" }, fixtureRoot)).rejects.toThrow(
+          new RegExp(`${name} must be set`),
+        );
+        expect(await readFile(environmentPath, "utf8")).toBe(incomplete);
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it("preserves an existing environment and its encrypted credentials on repeated startup", async () => {
+    const fixtureRoot = await createLauncherFixture();
+    try {
+      await runLauncher({ LOCAL_AI_DEVICE: "cpu" }, fixtureRoot);
+      const environmentPath = join(fixtureRoot, ".env");
+      const original = await readFile(environmentPath, "utf8");
+      const key = parseDotEnv(original).SUMMYZ_SECRETS_KEY;
+      if (key === undefined) throw new Error("The launcher did not generate an encryption key");
+      const ciphertext = new SecretBox(key).encrypt("stored-credential");
+
+      const output = await runLauncher({ LOCAL_AI_DEVICE: "cpu" }, fixtureRoot);
+
+      expect(await readFile(environmentPath, "utf8")).toBe(original);
+      expect(new SecretBox(key).decrypt(ciphertext)).toBe("stored-credential");
+      expect(output).not.toContain("Created .env");
     } finally {
       await rm(fixtureRoot, { recursive: true, force: true });
     }
@@ -184,11 +269,20 @@ function parseDotEnv(contents: string): Record<string, string> {
 
 async function runLauncher(
   environment: NodeJS.ProcessEnv,
-  launcherRoot = repositoryRoot,
+  launcherRoot?: string,
+  commandName = "up",
 ): Promise<string> {
+  if (launcherRoot === undefined) {
+    const fixtureRoot = await createLauncherFixture();
+    try {
+      return await runLauncher(environment, fixtureRoot, commandName);
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
+    }
+  }
   const commonEnvironment = {
     ...process.env,
-    LOCAL_AI_FALLBACK: "none",
+    SUMMYZ_DETECTED_GPU_VENDOR: "unknown",
     ...environment,
   };
   if (process.platform === "win32") {
@@ -201,17 +295,21 @@ async function runLauncher(
         "Bypass",
         "-File",
         join(launcherRoot, launcherName),
-        "up",
+        commandName,
         "--dry-run",
       ],
       { encoding: "utf8", env: commonEnvironment },
     );
-    return result.stdout;
+    return result.stdout + result.stderr;
   }
 
-  const result = await execFileAsync("sh", [join(launcherRoot, launcherName), "up", "--dry-run"], {
-    encoding: "utf8",
-    env: commonEnvironment,
-  });
-  return result.stdout;
+  const result = await execFileAsync(
+    "sh",
+    [join(launcherRoot, launcherName), commandName, "--dry-run"],
+    {
+      encoding: "utf8",
+      env: commonEnvironment,
+    },
+  );
+  return result.stdout + result.stderr;
 }

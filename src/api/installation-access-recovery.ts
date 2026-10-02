@@ -9,7 +9,7 @@ import { loadWebConfig } from "./web-config.js";
 
 if (existsSync(".env")) loadEnvFile(".env");
 
-const config = loadWebConfig(process.env);
+const config = loadWebConfig(process.env, process.argv.slice(2));
 if (config.accessMode !== "public") {
   throw new Error("Installation password recovery is available only in public access mode");
 }

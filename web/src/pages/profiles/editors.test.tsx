@@ -23,6 +23,7 @@ const localProfile = aProfile({
     model: "qwen3:4b",
     prompt: null,
     provider: "ollama",
+    device: "auto",
   },
   summary: {
     consolidationPrompt: null,
@@ -31,6 +32,7 @@ const localProfile = aProfile({
     maxChunkCharacters: 8_000,
     model: "qwen3:4b",
     provider: "ollama",
+    device: "auto",
   },
   transcription: {
     batchSize: "auto",
@@ -40,6 +42,7 @@ const localProfile = aProfile({
     model: "large-v3",
     prompt: null,
     provider: "faster-whisper",
+    device: "auto",
     vad: {
       enabled: true,
       maxSpeechDurationSeconds: "auto",

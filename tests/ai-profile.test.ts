@@ -103,6 +103,7 @@ describe("perfis de IA", () => {
         model: "qwen3:1.7b",
         prompt: null,
         provider: "ollama",
+        device: "auto",
       },
       profileType: "local",
       summary: {
@@ -112,6 +113,7 @@ describe("perfis de IA", () => {
         maxChunkCharacters: 3_000,
         model: "qwen3:4b-instruct-2507-q4_K_M",
         provider: "ollama",
+        device: "auto",
       },
       transcription: {
         batchSize: 2,
@@ -121,6 +123,7 @@ describe("perfis de IA", () => {
         model: "medium",
         prompt: "Transcreva literalmente.",
         provider: "faster-whisper",
+        device: "auto",
         providerOptions: { vendor: { diarize: false } },
         temperature: 0,
         vad: {

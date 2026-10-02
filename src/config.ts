@@ -8,10 +8,7 @@ const environmentSchema = z.object({
       (value) => value.startsWith("postgresql://") || value.startsWith("postgres://"),
       "DATABASE_URL deve usar o protocolo postgresql",
     ),
-  DISCORD_GUILD_ID: z.string().min(1).optional(),
   LOG_LEVEL: z.enum(["fatal", "error", "warn", "info", "debug", "trace", "silent"]).default("info"),
-  LOCAL_AI_DEVICE: z.enum(["auto", "gpu", "cpu"]).default("auto"),
-  LOCAL_AI_FALLBACK: z.enum(["none", "cpu"]).default("none"),
   SUMMYZ_SECRETS_KEY: z.string().refine(isThirtyTwoByteBase64Url),
   SEGMENT_MAX_SECONDS: z.coerce
     .number()
@@ -57,10 +54,7 @@ export interface AppConfig {
   dataDir: string;
   databaseUrl: string;
   discordApplicationId: string;
-  discordGuildId?: string;
   discordToken: string;
-  localAiDevice: z.infer<typeof environmentSchema>["LOCAL_AI_DEVICE"];
-  localAiFallback: z.infer<typeof environmentSchema>["LOCAL_AI_FALLBACK"];
   logLevel: z.infer<typeof environmentSchema>["LOG_LEVEL"];
   persistMeetingContent: boolean;
   persistMeetingAudio: boolean;
@@ -95,9 +89,6 @@ export function loadConfig(environment: NodeJS.ProcessEnv): BootstrapConfig {
     botLanguage: "en",
     dataDir: parsed.DATA_DIR,
     databaseUrl: parsed.DATABASE_URL,
-    ...(parsed.DISCORD_GUILD_ID === undefined ? {} : { discordGuildId: parsed.DISCORD_GUILD_ID }),
-    localAiDevice: parsed.LOCAL_AI_DEVICE,
-    localAiFallback: parsed.LOCAL_AI_DEVICE === "cpu" ? "none" : parsed.LOCAL_AI_FALLBACK,
     logLevel: parsed.LOG_LEVEL,
     persistMeetingContent: true,
     persistMeetingAudio: false,

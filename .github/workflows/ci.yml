@@ -219,6 +219,7 @@ jobs:
           docker run --rm -v "${PWD}:/repo" \
             zricethezav/gitleaks:v8.24.0@sha256:2bcceac45179b3a91bff11a824d0fb952585b429e54fc928728b1d4d5c3e5176 \
             detect --source=/repo --redact --verbose --no-banner \
+              --gitleaks-ignore-path=/repo/.gitleaksignore \
               --report-format=sarif --report-path=/repo/artifacts/reports/security/gitleaks.sarif
 
       - name: Report every repository vulnerability

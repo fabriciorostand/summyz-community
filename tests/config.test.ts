@@ -15,8 +15,6 @@ describe("loadConfig", () => {
       botLanguage: "en",
       dataDir: "./data",
       databaseUrl: requiredEnvironment.DATABASE_URL,
-      localAiDevice: "auto",
-      localAiFallback: "none",
       persistMeetingAudio: false,
       persistMeetingContent: true,
       refinementMaxAttempts: 3,
@@ -60,27 +58,20 @@ describe("loadConfig", () => {
     });
   });
 
-  it("preserva o servidor de desenvolvimento quando configurado", () => {
-    expect(loadConfig({ ...requiredEnvironment, DISCORD_GUILD_ID: "guild-1" })).toMatchObject({
-      discordGuildId: "guild-1",
-    });
+  it.each(["", "guild-1"])("ignores a legacy development guild setting: %s", (guildId) => {
+    expect(loadConfig({ ...requiredEnvironment, DISCORD_GUILD_ID: guildId })).not.toHaveProperty(
+      "discordGuildId",
+    );
   });
 
-  it("configura dispositivo e torna fallback de CPU efetivamente none", () => {
-    expect(
-      loadConfig({
-        ...requiredEnvironment,
-        LOCAL_AI_DEVICE: "gpu",
-        LOCAL_AI_FALLBACK: "cpu",
-      }),
-    ).toMatchObject({ localAiDevice: "gpu", localAiFallback: "cpu" });
-    expect(
-      loadConfig({
-        ...requiredEnvironment,
-        LOCAL_AI_DEVICE: "cpu",
-        LOCAL_AI_FALLBACK: "cpu",
-      }),
-    ).toMatchObject({ localAiDevice: "cpu", localAiFallback: "none" });
+  it("ignores obsolete installation-level local device and fallback settings", () => {
+    const config = loadConfig({
+      ...requiredEnvironment,
+      LOCAL_AI_DEVICE: "gpu",
+      LOCAL_AI_FALLBACK: "cpu",
+    });
+    expect(config).not.toHaveProperty("localAiDevice");
+    expect(config).not.toHaveProperty("localAiFallback");
   });
 
   it("rejeita limites operacionais inválidos", () => {

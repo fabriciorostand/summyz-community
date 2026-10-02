@@ -49,7 +49,7 @@ read_env_setting() {
 }
 
 generate_secret() {
-  od -An -N32 -tx1 /dev/urandom | tr -d ' \n'
+  dd if=/dev/urandom bs=32 count=1 2>/dev/null | base64 | tr '/+' '_-' | tr -d '=\r\n'
 }
 
 replace_env_setting() {
@@ -121,42 +121,16 @@ if [ "$command_name" = "up" ] || [ "$command_name" = "restart" ]; then
   initialize_dot_env
 fi
 
-device=${LOCAL_AI_DEVICE:-}
-fallback=${LOCAL_AI_FALLBACK:-}
-[ -n "$device" ] || device=$(read_env_setting LOCAL_AI_DEVICE)
-[ -n "$fallback" ] || fallback=$(read_env_setting LOCAL_AI_FALLBACK)
-device=${device:-auto}
-fallback=${fallback:-none}
-
-case "$device" in
-  auto|gpu|cpu) ;;
-  *) echo "LOCAL_AI_DEVICE must be auto, gpu, or cpu" >&2; exit 2 ;;
-esac
-case "$fallback" in
-  none|cpu) ;;
-  *) echo "LOCAL_AI_FALLBACK must be none or cpu" >&2; exit 2 ;;
-esac
-
 profile=cpu
 gpu_name=""
 
-use_cpu_fallback() {
-  reason=$1
-  if [ "$fallback" = "cpu" ]; then
-    echo "Warning: $reason; authorized CPU fallback selected" >&2
-    profile=cpu
-    gpu_name=""
-    return
-  fi
-  echo "$reason. Set LOCAL_AI_FALLBACK=cpu to authorize CPU fallback." >&2
-  exit 1
+use_cpu_only() {
+  echo "Warning: $1; GPU unavailable, CPU instances remain available" >&2
+  profile=cpu
+  gpu_name=""
 }
 
 detect_acceleration() {
-  if [ "$device" = "cpu" ]; then
-    return
-  fi
-
   injected_vendor=${SUMMYZ_DETECTED_GPU_VENDOR:-}
   if [ -n "$injected_vendor" ]; then
     case "$injected_vendor" in
@@ -171,11 +145,11 @@ detect_acceleration() {
           gpu_name=${SUMMYZ_DETECTED_GPU_NAME:-AMD GPU}
           return
         fi
-        use_cpu_fallback "AMD GPU acceleration through Docker is available only on Linux"
+        use_cpu_only "AMD GPU acceleration through Docker is available only on Linux"
         return
         ;;
       *)
-        use_cpu_fallback "GPU vendor $injected_vendor has no supported Docker profile"
+        use_cpu_only "GPU vendor $injected_vendor has no supported Docker profile"
         return
         ;;
     esac
@@ -210,7 +184,7 @@ detect_acceleration() {
     done
     if [ "$amd_detected" = true ]; then
       if [ ! -e /dev/kfd ] || [ ! -d /dev/dri ]; then
-        use_cpu_fallback "AMD GPU detected without accessible ROCm devices /dev/kfd and /dev/dri"
+        use_cpu_only "AMD GPU detected without accessible ROCm devices /dev/kfd and /dev/dri"
         return
       fi
       profile=amd
@@ -221,9 +195,6 @@ detect_acceleration() {
     fi
   fi
 
-  if [ "$device" = "gpu" ]; then
-    use_cpu_fallback "No compatible GPU and driver were detected"
-  fi
 }
 
 print_selection() {
@@ -266,13 +237,42 @@ run_compose() {
   fi
   if ! command -v docker >/dev/null 2>&1; then
     echo "Docker is not installed or is unavailable in PATH" >&2
-    exit 1
+    return 1
   fi
   if ! docker info >/dev/null 2>&1; then
     echo "Docker daemon is unavailable" >&2
-    exit 1
+    return 1
   fi
   docker compose "$@"
+}
+
+start_gpu_services() {
+  [ "$profile" != cpu ] || return 0
+  gpu_services=ollama-gpu
+  if [ "$profile" = nvidia ]; then gpu_services="$gpu_services faster-whisper-gpu"; fi
+  for gpu_service in $gpu_services; do
+    if ! run_compose up -d --build --no-deps --wait --wait-timeout 90 "$gpu_service"; then
+      echo "Warning: $gpu_service failed to start; this provider's GPU is unavailable, CPU remains available" >&2
+      run_compose stop "$gpu_service" || echo "Warning: Unable to stop unavailable GPU service" >&2
+      run_compose rm -f "$gpu_service" || echo "Warning: Unable to remove unavailable GPU service" >&2
+    fi
+  done
+}
+
+configure_hardware_agent() {
+  [ "$(uname -s)" = Linux ] || return 0
+  if [ "$dry_run" = true ]; then
+    echo "Hardware event detector: $1 at system startup (dry run)"
+    return
+  fi
+  if [ "$(id -u)" = 0 ]; then
+    sh "$repository_dir/scripts/install-hardware-agent" "$1" "$repository_dir"
+  elif command -v sudo >/dev/null 2>&1; then
+    sudo sh "$repository_dir/scripts/install-hardware-agent" "$1" "$repository_dir"
+  else
+    echo "Hardware startup registration requires root. Run the launcher with administrative privileges." >&2
+    exit 1
+  fi
 }
 
 show_setup_page() {
@@ -302,17 +302,24 @@ case "$command_name" in
     detect_acceleration
     print_selection
     run_compose up -d --build
+    start_gpu_services
+    configure_hardware_agent install
     if [ "$dry_run" = false ]; then show_setup_page; fi
     ;;
   restart)
     detect_acceleration
     print_selection
     run_compose up -d --build --force-recreate
+    start_gpu_services
+    configure_hardware_agent install
     ;;
-  down) run_compose down ;;
+  down)
+    configure_hardware_agent stop
+    run_compose down --remove-orphans
+    ;;
   status) run_compose ps ;;
   logs) run_compose logs --follow ;;
-  recover-access) run_compose exec dashboard node dist/api/installation-access-recovery.js ;;
+  recover-access) run_compose exec dashboard node dist/api/installation-access-recovery.js --access-mode public ;;
   *)
     echo "Usage: ./summyz-community <up|down|restart|status|logs|recover-access> [--dry-run]" >&2
     exit 2

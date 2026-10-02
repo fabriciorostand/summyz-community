@@ -1,4 +1,4 @@
-import type { Profile, ProfileType } from "../../lib/api";
+import { type Profile, type ProfileType, profileSchema } from "../../lib/api";
 
 export const stages = ["transcription", "refinement", "summary"] as const;
 export type Stage = (typeof stages)[number];
@@ -78,12 +78,16 @@ export function changeExecution(
       review: remaining,
     };
   }
-  const provider = execution === "api" ? "openrouter" : "ollama";
-  const next: Profile =
-    stage === "refinement"
-      ? { ...draft, refinement: { ...draft.refinement, model: null, provider } }
-      : { ...draft, summary: { ...draft.summary, model: null, provider } };
-  return { needsModel: true, profile: next, review: remaining };
+  const { device: _device, ...selection } = draft[stage];
+  const next = {
+    ...draft,
+    [stage]:
+      execution === "api"
+        ? { ...selection, model: null, provider: "openrouter" }
+        : { ...selection, model: null, provider: "ollama", device: "auto" },
+  };
+  const parsed = profileSchema.parse(next);
+  return { needsModel: true, profile: parsed, review: remaining };
 }
 
 const externalMinimums = {
@@ -102,7 +106,11 @@ function moveTranscription(
     maxSpeechDurationSeconds: "auto" as const,
     ...current.vad,
   };
-  const { batchSize: _batchSize, ...base } = { batchSize: "auto" as const, ...current };
+  const {
+    batchSize: _batchSize,
+    device: _device,
+    ...base
+  } = { batchSize: "auto" as const, device: undefined, ...current };
   if (execution === "local") {
     return {
       review,
@@ -111,6 +119,7 @@ function moveTranscription(
         batchSize: current.provider === "faster-whisper" ? current.batchSize : "auto",
         model: null,
         provider: "faster-whisper",
+        device: "auto",
         vad: { ...vad, maxSpeechDurationSeconds, minSilenceDurationMs },
       },
     };

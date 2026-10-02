@@ -53,13 +53,35 @@ No primeiro `up` ou `restart`, o launcher copia `.env.example` para `.env` e ger
 para PostgreSQL, criptografia e setup sem imprimir seus valores. Preserve esse arquivo: substituir
 `SUMMYZ_SECRETS_KEY` torna as credenciais criptografadas já armazenadas ilegíveis.
 
-O launcher detecta o hardware no host e seleciona os overlays Compose antes de iniciar os contêineres.
-Ele nunca monta o socket Docker na aplicação. Se a execução por GPU solicitada estiver indisponível,
-a inicialização para, salvo quando `LOCAL_AI_FALLBACK=cpu` tiver sido configurado explicitamente.
-Dashboard e PostgreSQL escutam em `127.0.0.1`; o dashboard local não exige senha.
+`SUMMYZ_SECRETS_KEY` e `SUMMYZ_SETUP_TOKEN` são acrescentadas diretamente ao `.env` pelo launcher;
+não aparecem no `.env.example` e não exigem preenchimento manual. A geração ocorre somente quando
+o `.env` não existe. Um arquivo existente é preservado; se faltar algum segredo, a inicialização
+falha. Copiar o exemplo manualmente não substitui a inicialização pelo launcher.
+
+O launcher inicia as instâncias CPU e tenta iniciar, separadamente, os serviços GPU compatíveis
+com o hardware detectado. Sem GPU compatível ou se um serviço GPU falhar, a instalação conclui
+com CPU e o dashboard mostra GPU indisponível nas etapas afetadas. O outro serviço GPU pode
+continuar disponível. A aplicação não monta o socket Docker.
+Por padrão, dashboard e PostgreSQL são publicados em `127.0.0.1`; o dashboard local não exige
+senha. `WEB_HOST` permite configurar o IP de publicação da porta do dashboard no Docker,
+conforme o [guia de configuração](./configuration.md#ambiente-e-parâmetros-de-execução).
+Mantenha o modo local em loopback; o acesso pela rede exige o modo público.
 
 O launcher local abre a URL de setup no Windows ou a abre/imprime no Linux/macOS conforme a
 disponibilidade do navegador. O fragmento carrega a credencial de setup; não o compartilhe.
+
+No Windows, `up` e `restart` registram o detector de hardware no Agendador de Tarefas para iniciar
+com o sistema. O registro exige elevação; a tarefa executa com a identidade do usuário e privilégios
+limitados. `down` interrompe e desabilita a tarefa, e o próximo `up` a reativa. O detector faz uma
+leitura inicial e recebe eventos de dispositivos do Windows, sem varreduras periódicas nem botão
+manual no dashboard. Se a API estiver indisponível, ele repete o envio do relatório já coletado.
+O catálogo no dashboard e a preparação de novas reuniões usam o inventário atualizado; detectar
+uma GPU nova não altera o acesso aos dispositivos de containers existentes.
+
+No Linux, o detector exige `systemd`, `udev` e `curl` no host. O launcher registra uma unidade
+do sistema, com elevação via `sudo` ou execução como root, e o detector roda com a identidade
+do usuário da instalação. Ele escuta eventos do `udev`; `up`/`restart` habilitam a unidade e `down`
+a desabilita. O macOS permanece com a detecção inicial do launcher, fora do escopo de eventos.
 
 ## Iniciar uma instalação pública
 

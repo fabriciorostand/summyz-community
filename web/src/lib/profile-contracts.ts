@@ -81,25 +81,48 @@ const transcriptionStageSchema = z.discriminatedUnion("provider", [
   z.object({
     ...transcriptionBaseShape,
     provider: z.literal("openrouter"),
+    device: z.never().optional(),
     vad: externalVadSchema,
   }),
   z.object({
     ...transcriptionBaseShape,
     batchSize: z.union([z.literal("auto"), z.number().int()]),
     provider: z.literal("faster-whisper"),
+    device: z.enum(["auto", "cpu", "gpu"]).default("auto"),
     vad: localVadSchema,
   }),
-  z.object({ ...transcriptionBaseShape, provider: z.null(), vad: externalVadSchema }),
+  z.object({
+    ...transcriptionBaseShape,
+    device: z.never().optional(),
+    provider: z.null(),
+    vad: externalVadSchema,
+  }),
 ]);
 const refinementStageSchema = z.discriminatedUnion("provider", [
-  z.object({ ...refinementBaseShape, provider: z.literal("openrouter") }),
-  z.object({ ...refinementBaseShape, provider: z.literal("ollama") }),
-  z.object({ ...refinementBaseShape, provider: z.null() }),
+  z.object({
+    ...refinementBaseShape,
+    provider: z.literal("openrouter"),
+    device: z.never().optional(),
+  }),
+  z.object({
+    ...refinementBaseShape,
+    provider: z.literal("ollama"),
+    device: z.enum(["auto", "cpu", "gpu"]).default("auto"),
+  }),
+  z.object({ ...refinementBaseShape, device: z.never().optional(), provider: z.null() }),
 ]);
 const summaryStageSchema = z.discriminatedUnion("provider", [
-  z.object({ ...summaryBaseShape, provider: z.literal("openrouter") }),
-  z.object({ ...summaryBaseShape, provider: z.literal("ollama") }),
-  z.object({ ...summaryBaseShape, provider: z.null() }),
+  z.object({
+    ...summaryBaseShape,
+    provider: z.literal("openrouter"),
+    device: z.never().optional(),
+  }),
+  z.object({
+    ...summaryBaseShape,
+    provider: z.literal("ollama"),
+    device: z.enum(["auto", "cpu", "gpu"]).default("auto"),
+  }),
+  z.object({ ...summaryBaseShape, device: z.never().optional(), provider: z.null() }),
 ]);
 /** Calculated by the server from the stage providers; it is never sent back. */
 export const profileTypeSchema = z.enum(["external", "local", "hybrid"]).nullable();

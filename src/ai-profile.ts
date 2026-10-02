@@ -7,6 +7,7 @@ export {
 } from "./ai-profile-compatibility.js";
 
 const identifierSchema = z.string().min(1).max(256);
+export const localAiDeviceSchema = z.enum(["auto", "cpu", "gpu"]);
 export const supportedProfileLanguages = [
   "auto",
   "ar",
@@ -120,24 +121,30 @@ const summaryBaseSchema = z.object({
 });
 
 export const externalTranscriptionAiProfileSchema = transcriptionBaseSchema.extend({
+  device: z.never().optional(),
   provider: z.literal("openrouter").default("openrouter"),
   vad: externalVadSchema,
 });
 export const localTranscriptionAiProfileSchema = transcriptionBaseSchema.extend({
+  device: localAiDeviceSchema.default("auto"),
   batchSize: z.union([z.literal("auto"), z.number().int().min(0).max(64)]).default("auto"),
   provider: z.literal("faster-whisper").default("faster-whisper"),
   vad: localVadSchema,
 });
 export const externalRefinementAiProfileSchema = refinementBaseSchema.extend({
+  device: z.never().optional(),
   provider: z.literal("openrouter").default("openrouter"),
 });
 export const localRefinementAiProfileSchema = refinementBaseSchema.extend({
+  device: localAiDeviceSchema.default("auto"),
   provider: z.literal("ollama").default("ollama"),
 });
 export const externalSummaryAiProfileSchema = summaryBaseSchema.extend({
+  device: z.never().optional(),
   provider: z.literal("openrouter").default("openrouter"),
 });
 export const localSummaryAiProfileSchema = summaryBaseSchema.extend({
+  device: localAiDeviceSchema.default("auto"),
   provider: z.literal("ollama").default("ollama"),
 });
 export const promptModesSchema = z
@@ -335,6 +342,7 @@ export function resolveAiProfile(input: AiProfile) {
       model: refinement.model,
       prompt: refinement.prompt,
       provider: refinement.provider,
+      ...(refinement.provider === "ollama" ? { device: refinement.device } : {}),
     },
     summary: {
       consolidationPrompt: summary.consolidationPrompt,
@@ -343,6 +351,7 @@ export function resolveAiProfile(input: AiProfile) {
       maxChunkCharacters: summary.maxChunkCharacters,
       model: summary.model,
       provider: summary.provider,
+      ...(summary.provider === "ollama" ? { device: summary.device } : {}),
     },
     transcription: {
       interSpeechSilenceMs: transcription.interSpeechSilenceMs,
@@ -358,7 +367,7 @@ export function resolveAiProfile(input: AiProfile) {
         ? {}
         : { temperature: transcription.temperature }),
       ...(transcription.provider === "faster-whisper"
-        ? { batchSize: transcription.batchSize }
+        ? { batchSize: transcription.batchSize, device: transcription.device }
         : {}),
       vad: transcription.vad,
     },

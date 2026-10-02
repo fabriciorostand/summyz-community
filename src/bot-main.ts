@@ -19,6 +19,7 @@ import { createPostgresDatabase, type PostgresDatabase } from "./database/postgr
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
 import { PostgresGuildHistoryStore } from "./database/postgres-guild-history-store.js";
 import { PostgresGuildOwnerApprovalStore } from "./database/postgres-guild-owner-approval-store.js";
+import { PostgresHardwareStore } from "./database/postgres-hardware-store.js";
 import { PostgresInstallationDiscordConnectionStore } from "./database/postgres-installation-discord-connection-store.js";
 import { PostgresInstallationHealthStore } from "./database/postgres-installation-health-store.js";
 import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
@@ -40,7 +41,9 @@ import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
 import { VoiceChannelDeletionVerifier } from "./discord/voice-channel-deletion-verifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
+import { readGpuServiceAvailability } from "./local-ai/gpu-service-availability.js";
 import { detectLocalHardware } from "./local-ai/hardware-detection.js";
+import { limitHardwareResources } from "./local-ai/hardware-profile.js";
 import { createLogger } from "./logger.js";
 import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
 import { CachedModelCatalog } from "./models/model-catalog.js";
@@ -122,6 +125,7 @@ const config: ReturnType<typeof resolveBotConfig> = resolveBotConfig(
 );
 
 const localHardware = await detectLocalHardware();
+const hardwareStore = new PostgresHardwareStore(database);
 const recordingsDirectory = join(config.dataDir, "recordings");
 
 const postgresMeetingStore = new PostgresMeetingStore(database, storedBotConfiguration.version);
@@ -166,6 +170,10 @@ const aiRuntime = new ApplicationAiRuntime({
   config,
   costStore: postgresCostLedger,
   hardware: localHardware,
+  readHardware: async () =>
+    readGpuServiceAvailability(
+      limitHardwareResources((await hardwareStore.read())?.hardware ?? localHardware),
+    ),
   installationSettings,
   installationHealth,
   logger,
@@ -356,10 +364,7 @@ client.once(Events.ClientReady, async (readyClient) => {
   });
   try {
     await registerCommands(config);
-    logger.info(
-      { registrationScope: config.discordGuildId === undefined ? "global" : "guild" },
-      "Commands registered",
-    );
+    logger.info({ registrationScope: "global" }, "Commands registered");
   } catch (error) {
     logger.error({ errorType: getErrorType(error) }, "Command registration failed");
   }

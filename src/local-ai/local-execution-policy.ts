@@ -17,6 +17,7 @@ export type LocalExecutionPlan = Readonly<Record<LocalAiPhase, PhaseExecution>>;
 
 interface ResolveLocalExecutionPlanInput {
   device: LocalAiDevice;
+  devices?: Partial<Record<LocalAiPhase, LocalAiDevice>>;
   enabledPhases?: readonly LocalAiPhase[];
   fallback: LocalAiFallback;
   hardware: LocalHardwareProfile;
@@ -31,13 +32,23 @@ export function resolveLocalExecutionPlan(
   );
   return {
     refinement: enabledPhases.has("refinement")
-      ? resolvePhase("refinement", input.device, fallback, input.hardware)
+      ? resolvePhase(
+          "refinement",
+          input.devices?.refinement ?? input.device,
+          fallback,
+          input.hardware,
+        )
       : disabledPhase(),
     summary: enabledPhases.has("summary")
-      ? resolvePhase("summary", input.device, fallback, input.hardware)
+      ? resolvePhase("summary", input.devices?.summary ?? input.device, fallback, input.hardware)
       : disabledPhase(),
     transcription: enabledPhases.has("transcription")
-      ? resolvePhase("transcription", input.device, fallback, input.hardware)
+      ? resolvePhase(
+          "transcription",
+          input.devices?.transcription ?? input.device,
+          fallback,
+          input.hardware,
+        )
       : disabledPhase(),
   };
 }
@@ -56,10 +67,14 @@ function resolvePhase(
     return { device: "cpu", fallback: "none", fallbackApplied: false };
   }
 
-  const gpu = selectBestCompatibleGpu(phase, hardware.accelerators ?? []);
+  const provider = phase === "transcription" ? "faster-whisper" : "ollama";
+  const gpu =
+    hardware.gpuAvailability?.[provider] === false
+      ? undefined
+      : selectBestCompatibleGpu(phase, hardware.accelerators ?? [], hardware.ollamaGpuVendor);
   if (gpu !== undefined) return gpuPhase(gpu, fallback);
 
-  if (preference === "auto" && (hardware.accelerators ?? []).length === 0) {
+  if (preference === "auto") {
     return { device: "cpu", fallback, fallbackApplied: false };
   }
   if (fallback === "cpu") return { device: "cpu", fallback, fallbackApplied: true };
@@ -80,8 +95,16 @@ function gpuPhase(gpu: GraphicsAccelerator, fallback: LocalAiFallback): PhaseExe
 function selectBestCompatibleGpu(
   phase: LocalAiPhase,
   accelerators: readonly GraphicsAccelerator[],
+  ollamaVendor: "amd" | "nvidia" | undefined,
 ): GraphicsAccelerator | undefined {
   return accelerators
+    .filter((accelerator) => accelerator.vendor === "nvidia" || accelerator.vendor === "amd")
     .filter((accelerator) => phase !== "transcription" || accelerator.vendor === "nvidia")
+    .filter(
+      (accelerator) =>
+        phase === "transcription" ||
+        ollamaVendor === undefined ||
+        accelerator.vendor === ollamaVendor,
+    )
     .toSorted((left, right) => (right.memoryBytes ?? 0) - (left.memoryBytes ?? 0))[0];
 }
