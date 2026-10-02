@@ -112,6 +112,7 @@ interface LocalModelManagerOptions {
   fetch?: Fetch;
   logger: Logger;
   ollamaBaseUrl?: string;
+  ollamaGpuBaseUrl?: string;
 }
 
 export class LocalModelManager {
@@ -122,6 +123,7 @@ export class LocalModelManager {
   readonly #fetch: Fetch;
   readonly #logger: Logger;
   readonly #ollamaBaseUrl: string;
+  readonly #ollamaGpuBaseUrl: string;
   readonly #ollamaUses = new Map<string, Set<OllamaPhase>>();
   readonly #pendingOllamaPhases = new Set<OllamaPhase>();
   #fasterWhisperPending = false;
@@ -131,10 +133,16 @@ export class LocalModelManager {
     this.#batchSize = options.batchSize ?? 0;
     this.#configuration = options.configuration;
     this.#executionPlan = options.executionPlan;
-    this.#fasterWhisperBaseUrl = options.fasterWhisperBaseUrl ?? "http://faster-whisper:8000";
+    this.#fasterWhisperBaseUrl =
+      options.fasterWhisperBaseUrl ??
+      (options.executionPlan?.transcription.device === "gpu"
+        ? "http://faster-whisper-gpu:8000"
+        : "http://faster-whisper:8000");
     this.#fetch = options.fetch ?? fetch;
     this.#logger = options.logger;
     this.#ollamaBaseUrl = options.ollamaBaseUrl ?? "http://ollama:11434";
+    this.#ollamaGpuBaseUrl =
+      options.ollamaGpuBaseUrl ?? options.ollamaBaseUrl ?? "http://ollama-gpu:11434";
     this.#trackOllamaUse("refinement", options.configuration.refinement);
     this.#trackOllamaUse("summary", options.configuration.summary);
     this.#fasterWhisperPending = options.configuration.transcription.provider === "faster-whisper";
@@ -180,12 +188,16 @@ export class LocalModelManager {
   public async rejectOllamaModel(model: string, phase: OllamaPhase): Promise<void> {
     const uses = this.#ollamaUses.get(model);
     uses?.delete(phase);
-    await this.#requestOllama("/api/generate", {
-      keep_alive: 0,
-      model,
-      prompt: "",
-      stream: false,
-    }).catch((error: unknown) => {
+    await this.#requestOllama(
+      "/api/generate",
+      {
+        keep_alive: 0,
+        model,
+        prompt: "",
+        stream: false,
+      },
+      phase,
+    ).catch((error: unknown) => {
       this.#logger.warn(
         { errorType: getErrorType(error), model, phase },
         "Unable to unload rejected Ollama model",
@@ -281,7 +293,7 @@ export class LocalModelManager {
 
   async #validateOllamaDevice(model: string, phase: OllamaPhase): Promise<void> {
     if (this.#executionPlan === undefined) return;
-    const response = await this.#fetch(`${this.#ollamaBaseUrl}/api/ps`, {
+    const response = await this.#fetch(`${this.#ollamaUrlFor(phase)}/api/ps`, {
       method: "GET",
       signal: AbortSignal.timeout(30_000),
     });
@@ -321,6 +333,12 @@ export class LocalModelManager {
     throw new LocalAiDevicePolicyError("Ollama activated a GPU while CPU was required");
   }
 
+  #ollamaUrlFor(phase: OllamaPhase): string {
+    return this.#executionFor(phase).device === "gpu"
+      ? this.#ollamaGpuBaseUrl
+      : this.#ollamaBaseUrl;
+  }
+
   #executionFor(phase: OllamaPhase): PhaseExecution {
     return this.#executionPlan?.[phase] ?? cpuExecution();
   }
@@ -328,7 +346,7 @@ export class LocalModelManager {
   async #validateOllamaModel(model: string, phase: OllamaPhase): Promise<void> {
     if (phase === "refinement") {
       await requestOllamaStructured({
-        baseUrl: this.#ollamaBaseUrl,
+        baseUrl: this.#ollamaUrlFor(phase),
         fetch: this.#fetch,
         input: { blocks: [{ id: "probe-1", text: "Hello world." }] },
         instruction:
@@ -341,7 +359,7 @@ export class LocalModelManager {
       return;
     }
     await requestOllamaStructured({
-      baseUrl: this.#ollamaBaseUrl,
+      baseUrl: this.#ollamaUrlFor(phase),
       fetch: this.#fetch,
       input: { transcriptEntries: [] },
       instruction:
@@ -407,8 +425,8 @@ export class LocalModelManager {
     throw new Error(`FasterWhisperPreparationStatus${String(response.status)}`);
   }
 
-  async #requestOllama(path: string, body: unknown): Promise<void> {
-    const response = await this.#fetch(`${this.#ollamaBaseUrl}${path}`, {
+  async #requestOllama(path: string, body: unknown, phase: OllamaPhase): Promise<void> {
+    const response = await this.#fetch(`${this.#ollamaUrlFor(phase)}${path}`, {
       body: JSON.stringify(body),
       headers: { "Content-Type": "application/json" },
       method: "POST",

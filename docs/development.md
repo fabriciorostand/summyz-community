@@ -17,21 +17,33 @@ npm ci
 
 Prepare `.env` through the [installation workflow](./installation.md). Do not commit it. For native
 database access, change the launcher's Compose `DATABASE_URL` from `postgres:5432` to the host address
-and published `POSTGRES_PORT`. Set `DISCORD_GUILD_ID` to register commands in a development server;
-without it, registration is global.
+and published `POSTGRES_PORT`.
 
 | Command | Purpose |
 | --- | --- |
 | `npm run dev` | Supervised bot in development |
-| `npm run dev:api` | Dashboard API |
+| `npm run dev:api:local` / `npm run dev:api:public` | Dashboard API |
 | `npm run dev:web` | Vite dashboard at `127.0.0.1:5173`, proxying `/api` to `127.0.0.1:8787` |
 | `npm run build` | Build server and dashboard |
 | `npm start` | Compiled supervised bot |
-| `npm run start:api` | Compiled dashboard API |
+| `npm run api:local` / `npm run api:public` | Compiled dashboard API |
 
 Run bot, API, and Vite in separate terminals as needed. Vite is the browser origin during frontend
 development, while `PUBLIC_BASE_URL` determines the Discord OAuth callback origin; register that
 exact callback in the Discord application.
+
+The script selects access mode with `--access-mode local` or `--access-mode public`. The mode is
+not read from `.env`; a legacy `DASHBOARD_ACCESS_MODE` entry is ignored. Without an argument, the
+API defaults to local mode. In Docker, the launcher selects the corresponding API command.
+
+`WEB_HOST` controls the native API listener and Docker's dashboard port publication address. The
+internal container listener remains `0.0.0.0:8787`. Changing the host does not change authentication,
+accepted Host headers, or trusted origins. Use `WEB_HOST=127.0.0.1` in local mode, which requires
+no password. Check this shared value when switching scripts.
+
+Public npm scripts require an HTTPS `PUBLIC_BASE_URL` and a non-loopback `WEB_HOST`, such as
+`0.0.0.0`. They do not start Caddy or configure certificates; prepare the HTTPS proxy before using
+this mode. The public Docker launcher provides Caddy automatically.
 
 Local AI clients use `http://ollama:11434` and `http://faster-whisper:8000`. Those service names resolve
 inside Compose, and the base stack does not publish their ports to the host. Native local-AI work

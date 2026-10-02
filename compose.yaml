@@ -109,7 +109,7 @@ services:
       WEB_HOST: 0.0.0.0
       WEB_PORT: 8787
     ports:
-      - "127.0.0.1:${WEB_PORT:-8787}:8787"
+      - "${WEB_HOST:-127.0.0.1}:${WEB_PORT:-8787}:8787"
     volumes:
       - ollama_models:/models/ollama
 

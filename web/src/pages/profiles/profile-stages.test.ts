@@ -67,6 +67,7 @@ function localTranscription(): Profile["transcription"] {
     model: "large-v3",
     prompt: null,
     provider: "faster-whisper",
+    device: "auto",
     vad: {
       enabled: true,
       maxSpeechDurationSeconds: "auto",
@@ -91,12 +92,15 @@ describe("profile stages", () => {
 
     const local: Profile = {
       ...hybrid,
-      refinement: { ...hybrid.refinement, provider: "ollama" },
-      summary: { ...hybrid.summary, provider: "ollama" },
+      refinement: { ...hybrid.refinement, provider: "ollama", device: "auto" },
+      summary: { ...hybrid.summary, provider: "ollama", device: "auto" },
     };
     expect(profileTypeOf(local)).toBe("local");
 
-    const unset: Profile = { ...profile, summary: { ...profile.summary, provider: null } };
+    const unset: Profile = {
+      ...profile,
+      summary: { ...profile.summary, provider: null, device: undefined },
+    };
     expect(profileTypeOf(unset)).toBeNull();
   });
 
@@ -108,7 +112,7 @@ describe("profile stages", () => {
     );
     expect(
       executionOf(
-        { ...profile, refinement: { ...profile.refinement, provider: null } },
+        { ...profile, refinement: { ...profile.refinement, provider: null, device: undefined } },
         "refinement",
       ),
     ).toBeNull();
@@ -185,7 +189,7 @@ describe("profile stages", () => {
     if (saved.transcription.provider !== "openrouter") throw new Error("expected external");
     const setup: Profile = {
       ...saved,
-      transcription: { ...saved.transcription, model: null, provider: null },
+      transcription: { ...saved.transcription, model: null, provider: null, device: undefined },
     };
 
     const { profile, needsModel } = changeExecution(
@@ -229,7 +233,7 @@ describe("profile stages", () => {
     const partial: Profile = {
       ...profile,
       refinement: { ...profile.refinement, model: null },
-      summary: { ...profile.summary, provider: null },
+      summary: { ...profile.summary, provider: null, device: undefined },
     };
 
     expect(incompleteStages(profile)).toEqual([]);

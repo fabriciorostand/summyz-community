@@ -38,7 +38,9 @@ execution. The dashboard brings together configuration, history, participation, 
 - Git and Docker with Compose;
 - a Discord bot application and the Discord account that owns the servers to be configured;
 - an OpenRouter account, credits, and API key only for stages using that provider;
-- compatible drivers and Docker integration when GPU acceleration is used.
+- compatible drivers and Docker integration when GPU acceleration is used;
+- on Linux, systemd, udev, curl, and sudo for automatic hardware event detection;
+- on Windows, permission to register a startup task with administrator elevation.
 
 The Docker workflow prepares Node, Python, FFmpeg, PostgreSQL, Ollama, and faster-whisper. For native
 development, see [Development and quality](./docs/development.md).
@@ -56,7 +58,7 @@ development, see [Development and quality](./docs/development.md).
 5. Join a standard voice channel and run `/record`. Use `/stop` in the same channel to finish;
    recording ends automatically when everyone leaves.
 
-Local mode keeps the dashboard on `127.0.0.1` and requires no password. For a public VPS, set
+Local mode publishes the dashboard on `127.0.0.1` by default and requires no password. For a public VPS, set
 `PUBLIC_BASE_URL` to the HTTPS origin and use `./summyz-community-public up` or
 `.\summyz-community-public.ps1 up`; setup requires one installation password and Caddy provides TLS.
 The Discord connection identifies server ownership; it does not create Summyz user accounts.

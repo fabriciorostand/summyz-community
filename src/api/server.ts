@@ -21,6 +21,7 @@ import {
   profileBodySchema,
   profileParametersSchema,
 } from "./server-contracts.js";
+import { registerHardwareRoutes } from "./server-hardware-routes.js";
 import { registerModelRoutes, requireModels } from "./server-model-routes.js";
 import { registerSetupRoutes } from "./server-setup-routes.js";
 import {
@@ -160,6 +161,13 @@ export async function createApiServer(
   registerSetupRoutes(app, dependencies);
   registerAuthRoutes(app, dependencies);
   registerModelRoutes(app, dependencies);
+  if (dependencies.hardware !== undefined) {
+    registerHardwareRoutes(app, {
+      ...dependencies.hardware,
+      logger: dependencies.logger,
+      authorize: (request) => authorizeDashboard(request, dependencies),
+    });
+  }
 
   app.get("/api/commands", async (request) => {
     await authorizeDashboard(request, dependencies);

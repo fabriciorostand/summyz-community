@@ -99,4 +99,4 @@ FROM runtime-base AS dashboard-runtime
 
 USER node
 
-CMD ["node", "dist/api/main.js"]
+CMD ["node", "dist/api/main.js", "--access-mode", "local"]

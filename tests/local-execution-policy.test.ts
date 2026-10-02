@@ -40,20 +40,18 @@ describe("resolveLocalExecutionPlan", () => {
     });
   });
 
-  it("não transforma incompatibilidade da GPU AMD em CPU implícita no modo automático", () => {
-    expect(() =>
-      resolveLocalExecutionPlan({
-        device: "auto",
-        fallback: "none",
-        hardware: {
-          accelerators: [
-            { id: "gpu-0", memoryBytes: 12 * gibibyte, name: "Radeon", vendor: "amd" },
-          ],
-          cpuCores: 8,
-          memoryBytes: 16 * gibibyte,
-        },
-      }),
-    ).toThrow(/transcription.*GPU/i);
+  it("uses CPU in auto when a detected GPU is incompatible with the stage", () => {
+    const plan = resolveLocalExecutionPlan({
+      device: "auto",
+      fallback: "none",
+      hardware: {
+        accelerators: [{ id: "gpu", name: "Radeon", vendor: "amd" }],
+        cpuCores: 8,
+        memoryBytes: 16 * gibibyte,
+      },
+    });
+    expect(plan.transcription).toMatchObject({ device: "cpu", fallbackApplied: false });
+    expect(plan.summary).toMatchObject({ device: "gpu", gpuVendor: "amd" });
   });
 
   it("usa CPU como hardware primário no automático somente quando não há GPU", () => {
@@ -70,7 +68,7 @@ describe("resolveLocalExecutionPlan", () => {
     });
   });
 
-  it("permite CPU para fase incompatível no automático apenas com fallback explícito", () => {
+  it("uses CPU as the automatic primary device for an incompatible stage", () => {
     const plan = resolveLocalExecutionPlan({
       device: "auto",
       fallback: "cpu",
@@ -81,7 +79,7 @@ describe("resolveLocalExecutionPlan", () => {
       },
     });
 
-    expect(plan.transcription).toEqual({ device: "cpu", fallback: "cpu", fallbackApplied: true });
+    expect(plan.transcription).toEqual({ device: "cpu", fallback: "cpu", fallbackApplied: false });
   });
 
   it("falha quando GPU explícita não é compatível com a transcrição", () => {

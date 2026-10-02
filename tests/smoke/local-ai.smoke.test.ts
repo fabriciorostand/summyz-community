@@ -1,6 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
+import { requestOllamaStructured } from "../../src/local-ai/ollama-client.js";
 import { ProviderModelTransfer } from "../../src/models/model-transfer.js";
 import {
   parseOllamaFamilies,
@@ -9,7 +10,9 @@ import {
 } from "../../src/models/ollama-library.js";
 
 const fasterWhisperUrl = process.env.FASTER_WHISPER_SMOKE_URL ?? "http://faster-whisper:8000";
+const fasterWhisperManagementUrl = process.env.FASTER_WHISPER_MANAGEMENT_URL ?? fasterWhisperUrl;
 const ollamaUrl = process.env.OLLAMA_SMOKE_URL ?? "http://ollama:11434";
+const ollamaManagementUrl = process.env.OLLAMA_MANAGEMENT_URL ?? ollamaUrl;
 const whisperModel = process.env.SMOKE_WHISPER_MODEL ?? "tiny";
 const whisperRevision =
   process.env.SMOKE_WHISPER_REVISION ?? "d90ca5fe260221311c53c58e660288d3deb8d356";
@@ -44,7 +47,7 @@ describe("serviços locais de IA", () => {
   });
   it("prepara e executa faster-whisper com áudio sintético", async () => {
     const selection = { model: whisperModel, revision: whisperRevision };
-    const download = await fetch(`${fasterWhisperUrl}/models/download`, {
+    const download = await fetch(`${fasterWhisperManagementUrl}/models/download`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(selection),
@@ -53,7 +56,7 @@ describe("serviços locais de IA", () => {
     let ready = false;
     const deadline = Date.now() + 25 * 60_000;
     while (!ready && Date.now() < deadline) {
-      const response = await fetch(`${fasterWhisperUrl}/models/download/status`, {
+      const response = await fetch(`${fasterWhisperManagementUrl}/models/download/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(selection),
@@ -113,7 +116,7 @@ describe("serviços locais de IA", () => {
 
   it("baixa e valida saída estruturada do Ollama", async () => {
     const transfer = new ProviderModelTransfer((url, init) =>
-      fetch(String(url).replace("http://ollama:11434", ollamaUrl), init),
+      fetch(String(url).replace("http://ollama:11434", ollamaManagementUrl), init),
     );
     let completedBytes = 0;
     await transfer.run(
@@ -144,26 +147,23 @@ describe("serviços locais de IA", () => {
       .models.find((model) => model.model === ollamaModel);
     expect(canonicalSha256(pulledModel?.digest)).toBe(canonicalSha256(ollamaDigest));
 
-    const response = await fetch(`${ollamaUrl}/api/chat`, {
-      body: JSON.stringify({
-        format: {
+    await expect(
+      requestOllamaStructured({
+        baseUrl: ollamaUrl,
+        device: localAiDevice,
+        input: {},
+        instruction: 'Return {"ok": true}.',
+        jsonSchema: {
           additionalProperties: false,
           properties: { ok: { type: "boolean" } },
           required: ["ok"],
           type: "object",
         },
-        messages: [{ content: 'Return {"ok": true}.', role: "user" }],
         model: ollamaModel,
-        stream: false,
+        outputSchema: z.object({ ok: z.literal(true) }),
+        timeoutMs: 120_000,
       }),
-      headers: { "Content-Type": "application/json" },
-      method: "POST",
-    });
-    expect(response.ok).toBe(true);
-    const body: unknown = await response.json();
-    const content = z.object({ message: z.object({ content: z.string() }) }).parse(body)
-      .message.content;
-    expect(z.object({ ok: z.literal(true) }).parse(JSON.parse(content))).toEqual({ ok: true });
+    ).resolves.toEqual({ ok: true });
 
     const processes = await fetch(`${ollamaUrl}/api/ps`);
     expect(processes.ok).toBe(true);

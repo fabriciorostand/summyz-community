@@ -37,9 +37,30 @@ afterEach(() => {
   cleanup();
   invalidateModelCatalogs();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("useModelCatalog", () => {
+  it("refreshes on hardware events and closes the stream when unmounted", async () => {
+    const sources: TestEvents[] = [];
+    class TestEvents extends EventTarget {
+      close = vi.fn();
+      constructor() {
+        super();
+        sources.push(this);
+      }
+    }
+    vi.stubGlobal("EventSource", TestEvents);
+    listModels.mockResolvedValue(aCatalog());
+    const { result, unmount } = renderHook(() =>
+      useModelCatalog("transcription", "faster-whisper"),
+    );
+    await waitFor(() => expect(result.current.state.status).toBe("ready"));
+    act(() => sources[0]?.dispatchEvent(new Event("hardware-changed")));
+    await waitFor(() => expect(listModels).toHaveBeenCalledTimes(2));
+    unmount();
+    expect(sources[0]?.close).toHaveBeenCalledOnce();
+  });
   it("loads the catalog of a stage and provider", async () => {
     listModels.mockResolvedValue(aCatalog());
 

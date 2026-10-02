@@ -3,7 +3,6 @@ import { type AiProfile, assessModelCompatibility } from "../ai-profile.js";
 import type { LocalHardwareProfile } from "../local-ai/hardware-profile.js";
 import {
   type LocalAiDevice,
-  type LocalAiFallback,
   resolveLocalExecutionPlan,
 } from "../local-ai/local-execution-policy.js";
 import { OpenRouterModelPreflight } from "../openrouter/model-preflight.js";
@@ -22,21 +21,19 @@ export interface CatalogQuery {
   phase: ModelPhase;
   provider: ModelProvider;
   family?: string | undefined;
+  device?: LocalAiDevice | undefined;
 }
 export class ModelCatalogService {
   public constructor(
     private readonly cache: CachedModelCatalog,
     private readonly inventory: LocalModelInventory,
-    private readonly hardware: LocalHardwareProfile,
+    private readonly hardware: LocalHardwareProfile | (() => Promise<LocalHardwareProfile>),
     private readonly getApiKey: () => Promise<string | undefined>,
     private readonly request: typeof fetch = fetch,
-    private readonly execution: { device: LocalAiDevice; fallback: LocalAiFallback } = {
-      device: "auto",
-      fallback: "none",
-    },
   ) {}
 
   public async list(query: CatalogQuery) {
+    const hardware = typeof this.hardware === "function" ? await this.hardware() : this.hardware;
     const catalog = await this.#catalog(query);
     const installed =
       query.provider === "openrouter" ? undefined : await this.inventory.list(query.provider);
@@ -60,28 +57,35 @@ export class ModelCatalogService {
                       entry.model,
                     ) === item.model,
                 ) ?? false),
-        compatibility: this.#compatibility(query, item.model),
+        compatibility: this.#compatibility(query, item.model, hardware, item.sizeBytes),
       })),
     };
   }
 
-  #compatibility(query: CatalogQuery, model: string) {
+  #compatibility(
+    query: CatalogQuery,
+    model: string,
+    hardware: LocalHardwareProfile,
+    modelSizeBytes: number | null,
+  ) {
     if (query.provider === "openrouter") return "unknown" as const;
     try {
       const plan = resolveLocalExecutionPlan({
-        ...this.execution,
+        device: query.device ?? "auto",
+        fallback: "none",
         enabledPhases: [query.phase],
-        hardware: this.hardware,
+        hardware,
       });
       const phase = plan[query.phase];
       if (phase.device === "gpu" && phase.gpuMemoryBytes === undefined) return "unknown" as const;
       return assessModelCompatibility({
         device: phase.device,
         hardware: {
-          ...this.hardware,
+          ...hardware,
           ...(phase.gpuMemoryBytes === undefined ? {} : { gpuMemoryBytes: phase.gpuMemoryBytes }),
         },
         model,
+        modelSizeBytes,
         provider: query.provider,
         phase: query.phase,
       });
@@ -95,6 +99,20 @@ export class ModelCatalogService {
       const selection = profile[phase];
       if (selection.model === null || selection.provider === null)
         throw new ModelOperationError("profile_incomplete", 400);
+      if (selection.provider !== "openrouter") {
+        const hardware =
+          typeof this.hardware === "function" ? await this.hardware() : this.hardware;
+        try {
+          resolveLocalExecutionPlan({
+            device: selection.device,
+            enabledPhases: [phase],
+            fallback: "none",
+            hardware,
+          });
+        } catch {
+          throw new ModelOperationError("local_gpu_unavailable", 409);
+        }
+      }
       await this.requireSelection(phase, selection.provider, selection.model);
     }
   }

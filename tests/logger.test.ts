@@ -31,6 +31,7 @@ describe("logger", () => {
         SUMMYZ_SECRETS_KEY: "summyz-master-key-sensitive",
         SUMMYZ_SETUP_TOKEN: "summyz-setup-token-sensitive",
         headers: {
+          "x-summyz-hardware-token": "hardware-header-sensitive",
           "x-summyz-recovery-token": "recovery-header-sensitive",
           "x-summyz-setup-token": "summyz-header-sensitive",
         },
@@ -52,6 +53,7 @@ describe("logger", () => {
     expect(output).not.toContain("summyz-setup-token-sensitive");
     expect(output).not.toContain("summyz-header-sensitive");
     expect(output).not.toContain("recovery-header-sensitive");
+    expect(output).not.toContain("hardware-header-sensitive");
     expect(output).not.toContain("installation-password-sensitive");
     expect(output).not.toContain("current-password-sensitive");
     expect(output).not.toContain("new-password-sensitive");

@@ -1,8 +1,33 @@
 import { describe, expect, it, vi } from "vitest";
-import { createInitialAiProfile } from "../src/ai-profile.js";
+import { aiProfileSchema, createInitialAiProfile } from "../src/ai-profile.js";
 import { LocalModelInventory } from "../src/models/local-model-inventory.js";
 
 describe("local model availability", () => {
+  it("marks only an explicitly unavailable GPU provider without treating CPU models as missing", async () => {
+    const request = vi.fn<typeof fetch>().mockImplementation(async (url) =>
+      Response.json({
+        models: String(url).includes("tags") ? [{ name: "qwen3:8b" }] : [{ name: "small" }],
+      }),
+    );
+    const inventory = new LocalModelInventory(request, async () => ({
+      cpuCores: 8,
+      memoryBytes: 16 * 1024 ** 3,
+      gpuAvailability: { ollama: true, "faster-whisper": false },
+    }));
+    const base = createInitialAiProfile("local", "en");
+    const profile = aiProfileSchema.parse({
+      ...base,
+      transcription: { ...base.transcription, model: "small", device: "gpu" },
+      refinement: { ...base.refinement, model: "qwen3:8b", device: "cpu" },
+      summary: { ...base.summary, model: "qwen3:8b", device: "auto" },
+    });
+    expect(await inventory.assess(profile)).toEqual({
+      status: "unavailable",
+      missingModels: [],
+      unavailableProviders: ["faster-whisper"],
+    });
+  });
+
   it("reports missing stages and never downloads while checking", async () => {
     const request = vi
       .fn<typeof fetch>()

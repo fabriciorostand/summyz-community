@@ -26,6 +26,7 @@ export const profilesMessages = {
     reviewFields: (count: number) => `Revisar ${String(count)} ${plural(count, "campo", "campos")}`,
     sameAsMeeting: "Mesmo idioma da reunião",
     saveErrors: {
+      local_gpu_unavailable: "A GPU escolhida está indisponível. Selecione CPU ou automático.",
       catalog_unavailable:
         "Não foi possível validar os modelos agora porque o catálogo está indisponível. Tente de novo em instantes.",
       invalid_request: "Escolha a execução e o modelo de todas as etapas antes de salvar.",
@@ -134,6 +135,14 @@ export const profilesMessages = {
     unsavedIn: (changes: string) => ` em ${changes}`,
   },
   stagePanel: {
+    hardware: "Hardware da etapa",
+    automaticDevice: "Automático",
+    gpuUnavailable: "GPU indisponível para esta etapa.",
+    hardwareLoading: "Verificando hardware…",
+    deviceHint:
+      "Automático usa GPU disponível ou CPU. Recomendações são estimativas de qualidade e velocidade.",
+    gpuSelectionUnavailable: "A GPU escolhida está indisponível. Selecione CPU ou automático.",
+
     chooseExecutionHint:
       "Escolha se esta etapa roda nesta instalação ou na API externa para ver os modelos.",
     consolidationPrompt: "Prompt de consolidação",

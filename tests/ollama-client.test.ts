@@ -17,6 +17,35 @@ const baseOptions = {
 };
 
 describe("requestOllamaStructured", () => {
+  it("rejects GPU results when the model has fallen back to CPU or reports invalid placement", async () => {
+    for (const sizeVram of [0, 2048]) {
+      const request = vi.fn(async (url: string) =>
+        url.endsWith("/api/ps")
+          ? Response.json({ models: [{ model: "model:latest", size: 1024, size_vram: sizeVram }] })
+          : Response.json({ message: { content: '{"ok":true}' } }),
+      );
+      await expect(
+        requestOllamaStructured({ ...baseOptions, device: "gpu", fetch: request }),
+      ).rejects.toMatchObject({ name: "OllamaGpuExecutionError" });
+    }
+  });
+
+  it("accepts a GPU result only after validating model placement on that instance", async () => {
+    const request = vi.fn(async (url: string) =>
+      url.endsWith("/api/ps")
+        ? Response.json({ models: [{ model: "model:latest", size: 1024, size_vram: 1024 }] })
+        : Response.json({ message: { content: '{"ok":true}' } }),
+    );
+    await expect(
+      requestOllamaStructured({
+        ...baseOptions,
+        baseUrl: "http://gpu:11434",
+        device: "gpu",
+        fetch: request,
+      }),
+    ).resolves.toEqual({ ok: true });
+    expect(request).toHaveBeenLastCalledWith("http://gpu:11434/api/ps", expect.any(Object));
+  });
   it("diferencia indisponibilidade de rede de resposta incompatível", async () => {
     const networkFailure = requestOllamaStructured({
       ...baseOptions,

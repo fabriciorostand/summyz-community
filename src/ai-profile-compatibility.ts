@@ -11,6 +11,7 @@ interface AssessModelCompatibilityInput {
   device?: "cpu" | "gpu";
   hardware: LocalHardwareProfile;
   model: string;
+  modelSizeBytes?: number | null | undefined;
   phase: "refinement" | "summary" | "transcription";
   provider: "faster-whisper" | "ollama" | "openrouter";
 }
@@ -45,11 +46,39 @@ export function assessModelCompatibility(
   input: AssessModelCompatibilityInput,
 ): AiProfileCompatibilityStatus {
   if (input.provider === "openrouter") return "unknown";
-  const entry = findCatalogEntry(input);
+  const entry = findCatalogEntry(input) ?? estimateCatalogEntry(input);
   if (entry === undefined) return "unknown";
   const device = input.device ?? (input.hardware.gpuMemoryBytes === undefined ? "cpu" : "gpu");
   if (device === "gpu") return assessGpuCompatibility(input.hardware, entry);
-  return assessCpuCompatibility(input.hardware, entry);
+  return assessBalancedCpuCompatibility(input, entry);
+}
+
+function assessBalancedCpuCompatibility(
+  input: AssessModelCompatibilityInput,
+  entry: CatalogEntry,
+): AiProfileCompatibilityStatus {
+  const compatibility = assessCpuCompatibility(input.hardware, entry);
+  if (compatibility !== "compatible") return compatibility;
+  const balanced = catalog
+    .filter(
+      (candidate) =>
+        candidate.phase === input.phase &&
+        candidate.provider === input.provider &&
+        candidate.minimumCpuCores <= Math.max(1, Math.floor((input.hardware.cpuCores * 2) / 3)) &&
+        candidate.memoryBytes <= input.hardware.memoryBytes * 0.75,
+    )
+    .toSorted((left, right) => right.memoryBytes - left.memoryBytes)[0];
+  if (balanced?.model === entry.model) return "recommended";
+  if (findCatalogEntry(input) === undefined && input.provider === "ollama") {
+    const parameters = parameterCount(input.model);
+    if (
+      parameters !== undefined &&
+      parameters <= input.hardware.cpuCores * (input.phase === "summary" ? 1 : 0.75) &&
+      entry.memoryBytes <= input.hardware.memoryBytes * 0.6
+    )
+      return "recommended";
+  }
+  return compatibility;
 }
 
 function findCatalogEntry(input: AssessModelCompatibilityInput): CatalogEntry | undefined {
@@ -153,5 +182,27 @@ function ollama(
           ] as const,
         }),
     supportedGpuVendors: ["amd", "nvidia"],
+  };
+}
+
+function parameterCount(model: string): number | undefined {
+  const match = /(?:^|[:_-])(\d+(?:\.\d+)?)b(?:$|[-_])/iu.exec(model);
+  return match?.[1] === undefined ? undefined : Number(match[1]);
+}
+
+function estimateCatalogEntry(input: AssessModelCompatibilityInput): CatalogEntry | undefined {
+  const size = input.modelSizeBytes;
+  if (size === undefined || size === null || !Number.isFinite(size) || size <= 0) return undefined;
+  const parameters = parameterCount(input.model);
+  // The catalog's actual weight size captures quantization; reserve additional runtime/context memory.
+  return {
+    model: input.model,
+    provider: input.provider,
+    phase: input.phase,
+    memoryBytes: size * (input.provider === "ollama" ? 1.5 : 2) + 2 * gibibyte,
+    gpuMemoryBytes: size * 1.2 + gibibyte,
+    recommendedGpuMemoryBytes: [size * 1.2 + gibibyte, (size * 1.2 + gibibyte) * 1.8],
+    minimumCpuCores: parameters === undefined ? 2 : Math.max(2, Math.ceil(parameters / 2)),
+    supportedGpuVendors: input.provider === "faster-whisper" ? ["nvidia"] : ["amd", "nvidia"],
   };
 }

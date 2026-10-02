@@ -32,6 +32,49 @@ function configuration(model = "qwen3:4b"): LocalProfileAiConfiguration {
 }
 
 describe("LocalModelManager", () => {
+  it("routes one model to separate CPU and GPU instances for independent stages", async () => {
+    const request = vi.fn(async (url: string, init: RequestInit) => {
+      if (url.endsWith("/models/prepare")) return multilingualWhisperStatus();
+      if (url.endsWith("/api/ps"))
+        return Response.json({
+          models: [{ model: "qwen3:4b", size_vram: url.includes("ollama-gpu") ? 1024 : 0 }],
+        });
+      if (url.endsWith("/api/chat"))
+        return Response.json({
+          message: {
+            content: JSON.stringify(
+              String(init.body).includes("block unchanged")
+                ? { blocks: [{ id: "probe-1", text: "Hello world." }] }
+                : {
+                    decisions: [],
+                    discussedTopics: [],
+                    executiveSummary: "Empty meeting.",
+                    observations: [],
+                    tasks: [],
+                  },
+            ),
+          },
+        });
+      return Response.json({ models: [] });
+    });
+    const plan = gpuExecutionPlan("none");
+    const manager = new LocalModelManager({
+      configuration: configuration(),
+      executionPlan: {
+        ...plan,
+        summary: allGpuExecutionPlan("none").summary,
+        transcription: plan.refinement,
+      },
+      fetch: request,
+      logger: createLogger("silent"),
+    });
+    await manager.prepare();
+    const chatUrls = request.mock.calls
+      .filter(([url]) => url.endsWith("/api/chat"))
+      .map(([url]) => url);
+    expect(chatUrls).toEqual(["http://ollama:11434/api/chat", "http://ollama-gpu:11434/api/chat"]);
+  });
+
   it.each(["tiny.en", "base.en", "small.en", "medium.en", "org/custom-converted-en"])(
     "bloqueia o checkpoint monolíngue carregado %s",
     async (model) => {
@@ -451,8 +494,8 @@ function fasterWhisperOnlyConfiguration(model = "invalid-whisper"): LocalProfile
   return {
     ...base,
     profileType: "hybrid",
-    refinement: { ...base.refinement, provider: "openrouter" },
-    summary: { ...base.summary, provider: "openrouter" },
+    refinement: { ...base.refinement, provider: "openrouter", device: undefined },
+    summary: { ...base.summary, provider: "openrouter", device: undefined },
     transcription: {
       ...base.transcription,
       model,

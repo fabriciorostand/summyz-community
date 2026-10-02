@@ -131,6 +131,15 @@ export type InstallationSecret = "discord_client_secret" | "openrouter_api_key";
 const json = (value: unknown) => JSON.stringify(value);
 
 export const api = {
+  getHardware: () =>
+    request(
+      "/api/local-ai/hardware",
+      z.object({
+        hardware: z.object({
+          gpuAvailability: z.object({ ollama: z.boolean(), "faster-whisper": z.boolean() }),
+        }),
+      }),
+    ),
   /** Confirms a server's configuration after an owner change, which resumes recording. */
   activateGuild: (guildId: string) =>
     request(`/api/guilds/${guildId}/activation`, emptySchema, { method: "POST" }),
@@ -231,9 +240,15 @@ export const api = {
     return request(`/api/guilds/${guildId}/meetings?${parameters}`, meetingHistoryPageSchema);
   },
   listModelDownloads: () => request("/api/models/downloads", z.array(modelDownloadSchema)),
-  listModels: (phase: ModelPhase, provider: LocalModelProvider | "openrouter", family?: string) => {
+  listModels: (
+    phase: ModelPhase,
+    provider: LocalModelProvider | "openrouter",
+    family?: string,
+    device?: "auto" | "cpu" | "gpu",
+  ) => {
     const parameters = new URLSearchParams({ phase, provider });
     if (family !== undefined) parameters.set("family", family);
+    if (provider !== "openrouter" && device !== undefined) parameters.set("device", device);
     return request(`/api/models?${parameters}`, modelCatalogSchema);
   },
   listProfiles: () => request("/api/profiles", z.array(profileListItemSchema)),

@@ -513,7 +513,12 @@ describe("per-stage profiles and local models", () => {
     const hybrid = profileSchema.parse({
       ...profile,
       profileType: "hybrid",
-      summary: { ...profile.summary, model: "google/gemini-3.7-flash", provider: "openrouter" },
+      summary: {
+        ...profile.summary,
+        device: undefined,
+        model: "google/gemini-3.7-flash",
+        provider: "openrouter",
+      },
     });
 
     expect(hybrid.profileType).toBe("hybrid");
@@ -526,8 +531,8 @@ describe("per-stage profiles and local models", () => {
     const empty = profileSchema.parse({
       ...profile,
       profileType: null,
-      refinement: { ...profile.refinement, model: null, provider: null },
-      summary: { ...profile.summary, model: null, provider: null },
+      refinement: { ...profile.refinement, device: undefined, model: null, provider: null },
+      summary: { ...profile.summary, device: undefined, model: null, provider: null },
       transcription: {
         interSpeechSilenceMs: 0,
         language: "auto",
@@ -556,7 +561,7 @@ describe("per-stage profiles and local models", () => {
     expect(
       profileSchema.safeParse({
         ...profile,
-        summary: { ...profile.summary, provider: "faster-whisper" },
+        summary: { ...profile.summary, provider: "faster-whisper", device: "auto" },
       }).success,
     ).toBe(false);
   });
@@ -729,7 +734,10 @@ describe("per-stage profiles and local models", () => {
 
     const request = findRequest(fetchMock, "/api/models", 0);
     expect(request.method).toBe("DELETE");
-    expect(JSON.parse(request.body)).toEqual({ model: "large-v3", provider: "faster-whisper" });
+    expect(JSON.parse(request.body)).toEqual({
+      model: "large-v3",
+      provider: "faster-whisper",
+    });
   });
 });
 
@@ -764,6 +772,7 @@ function validProfile(): Profile {
       model: "qwen3:1.7b",
       prompt: "Revise.",
       provider: "ollama" as const,
+      device: "auto",
     },
     summary: {
       consolidationPrompt: "Consolide.",
@@ -772,6 +781,7 @@ function validProfile(): Profile {
       maxChunkCharacters: 500_000,
       model: "qwen3:4b",
       provider: "ollama" as const,
+      device: "auto",
     },
     transcription: {
       batchSize: "auto" as const,
@@ -781,6 +791,7 @@ function validProfile(): Profile {
       model: "medium",
       prompt: null,
       provider: "faster-whisper" as const,
+      device: "auto",
       vad: {
         enabled: true,
         maxSpeechDurationSeconds: "auto" as const,

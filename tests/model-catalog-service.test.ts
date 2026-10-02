@@ -38,6 +38,56 @@ const audioModel = {
 };
 
 describe("stage catalogs and cached preflight", () => {
+  it("uses the stage device for recommendations and rejects unavailable GPU profile choices", async () => {
+    const { service, request } = fixture();
+    request.mockImplementation(async (url) =>
+      String(url).endsWith("/catalog")
+        ? response({ items: [{ model: "small", name: "small", sizeBytes: 100 }] })
+        : response({ models: [] }),
+    );
+    expect(
+      (await service.list({ provider: "faster-whisper", phase: "transcription", device: "gpu" }))
+        .items[0]?.compatibility,
+    ).toBe("incompatible");
+    const base = createInitialAiProfile("local", "en");
+    const profile = aiProfileSchema.parse({
+      ...base,
+      transcription: { ...base.transcription, device: "gpu", model: "small" },
+      refinement: { ...base.refinement, model: "qwen3:8b" },
+      summary: { ...base.summary, model: "qwen3:8b" },
+    });
+    await expect(service.validateProfile(profile)).rejects.toMatchObject({
+      code: "local_gpu_unavailable",
+    });
+  });
+
+  it("recalculates advice from new host reports without discarding cached model metadata", async () => {
+    const { cache, inventory, request } = fixture();
+    let gpuAvailable = false;
+    request.mockImplementation(async (url) =>
+      String(url).endsWith("/catalog")
+        ? response({ items: [{ model: "small", name: "small", sizeBytes: 100 }] })
+        : response({ models: [] }),
+    );
+    const service = new ModelCatalogService(
+      cache,
+      inventory,
+      async () => ({
+        cpuCores: 1,
+        memoryBytes: 1024 ** 3,
+        accelerators: gpuAvailable
+          ? [{ id: "gpu0", name: "GPU", vendor: "nvidia", memoryBytes: 8 * 1024 ** 3 }]
+          : [],
+      }),
+      async () => undefined,
+      request,
+    );
+    const query = { provider: "faster-whisper", phase: "transcription" } as const;
+    expect((await service.list(query)).items[0]?.compatibility).toBe("above_recommended");
+    gpuAvailable = true;
+    expect((await service.list(query)).items[0]?.compatibility).toBe("compatible");
+    expect(request.mock.calls.filter(([url]) => String(url).endsWith("/catalog"))).toHaveLength(1);
+  });
   it("uses the selected GPU memory for advice without forbidding large models", async () => {
     const { cache, inventory, request } = fixture();
     request.mockImplementation(async (url) =>

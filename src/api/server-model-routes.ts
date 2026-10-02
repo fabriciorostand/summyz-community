@@ -1,5 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { z } from "zod";
+import { localAiDeviceSchema } from "../ai-profile.js";
 import {
   ModelOperationError,
   modelPhaseSchema,
@@ -24,14 +25,17 @@ export function registerModelRoutes(
   app.get("/api/models", async (request) => {
     await authorizeDashboard(request, dependencies);
     const query = parseRequestInput(
-      z.object({
-        phase: modelPhaseSchema,
-        provider: modelProviderSchema,
-        family: z
-          .string()
-          .regex(/^[a-z0-9][a-z0-9._-]{0,100}$/)
-          .optional(),
-      }),
+      z
+        .object({
+          device: localAiDeviceSchema.optional(),
+          phase: modelPhaseSchema,
+          provider: modelProviderSchema,
+          family: z
+            .string()
+            .regex(/^[a-z0-9][a-z0-9._-]{0,100}$/)
+            .optional(),
+        })
+        .refine((query) => query.provider !== "openrouter" || query.device === undefined),
       request.query,
     );
     return requireModels(dependencies).catalog.list(query);

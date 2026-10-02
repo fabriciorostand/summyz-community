@@ -142,7 +142,11 @@ describe("GuildPage", () => {
         profiles: [
           aConfigurationProfile(aProfile(), {
             missingModels: [
-              { model: "large-v3", phase: "transcription", provider: "faster-whisper" },
+              {
+                model: "large-v3",
+                phase: "transcription",
+                provider: "faster-whisper",
+              },
             ],
             status: "missing_models",
             unavailableProviders: [],
@@ -170,7 +174,7 @@ describe("GuildPage", () => {
           aConfigurationProfile({
             ...base,
             profileType: "hybrid",
-            summary: { ...base.summary, model: "qwen3:8b", provider: "ollama" },
+            summary: { ...base.summary, model: "qwen3:8b", provider: "ollama", device: "auto" },
           }),
         ],
       }),

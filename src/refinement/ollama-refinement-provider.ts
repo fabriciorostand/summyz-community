@@ -40,6 +40,7 @@ type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 interface OllamaRefinementProviderOptions {
   baseUrl?: string;
+  device?: "cpu" | "gpu";
   costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
   generation?: {
@@ -70,6 +71,7 @@ export class OllamaRefinementProvider implements RefinementProvider {
         ...(this.#options.baseUrl === undefined ? {} : { baseUrl: this.#options.baseUrl }),
         ...(this.#options.fetch === undefined ? {} : { fetch: this.#options.fetch }),
         ...(this.#options.generation === undefined ? {} : { generation: this.#options.generation }),
+        ...(this.#options.device === undefined ? {} : { device: this.#options.device }),
         input: { blocks: entries.map(({ id, text }) => ({ id, text })) },
         instruction: composeProtectedPrompt({
           editablePrompt: this.#options.prompt === undefined ? instruction : this.#options.prompt,

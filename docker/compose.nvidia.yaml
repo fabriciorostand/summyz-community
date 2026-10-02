@@ -1,25 +1,62 @@
 services:
-  ollama:
+  ollama-gpu:
+    entrypoint: ["/bin/sh", "/usr/local/bin/summyz-ollama-gpu"]
+    image: ollama/ollama:0.33.3@sha256:32931b46719f673c05fdbaa81ccb26da18ea4a1c57590a754874ab28ba269eb2
+    profiles: ["gpu"]
+    restart: unless-stopped
+    user: "1000:1000"
+    expose: ["11434"]
+    depends_on:
+      ollama:
+        condition: service_healthy
+    volumes:
+      - ollama_models:/model-storage:ro
+      - ./scripts/ollama-gpu-entrypoint:/usr/local/bin/summyz-ollama-gpu:ro
     environment:
-      OLLAMA_LLM_LIBRARY: ""
+      OLLAMA_NOPRUNE: "true"
+      HOME: /tmp
+      OLLAMA_MODELS: /model-storage/models
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /tmp/summyz-gpu-ready && ollama list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     gpus: all
 
-  faster-whisper:
+  faster-whisper-gpu:
+    profiles: ["gpu"]
+    image: summyz-community-faster-whisper-gpu
     build:
       context: .
       dockerfile: services/faster-whisper/Dockerfile
       target: cuda
+    restart: unless-stopped
+    depends_on:
+      faster-whisper:
+        condition: service_healthy
+    expose: ["8000"]
+    volumes:
+      - faster_whisper_models:/models:ro
     gpus: all
+    healthcheck:
+      test: ["CMD", "python3", "-c", "import json,urllib.request; assert json.load(urllib.request.urlopen('http://localhost:8000/hardware'))['cudaDevices'] > 0"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  smoke:
+    environment:
+      SMOKE_LOCAL_AI_DEVICE: gpu
+      FASTER_WHISPER_MANAGEMENT_URL: http://faster-whisper:8000
+      OLLAMA_MANAGEMENT_URL: http://ollama:11434
+      FASTER_WHISPER_SMOKE_URL: http://faster-whisper-gpu:8000
+      OLLAMA_SMOKE_URL: http://ollama-gpu:11434
 
   bot:
     environment:
       SUMMYZ_DETECTED_GPU_MEMORY_BYTES: ${SUMMYZ_DETECTED_GPU_MEMORY_BYTES:-}
       SUMMYZ_DETECTED_GPU_NAME: ${SUMMYZ_DETECTED_GPU_NAME:-NVIDIA GPU}
       SUMMYZ_DETECTED_GPU_VENDOR: ${SUMMYZ_DETECTED_GPU_VENDOR:-nvidia}
-
-  smoke:
-    environment:
-      SMOKE_LOCAL_AI_DEVICE: gpu
 
   dashboard:
     environment:

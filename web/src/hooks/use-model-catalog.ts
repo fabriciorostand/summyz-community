@@ -15,6 +15,7 @@ export type CatalogState =
 const requests = new Map<string, Promise<ModelCatalog>>();
 let generation = 0;
 const listeners = new Set<() => void>();
+let hardwareEvents: EventSource | undefined;
 
 export function invalidateModelCatalogs(): void {
   requests.clear();
@@ -24,14 +25,36 @@ export function invalidateModelCatalogs(): void {
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  return () => listeners.delete(listener);
+  if (hardwareEvents === undefined && typeof EventSource !== "undefined") {
+    hardwareEvents = new EventSource("/api/local-ai/hardware/events");
+    hardwareEvents.addEventListener("hardware-changed", invalidateModelCatalogs);
+  }
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) {
+      hardwareEvents?.close();
+      hardwareEvents = undefined;
+    }
+  };
 }
 
-function load(phase: ModelPhase, provider: CatalogProvider, family: string | undefined) {
-  const key = [phase, provider, family ?? ""].join("|");
+export function useHardwareVersion(): number {
+  return useSyncExternalStore(subscribe, () => generation);
+}
+
+function load(
+  phase: ModelPhase,
+  provider: CatalogProvider,
+  family: string | undefined,
+  device?: "auto" | "cpu" | "gpu",
+) {
+  const key = [phase, provider, family ?? "", device ?? ""].join("|");
   let request = requests.get(key);
   if (request === undefined) {
-    request = api.listModels(phase, provider, family);
+    request =
+      device === undefined
+        ? api.listModels(phase, provider, family)
+        : api.listModels(phase, provider, family, device);
     requests.set(key, request);
     // A failed or unavailable read is not cached, so a retry asks the server again.
     request.then(
@@ -48,6 +71,7 @@ export function useModelCatalog(
   phase: ModelPhase,
   provider: CatalogProvider | null,
   family?: string,
+  device?: "auto" | "cpu" | "gpu",
 ): { reload: () => void; state: CatalogState } {
   const version = useSyncExternalStore(subscribe, () => generation);
   const [attempt, setAttempt] = useState(0);
@@ -64,13 +88,13 @@ export function useModelCatalog(
     }
     let current = true;
     // A refresh of the same catalog keeps showing it; another catalog shows the loading state.
-    const key = [phase, provider, family ?? ""].join("|");
+    const key = [phase, provider, family ?? "", device ?? ""].join("|");
     const sameCatalog = shownKey.current === key;
     shownKey.current = key;
     setState((previous) =>
       sameCatalog && previous.status === "ready" ? previous : { status: "loading" },
     );
-    load(phase, provider, family).then(
+    load(phase, provider, family, device).then(
       (catalog) => {
         if (current) setState({ catalog, status: "ready" });
       },
@@ -85,7 +109,7 @@ export function useModelCatalog(
     return () => {
       current = false;
     };
-  }, [phase, provider, family, version, attempt]);
+  }, [phase, provider, family, device, version, attempt]);
 
   const reload = useCallback(() => setAttempt((value) => value + 1), []);
   return { reload, state };

@@ -6,6 +6,7 @@ import type { ModelDownloads } from "../../hooks/use-model-downloads";
 import { presentPromptDefaults } from "../../i18n/prompt-defaults";
 import { useI18n } from "../../i18n/store";
 import type { Profile, PromptDefaults } from "../../lib/api";
+import { DeviceChoice } from "./device-choice";
 import { MergeSettings, PhaseSettings, TranscriptionTuning } from "./generation-editor";
 import { LanguageSelector } from "./language-selector";
 import { ModelPicker } from "./model-picker";
@@ -96,11 +97,22 @@ export function StagePanel(props: StagePanelProps) {
     >
       <div className="flex flex-col gap-3 border-b border-line-soft pb-5">
         <ExecutionChoice onChange={props.onExecution} stage={stage} value={execution} />
+        {execution === "local" && (
+          <DeviceChoice
+            provider={localProviderOf(stage)}
+            stage={stage}
+            value={profile[stage].device ?? "auto"}
+            onChange={(device) =>
+              props.onChange({ ...profile, [stage]: { ...profile[stage], device } })
+            }
+          />
+        )}
         {execution === null ? (
           <p className="m-0 text-[12px] text-ink-muted">{t.stagePanel.chooseExecutionHint}</p>
         ) : (
           <>
             <ModelPicker
+              device={execution === "local" ? (profile[stage].device ?? "auto") : undefined}
               jobFor={props.downloads.jobFor}
               key={provider}
               needsChoice={props.needsModel}

@@ -52,13 +52,35 @@ On the first `up` or `restart`, the launcher copies `.env.example` to `.env` and
 PostgreSQL, encryption, and setup secrets without printing their values. Preserve this file:
 replacing `SUMMYZ_SECRETS_KEY` makes encrypted stored credentials unreadable.
 
-The launcher detects hardware on the host and selects the Compose overlays before starting the
-containers. It never mounts the Docker socket into the application. If requested GPU execution is
-unavailable, startup stops unless `LOCAL_AI_FALLBACK=cpu` was explicitly configured. The dashboard
-and PostgreSQL bind to `127.0.0.1`; local dashboard access requires no password.
+The launcher appends `SUMMYZ_SECRETS_KEY` and `SUMMYZ_SETUP_TOKEN` directly to `.env`; they are
+absent from `.env.example` and do not require manual input. Generation occurs only when `.env`
+does not exist. Existing files are preserved; missing secrets cause startup to fail. Manually
+copying the example does not replace launcher initialization.
+
+The launcher starts CPU instances and separately attempts compatible GPU services for the
+hardware detected on the host. Without a compatible GPU, or if a GPU service fails, installation
+completes with CPU and the dashboard shows GPU unavailable for affected stages. The other GPU
+service can remain available. The application never mounts the Docker socket. The dashboard
+and PostgreSQL are published on `127.0.0.1` by default; local dashboard access requires no password.
+`WEB_HOST` configures the Docker dashboard port publication IP, as described in the
+[configuration guide](./configuration.md#environment-and-runtime-parameters). Keep local mode
+on loopback; network access requires public mode.
 
 The local launcher opens the setup URL on Windows or opens/prints it on Linux/macOS according to
 browser availability. Its fragment carries the setup claim; do not share it.
+
+On Windows, `up` and `restart` register the host hardware detector in Task Scheduler to start at
+system boot. Registration requires elevation; the task runs as the user with limited privileges.
+`down` stops and disables the task, and the next `up` enables it again. The detector reads inventory
+once at startup and subscribes to Windows device events, without periodic scans or a manual
+dashboard button. When the API is unavailable, it retries delivery of the existing report.
+The dashboard catalog and preparation of new meetings use updated inventory; detecting a new GPU
+does not change device access for existing containers.
+
+On Linux, the host detector requires `systemd`, `udev`, and `curl`. The launcher registers a system
+unit using `sudo` or root privileges, and the detector runs as the installation user. It subscribes
+to `udev` events; `up`/`restart` enable the unit and `down` disables it. macOS retains launcher
+startup detection and is outside the device-event scope.
 
 ## Start a public installation
 

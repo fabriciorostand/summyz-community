@@ -118,6 +118,13 @@ A exclusão local é bloqueada enquanto o modelo for necessário para reunião n
 de recuperação preservada ou download ativo. Excluir arquivos não altera a seleção do perfil;
 ele fica indisponível para gravar até que esses arquivos sejam instalados novamente.
 
+As recomendações estimam o equilíbrio entre qualidade e velocidade para a etapa e o dispositivo
+escolhidos. Consideram núcleos e RAM na CPU, compatibilidade e VRAM na GPU, além de características
+do modelo, como tamanho dos arquivos quantizados e quantidade de parâmetros quando disponíveis.
+CPU e RAM são limitadas aos recursos expostos ao ambiente da instalação, inclusive à VM do Docker.
+Não são benchmarks: informações insuficientes resultam em avaliação desconhecida, sem inventar
+uma recomendação nem substituir o modelo escolhido.
+
 A avaliação de hardware usa `recommended`, `compatible`, `above_recommended`, `unknown` e
 `incompatible`. O último bloqueia a gravação; `above_recommended` e `unknown` geram avisos privados
 sem trocar o modelo. Arquivos instalados e disponibilidade dos provedores são verificações adicionais.
@@ -168,18 +175,27 @@ o escopo do backup.
 
 ## Execução local e VAD
 
-`LOCAL_AI_DEVICE=auto|gpu|cpu` vale para as etapas locais. `auto` detecta o hardware mais potente;
-uma GPU detectada incompatível não muda silenciosamente a etapa para CPU. `gpu` exige aceleração
-compatível. `cpu` não concede acesso à GPU. `LOCAL_AI_FALLBACK=none` é o padrão; `cpu` autoriza
-explicitamente fallback após incompatibilidade ou falha de inicialização da GPU. No modo CPU,
-o fallback efetivo é sempre `none`. O dispositivo ativo é informado nos logs estruturados.
+O dispositivo é escolhido no dashboard, separadamente em cada etapa local do perfil: `auto`,
+`cpu` ou `gpu`. Novas etapas locais começam em `auto`. Etapas via API não possuem essa escolha.
+`auto` usa uma GPU compatível quando o serviço correspondente está disponível; caso contrário,
+usa CPU. `gpu` exige esse serviço e fica desabilitado quando ele está indisponível. Uma escolha
+explícita de GPU não tem fallback para CPU, mesmo se perder disponibilidade depois de salvar.
+A escolha efetiva é fixada para a reunião no início da gravação. Não existem flags de dispositivo
+no launcher nem variáveis de dispositivo no `.env`. O dispositivo ativo aparece nos logs estruturados.
 
-Ollama e faster-whisper ficam na rede privada do Compose. faster-whisper faz warm-up e verifica CUDA
-antes do processamento. AMD ROCm acelera somente Ollama no Linux; faster-whisper exige NVIDIA para
-transcrever por GPU. Em um host apenas AMD, use execução CPU explicitamente autorizada para
-transcrição ou uma etapa externa. Docker Desktop no Windows expõe GPUs NVIDIA, não AMD.
-GPUs Intel, Apple e de fabricante desconhecido não possuem perfil de contêiner de aceleração
-compatível nesta etapa.
+CPU e GPU usam instâncias separadas do Ollama e do faster-whisper, na rede privada do Compose.
+As instâncias CPU gerenciam os downloads; as instâncias GPU compartilham os mesmos arquivos
+com acesso somente para leitura. Cada etapa é encaminhada à instância do dispositivo escolhido.
+faster-whisper faz warm-up e verifica CUDA antes do processamento. AMD ROCm acelera somente
+Ollama no Linux; faster-whisper exige NVIDIA para transcrever por GPU. Em um host apenas AMD,
+a transcrição local em `auto` usa CPU; GPU permanece indisponível nessa etapa. Docker Desktop
+no Windows expõe GPUs NVIDIA, não AMD. Intel, Apple e fabricantes desconhecidos não possuem
+perfil de contêiner de aceleração compatível nesta etapa.
+
+Mudanças de hardware detectadas no host atualizam o dashboard por eventos, sem verificações
+periódicas do inventário. A disponibilidade dos serviços também é verificada ao consultar o
+catálogo ou preparar uma gravação. Uma GPU nova pode exigir executar o launcher novamente para
+preparar seu serviço; a detecção não recria containers nem amplia seu acesso a dispositivos.
 
 O VAD pertence à etapa de transcrição. OpenRouter usa o detector Silero do Summyz; faster-whisper
 usa somente seu VAD nativo, sem aplicar dois detectores em sequência. O VAD pode ser desativado.
@@ -205,17 +221,22 @@ idioma, retenção e prompts pertencem às configurações persistidas da instal
 | `DATABASE_URL` | URL PostgreSQL obrigatória; `postgres:5432` dentro do Compose |
 | `SUMMYZ_SECRETS_KEY` | Chave de criptografia obrigatória gerada pelo launcher |
 | `SUMMYZ_SETUP_TOKEN` | Obrigatória na inicialização da API; gerada pelo launcher e verificada no setup público |
-| `DASHBOARD_ACCESS_MODE` | `local` por padrão; o launcher público seleciona `public` |
-| `WEB_HOST`, `WEB_PORT` | Listener no host: `127.0.0.1`, `8787`; Compose expõe o dashboard em loopback |
+| `WEB_HOST`, `WEB_PORT` | Endereço e porta da API nativa ou da publicação do dashboard no Docker; padrões `127.0.0.1`, `8787` |
 | `PUBLIC_BASE_URL` | Origem do dashboard e base do callback OAuth; padrão `http://127.0.0.1:8787` |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credenciais do banco Compose; senha gerada pelo launcher |
 | `POSTGRES_PORT` | Porta no host; `.env.example` define `5433`, mas Compose usa `5432` quando omitida |
-| `DISCORD_GUILD_ID` | Servidor opcional de desenvolvimento para registrar comandos imediatamente; sem ele, o registro é global |
 | `FFMPEG_PATH` | Caminho absoluto opcional do FFmpeg nativo; sem ele, usa `PATH` |
 
 O launcher cria `DATABASE_URL` para a rede Compose com `postgres:5432`. Na execução nativa, ajuste-a
 para o endereço do host e `POSTGRES_PORT` publicado. Os demais parâmetros estão abaixo.
 
+No Docker, `WEB_HOST` configura o IP de publicação no host; a API escuta internamente em
+`0.0.0.0:8787` para receber o tráfego encaminhado. O padrão é `127.0.0.1`, mas você pode escolher
+`0.0.0.0` ou um IP de interface da máquina. Essa configuração não altera as portas 80/443 do Caddy
+nem a publicação de PostgreSQL. O modo local continua sem senha e rejeita cabeçalhos `Host` e
+origens que não sejam de loopback; publicar a porta em outro IP não habilita acesso local pela rede.
+O cabeçalho `Host` não autentica o cliente: publicar o modo local em interfaces externas expõe
+uma API sem senha. Para acesso pela rede, execute no modo público com HTTPS.
 
 ## Configurações de gravação
 

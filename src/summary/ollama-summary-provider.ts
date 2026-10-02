@@ -67,6 +67,7 @@ type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
 interface OllamaSummaryProviderOptions {
   baseUrl?: string;
+  device?: "cpu" | "gpu";
   consolidationPrompt?: string | null;
   costRecorder?: ProviderCostRecorder;
   fetch?: Fetch;
@@ -117,6 +118,7 @@ export class OllamaSummaryProvider implements SummaryProvider {
         ...(this.#options.baseUrl === undefined ? {} : { baseUrl: this.#options.baseUrl }),
         ...(this.#options.fetch === undefined ? {} : { fetch: this.#options.fetch }),
         ...(this.#options.generation === undefined ? {} : { generation: this.#options.generation }),
+        ...(this.#options.device === undefined ? {} : { device: this.#options.device }),
         input,
         instruction: composeProtectedPrompt({
           editablePrompt: instruction,

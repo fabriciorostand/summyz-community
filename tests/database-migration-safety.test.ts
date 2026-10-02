@@ -10,7 +10,10 @@ import { databaseMigrations } from "../src/database/migrations.js";
 describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
-    expect(databaseMigrations.at(-1)).toMatchObject({ version: 18 });
+    expect(databaseMigrations.at(-1)).toMatchObject({ version: 19 });
+    expect(databaseMigrations.find(({ version }) => version === 19)?.sql).toContain(
+      "CREATE TABLE local_hardware_snapshot",
+    );
     expect(databaseMigrations.find(({ version }) => version === 18)?.sql).toContain(
       "CREATE TABLE guild_history",
     );

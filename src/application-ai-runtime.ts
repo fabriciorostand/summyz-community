@@ -36,6 +36,7 @@ interface ApplicationAiRuntimeOptions {
   config: AppConfig;
   costStore: CostLedgerStore;
   hardware: LocalHardwareProfile;
+  readHardware?: () => Promise<LocalHardwareProfile>;
   installationSettings: Pick<PostgresInstallationSettingsStore, "getSecret">;
   installationHealth?: Pick<PostgresInstallationHealthStore, "writeHeartbeat">;
   logger: Logger;
@@ -47,7 +48,8 @@ export class ApplicationAiRuntime {
   readonly #client: Client;
   readonly #config: AppConfig;
   readonly #costStore: CostLedgerStore;
-  readonly #hardware: LocalHardwareProfile;
+  #hardware: LocalHardwareProfile;
+  readonly #readHardware: (() => Promise<LocalHardwareProfile>) | undefined;
   readonly #installationSettings: Pick<PostgresInstallationSettingsStore, "getSecret">;
   readonly #installationHealth: Pick<PostgresInstallationHealthStore, "writeHeartbeat"> | undefined;
   readonly #logger: Logger;
@@ -59,6 +61,7 @@ export class ApplicationAiRuntime {
     this.#config = options.config;
     this.#costStore = options.costStore;
     this.#hardware = options.hardware;
+    this.#readHardware = options.readHardware;
     this.#installationSettings = options.installationSettings;
     this.#installationHealth = options.installationHealth;
     this.#logger = options.logger;
@@ -80,21 +83,40 @@ export class ApplicationAiRuntime {
     name: string;
     profileId: string;
   }> {
+    if (this.#readHardware !== undefined) this.#hardware = await this.#readHardware();
     const profile = await this.#aiProfileStore.getActiveProfile(guildId);
     if (profile === undefined) {
       throw new Error("The server does not have an active AI profile");
     }
     let configuration = meetingAiConfigurationSchema.parse(resolveAiProfile(profile));
-    await new LocalModelInventory().requireInstalled(configuration);
+    await new LocalModelInventory(fetch, async () => this.#hardware).requireInstalled(
+      configuration,
+    );
     await this.#validateExternalConfiguration(configuration);
     const phases = localPhases(configuration);
     const executionPlan = resolveLocalExecutionPlan({
-      device: this.#config.localAiDevice,
+      device: "auto",
+      devices: localDevices(configuration),
       enabledPhases: phases,
-      fallback: this.#config.localAiFallback,
+      fallback: "none",
       hardware: this.#hardware,
     });
     this.#logExecutionPlan(phases, executionPlan);
+    configuration = meetingAiConfigurationSchema.parse({
+      ...configuration,
+      refinement:
+        configuration.refinement.provider === "ollama"
+          ? { ...configuration.refinement, device: executionPlan.refinement.device }
+          : configuration.refinement,
+      summary:
+        configuration.summary.provider === "ollama"
+          ? { ...configuration.summary, device: executionPlan.summary.device }
+          : configuration.summary,
+      transcription:
+        configuration.transcription.provider === "faster-whisper"
+          ? { ...configuration.transcription, device: executionPlan.transcription.device }
+          : configuration.transcription,
+    });
     configuration = this.#resolveTranscriptionBatchSize(configuration, executionPlan);
     if (phases.length > 0) {
       await new LocalModelManager({
@@ -140,6 +162,7 @@ export class ApplicationAiRuntime {
   public async assessActiveProfile(
     guildId: string,
   ): Promise<readonly AiProfileCompatibilityStatus[]> {
+    if (this.#readHardware !== undefined) this.#hardware = await this.#readHardware();
     const profile = await this.#aiProfileStore.getActiveProfile(guildId);
     if (profile === undefined) return [];
     const configuration = resolveProfileConfiguration(profile);
@@ -252,9 +275,10 @@ export class ApplicationAiRuntime {
   #resolveAssessmentExecutionPlan(configuration: ResolvedMeetingAiConfiguration) {
     try {
       return resolveLocalExecutionPlan({
-        device: this.#config.localAiDevice,
+        device: "auto",
+        devices: localDevices(configuration),
         enabledPhases: localPhases(configuration),
-        fallback: this.#config.localAiFallback,
+        fallback: "none",
         hardware: this.#hardware,
       });
     } catch {
@@ -270,12 +294,16 @@ export class ApplicationAiRuntime {
     manifest: RecordingManifest,
   ): FasterWhisperTranscriptionProvider {
     const executionPlan = resolveLocalExecutionPlan({
-      device: this.#config.localAiDevice,
+      device: selection.device,
       enabledPhases: ["transcription"],
-      fallback: this.#config.localAiFallback,
+      fallback: "none",
       hardware: this.#hardware,
     });
     return new FasterWhisperTranscriptionProvider({
+      baseUrl:
+        executionPlan.transcription.device === "gpu"
+          ? "http://faster-whisper-gpu:8000"
+          : "http://faster-whisper:8000",
       batchSize: typeof selection.batchSize === "number" ? selection.batchSize : 0,
       costRecorder: this.createCostRecorder(manifest, "transcription"),
       device: executionPlan.transcription.device,
@@ -403,4 +431,18 @@ function assessLocalModels(
         ]
       : []),
   ];
+}
+
+function localDevices(configuration: ResolvedMeetingAiConfiguration) {
+  return {
+    ...(configuration.refinement.provider === "ollama"
+      ? { refinement: configuration.refinement.device }
+      : {}),
+    ...(configuration.summary.provider === "ollama"
+      ? { summary: configuration.summary.device }
+      : {}),
+    ...(configuration.transcription.provider === "faster-whisper"
+      ? { transcription: configuration.transcription.device }
+      : {}),
+  };
 }

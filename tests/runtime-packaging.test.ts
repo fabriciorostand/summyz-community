@@ -1,10 +1,30 @@
 import { readFile } from "node:fs/promises";
 
 import { describe, expect, it } from "vitest";
+import { z } from "zod";
+
+import { loadWebConfig } from "../src/api/web-config.js";
 
 const repositoryRoot = new URL("../", import.meta.url);
 
 describe("runtime packaging", () => {
+  it("keeps CPU instances while GPU overlays add independent services with shared model storage", async () => {
+    const base = await readFile(new URL("compose.yaml", repositoryRoot), "utf8");
+    const nvidia = await readFile(new URL("docker/compose.nvidia.yaml", repositoryRoot), "utf8");
+    const amd = await readFile(new URL("docker/compose.amd.yaml", repositoryRoot), "utf8");
+    expect(base).toContain("OLLAMA_LLM_LIBRARY: cpu");
+    for (const overlay of [nvidia, amd]) {
+      expect(overlay).toContain("  ollama-gpu:");
+      expect(overlay).not.toMatch(/^ {2}ollama:/m);
+      expect(overlay).toContain("ollama_models:/model-storage:ro");
+    }
+    expect(nvidia).toContain("  faster-whisper-gpu:");
+    expect(nvidia).toContain("image: summyz-community-faster-whisper-gpu");
+    expect(nvidia).not.toMatch(/^ {2}faster-whisper:/m);
+    const template = await readFile(new URL(".env.example", repositoryRoot), "utf8");
+    expect(template).not.toMatch(/^LOCAL_AI_(DEVICE|FALLBACK)=/m);
+  });
+
   it("mantém FFmpeg fora das dependências Node", async () => {
     const packageJson = JSON.parse(
       await readFile(new URL("package.json", repositoryRoot), "utf8"),
@@ -54,7 +74,9 @@ describe("runtime packaging", () => {
     ) as { scripts?: Record<string, string> };
     expect(packageJson.scripts?.dev).toContain("src/main.ts");
     expect(packageJson.scripts?.start).toBe("node dist/main.js");
-    expect(dashboardRuntime).toContain('CMD ["node", "dist/api/main.js"]');
+    expect(dashboardRuntime).toContain(
+      'CMD ["node", "dist/api/main.js", "--access-mode", "local"]',
+    );
   });
 
   it("usa o build FFmpeg/PyAV controlado e compatível apenas com LGPL", async () => {
@@ -107,6 +129,24 @@ describe("runtime packaging", () => {
     expect(bot).toMatch(/postgres:\s+condition: service_healthy/u);
     expect(compose).toContain('"python3",');
     expect(compose).not.toContain('"python",');
+  });
+
+  it("publishes the dashboard on WEB_HOST while keeping its container listener reachable", async () => {
+    const compose = await readFile(new URL("compose.yaml", repositoryRoot), "utf8");
+    const publicCompose = await readFile(
+      new URL("docker/compose.public.yaml", repositoryRoot),
+      "utf8",
+    );
+    const dashboard = compose.split("\n  dashboard:")[1]?.split("\n  smoke:")[0];
+
+    expect(dashboard).toMatch(/"\$\{WEB_HOST:-127\.0\.0\.1\}:\$\{WEB_PORT:-8787\}:8787"/u);
+    expect(dashboard).toMatch(/WEB_HOST: 0\.0\.0\.0/u);
+    expect(dashboard).toMatch(/WEB_PORT: 8787/u);
+    expect(compose).toMatch(/"127\.0\.0\.1:\$\{POSTGRES_PORT:-5432\}:5432"/u);
+    expect(publicCompose).toContain('"80:80"');
+    expect(publicCompose).toContain('"443:443"');
+    expect(publicCompose).toContain('"443:443/udp"');
+    expect(publicCompose).not.toContain("WEB_HOST");
   });
 
   it("inclui todos os módulos locais importados pelo faster-whisper", async () => {
@@ -220,8 +260,51 @@ describe("runtime packaging", () => {
       "caddy:2.11.4-alpine@sha256:5f5c8640aae01df9654968d946d8f1a56c497f1dd5c5cda4cf95ab7c14d58648",
     );
     expect(publicCompose).not.toContain("/var/run/docker.sock");
+    expect(publicCompose).toContain(
+      'command: ["node", "dist/api/main.js", "--access-mode", "public"]',
+    );
+    expect(publicCompose).not.toContain("DASHBOARD_ACCESS_MODE");
     expect(shellLauncher).toContain("SUMMYZ_PUBLIC_MODE=true");
     expect(powershellLauncher).toContain("SUMMYZ_PUBLIC_MODE");
+  });
+
+  it("selects the API mode through portable npm scripts instead of environment variables", async () => {
+    const metadata: unknown = JSON.parse(
+      await readFile(new URL("package.json", repositoryRoot), "utf8"),
+    );
+    const { scripts } = z.object({ scripts: z.record(z.string(), z.string()) }).parse(metadata);
+    const template = await readFile(new URL(".env.example", repositoryRoot), "utf8");
+
+    expect(template).not.toMatch(/^DASHBOARD_ACCESS_MODE=/m);
+    expect(scripts).not.toHaveProperty("dev:api");
+    expect(scripts).not.toHaveProperty("start:api");
+    for (const mode of ["local", "public"] as const) {
+      for (const name of [`dev:api:${mode}`, `api:${mode}`]) {
+        const script = scripts[name];
+        if (script === undefined) throw new Error(`Missing npm script: ${name}`);
+        expect(script).not.toContain("DASHBOARD_ACCESS_MODE");
+        const entryPoint = name.startsWith("dev:") ? "src/api/main.ts" : "dist/api/main.js";
+        expect(script).toContain(entryPoint);
+        const arguments_ = script
+          .slice(script.indexOf(entryPoint) + entryPoint.length)
+          .trim()
+          .split(" ");
+
+        expect(
+          loadWebConfig(
+            {
+              DATABASE_URL: "postgresql://test:test@localhost:5432/test",
+              SUMMYZ_SECRETS_KEY: Buffer.alloc(32, 8).toString("base64url"),
+              SUMMYZ_SETUP_TOKEN: "s".repeat(43),
+              DASHBOARD_ACCESS_MODE: mode === "local" ? "public" : "local",
+              PUBLIC_BASE_URL: "https://example.com",
+              WEB_HOST: mode === "local" ? "127.0.0.1" : "0.0.0.0",
+            },
+            arguments_,
+          ),
+        ).toMatchObject({ accessMode: mode });
+      }
+    }
   });
 
   it("não concede a GPU NVIDIA ao processo do bot", async () => {

@@ -13,6 +13,7 @@ import { createPostgresDatabase } from "../database/postgres-database.js";
 import { PostgresGuildConfigStore } from "../database/postgres-guild-config-store.js";
 import { PostgresGuildHistoryStore } from "../database/postgres-guild-history-store.js";
 import { PostgresGuildOwnerApprovalStore } from "../database/postgres-guild-owner-approval-store.js";
+import { PostgresHardwareStore } from "../database/postgres-hardware-store.js";
 import { PostgresInstallationAccessStore } from "../database/postgres-installation-access-store.js";
 import { PostgresInstallationDiscordConnectionStore } from "../database/postgres-installation-discord-connection-store.js";
 import { PostgresInstallationHealthStore } from "../database/postgres-installation-health-store.js";
@@ -25,7 +26,9 @@ import { PostgresTaskStore } from "../database/postgres-task-store.js";
 import { createDiscordApiFetch } from "../discord/discord-api-fetch.js";
 import { DiscordRestGuildDirectory } from "../discord/discord-rest-guild-directory.js";
 import { InstallationDiscordConnection } from "../discord/installation-discord-connection.js";
+import { readGpuServiceAvailability } from "../local-ai/gpu-service-availability.js";
 import { detectLocalHardware } from "../local-ai/hardware-detection.js";
+import { limitHardwareResources } from "../local-ai/hardware-profile.js";
 import { createLogger } from "../logger.js";
 import { LocalModelInventory } from "../models/local-model-inventory.js";
 import { CachedModelCatalog } from "../models/model-catalog.js";
@@ -39,7 +42,7 @@ import { loadWebConfig } from "./web-config.js";
 
 if (existsSync(".env")) loadEnvFile(".env");
 
-const config = loadWebConfig(process.env);
+const config = loadWebConfig(process.env, process.argv.slice(2));
 const logger = createLogger(config.logLevel);
 const database = createPostgresDatabase(config.databaseUrl);
 await database.initialize();
@@ -76,14 +79,19 @@ const discordConnection = new InstallationDiscordConnection({
   publicBaseUrl: config.publicBaseUrl,
   repository: new PostgresInstallationDiscordConnectionStore(database, secretBox),
 });
-const inventory = new LocalModelInventory();
+const hardwareStore = new PostgresHardwareStore(database);
+const initialHardware = await detectLocalHardware();
+const readHardware = async () =>
+  readGpuServiceAvailability(
+    limitHardwareResources((await hardwareStore.read())?.hardware ?? initialHardware),
+  );
+const inventory = new LocalModelInventory(globalThis.fetch, readHardware);
 const catalog = new ModelCatalogService(
   new CachedModelCatalog(new PostgresModelCatalogStore(database)),
   inventory,
-  await detectLocalHardware(),
+  readHardware,
   () => settings.getSecret("openrouter_api_key"),
   globalThis.fetch,
-  { device: config.localAiDevice, fallback: config.localAiFallback },
 );
 const downloads = new ModelDownloadManager(
   new PostgresModelDownloadStore(database),
@@ -98,6 +106,7 @@ const models = {
 const app = await createApiServer(
   {
     accessMode: config.accessMode,
+    hardware: { store: hardwareStore, secretsKey: config.secretsKey, readHardware },
     models,
     analytics: new PostgresAnalyticsStore(database),
     aiProfiles: new PostgresAiProfileStore(database),

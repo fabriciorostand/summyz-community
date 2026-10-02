@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+action=${1:?An action is required}
+repository_path=$(CDPATH= cd -- "${2:?Repository directory is required}" && pwd)
+case "$action" in install|stop|uninstall) ;; *) echo "Invalid hardware agent action" >&2; exit 2 ;; esac
+[ "$(id -u)" = 0 ] || { echo "Hardware startup registration requires root" >&2; exit 1; }
+command -v systemctl >/dev/null 2>&1 || { echo "The hardware agent requires systemd" >&2; exit 1; }
+suffix=$(printf '%s' "$repository_path" | sha256sum | cut -c1-12)
+unit_name="summyz-hardware-$suffix.service"
+unit_path="/etc/systemd/system/$unit_name"
+if [ "$action" != install ]; then
+  if [ -f "$unit_path" ]; then
+    systemctl disable --now "$unit_name"
+    if [ "$action" = uninstall ]; then rm -f "$unit_path"; systemctl daemon-reload; fi
+  fi
+  exit 0
+fi
+for dependency in curl udevadm sha256sum; do
+  command -v "$dependency" >/dev/null 2>&1 || { echo "Hardware agent dependency is missing: $dependency" >&2; exit 1; }
+done
+service_user=${SUDO_USER:-$(stat -c %U "$repository_path")}
+id "$service_user" >/dev/null
+case "$service_user" in *[!a-zA-Z0-9_-]*|"") echo "Invalid hardware agent identity" >&2; exit 1 ;; esac
+escaped_path=$(printf '%s' "$repository_path" | sed 's/\\/\\\\/g; s/"/\\"/g; s/%/%%/g; s/\$/$$/g')
+cat > "$unit_path" <<EOF
+[Unit]
+Description=Summyz host hardware event detector
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=$service_user
+ExecStart=/bin/sh "$escaped_path/scripts/hardware-agent" "$escaped_path"
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+
+[Install]
+WantedBy=multi-user.target
+EOF
+chmod 644 "$unit_path"
+systemctl daemon-reload
+systemctl enable --now "$unit_name"
+systemctl restart "$unit_name"
+echo "Host hardware event detector registered for startup."

@@ -105,6 +105,9 @@ export function createBotProcessingRuntime(options: BotProcessingRuntimeOptions)
       const provider =
         selection.provider === "ollama"
           ? new OllamaSummaryProvider({
+              baseUrl:
+                selection.device === "gpu" ? "http://ollama-gpu:11434" : "http://ollama:11434",
+              device: selection.device === "gpu" ? "gpu" : "cpu",
               consolidationPrompt: selection.consolidationPrompt,
               costRecorder,
               extractionPrompt: selection.extractionPrompt,
@@ -148,6 +151,9 @@ export function createBotProcessingRuntime(options: BotProcessingRuntimeOptions)
       const provider =
         selection.provider === "ollama"
           ? new OllamaRefinementProvider({
+              baseUrl:
+                selection.device === "gpu" ? "http://ollama-gpu:11434" : "http://ollama:11434",
+              device: selection.device === "gpu" ? "gpu" : "cpu",
               costRecorder,
               generation: selection.generation,
               model: selection.model,

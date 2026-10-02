@@ -122,6 +122,7 @@ function emptyMessage(query: string, family: string | undefined, t: Messages): s
 }
 
 export interface ModelPickerProps {
+  device?: "auto" | "cpu" | "gpu" | undefined;
   jobFor?: JobFor;
   needsChoice?: boolean;
   onChange: (model: string) => void;
@@ -135,6 +136,7 @@ export interface ModelPickerProps {
  * too large for one list, so it is browsed by family first.
  */
 export function ModelPicker({
+  device,
   jobFor,
   needsChoice = false,
   onChange,
@@ -156,6 +158,7 @@ export function ModelPicker({
     stage,
     open ? provider : null,
     provider === "ollama" ? family : undefined,
+    provider === "openrouter" ? undefined : device,
   );
   const groups = useMemo(
     () => (state.status === "ready" ? groupsFor(state.catalog, family, query, jobFor, i18n) : []),
