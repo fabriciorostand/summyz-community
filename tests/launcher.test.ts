@@ -1,5 +1,15 @@
 import { execFile } from "node:child_process";
-import { chmod, copyFile, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import {
+  access,
+  chmod,
+  copyFile,
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { delimiter, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -14,6 +24,51 @@ const repositoryRoot = fileURLToPath(new URL("../", import.meta.url));
 const launcherName = process.platform === "win32" ? "summyz-community.ps1" : "summyz-community";
 
 describe("Community launcher", () => {
+  it.skipIf(process.platform === "win32")(
+    "rejects local and public macOS launchers before creating files or invoking Docker",
+    async () => {
+      const fixtureRoot = await createLauncherFixture();
+      try {
+        const bin = join(fixtureRoot, "bin");
+        await mkdir(bin);
+        const uname = join(bin, "uname");
+        await writeFile(uname, "#!/bin/sh\necho Darwin\n");
+        await chmod(uname, 0o755);
+        const docker = join(bin, "docker");
+        await writeFile(docker, '#!/bin/sh\ntouch "$SUMMYZ_TEST_DOCKER_MARKER"\n');
+        await chmod(docker, 0o755);
+        await copyFile(
+          join(repositoryRoot, "summyz-community-public"),
+          join(fixtureRoot, "summyz-community-public"),
+        );
+        const env = {
+          ...process.env,
+          ...createIsolatedPathEnvironment(bin),
+          SUMMYZ_DETECTED_GPU_VENDOR: "nvidia",
+          SUMMYZ_TEST_DOCKER_MARKER: join(fixtureRoot, "docker-called"),
+        };
+        for (const name of ["summyz-community", "summyz-community-public"]) {
+          for (const args of [
+            ["up", "--dry-run"],
+            ["up"],
+            ["restart"],
+            ["down"],
+            ["status"],
+            ["logs"],
+            ["recover-access"],
+          ]) {
+            await expect(
+              execFileAsync("sh", [join(fixtureRoot, name), ...args], { env }),
+            ).rejects.toThrow(/Summyz supports only Windows and Linux/);
+          }
+        }
+        await expect(access(join(fixtureRoot, ".env"))).rejects.toThrow();
+        await expect(access(join(fixtureRoot, "docker-called"))).rejects.toThrow();
+      } finally {
+        await rm(fixtureRoot, { recursive: true, force: true });
+      }
+    },
+  );
   it("passes public mode explicitly to the password recovery command", async () => {
     const fixtureRoot = await createLauncherFixture();
     try {
@@ -33,7 +88,7 @@ describe("Community launcher", () => {
     expect(template).not.toMatch(/^SUMMYZ_(?:SECRETS_KEY|SETUP_TOKEN)=/m);
   });
 
-  it("seleciona CPU sem adicionar overlay", async () => {
+  it("selects CPU without a GPU overlay", async () => {
     const output = await runLauncher({ LOCAL_AI_DEVICE: "cpu" });
 
     expect(output).toContain("compose.yaml");
@@ -52,6 +107,27 @@ describe("Community launcher", () => {
 
     expect(output).toContain("docker/compose.nvidia.yaml");
     expect(output).toContain("NVIDIA GeForce RTX");
+  });
+
+  it("prepares optional GPU providers before starting Windows or Linux bot and API", async () => {
+    for (const command of ["up", "restart"]) {
+      const output = await runLauncher(
+        { SUMMYZ_DETECTED_GPU_VENDOR: "nvidia" },
+        undefined,
+        command,
+      );
+      expect(output).toContain("docker/compose.hardware.yaml");
+      const commands = output.split(/\r?\n/).filter((line) => line.startsWith("Executing:"));
+      const provider = commands.findIndex((line) => line.endsWith("faster-whisper-gpu"));
+      const application = commands.findIndex((line) =>
+        /up -d --build(?: --force-recreate)?$/.test(line),
+      );
+      expect(provider).toBeGreaterThanOrEqual(0);
+      expect(application).toBeGreaterThan(provider);
+      if (command === "restart")
+        expect(commands.filter((line) => line.includes("--force-recreate"))).toHaveLength(1);
+      expect(output).not.toMatch(/Hardware event detector|RunAs|registration/);
+    }
   });
 
   it("seleciona NVIDIA quando nvidia-smi retorna uma única GPU", async () => {
@@ -227,7 +303,7 @@ async function createNvidiaSmiStub(fixtureRoot: string): Promise<string> {
   if (process.platform === "win32") {
     await writeFile(
       join(executableDirectory, "nvidia-smi.cmd"),
-      "@echo off\r\necho 0, NVIDIA GeForce RTX 2060, 6144\r\n",
+      "@echo off\r\necho 0, NVIDIA GeForce RTX 2060\r\n",
     );
     return executableDirectory;
   }

@@ -1,40 +1,28 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { describe, expect, it } from "vitest";
 
-describe("host hardware agent packaging", () => {
-  it("prepares the Linux system unit through the launcher", async () => {
+describe("container hardware packaging", () => {
+  it("uses container inventory on Linux without registering a host service", async () => {
     const launcher = await readFile("summyz-community", "utf8");
-    expect(launcher.includes("configure_hardware_agent install")).toBe(true);
-    expect(launcher.includes("configure_hardware_agent stop")).toBe(true);
+    expect(launcher).not.toMatch(/configure_hardware_agent|install-hardware-agent|sudo|systemctl/);
+    expect(launcher).toContain('"$(uname -s)" != Linux');
+    expect(launcher).toContain("docker/compose.hardware.yaml");
+    await expect(access("scripts/hardware-agent")).rejects.toThrow();
+    await expect(access("scripts/install-hardware-agent")).rejects.toThrow();
   });
-  it("prepares the Windows detector through the launcher and disables it on down", async () => {
+  it("uses container inventory on Windows without elevation, tasks, or a resident host detector", async () => {
     const launcher = await readFile("summyz-community.ps1", "utf8");
-    expect(launcher).toContain('Invoke-HardwareAgentSetup -Action "install"');
-    expect(launcher).toContain('Invoke-HardwareAgentSetup -Action "stop"');
-    expect(launcher).toContain("-WindowStyle Hidden");
-  });
-  it("uses native device events instead of scheduled inventory scans", async () => {
-    const windows = await readFile("scripts/hardware-agent.ps1", "utf8");
-    const linux = await readFile("scripts/hardware-agent", "utf8");
-    expect(windows).toContain("Win32_DeviceChangeEvent");
-    expect(windows).toContain("Wait-Event");
-    expect(windows).not.toMatch(/WITHIN\s+\d|Set-Interval/i);
-    expect(linux).toContain("udevadm monitor --udev");
-    expect(linux).toContain("read -r event");
-    expect(linux).not.toContain("watch -n");
-    expect(windows).toContain("summyz-hardware/v1:");
-    expect(linux).toContain("summyz-hardware/v1:");
-  });
-  it("starts at boot with a limited Windows identity and a Linux system unit", async () => {
-    const windows = await readFile("scripts/install-hardware-agent.ps1", "utf8");
-    const linux = await readFile("scripts/install-hardware-agent", "utf8");
-    expect(windows).toContain("New-ScheduledTaskTrigger -AtStartup");
-    expect(windows).toContain("-RunLevel Limited");
-    expect(windows).toContain("-UserId $InstallationUser");
-    expect(await readFile("summyz-community.ps1", "utf8")).toContain('"-InstallationUser"');
-    expect(windows).not.toContain("-UserId SYSTEM");
-    expect(linux).toContain("WantedBy=multi-user.target");
-    expect(linux).toContain("systemctl enable --now");
-    expect(linux).toContain("NoNewPrivileges=true");
+    expect(launcher).not.toMatch(
+      /Invoke-HardwareAgentSetup|RunAs|ScheduledTask|WindowsPrincipal|install-hardware-agent/,
+    );
+    expect(launcher).not.toContain("SUMMYZ_DETECTED_GPU_MEMORY_BYTES");
+    expect(launcher).not.toContain("memory.total");
+    expect(launcher).toContain('"docker/compose.hardware.yaml"');
+    expect(await readFile("docker/compose.hardware.yaml", "utf8")).toContain(
+      "SUMMYZ_HARDWARE_SOURCE: container",
+    );
+    await expect(access("scripts/hardware-agent.ps1")).rejects.toThrow();
+    await expect(access("scripts/install-hardware-agent.ps1")).rejects.toThrow();
+    expect(await readFile("compose.yaml", "utf8")).not.toContain("SUMMYZ_HARDWARE_SOURCE");
   });
 });

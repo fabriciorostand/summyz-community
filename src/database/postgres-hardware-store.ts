@@ -3,6 +3,7 @@ import {
   type HardwareSnapshot,
   type HardwareStore,
   hardwareSnapshotSchema,
+  InvalidHardwareSnapshotError,
 } from "../local-ai/hardware-snapshot.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
@@ -11,12 +12,20 @@ export class PostgresHardwareStore implements HardwareStore {
 
   public async read(): Promise<HardwareSnapshot | undefined> {
     const result = await this.database.query(
-      "SELECT snapshot FROM local_hardware_snapshot WHERE snapshot_id = 'host'",
+      "SELECT snapshot, detected_at FROM local_hardware_snapshot WHERE snapshot_id = 'host'",
     );
     const row = result.rows[0];
-    return row === undefined
-      ? undefined
-      : z.object({ snapshot: hardwareSnapshotSchema }).parse(row).snapshot;
+    if (row === undefined) return undefined;
+    const parsed = z.object({ snapshot: hardwareSnapshotSchema }).safeParse(row);
+    if (parsed.success) return parsed.data.snapshot;
+    const metadata = z
+      .object({ detected_at: z.union([z.date(), z.iso.datetime()]) })
+      .safeParse(row);
+    if (!metadata.success) throw new Error("invalid_hardware_snapshot_metadata");
+    const detectedAt = metadata.data.detected_at;
+    throw new InvalidHardwareSnapshotError(
+      detectedAt instanceof Date ? detectedAt.toISOString() : detectedAt,
+    );
   }
 
   public async update(input: HardwareSnapshot): Promise<boolean> {

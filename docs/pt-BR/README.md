@@ -35,20 +35,25 @@ O dashboard reúne configuração, histórico, participação, custos e tarefas.
 
 ## Requisitos
 
-- Git e Docker com Compose;
+- Windows ou Linux, Git e Docker com Compose;
 - uma aplicação de bot no Discord e a conta Discord do dono dos servidores que serão configurados;
 - conta, créditos e chave OpenRouter somente para etapas que usam esse provedor;
 - drivers e integração Docker compatíveis quando a aceleração por GPU for utilizada;
-- no Linux, systemd, udev, curl e sudo para detecção automática por eventos de hardware;
-- no Windows, permissão para registrar uma tarefa de inicialização com elevação administrativa.
+- no Linux, acesso ao Docker sem elevação pelo launcher; nenhum agente nativo de hardware é instalado;
+- no Windows, Docker Desktop com WSL 2; o launcher do Summyz não solicita elevação administrativa.
 
 O fluxo Docker prepara Node, Python, FFmpeg, PostgreSQL, Ollama e faster-whisper. Para desenvolvimento
 nativo, consulte [Desenvolvimento e qualidade](./development.md).
 
+No Windows, o inventário reflete os recursos disponíveis aos containers. Para usar a capacidade
+máxima da máquina, provavelmente será necessário ajustar os limites do Docker/WSL, especialmente
+de memória. O Summyz não altera essas configurações globais. Consulte
+[recursos no Windows](./installation.md#recursos-no-windows).
+
 ## Início rápido
 
 1. Prepare a aplicação Discord seguindo o [guia de instalação](./installation.md).
-2. Na raiz do repositório, execute `./summyz-community up` no Linux/macOS ou
+2. Na raiz do repositório, execute `./summyz-community up` no Linux ou
    `.\summyz-community.ps1 up` no Windows. O launcher gera `.env` com segredos locais, detecta o
    hardware e abre o setup. Informe o token do bot; o Application ID é obtido automaticamente.
 3. Configure o Client Secret e o redirecionamento OAuth da aplicação, conecte a conta Discord do

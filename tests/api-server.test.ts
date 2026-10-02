@@ -13,6 +13,65 @@ import { createLogger } from "../src/logger.js";
 const localOrigin = { origin: "http://127.0.0.1:8787" };
 
 describe("Community dashboard API", () => {
+  it.each(["local", "public"] as const)(
+    "protects manual hardware refresh with %s dashboard authorization and origin validation",
+    async (mode) => {
+      const dependencies = createDependencies(mode);
+      const report = {
+        source: "container" as const,
+        status: "current" as const,
+        detectedAt: new Date().toISOString(),
+        hardware: { cpuCores: 4, memoryBytes: 8 * 1024 ** 3, accelerators: [] },
+      };
+      const refresh = vi.fn(async () => report);
+      dependencies.hardware = {
+        store: { read: async () => undefined, update: async () => true },
+        containerInventory: { read: async () => report, refresh },
+      };
+      const app = await createApiServer(dependencies);
+      try {
+        const origin = mode === "public" ? "https://summyz.example.com" : localOrigin.origin;
+        expect(
+          (
+            await app.inject({
+              method: "POST",
+              url: "/api/local-ai/hardware/refresh",
+              headers: { origin: "https://attacker.example.com" },
+            })
+          ).statusCode,
+        ).toBe(403);
+        expect(
+          (await app.inject({ method: "POST", url: "/api/local-ai/hardware/refresh" })).statusCode,
+        ).toBe(403);
+        if (mode === "public")
+          expect(
+            (
+              await app.inject({
+                method: "POST",
+                url: "/api/local-ai/hardware/refresh",
+                headers: { origin },
+              })
+            ).statusCode,
+          ).toBe(401);
+        expect(refresh).not.toHaveBeenCalled();
+        expect(
+          (
+            await app.inject({
+              method: "POST",
+              url: "/api/local-ai/hardware/refresh",
+              headers: { origin },
+              cookies: { summyz_session: "session-token" },
+            })
+          ).statusCode,
+        ).toBe(200);
+        expect(refresh).toHaveBeenCalledTimes(1);
+        expect(dependencies.aiProfiles.updateProfile).not.toHaveBeenCalled();
+        expect(dependencies.settings.setSecret).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    },
+  );
   it("limits total Discord rate-limit waiting across one dashboard request", async () => {
     const fetchMock = vi
       .fn<typeof fetch>()

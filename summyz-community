@@ -2,6 +2,11 @@
 
 set -eu
 
+if [ "$(uname -s)" != Linux ]; then
+  echo "Summyz supports only Windows and Linux. Use this launcher on Linux or the PowerShell launcher on Windows." >&2
+  exit 1
+fi
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 repository_dir=$script_dir
 cd "$repository_dir"
@@ -140,12 +145,8 @@ detect_acceleration() {
         return
         ;;
       amd)
-        if [ "$(uname -s)" = "Linux" ]; then
-          profile=amd
-          gpu_name=${SUMMYZ_DETECTED_GPU_NAME:-AMD GPU}
-          return
-        fi
-        use_cpu_only "AMD GPU acceleration through Docker is available only on Linux"
+        profile=amd
+        gpu_name=${SUMMYZ_DETECTED_GPU_NAME:-AMD GPU}
         return
         ;;
       *)
@@ -172,27 +173,25 @@ detect_acceleration() {
     fi
   fi
 
-  if [ "$(uname -s)" = "Linux" ]; then
-    amd_detected=false
-    for vendor_file in /sys/class/drm/card*/device/vendor; do
-      [ -f "$vendor_file" ] || continue
-      vendor=$(tr '[:upper:]' '[:lower:]' < "$vendor_file")
-      if [ "$vendor" = "0x1002" ]; then
-        amd_detected=true
-        break
-      fi
-    done
-    if [ "$amd_detected" = true ]; then
-      if [ ! -e /dev/kfd ] || [ ! -d /dev/dri ]; then
-        use_cpu_only "AMD GPU detected without accessible ROCm devices /dev/kfd and /dev/dri"
-        return
-      fi
-      profile=amd
-      gpu_name="AMD GPU"
-      export SUMMYZ_DETECTED_GPU_VENDOR=amd
-      export SUMMYZ_DETECTED_GPU_NAME="$gpu_name"
+  amd_detected=false
+  for vendor_file in /sys/class/drm/card*/device/vendor; do
+    [ -f "$vendor_file" ] || continue
+    vendor=$(tr '[:upper:]' '[:lower:]' < "$vendor_file")
+    if [ "$vendor" = "0x1002" ]; then
+      amd_detected=true
+      break
+    fi
+  done
+  if [ "$amd_detected" = true ]; then
+    if [ ! -e /dev/kfd ] || [ ! -d /dev/dri ]; then
+      use_cpu_only "AMD GPU detected without accessible ROCm devices /dev/kfd and /dev/dri"
       return
     fi
+    profile=amd
+    gpu_name="AMD GPU"
+    export SUMMYZ_DETECTED_GPU_VENDOR=amd
+    export SUMMYZ_DETECTED_GPU_NAME="$gpu_name"
+    return
   fi
 
 }
@@ -206,6 +205,7 @@ print_selection() {
 }
 
 run_compose() {
+  set -- -f docker/compose.hardware.yaml "$@"
   if [ "$profile" = "nvidia" ]; then
     if [ "${SUMMYZ_PUBLIC_MODE:-false}" = "true" ]; then
       set -- -f compose.yaml -f docker/compose.nvidia.yaml -f docker/compose.public.yaml "$@"
@@ -259,22 +259,6 @@ start_gpu_services() {
   done
 }
 
-configure_hardware_agent() {
-  [ "$(uname -s)" = Linux ] || return 0
-  if [ "$dry_run" = true ]; then
-    echo "Hardware event detector: $1 at system startup (dry run)"
-    return
-  fi
-  if [ "$(id -u)" = 0 ]; then
-    sh "$repository_dir/scripts/install-hardware-agent" "$1" "$repository_dir"
-  elif command -v sudo >/dev/null 2>&1; then
-    sudo sh "$repository_dir/scripts/install-hardware-agent" "$1" "$repository_dir"
-  else
-    echo "Hardware startup registration requires root. Run the launcher with administrative privileges." >&2
-    exit 1
-  fi
-}
-
 show_setup_page() {
   setup_token=$(read_env_setting SUMMYZ_SETUP_TOKEN)
   [ -n "$setup_token" ] || return
@@ -301,20 +285,19 @@ case "$command_name" in
   up)
     detect_acceleration
     print_selection
-    run_compose up -d --build
+    run_compose up -d --build postgres ollama faster-whisper
     start_gpu_services
-    configure_hardware_agent install
+    run_compose up -d --build
     if [ "$dry_run" = false ]; then show_setup_page; fi
     ;;
   restart)
     detect_acceleration
     print_selection
-    run_compose up -d --build --force-recreate
+    run_compose up -d --build postgres ollama faster-whisper
     start_gpu_services
-    configure_hardware_agent install
+    run_compose up -d --build --force-recreate
     ;;
   down)
-    configure_hardware_agent stop
     run_compose down --remove-orphans
     ;;
   status) run_compose ps ;;

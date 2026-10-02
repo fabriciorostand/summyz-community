@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const hardwareProfileSchema = z
   .object({
-    cpuCores: z.number().int().positive().max(65536),
+    cpuCores: z.number().positive().max(65536),
     cpuName: z.string().min(1).max(256).optional(),
     memoryBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     accelerators: z
@@ -11,7 +11,7 @@ export const hardwareProfileSchema = z
           .object({
             id: z.string().min(1).max(256),
             name: z.string().min(1).max(256),
-            vendor: z.enum(["amd", "apple", "intel", "nvidia", "unknown"]),
+            vendor: z.enum(["amd", "intel", "nvidia", "unknown"]),
             memoryBytes: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
           })
           .strict()
@@ -33,6 +33,12 @@ export const hardwareSnapshotSchema = z
   })
   .strict();
 export type HardwareSnapshot = z.infer<typeof hardwareSnapshotSchema>;
+export class InvalidHardwareSnapshotError extends Error {
+  constructor(public readonly detectedAt: string) {
+    super("invalid_hardware_snapshot");
+  }
+}
+
 export interface HardwareStore {
   read(): Promise<HardwareSnapshot | undefined>;
   update(snapshot: HardwareSnapshot): Promise<boolean>;

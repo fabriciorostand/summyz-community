@@ -4,6 +4,9 @@
 
 ## Ambiente e comandos
 
+A execução nativa do bot/API suporta somente Windows e Linux. Os pontos de entrada recusam
+outros sistemas antes de carregar configuração, acessar o banco ou iniciar gravações.
+
 Use Node.js 22.23.2 e npm 10.9.8, fixados em `package.json` e na CI. Docker prepara esses runtimes,
 Python 3.12.14 e o build controlado LGPL do FFmpeg. A execução nativa exige FFmpeg com `libopus`:
 configure `FFMPEG_PATH` absoluto ou disponibilize `ffmpeg`/`ffmpeg.exe` no `PATH`. O bot o valida

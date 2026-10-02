@@ -6,6 +6,17 @@ const mebibyte = 1_024 ** 2;
 const gibibyte = 1_024 ** 3;
 
 describe("detectLocalHardware", () => {
+  it("rejects macOS before probing hardware even when a GPU is injected", async () => {
+    const runCommand = vi.fn(async () => "");
+    await expect(
+      detectLocalHardware({
+        platform: "darwin",
+        runCommand,
+        environment: { SUMMYZ_DETECTED_GPU_VENDOR: "nvidia" },
+      }),
+    ).rejects.toThrow("Summyz supports only Windows and Linux");
+    expect(runCommand).not.toHaveBeenCalled();
+  });
   it("preserva a GPU quando o Compose injeta memória desconhecida como string vazia", async () => {
     const hardware = await detectLocalHardware({
       environment: { SUMMYZ_DETECTED_GPU_VENDOR: "nvidia", SUMMYZ_DETECTED_GPU_MEMORY_BYTES: "" },
@@ -142,38 +153,11 @@ describe("detectLocalHardware", () => {
     expect(hardware).toEqual({ accelerators: [], cpuCores: 4, memoryBytes: 8 * 1_024 ** 3 });
   });
 
-  it("detecta Apple Metal e fabricante desconhecido no macOS", async () => {
-    const runCommand = vi.fn(async (command: string) => {
-      if (command === "system_profiler") {
-        return JSON.stringify({
-          SPDisplaysDataType: [
-            { _name: "Apple M4", spdisplays_vendor: "Apple" },
-            { _name: "External Adapter" },
-          ],
-        });
-      }
-      throw new Error("nvidia-smi unavailable");
-    });
-
-    const profile = await detectLocalHardware({ platform: "darwin", runCommand });
-
-    expect(profile.accelerators).toEqual([
-      { id: "mac-0", name: "Apple M4", vendor: "apple" },
-      { id: "mac-1", name: "External Adapter", vendor: "unknown" },
-    ]);
-  });
-
   it("ignora respostas malformadas dos adaptadores", async () => {
     const windows = await detectLocalHardware({
       platform: "win32",
       runCommand: async (command) => (command === "powershell.exe" ? "{}" : "malformed"),
     });
-    const mac = await detectLocalHardware({
-      platform: "darwin",
-      runCommand: async (command) => (command === "system_profiler" ? "{}" : "malformed"),
-    });
-
     expect(windows.accelerators).toEqual([]);
-    expect(mac.accelerators).toEqual([]);
   });
 });

@@ -1,3 +1,4 @@
+import "../runtime-platform.js";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 import { loadEnvFile } from "node:process";
@@ -26,9 +27,8 @@ import { PostgresTaskStore } from "../database/postgres-task-store.js";
 import { createDiscordApiFetch } from "../discord/discord-api-fetch.js";
 import { DiscordRestGuildDirectory } from "../discord/discord-rest-guild-directory.js";
 import { InstallationDiscordConnection } from "../discord/installation-discord-connection.js";
-import { readGpuServiceAvailability } from "../local-ai/gpu-service-availability.js";
-import { detectLocalHardware } from "../local-ai/hardware-detection.js";
-import { limitHardwareResources } from "../local-ai/hardware-profile.js";
+import { readHardwareSource } from "../local-ai/container-hardware-detection.js";
+import { initializeHardwareRuntime } from "../local-ai/hardware-runtime.js";
 import { createLogger } from "../logger.js";
 import { LocalModelInventory } from "../models/local-model-inventory.js";
 import { CachedModelCatalog } from "../models/model-catalog.js";
@@ -43,6 +43,7 @@ import { loadWebConfig } from "./web-config.js";
 if (existsSync(".env")) loadEnvFile(".env");
 
 const config = loadWebConfig(process.env, process.argv.slice(2));
+const hardwareSource = readHardwareSource(process.env);
 const logger = createLogger(config.logLevel);
 const database = createPostgresDatabase(config.databaseUrl);
 await database.initialize();
@@ -80,11 +81,18 @@ const discordConnection = new InstallationDiscordConnection({
   repository: new PostgresInstallationDiscordConnectionStore(database, secretBox),
 });
 const hardwareStore = new PostgresHardwareStore(database);
-const initialHardware = await detectLocalHardware();
-const readHardware = async () =>
-  readGpuServiceAvailability(
-    limitHardwareResources((await hardwareStore.read())?.hardware ?? initialHardware),
-  );
+const hardwareRuntime = await initializeHardwareRuntime({
+  store: hardwareStore,
+  logger,
+  source: hardwareSource,
+}).catch(async () => {
+  logger.fatal({ code: "hardware_detection_failed" }, "Hardware startup preflight failed");
+  await database.close().catch(() => {
+    logger.error("Unable to close PostgreSQL after hardware startup failure");
+  });
+  throw new Error("hardware_detection_failed");
+});
+const { readHardware } = hardwareRuntime;
 const inventory = new LocalModelInventory(globalThis.fetch, readHardware);
 const catalog = new ModelCatalogService(
   new CachedModelCatalog(new PostgresModelCatalogStore(database)),
@@ -106,7 +114,13 @@ const models = {
 const app = await createApiServer(
   {
     accessMode: config.accessMode,
-    hardware: { store: hardwareStore, secretsKey: config.secretsKey, readHardware },
+    hardware: {
+      store: hardwareStore,
+      readHardware,
+      ...(hardwareRuntime.containerInventory === undefined
+        ? {}
+        : { containerInventory: hardwareRuntime.containerInventory }),
+    },
     models,
     analytics: new PostgresAnalyticsStore(database),
     aiProfiles: new PostgresAiProfileStore(database),

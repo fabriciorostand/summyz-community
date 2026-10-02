@@ -184,13 +184,16 @@ CPU instances manage downloads; GPU instances share the same model files read-on
 is routed to its selected device instance. faster-whisper warms up and verifies CUDA before
 processing. AMD ROCm accelerates only Ollama on Linux; faster-whisper requires NVIDIA for GPU
 transcription. On AMD-only hosts, automatic local transcription uses CPU and its GPU choice
-remains unavailable. Windows Docker Desktop exposes NVIDIA GPUs, not AMD. Intel, Apple, and
+remains unavailable. Windows Docker Desktop exposes NVIDIA GPUs, not AMD. Intel and
 unknown vendors have no supported acceleration container profile at this stage.
 
-Host hardware events update the dashboard without periodic inventory scans. Service availability
-is also checked when querying the catalog or preparing a recording. A newly added GPU may require
+On Windows and Linux, bot/API read resources exposed to containers at startup and offer
+[manual API refresh](./operations.md#refresh-hardware-on-windows-and-linux),
+without periodic inventory scans. Service availability is still checked when querying the catalog
+or preparing a recording; those checks do not rescan inventory. A newly added GPU may require
 running the launcher again to prepare its service; detection never recreates containers or expands
-their device access.
+their device access. See [Docker/WSL limits](./installation.md#windows-resources) to expose the
+machine's maximum capacity on Windows.
 
 VAD belongs to the transcription stage. OpenRouter transcription uses Summyz's Silero detector;
 faster-whisper uses only its native VAD, so two detectors are never applied in sequence. VAD can be

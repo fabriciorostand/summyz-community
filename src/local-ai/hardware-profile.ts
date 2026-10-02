@@ -1,6 +1,6 @@
 import { availableParallelism, totalmem } from "node:os";
 
-export type GpuVendor = "amd" | "apple" | "intel" | "nvidia" | "unknown";
+export type GpuVendor = "amd" | "intel" | "nvidia" | "unknown";
 
 export interface GraphicsAccelerator {
   id: string;

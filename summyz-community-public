@@ -2,6 +2,11 @@
 
 set -eu
 
+if [ "$(uname -s)" != Linux ]; then
+  echo "Summyz supports only Windows and Linux. Use this launcher on Linux or the PowerShell launcher on Windows." >&2
+  exit 1
+fi
+
 script_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 cd "$script_dir"
 

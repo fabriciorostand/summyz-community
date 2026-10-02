@@ -1,13 +1,13 @@
-import { Writable } from "node:stream";
 import Fastify from "fastify";
 import pino from "pino";
 import { describe, expect, it, vi } from "vitest";
-import {
-  deriveHardwareAgentToken,
-  registerHardwareRoutes,
-} from "../src/api/server-hardware-routes.js";
+import { registerHardwareRoutes } from "../src/api/server-hardware-routes.js";
 import { PostgresHardwareStore } from "../src/database/postgres-hardware-store.js";
-import { hardwareSnapshotSchema } from "../src/local-ai/hardware-snapshot.js";
+import { ContainerHardwareInventory } from "../src/local-ai/container-hardware-inventory.js";
+import {
+  hardwareSnapshotSchema,
+  InvalidHardwareSnapshotError,
+} from "../src/local-ai/hardware-snapshot.js";
 
 const snapshot = {
   detectedAt: "2026-10-01T12:00:00.000Z",
@@ -16,13 +16,38 @@ const snapshot = {
 };
 
 describe("hardware events", () => {
-  it("delivers changes over a stream and closes its listeners on shutdown", async () => {
+  it("does not register the retired host-report endpoint", async () => {
     const app = Fastify();
-    const update = vi.fn().mockResolvedValueOnce(true).mockResolvedValueOnce(false);
-    const key = "stream-test-key";
+    const update = vi.fn();
     registerHardwareRoutes(app, {
-      secretsKey: key,
-      store: { update, read: async () => undefined },
+      store: { read: async () => undefined, update },
+      authorize: async () => undefined,
+      logger: pino({ level: "silent" }),
+    });
+    try {
+      expect(app.hasRoute({ method: "POST", url: "/api/internal/hardware" })).toBe(false);
+      expect(
+        (await app.inject({ method: "POST", url: "/api/internal/hardware", payload: snapshot }))
+          .statusCode,
+      ).toBe(404);
+      expect(update).not.toHaveBeenCalled();
+      expect((await app.inject("/api/local-ai/hardware")).json()).toBeNull();
+    } finally {
+      await app.close();
+    }
+  });
+  it("delivers successful and failed manual refresh events and closes listeners on shutdown", async () => {
+    const app = Fastify();
+    const detect = vi.fn(async () => snapshot.hardware);
+    const containerInventory = new ContainerHardwareInventory({
+      store: { update: async () => true, read: async () => undefined },
+      detect,
+      logger: pino({ level: "silent" }),
+    });
+    await containerInventory.initialize();
+    registerHardwareRoutes(app, {
+      containerInventory,
+      store: { update: async () => false, read: async () => undefined },
       authorize: async () => undefined,
       logger: pino({ level: "silent" }),
     });
@@ -33,20 +58,15 @@ describe("hardware events", () => {
       const reader = stream.body?.getReader();
       if (reader === undefined) throw new Error("Expected a hardware event stream");
       expect(new TextDecoder().decode((await reader.read()).value)).toContain("hardware-changed");
-      await app.inject({
-        method: "POST",
-        url: "/api/internal/hardware",
-        payload: snapshot,
-        headers: { "x-summyz-hardware-token": deriveHardwareAgentToken(key) },
-      });
+      expect(
+        (await app.inject({ method: "POST", url: "/api/local-ai/hardware/refresh" })).statusCode,
+      ).toBe(200);
       expect(new TextDecoder().decode((await reader.read()).value)).toContain("hardware-changed");
-      expect((await app.inject("/api/local-ai/hardware")).json()).toBeNull();
-      await app.inject({
-        method: "POST",
-        url: "/api/internal/hardware",
-        payload: snapshot,
-        headers: { "x-summyz-hardware-token": deriveHardwareAgentToken(key) },
-      });
+      detect.mockRejectedValueOnce(new Error("Sensor unavailable"));
+      expect(
+        (await app.inject({ method: "POST", url: "/api/local-ai/hardware/refresh" })).statusCode,
+      ).toBe(503);
+      expect(new TextDecoder().decode((await reader.read()).value)).toContain("hardware-changed");
       await app.close();
       expect((await reader.read()).done).toBe(true);
       reader.releaseLock();
@@ -55,7 +75,7 @@ describe("hardware events", () => {
       await app.close();
     }
   });
-  it("rejects malformed, unsupported and unexpected host data", () => {
+  it("rejects malformed, unsupported and unexpected stored data", () => {
     expect(hardwareSnapshotSchema.safeParse(snapshot).success).toBe(true);
     for (const input of [
       { ...snapshot, platform: "darwin" },
@@ -64,7 +84,6 @@ describe("hardware events", () => {
     ])
       expect(hardwareSnapshotSchema.safeParse(input).success).toBe(false);
   });
-
   it("persists updates without touching meeting data and validates stored data", async () => {
     const query = vi.fn().mockResolvedValue({ rows: [{ snapshot }], rowCount: 1 });
     const store = new PostgresHardwareStore({ query });
@@ -77,54 +96,27 @@ describe("hardware events", () => {
     query.mockResolvedValue({ rows: [], rowCount: 0 });
     expect(await store.read()).toBeUndefined();
   });
-
-  it("authenticates agents before parsing reports and never logs credentials", async () => {
-    const logs: string[] = [];
-    const logger = pino(
-      new Writable({
-        write(chunk, _encoding, done) {
-          logs.push(String(chunk));
-          done();
+  it("identifies invalid stored inventory without exposing its content and preserves its ordering timestamp", async () => {
+    const detectedAt = "2099-01-01T00:00:00.000Z";
+    const query = vi.fn().mockResolvedValue({
+      rows: [
+        {
+          snapshot: { private: "credentials-must-not-escape" },
+          detected_at: new Date(detectedAt),
         },
-      }),
-    );
-    const update = vi.fn().mockResolvedValue(true);
-    const read = vi.fn().mockResolvedValue(snapshot);
-    const authorize = vi.fn().mockResolvedValue(undefined);
-    const key = "private-installation-key";
-    const token = deriveHardwareAgentToken(key);
-    const app = Fastify();
-    registerHardwareRoutes(app, { store: { update, read }, secretsKey: key, logger, authorize });
-    expect(
-      (await app.inject({ method: "POST", url: "/api/internal/hardware", payload: snapshot }))
-        .statusCode,
-    ).toBe(401);
-    expect(update).not.toHaveBeenCalled();
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/api/internal/hardware",
-          headers: { "x-summyz-hardware-token": token },
-          payload: snapshot,
-        })
-      ).statusCode,
-    ).toBe(204);
-    expect(update).toHaveBeenCalledWith(snapshot);
-    expect(
-      (
-        await app.inject({
-          method: "POST",
-          url: "/api/internal/hardware",
-          headers: { "x-summyz-hardware-token": token },
-          payload: { ...snapshot, platform: "darwin" },
-        })
-      ).statusCode,
-    ).toBe(400);
-    expect((await app.inject("/api/local-ai/hardware")).json()).toEqual(snapshot);
-    expect(authorize).toHaveBeenCalled();
-    expect(logs.join("")).not.toContain(key);
-    expect(logs.join("")).not.toContain(token);
-    await app.close();
+      ],
+      rowCount: 1,
+    });
+    const store = new PostgresHardwareStore({ query });
+    await expect(store.read()).rejects.toMatchObject({
+      name: "Error",
+      message: "invalid_hardware_snapshot",
+      detectedAt,
+    });
+    await expect(store.read()).rejects.toBeInstanceOf(InvalidHardwareSnapshotError);
+    query.mockResolvedValue({ rows: [{ snapshot: {}, detected_at: detectedAt }], rowCount: 1 });
+    await expect(store.read()).rejects.toMatchObject({ detectedAt });
+    query.mockResolvedValue({ rows: [{ snapshot: {}, detected_at: "invalid" }], rowCount: 1 });
+    await expect(store.read()).rejects.toThrow("invalid_hardware_snapshot_metadata");
   });
 });

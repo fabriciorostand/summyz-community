@@ -7,20 +7,23 @@ pré-compiladas para a versão 1.0.0.
 
 ## Requisitos e hosts suportados
 
-Instale Git e Docker com o plugin Compose. Prepare uma aplicação de bot no Discord e a conta Discord
-do dono dos servidores que serão configurados. Créditos OpenRouter são necessários somente para
+Use Windows ou Linux e instale Git e Docker com o plugin Compose. Prepare uma aplicação de bot no
+Discord e a conta Discord do dono dos servidores que serão configurados. Créditos OpenRouter são necessários somente para
 etapas que usam OpenRouter. Execução por GPU também exige drivers e integração Docker compatíveis.
 
 | Host | CPU | NVIDIA CUDA | AMD ROCm | Validação na preparação da 1.0.0 |
 | --- | --- | --- | --- | --- |
 | Windows com Docker Desktop/WSL2 | Suportado | Suportado | Não exposto pelo Docker Desktop | NVIDIA validada em uma RTX 2060; build CPU validado |
 | Linux com Docker Engine + Compose | Suportado | Suportado | Suportado para Ollama | Validação em máquina física ainda pendente |
-| macOS com Docker Desktop | Suportado | Não aplicável | Não aplicável | Validação em máquina física ainda pendente |
 
 Validação pendente registra a evidência disponível, sem alterar o status de suporte.
 A transcrição faster-whisper por GPU suporta NVIDIA/CUDA; AMD ROCm suporta Ollama no Linux.
 Consulte as [configurações de execução](./configuration.md#execução-local-e-vad) antes de escolher
 um perfil local.
+
+Os launchers e os pontos de entrada nativos do bot/API recusam sistemas não suportados antes de
+criar configuração ou inicializar serviços. O bloqueio usa o sistema operacional visível ao processo;
+containers Linux não identificam o sistema operacional da máquina física.
 
 ## Preparar a aplicação Discord
 
@@ -67,21 +70,67 @@ senha. `WEB_HOST` permite configurar o IP de publicação da porta do dashboard 
 conforme o [guia de configuração](./configuration.md#ambiente-e-parâmetros-de-execução).
 Mantenha o modo local em loopback; o acesso pela rede exige o modo público.
 
-O launcher local abre a URL de setup no Windows ou a abre/imprime no Linux/macOS conforme a
+O launcher local abre a URL de setup no Windows ou a abre/imprime no Linux conforme a
 disponibilidade do navegador. O fragmento carrega a credencial de setup; não o compartilhe.
 
-No Windows, `up` e `restart` registram o detector de hardware no Agendador de Tarefas para iniciar
-com o sistema. O registro exige elevação; a tarefa executa com a identidade do usuário e privilégios
-limitados. `down` interrompe e desabilita a tarefa, e o próximo `up` a reativa. O detector faz uma
-leitura inicial e recebe eventos de dispositivos do Windows, sem varreduras periódicas nem botão
-manual no dashboard. Se a API estiver indisponível, ele repete o envio do relatório já coletado.
-O catálogo no dashboard e a preparação de novas reuniões usam o inventário atualizado; detectar
-uma GPU nova não altera o acesso aos dispositivos de containers existentes.
+No Windows e no Linux, os launchers local e público adicionam `docker/compose.hardware.yaml`. A detecção
+acontece dentro do bot e da API, sem elevação administrativa, tarefa agendada ou processo residente
+no host. Cada processo aguarda uma leitura inicial válida antes de iniciar suas funções, inclusive
+na retomada automática pelo Docker; falha nessa leitura impede sua inicialização. O launcher prepara
+os provedores CPU e tenta os provedores GPU antes de iniciar bot/API. A ausência de um provedor GPU
+opcional mantém CPU disponível; uma resposta inválida ou uma falha declarada pelo sensor impede a
+leitura. Alterações posteriores podem ser consultadas pela [redetecção manual da API](./operations.md#redetectar-hardware-no-windows-e-linux).
+Esta etapa não adiciona um botão ao dashboard nem redetecção automática por eventos ou temporizador.
+Encerrar um container encerra sua detecção; o outro continua independente. O endpoint antigo de
+relatórios do host foi removido. Os launchers não removem automaticamente tarefas Windows ou
+serviços Linux antigos.
 
-No Linux, o detector exige `systemd`, `udev` e `curl` no host. O launcher registra uma unidade
-do sistema, com elevação via `sudo` ou execução como root, e o detector roda com a identidade
-do usuário da instalação. Ele escuta eventos do `udev`; `up`/`restart` habilitam a unidade e `down`
-a desabilita. O macOS permanece com a detecção inicial do launcher, fora do escopo de eventos.
+Um inventário armazenado inválido só é substituído após uma nova detecção bem-sucedida e validada.
+Erros de acesso ao banco continuam impedindo a inicialização. Essa recuperação altera somente o
+inventário de hardware, sem modificar reuniões, áudios ou dados de processamento.
+
+Uma instalação Linux existente pode ainda ter o serviço antigo cadastrado. Antes de atualizar,
+confira seu nome e o `ExecStart` para confirmar que pertence a este repositório, e remova somente
+essa unidade com privilégios administrativos. Na raiz do repositório:
+
+```sh
+repository_path=$(pwd -P)
+unit_name="summyz-hardware-$(printf '%s' "$repository_path" | sha256sum | cut -c1-12).service"
+systemctl cat "$unit_name"
+# After confirming the unit points to this repository:
+sudo systemctl disable --now "$unit_name"
+sudo rm -- "/etc/systemd/system/$unit_name"
+sudo systemctl daemon-reload
+```
+
+Essa é uma limpeza manual de um serviço instalado anteriormente; novas inicializações não
+instalam serviços de detecção no host.
+
+### Recursos no Windows
+
+O inventário registra CPU e RAM efetivamente expostas ao container, considerando afinidade de CPU,
+cotas de CPU do cgroup v2 e limites de memória. A GPU é consultada no faster-whisper GPU; se somente
+Ollama GPU estiver acessível, seu modelo e VRAM permanecem desconhecidos. Dados antigos do launcher
+não substituem uma nova leitura. No Linux, AMD/ROCm é reconhecido pelo serviço Ollama GPU disponível;
+seu modelo e VRAM permanecem desconhecidos. A aceleração AMD continua disponível para resumos,
+com transcrição em CPU. Detectar uma GPU não amplia o acesso de containers já existentes:
+pode ser necessário recriar os serviços GPU com o Compose, executar o launcher novamente e depois
+solicitar uma nova leitura.
+
+Para usar todo o poder computacional disponível da máquina física, provavelmente será necessário
+configurar os recursos do Docker Desktop/WSL 2. O Compose do Summyz não impõe cotas de CPU/RAM e o
+perfil NVIDIA solicita todas as GPUs, mas os containers só podem usar o que o Docker/WSL expõe.
+Disponibilizar recursos não garante utilização de todos os núcleos ou GPUs simultaneamente: isso
+depende do modelo, do provedor e da carga de trabalho.
+
+Por padrão, o WSL 2 disponibiliza todos os processadores lógicos, mas limita a RAM a 50% da memória
+do Windows. Consulte a [configuração oficial do WSL](https://learn.microsoft.com/en-us/windows/wsl/wsl-config)
+e revise os limites na sua instalação. Ajustes em `%UserProfile%\.wslconfig` são globais para todas
+as distribuições WSL 2; um limite individual de container não aumenta a memória disponível na VM.
+O Summyz não altera esse arquivo. Reserve memória para o Windows e os demais programas ao definir
+os limites. Aplicar mudanças pode exigir reiniciar o WSL/Docker; `wsl --shutdown` encerra todas as
+distribuições WSL 2, portanto finalize suas atividades antes de executar esse comando. Reinicie o
+Summyz após aplicar a configuração para fazer a leitura inicial dos novos recursos.
 
 ## Iniciar uma instalação pública
 

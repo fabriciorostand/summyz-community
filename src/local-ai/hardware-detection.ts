@@ -3,6 +3,7 @@ import { availableParallelism, totalmem } from "node:os";
 import { promisify } from "node:util";
 
 import { z } from "zod";
+import { assertSupportedRuntimePlatform } from "../runtime-platform.js";
 
 import type { GpuVendor, GraphicsAccelerator, LocalHardwareProfile } from "./hardware-profile.js";
 
@@ -28,7 +29,7 @@ const injectedGpuSchema = z.object({
     z.coerce.number().int().positive().optional(),
   ),
   SUMMYZ_DETECTED_GPU_NAME: z.string().min(1).max(200).optional(),
-  SUMMYZ_DETECTED_GPU_VENDOR: z.enum(["amd", "apple", "intel", "nvidia", "unknown"]),
+  SUMMYZ_DETECTED_GPU_VENDOR: z.enum(["amd", "intel", "nvidia", "unknown"]),
 });
 
 export async function detectLocalHardware(
@@ -36,6 +37,7 @@ export async function detectLocalHardware(
 ): Promise<LocalHardwareProfile> {
   const runCommand = options.runCommand ?? runExternalCommand;
   const platform = options.platform ?? process.platform;
+  assertSupportedRuntimePlatform(platform);
   const detected = [
     ...detectInjectedAdapter(options.environment ?? process.env),
     ...(await detectNvidia(runCommand)),
@@ -52,7 +54,6 @@ async function detectPlatformAdapters(
   if (platform === "win32") {
     return detectWindowsAdapters(runCommand);
   }
-  if (platform === "darwin") return detectMacAdapters(runCommand);
   return detectLinuxAdapters(runCommand);
 }
 
@@ -162,38 +163,10 @@ async function detectLinuxAdapters(runCommand: RunCommand): Promise<GraphicsAcce
   }
 }
 
-async function detectMacAdapters(runCommand: RunCommand): Promise<GraphicsAccelerator[]> {
-  try {
-    const output = await runCommand("system_profiler", ["SPDisplaysDataType", "-json"]);
-    const parsed = z
-      .object({
-        SPDisplaysDataType: z.array(
-          z.object({
-            _name: z.string().min(1),
-            spdisplays_vendor: z.string().optional(),
-            sppci_device_type: z.string().optional(),
-          }),
-        ),
-      })
-      .safeParse(JSON.parse(output) as unknown);
-    if (!parsed.success) return [];
-    return parsed.data.SPDisplaysDataType.map((adapter, index) => ({
-      id: `mac-${String(index)}`,
-      name: adapter._name,
-      vendor: identifyVendor(
-        `${adapter.spdisplays_vendor ?? ""} ${adapter.sppci_device_type ?? ""} ${adapter._name}`,
-      ),
-    }));
-  } catch {
-    return [];
-  }
-}
-
 function identifyVendor(value: string): GpuVendor {
   if (/(?:VEN_10DE|NVIDIA)/iu.test(value)) return "nvidia";
   if (/(?:VEN_1002|\bAMD\b|\bATI\b|\bRadeon\b)/iu.test(value)) return "amd";
   if (/(?:VEN_8086|Intel)/iu.test(value)) return "intel";
-  if (/(?:Apple|Metal)/iu.test(value)) return "apple";
   return "unknown";
 }
 
