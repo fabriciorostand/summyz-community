@@ -79,9 +79,8 @@ export async function readContainerResources(
   }
   const constrained = z
     .number()
-    .int()
     .nonnegative()
-    .max(Number.MAX_SAFE_INTEGER)
+    .refine(Number.isInteger)
     .parse(options.constrainedMemoryBytes);
   const memoryBytes =
     constrained > 0 ? Math.min(options.memoryBytes, constrained) : options.memoryBytes;
@@ -127,6 +126,13 @@ export async function detectContainerHardware(
     .parse(environment.SUMMYZ_DETECTED_GPU_VENDOR || undefined);
   if (vendor === "amd") return detectOllamaGpu(request, resources, vendor);
   if (vendor !== "nvidia") return hardwareProfileSchema.parse({ ...resources, accelerators: [] });
+  return detectNvidiaGpu(request, resources);
+}
+
+async function detectNvidiaGpu(
+  request: typeof fetch,
+  resources: { cpuCores: number; memoryBytes: number },
+) {
   const response = await requestProvider(
     request,
     "http://faster-whisper-gpu:8000/hardware/inventory",
@@ -137,7 +143,7 @@ export async function detectContainerHardware(
   }
   if (response !== undefined && response.status !== 404)
     throw new Error("gpu_inventory_unavailable");
-  return detectOllamaGpu(request, resources, vendor);
+  return detectOllamaGpu(request, resources, "nvidia");
 }
 
 async function detectOllamaGpu(

@@ -262,9 +262,10 @@ async def hardware() -> dict[str, int]:
 @app.get("/hardware/inventory")
 async def hardware_inventory() -> dict[str, object]:
     try:
-        return await run_in_threadpool(
+        inventory: dict[str, object] = await run_in_threadpool(
             lambda: read_hardware_inventory(ctranslate2.get_cuda_device_count())
         )
+        return inventory
     except Exception as error:
         logger.error("Hardware inventory failed", extra={"error_type": type(error).__name__})
         raise HTTPException(status_code=503, detail="Hardware inventory is unavailable") from error

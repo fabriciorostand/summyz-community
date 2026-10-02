@@ -18,6 +18,45 @@ function storeFixture() {
 }
 
 describe("hardware startup boundary", () => {
+  it.each([false, true])(
+    "closes the startup database on detection failure without exposing secrets (close failure: %s)",
+    async (closeFails) => {
+      const messages: string[] = [];
+      const startupLogger = pino(
+        { level: "error" },
+        { write: (message) => messages.push(message) },
+      );
+      const closeOnFailure = vi.fn(async () => {
+        if (closeFails) throw new Error("private database credentials");
+      });
+      await expect(
+        initializeHardwareRuntime({
+          store: storeFixture(),
+          logger: startupLogger,
+          source: "container",
+          detect: async () => {
+            throw new Error("private provider credentials");
+          },
+          closeOnFailure,
+        }),
+      ).rejects.toThrow("hardware_detection_failed");
+      expect(closeOnFailure).toHaveBeenCalledOnce();
+      expect(messages.join("")).toContain("Hardware startup preflight failed");
+      expect(messages.join("")).not.toContain("credentials");
+      expect(messages.join("").includes("Unable to close PostgreSQL")).toBe(closeFails);
+    },
+  );
+  it("keeps the startup database open after successful detection", async () => {
+    const closeOnFailure = vi.fn(async () => undefined);
+    await initializeHardwareRuntime({
+      store: storeFixture(),
+      logger,
+      source: "container",
+      detect: async () => hardware,
+      closeOnFailure,
+    });
+    expect(closeOnFailure).not.toHaveBeenCalled();
+  });
   it("validates the container overlay marker and preserves host mode by default", () => {
     expect(readHardwareSource({})).toBe("host");
     expect(readHardwareSource({ SUMMYZ_HARDWARE_SOURCE: "container" })).toBe("container");

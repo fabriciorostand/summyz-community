@@ -13,6 +13,32 @@ vi.mock("node:os", () => ({
 }));
 
 describe("real container resource adapter", () => {
+  it.each([0, Number(2n ** 64n - 1n)])(
+    "uses available RAM when the native constraint %s does not restrict memory",
+    async (constrainedMemoryBytes) => {
+      expect(
+        await readContainerResources({
+          cpuCores: 4,
+          memoryBytes: 8 * 1024 ** 3,
+          constrainedMemoryBytes,
+          readCpuLimit: async () => undefined,
+        }),
+      ).toEqual({ cpuCores: 4, memoryBytes: 8 * 1024 ** 3 });
+    },
+  );
+  it.each([-1, 1.5, Number.NaN, Number.POSITIVE_INFINITY])(
+    "rejects invalid native memory constraint %s",
+    async (constrainedMemoryBytes) => {
+      await expect(
+        readContainerResources({
+          cpuCores: 4,
+          memoryBytes: 8 * 1024 ** 3,
+          constrainedMemoryBytes,
+          readCpuLimit: async () => undefined,
+        }),
+      ).rejects.toThrow();
+    },
+  );
   it("preserves fractional capacity when the bot reads API inventory and caps its own limits", async () => {
     readFile.mockImplementation(async (path: string) =>
       path.endsWith("cpu.max") ? "150000 100000" : "0-11",

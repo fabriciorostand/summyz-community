@@ -112,12 +112,7 @@ async function initializeBotHardware() {
     store: hardwareStore,
     logger,
     source: hardwareSource,
-  }).catch(async () => {
-    logger.fatal({ code: "hardware_detection_failed" }, "Hardware startup preflight failed");
-    await database.close().catch(() => {
-      logger.error("Unable to close PostgreSQL after hardware startup failure");
-    });
-    throw new Error("hardware_detection_failed");
+    closeOnFailure: () => database.close(),
   });
 }
 const containerHardwareRuntime =

@@ -5,6 +5,7 @@ import baseConfig from "./vitest.config.js";
 export default mergeConfig(baseConfig, {
   test: {
     coverage: {
+      reportOnFailure: true,
       exclude: ["scripts/**", "tests/**"],
       reporter: ["text", "html", "json", "json-summary", "cobertura"],
       reportsDirectory: "artifacts/reports/server/coverage",
