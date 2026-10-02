@@ -246,6 +246,17 @@ describe("runtime packaging", () => {
     }
   });
 
+  it("includes the secret-scan ignore file in the Docker test image", async () => {
+    const [dockerignore, dockerfile] = await Promise.all([
+      readFile(new URL(".dockerignore", repositoryRoot), "utf8"),
+      readFile(new URL("docker/Dockerfile", repositoryRoot), "utf8"),
+    ]);
+    const testStage = dockerfile.split("FROM build AS test")[1]?.split("\nFROM ")[0];
+
+    expect(dockerignore).toMatch(/^!\.gitleaksignore$/mu);
+    expect(testStage).toMatch(/^COPY .*\.gitleaksignore .*\.\/$/mu);
+  });
+
   it("empacota o modo público com Caddy fixado e launchers dedicados", async () => {
     const [dockerfile, publicCompose, shellLauncher, powershellLauncher] = await Promise.all([
       readFile(new URL("docker/Dockerfile", repositoryRoot), "utf8"),

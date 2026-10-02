@@ -41,7 +41,7 @@ COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PATH=/opt/ffmpeg/bin:${PATH}
 COPY biome.json ./
-COPY .dockerignore .gitignore README.md SECURITY.md pyproject.toml ./
+COPY .dockerignore .gitignore .gitleaksignore README.md SECURITY.md pyproject.toml ./
 COPY docker ./docker
 COPY docs ./docs
 COPY .github ./.github

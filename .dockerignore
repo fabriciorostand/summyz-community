@@ -2,6 +2,7 @@
 !.dockerignore
 !.env.example
 !.gitignore
+!.gitleaksignore
 !.github/
 !.github/**
 !.husky/
