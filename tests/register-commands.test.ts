@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from "vitest";
 import { loadConfig, resolveBotConfig } from "../src/config.js";
 import { registerCommands } from "../src/discord/register-commands.js";
 
+const applicationId = "1".repeat(18);
+
 function createConfig(guildId?: string) {
   const bootstrap = loadConfig({
     DATABASE_URL: "postgresql://test:test@localhost:5432/test",
@@ -11,7 +13,7 @@ function createConfig(guildId?: string) {
     ...(guildId === undefined ? {} : { DISCORD_GUILD_ID: guildId }),
   });
   return resolveBotConfig(bootstrap, {
-    discordApplicationId: "123456789012345678",
+    discordApplicationId: applicationId,
     discordToken: "test-discord-token",
   });
 }
@@ -26,7 +28,7 @@ describe("command registration", () => {
       await registerCommands(createConfig(guildId));
 
       expect(setToken).toHaveBeenCalledWith("test-discord-token");
-      expect(put).toHaveBeenCalledExactlyOnceWith("/applications/123456789012345678/commands", {
+      expect(put).toHaveBeenCalledExactlyOnceWith(`/applications/${applicationId}/commands`, {
         body: expect.arrayContaining([
           expect.objectContaining({ name: "record" }),
           expect.objectContaining({ name: "stop" }),

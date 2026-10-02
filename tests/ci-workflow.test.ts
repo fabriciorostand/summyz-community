@@ -5,6 +5,22 @@ import { describe, expect, it } from "vitest";
 const root = new URL("../", import.meta.url);
 
 describe("continuous integration contract", () => {
+  it("scans the complete history with redacted output and the repository's finding-specific ignore file", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const step = workflow.slice(
+      workflow.indexOf("- name: Scan the complete history for secrets"),
+      workflow.indexOf("- name: Report every repository vulnerability"),
+    );
+    expect(step).toContain("detect --source=/repo --redact");
+    expect(step).toContain("--gitleaks-ignore-path=/repo/.gitleaksignore");
+    expect(step).not.toContain("--exit-code=0");
+    const fingerprints = (await readFile(new URL(".gitleaksignore", root), "utf8"))
+      .split("\n")
+      .filter((line) => line.length > 0 && !line.startsWith("#"));
+    expect(fingerprints.length).toBeGreaterThan(0);
+    for (const fingerprint of fingerprints)
+      expect(fingerprint).toMatch(/^[a-f0-9]{40}:[^:*]+:[a-z0-9-]+:\d+$/u);
+  });
   it("shows the individual CLA check as CLA / Individual", async () => {
     const workflow = await readFile(new URL(".github/workflows/individual-cla.yml", root), "utf8");
 

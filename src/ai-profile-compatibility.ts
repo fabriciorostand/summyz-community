@@ -59,15 +59,7 @@ function assessBalancedCpuCompatibility(
 ): AiProfileCompatibilityStatus {
   const compatibility = assessCpuCompatibility(input.hardware, entry);
   if (compatibility !== "compatible") return compatibility;
-  const balanced = catalog
-    .filter(
-      (candidate) =>
-        candidate.phase === input.phase &&
-        candidate.provider === input.provider &&
-        candidate.minimumCpuCores <= Math.max(1, Math.floor((input.hardware.cpuCores * 2) / 3)) &&
-        candidate.memoryBytes <= input.hardware.memoryBytes * 0.75,
-    )
-    .toSorted((left, right) => right.memoryBytes - left.memoryBytes)[0];
+  const balanced = selectBalancedCpuModel(input);
   if (balanced?.model === entry.model) return "recommended";
   if (findCatalogEntry(input) === undefined && input.provider === "ollama") {
     const parameters = parameterCount(input.model);
@@ -79,6 +71,18 @@ function assessBalancedCpuCompatibility(
       return "recommended";
   }
   return compatibility;
+}
+
+function selectBalancedCpuModel(input: AssessModelCompatibilityInput): CatalogEntry | undefined {
+  return catalog
+    .filter(
+      (candidate) =>
+        candidate.phase === input.phase &&
+        candidate.provider === input.provider &&
+        candidate.minimumCpuCores <= Math.max(1, Math.floor((input.hardware.cpuCores * 2) / 3)) &&
+        candidate.memoryBytes <= input.hardware.memoryBytes * 0.75,
+    )
+    .toSorted((left, right) => right.memoryBytes - left.memoryBytes)[0];
 }
 
 function findCatalogEntry(input: AssessModelCompatibilityInput): CatalogEntry | undefined {

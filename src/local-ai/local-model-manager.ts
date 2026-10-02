@@ -133,16 +133,11 @@ export class LocalModelManager {
     this.#batchSize = options.batchSize ?? 0;
     this.#configuration = options.configuration;
     this.#executionPlan = options.executionPlan;
-    this.#fasterWhisperBaseUrl =
-      options.fasterWhisperBaseUrl ??
-      (options.executionPlan?.transcription.device === "gpu"
-        ? "http://faster-whisper-gpu:8000"
-        : "http://faster-whisper:8000");
+    this.#fasterWhisperBaseUrl = resolveFasterWhisperBaseUrl(options);
     this.#fetch = options.fetch ?? fetch;
     this.#logger = options.logger;
     this.#ollamaBaseUrl = options.ollamaBaseUrl ?? "http://ollama:11434";
-    this.#ollamaGpuBaseUrl =
-      options.ollamaGpuBaseUrl ?? options.ollamaBaseUrl ?? "http://ollama-gpu:11434";
+    this.#ollamaGpuBaseUrl = resolveOllamaGpuBaseUrl(options);
     this.#trackOllamaUse("refinement", options.configuration.refinement);
     this.#trackOllamaUse("summary", options.configuration.summary);
     this.#fasterWhisperPending = options.configuration.transcription.provider === "faster-whisper";
@@ -444,6 +439,19 @@ export class LocalModelManager {
 
 type OllamaShow = z.infer<typeof ollamaShowSchema>;
 type OllamaTags = z.infer<typeof ollamaTagsSchema>;
+
+function resolveFasterWhisperBaseUrl(options: LocalModelManagerOptions): string {
+  return (
+    options.fasterWhisperBaseUrl ??
+    (options.executionPlan?.transcription.device === "gpu"
+      ? "http://faster-whisper-gpu:8000"
+      : "http://faster-whisper:8000")
+  );
+}
+
+function resolveOllamaGpuBaseUrl(options: LocalModelManagerOptions): string {
+  return options.ollamaGpuBaseUrl ?? options.ollamaBaseUrl ?? "http://ollama-gpu:11434";
+}
 
 interface OllamaInventory {
   show: OllamaShow;
