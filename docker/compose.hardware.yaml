@@ -1,8 +1,0 @@
-services:
-  bot:
-    environment:
-      SUMMYZ_HARDWARE_SOURCE: container
-
-  dashboard:
-    environment:
-      SUMMYZ_HARDWARE_SOURCE: container

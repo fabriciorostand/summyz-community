@@ -27,7 +27,7 @@ const pendingStatuses = [
 describe.skipIf(connectionString === undefined)(
   "contrato real de atualização do PostgreSQL",
   () => {
-    it.each([9, 14, 15, 17, 18])(
+    it.each([9, 14, 15, 17, 18, 19])(
       "preserva calls, jobs, custos e catálogo de áudio ao atualizar da versão %i",
       async (baseline) => {
         const adminPool = new Pool({
@@ -49,6 +49,12 @@ CREATE TABLE schema_migrations (
             await scopedDatabase.query("INSERT INTO schema_migrations (version) VALUES ($1)", [
               migration.version,
             ]);
+          }
+          if (baseline >= 19) {
+            await scopedDatabase.query(
+              `INSERT INTO local_hardware_snapshot (snapshot_id, snapshot, detected_at)
+VALUES ('host', '{}'::jsonb, now())`,
+            );
           }
 
           const meetingIds = new Map<(typeof pendingStatuses)[number], string>();
@@ -190,7 +196,8 @@ SELECT
   (SELECT count(*)::integer FROM schema_migrations WHERE checksum IS NULL) AS missing_checksum_count,
   to_regclass('meeting_tasks') IS NOT NULL AS has_meeting_tasks,
   to_regclass('live_meeting_states') IS NOT NULL AS has_live_meeting_states,
-  to_regclass('runtime_component_heartbeats') IS NOT NULL AS has_runtime_heartbeats
+  to_regclass('runtime_component_heartbeats') IS NOT NULL AS has_runtime_heartbeats,
+  to_regclass('local_hardware_snapshot') IS NOT NULL AS has_hardware_snapshot
 `,
             [[...meetingIds.values()], transcribingMeetingId],
           );
@@ -198,6 +205,7 @@ SELECT
             {
               audio_count: pendingStatuses.length,
               cost_count: 1,
+              has_hardware_snapshot: false,
               has_live_meeting_states: true,
               has_meeting_tasks: true,
               has_runtime_heartbeats: true,

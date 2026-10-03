@@ -65,8 +65,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels --requirement req
 COPY services/faster-whisper/execution_policy.py services/faster-whisper/language.py \
   services/faster-whisper/model_capability.py services/faster-whisper/model_inventory.py \
   services/faster-whisper/server.py services/faster-whisper/model_downloads.py \
-  services/faster-whisper/structured_logging.py services/faster-whisper/transcription_options.py \
-  services/faster-whisper/hardware_inventory.py ./
+  services/faster-whisper/structured_logging.py services/faster-whisper/transcription_options.py ./
 RUN mkdir -p /models/cache/huggingface /models/home /models/managed /tmp/summyz-audio && \
     chown -R nobody:nogroup /models /tmp/summyz-audio /service
 
@@ -117,8 +116,7 @@ RUN pip install --no-cache-dir --no-index --find-links=/wheels --requirement req
 COPY services/faster-whisper/execution_policy.py services/faster-whisper/language.py \
   services/faster-whisper/model_capability.py services/faster-whisper/model_inventory.py \
   services/faster-whisper/server.py services/faster-whisper/model_downloads.py \
-  services/faster-whisper/structured_logging.py services/faster-whisper/transcription_options.py \
-  services/faster-whisper/hardware_inventory.py ./
+  services/faster-whisper/structured_logging.py services/faster-whisper/transcription_options.py ./
 RUN mkdir -p /models/cache/huggingface /models/home /models/managed /tmp/summyz-audio && \
     chown -R nobody:nogroup /models /tmp/summyz-audio /service
 

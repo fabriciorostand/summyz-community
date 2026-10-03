@@ -146,10 +146,12 @@ Migrations são definições SQL TypeScript ordenadas em `src/database/migration
 Depois de aplicadas são imutáveis: PostgreSQL registra checksum SHA-256 e a inicialização falha
 de forma fechada se o SQL versionado divergir. Não corrija uma migration aplicada editando seu SQL histórico.
 
-Da versão 10 em diante, migrations devem ser expand-only: sem exclusão de dados de negócio,
-truncamento, remoção de tabelas/colunas, exclusão em cascata ou atualização do processamento de
-reuniões. Limpeza pertence ao ciclo explícito de retenção após estado terminal. A inicialização
-deve preservar artefatos pendentes. Upgrades de processamento/manifesto exigem testes de contrato
+Da versão 10 em diante, migrations devem preservar todas as reuniões não terminais: sem exclusão de
+dados de negócio, truncamento, remoção de colunas, exclusão em cascata ou atualização do
+processamento de reuniões. Tabelas só podem ser removidas quando não guardam dados de reuniões nem
+de configuração; as tabelas protegidas estão listadas em `src/database/migration-safety.ts`.
+Limpeza pertence ao ciclo explícito de retenção após estado terminal. A inicialização deve
+preservar artefatos pendentes. Upgrades de processamento/manifesto exigem testes de contrato
 que comprovem preservação e recuperação de reuniões, jobs, custos, manifestos e catálogos de áudio.
 Consulte os testes de integração de upgrade e `tests/database-migration-safety.test.ts`.
 

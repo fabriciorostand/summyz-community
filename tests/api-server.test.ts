@@ -14,46 +14,26 @@ const localOrigin = { origin: "http://127.0.0.1:8787" };
 
 describe("Community dashboard API", () => {
   it.each(["local", "public"] as const)(
-    "protects manual hardware refresh with %s dashboard authorization and origin validation",
+    "reads hardware only with %s dashboard authorization and exposes no inventory refresh",
     async (mode) => {
       const dependencies = createDependencies(mode);
-      const report = {
-        source: "container" as const,
-        status: "current" as const,
-        detectedAt: new Date().toISOString(),
-        hardware: { cpuCores: 4, memoryBytes: 8 * 1024 ** 3, accelerators: [] },
-      };
-      const refresh = vi.fn(async () => report);
-      dependencies.hardware = {
-        store: { read: async () => undefined, update: async () => true },
-        containerInventory: { read: async () => report, refresh },
-      };
+      const hardware = { cpuCores: 4, memoryBytes: 8 * 1024 ** 3, accelerators: [] };
+      const readHardware = vi.fn(async () => hardware);
+      dependencies.hardware = { readHardware };
       const app = await createApiServer(dependencies);
       try {
         const origin = mode === "public" ? "https://summyz.example.com" : localOrigin.origin;
-        expect(
-          (
-            await app.inject({
-              method: "POST",
-              url: "/api/local-ai/hardware/refresh",
-              headers: { origin: "https://attacker.example.com" },
-            })
-          ).statusCode,
-        ).toBe(403);
-        expect(
-          (await app.inject({ method: "POST", url: "/api/local-ai/hardware/refresh" })).statusCode,
-        ).toBe(403);
-        if (mode === "public")
-          expect(
-            (
-              await app.inject({
-                method: "POST",
-                url: "/api/local-ai/hardware/refresh",
-                headers: { origin },
-              })
-            ).statusCode,
-          ).toBe(401);
-        expect(refresh).not.toHaveBeenCalled();
+        if (mode === "public") {
+          expect((await app.inject("/api/local-ai/hardware")).statusCode).toBe(401);
+          expect(readHardware).not.toHaveBeenCalled();
+        }
+        const response = await app.inject({
+          url: "/api/local-ai/hardware",
+          headers: { origin },
+          cookies: { summyz_session: "session-token" },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual({ hardware });
         expect(
           (
             await app.inject({
@@ -63,10 +43,7 @@ describe("Community dashboard API", () => {
               cookies: { summyz_session: "session-token" },
             })
           ).statusCode,
-        ).toBe(200);
-        expect(refresh).toHaveBeenCalledTimes(1);
-        expect(dependencies.aiProfiles.updateProfile).not.toHaveBeenCalled();
-        expect(dependencies.settings.setSecret).not.toHaveBeenCalled();
+        ).toBe(404);
       } finally {
         await app.close();
       }

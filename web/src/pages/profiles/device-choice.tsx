@@ -1,6 +1,5 @@
 import { useEffect, useState } from "react";
 import { Label } from "../../components/ui";
-import { useHardwareVersion } from "../../hooks/use-model-catalog";
 import { useI18n } from "../../i18n/store";
 import { api } from "../../lib/api";
 import type { Stage } from "./profile-stages";
@@ -17,9 +16,7 @@ export function DeviceChoice({
   onChange: (device: "auto" | "cpu" | "gpu") => void;
 }) {
   const { t } = useI18n();
-  const version = useHardwareVersion();
   const [available, setAvailable] = useState<boolean | undefined>(undefined);
-  // biome-ignore lint/correctness/useExhaustiveDependencies: native hardware events trigger a fresh availability read.
   useEffect(() => {
     let current = true;
     setAvailable(undefined);
@@ -34,7 +31,7 @@ export function DeviceChoice({
     return () => {
       current = false;
     };
-  }, [provider, version]);
+  }, [provider]);
   return (
     <fieldset className="m-0 min-w-0 border-0 p-0">
       <legend className="mb-1.5">

@@ -72,20 +72,12 @@ on loopback; network access requires public mode.
 The local launcher opens the setup URL on Windows or opens/prints it on Linux according to
 browser availability. Its fragment carries the setup claim; do not share it.
 
-On Windows and Linux, local and public launchers add `docker/compose.hardware.yaml`. Detection runs inside
-the bot and API, without administrator elevation, scheduled tasks, or a resident host process.
-Each process waits for a valid initial reading before starting its functions, including automatic
-Docker restarts; a failed reading prevents initialization. The launcher prepares CPU providers and
-attempts GPU providers before starting bot/API. An absent optional GPU provider keeps CPU available;
-invalid responses or declared sensor failures prevent a reading. Later changes can be read through
-[manual API refresh](./operations.md#refresh-hardware-on-windows-and-linux). This stage adds neither a dashboard
-button nor automatic event or timer detection. Stopping a container stops its detection; the other
-continues independently. The old host-report endpoint has been removed. These launchers do not
-automatically remove old Windows tasks or Linux services.
-
-An invalid stored inventory is replaced only after a successful, validated new detection. Database
-access errors still prevent initialization. This recovery changes only hardware inventory and never
-meeting, audio, or processing data.
+On Windows and Linux, the launcher detects the host GPU before starting the containers, without
+administrator elevation, scheduled tasks, or a resident host process. With NVIDIA, it passes the
+name and VRAM that `nvidia-smi` reports for the first GPU to bot/API; on Linux, AMD is recognized
+without VRAM. Bot and API read CPU and RAM once at startup. There is no dashboard button, manual
+refresh, or automatic event or timer detection: run `restart` after hardware changes. These
+launchers do not automatically remove old Windows tasks or Linux services.
 
 An existing Linux installation may still have a legacy system service registered. Before upgrading,
 review its name and `ExecStart` to confirm that it belongs to this repository, then remove only that
@@ -105,13 +97,12 @@ This is manual cleanup of a previously installed service; new startup installs n
 
 ### Windows resources
 
-Inventory describes CPU and RAM exposed to the container, including CPU affinity, cgroup v2 CPU
-quotas, and memory limits. GPU metadata comes from faster-whisper GPU; when only Ollama GPU is
-reachable, model and VRAM remain unknown. Old launcher metadata never replaces a new reading.
-On Linux, AMD/ROCm is recognized through the available Ollama GPU service; its model and VRAM
-remain unknown. AMD acceleration remains available for summaries, with CPU transcription.
-Detecting a GPU does not expand existing containers' device access: you may need to recreate GPU
-services with Compose, run the launcher again, and then request a new reading.
+CPU and RAM are the resources the container's operating system reports: on Windows, those of the
+WSL 2 virtual machine; on Linux, those of the host. Per-container Docker CPU or memory limits are
+not considered. GPU name and VRAM come from the launcher; when unavailable, as with AMD, VRAM remains
+unknown. AMD acceleration remains available for summaries on Linux, with CPU transcription.
+Detecting a GPU does not expand existing containers' device access: run the launcher again to
+recreate the GPU services.
 
 To use the physical machine's maximum available computing capacity, you will likely need to
 configure Docker Desktop/WSL 2 resources. Summyz Compose sets no CPU/RAM quotas and the NVIDIA

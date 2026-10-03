@@ -20,7 +20,6 @@ import { createPostgresDatabase, type PostgresDatabase } from "./database/postgr
 import { PostgresGuildConfigStore } from "./database/postgres-guild-config-store.js";
 import { PostgresGuildHistoryStore } from "./database/postgres-guild-history-store.js";
 import { PostgresGuildOwnerApprovalStore } from "./database/postgres-guild-owner-approval-store.js";
-import { PostgresHardwareStore } from "./database/postgres-hardware-store.js";
 import { PostgresInstallationDiscordConnectionStore } from "./database/postgres-installation-discord-connection-store.js";
 import { PostgresInstallationHealthStore } from "./database/postgres-installation-health-store.js";
 import { PostgresInstallationSettingsStore } from "./database/postgres-installation-settings-store.js";
@@ -42,8 +41,8 @@ import { installInteractionHandler } from "./discord/interaction-handler.js";
 import { registerCommands } from "./discord/register-commands.js";
 import { VoiceChannelDeletionVerifier } from "./discord/voice-channel-deletion-verifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
-import { readHardwareSource } from "./local-ai/container-hardware-detection.js";
-import { initializeHardwareRuntime } from "./local-ai/hardware-runtime.js";
+import { readGpuServiceAvailability } from "./local-ai/gpu-service-availability.js";
+import { detectLocalHardware } from "./local-ai/hardware-detection.js";
 import { createLogger } from "./logger.js";
 import { validateFfmpegExecutable } from "./media/ffmpeg-executable.js";
 import { CachedModelCatalog } from "./models/model-catalog.js";
@@ -66,10 +65,8 @@ if (existsSync(".env")) {
 }
 
 let bootstrapConfig: ReturnType<typeof loadConfig>;
-let hardwareSource: ReturnType<typeof readHardwareSource>;
 try {
   bootstrapConfig = loadConfig(process.env);
-  hardwareSource = readHardwareSource(process.env);
 } catch {
   console.error("Invalid configuration. Review .env.");
   process.exitCode = 1;
@@ -106,18 +103,6 @@ try {
   process.exit(1);
 }
 
-const hardwareStore = new PostgresHardwareStore(database);
-async function initializeBotHardware() {
-  return initializeHardwareRuntime({
-    store: hardwareStore,
-    logger,
-    source: hardwareSource,
-    closeOnFailure: () => database.close(),
-  });
-}
-const containerHardwareRuntime =
-  hardwareSource === "container" ? await initializeBotHardware() : undefined;
-
 const installationSettings = new PostgresInstallationSettingsStore({
   database,
   secretBox: new SecretBox(bootstrapConfig.secretsKey),
@@ -138,8 +123,7 @@ const config: ReturnType<typeof resolveBotConfig> = resolveBotConfig(
   storedBotConfiguration,
 );
 
-const hardwareRuntime = containerHardwareRuntime ?? (await initializeBotHardware());
-const localHardware = hardwareRuntime.initialHardware;
+const localHardware = await detectLocalHardware();
 const recordingsDirectory = join(config.dataDir, "recordings");
 
 const postgresMeetingStore = new PostgresMeetingStore(database, storedBotConfiguration.version);
@@ -184,7 +168,7 @@ const aiRuntime = new ApplicationAiRuntime({
   config,
   costStore: postgresCostLedger,
   hardware: localHardware,
-  readHardware: hardwareRuntime.readHardware,
+  readHardware: () => readGpuServiceAvailability(localHardware),
   installationSettings,
   installationHealth,
   logger,

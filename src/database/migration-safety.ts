@@ -10,6 +10,23 @@ const PROTECTED_MEETING_TABLES = [
   "processing_jobs",
   "provider_cost_attempts",
 ] as const;
+// Tables holding meeting or configuration data, plus the migration ledger. Any other table may be
+// dropped by a migration.
+const DROP_PROTECTED_TABLES: ReadonlySet<string> = new Set([
+  ...PROTECTED_MEETING_TABLES,
+  "ai_profiles",
+  "guild_configurations",
+  "guild_history",
+  "guild_owner_approvals",
+  "installation_access",
+  "installation_discord_connection",
+  "installation_secrets",
+  "installation_settings",
+  "live_meeting_states",
+  "meeting_participants",
+  "meeting_tasks",
+  "schema_migrations",
+]);
 
 interface ForbiddenSqlOperation {
   label: string;
@@ -20,7 +37,6 @@ const protectedTableAlternation = PROTECTED_MEETING_TABLES.join("|");
 const forbiddenSqlOperations: readonly ForbiddenSqlOperation[] = [
   { label: "DELETE", pattern: /\bDELETE\s+FROM\b/i },
   { label: "TRUNCATE", pattern: /\bTRUNCATE\b/i },
-  { label: "DROP TABLE", pattern: /\bDROP\s+TABLE\b/i },
   { label: "DROP COLUMN", pattern: /\bDROP\s+COLUMN\b/i },
   { label: "CASCADE", pattern: /\bCASCADE\b/i },
   { label: "MERGE", pattern: /\bMERGE\b/i },
@@ -65,7 +81,29 @@ export function assertSafeDatabaseMigrations(migrations: readonly DatabaseMigrat
     if (forbidden !== undefined) {
       throw new UnsafeDatabaseMigrationError(migration.version, forbidden.label);
     }
+    if (dropsProtectedTable(executableSql)) {
+      throw new UnsafeDatabaseMigrationError(migration.version, "DROP TABLE on protected data");
+    }
   }
+}
+
+const sqlIdentifier = `(?:[A-Za-z_][A-Za-z0-9_$]*|"(?:[^"]|"")+")`;
+const qualifiedTableName = new RegExp(
+  String.raw`^${sqlIdentifier}(?:\s*\.\s*${sqlIdentifier}){0,2}$`,
+);
+
+/** Fails closed: a drop target that is not a plain table name counts as protected. */
+function dropsProtectedTable(sql: string): boolean {
+  for (const statement of sql.matchAll(/\bDROP\s+TABLE\b(?:\s+IF\s+EXISTS\b)?([^;]*)/gi)) {
+    const targets = (statement[1] ?? "").replace(/\s+RESTRICT\s*$/i, "").split(",");
+    for (const target of targets.map((value) => value.trim())) {
+      if (!qualifiedTableName.test(target)) return true;
+      const name = [...target.matchAll(new RegExp(sqlIdentifier, "g"))].at(-1)?.[0] ?? "";
+      const unquoted = name.startsWith('"') ? name.slice(1, -1).replaceAll('""', '"') : name;
+      if (DROP_PROTECTED_TABLES.has(unquoted.toLowerCase())) return true;
+    }
+  }
+  return false;
 }
 
 export function databaseMigrationChecksum(migration: DatabaseMigration): string {

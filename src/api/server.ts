@@ -164,7 +164,6 @@ export async function createApiServer(
   if (dependencies.hardware !== undefined) {
     registerHardwareRoutes(app, {
       ...dependencies.hardware,
-      logger: dependencies.logger,
       authorize: (request) => authorizeDashboard(request, dependencies),
     });
   }
