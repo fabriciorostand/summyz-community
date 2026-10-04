@@ -1,5 +1,5 @@
-import { CircleDollarSign, HardDrive, TriangleAlert } from "lucide-react";
-import { useState } from "react";
+import { CircleDollarSign, Download, HardDrive, TriangleAlert } from "lucide-react";
+import { useId, useState } from "react";
 
 import { Button, FormError } from "../../components/ui";
 import { invalidateModelCatalogs, useModelCatalog } from "../../hooks/use-model-catalog";
@@ -86,6 +86,7 @@ function LocalModelStatus({
     provider === "ollama" ? model.split(":")[0] : undefined,
   );
   const [error, setError] = useState<string | null>(null);
+  const notInstalledId = useId();
   const job = downloads.jobFor(provider, model);
 
   function download() {
@@ -135,21 +136,21 @@ function LocalModelStatus({
         <InstalledModel model={model} onModelsChanged={onModelsChanged} provider={provider} />
       ) : (
         <div className={`${boxClass} border-line bg-surface-raised text-ink-secondary`}>
-          <strong className="text-[12.5px] text-ink">
-            {t.models.notInstalledTitle(
-              model,
-              entry?.sizeBytes == null ? null : format.bytes(entry.sizeBytes),
-            )}
-          </strong>
-          {t.models.notInstalledBody}
-          <Button
-            className="px-2.5 py-1 text-[12px]"
-            onClick={download}
-            type="button"
-            variant="secondary"
-          >
-            {t.availability.downloadNow}
-          </Button>
+          <div className="flex w-full flex-wrap items-center justify-between gap-x-3 gap-y-2">
+            <span id={notInstalledId}>{t.models.notInstalledHere}</span>
+            <Button
+              aria-describedby={notInstalledId}
+              className="px-2.5 py-1 text-[12px]"
+              onClick={download}
+              type="button"
+              variant="secondary"
+            >
+              <Download className="size-3.5 shrink-0" />
+              {entry?.sizeBytes == null
+                ? t.models.download
+                : t.models.downloadWithSize(format.bytes(entry.sizeBytes))}
+            </Button>
+          </div>
           {error !== null && <FormError>{error}</FormError>}
         </div>
       )}
@@ -225,7 +226,6 @@ function DownloadProgress({ downloads, job }: { downloads: ModelDownloads; job: 
           {t.models.cancelDownload}
         </Button>
       )}
-      <small className="text-[11px] text-ink-dim">{t.models.saveWhileDownloading}</small>
       {error !== null && <FormError>{error}</FormError>}
     </div>
   );

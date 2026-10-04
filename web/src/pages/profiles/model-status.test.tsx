@@ -18,6 +18,7 @@ const listModels = vi.mocked(api.listModels);
 function variants(
   installed: boolean,
   compatibility: ModelCatalog["items"][number]["compatibility"] = "compatible",
+  sizeBytes: number | null = 5_200_000_000,
 ): ModelCatalog {
   return {
     fetchedAt: Date.now(),
@@ -30,7 +31,7 @@ function variants(
         installed,
         model: "qwen3:8b",
         name: "qwen3:8b",
-        sizeBytes: 5_200_000_000,
+        sizeBytes,
       },
     ],
     phase: "summary",
@@ -121,18 +122,29 @@ describe("ModelStatus", () => {
       />,
     );
 
-    expect(
-      await screen.findByText("qwen3:8b ainda não está instalado (5,2 GB)."),
-    ).toBeInTheDocument();
-    expect(
-      screen.getByText(
-        /Você pode salvar o perfil, mas ele não vai gravar até o modelo ser baixado/,
-      ),
-    ).toBeInTheDocument();
+    const button = await screen.findByRole("button", { name: "Baixar · 5,2 GB" });
+    expect(button).toHaveAccessibleDescription("Não instalado nesta máquina.");
+    expect(screen.queryByText(/não vai gravar até o modelo ser baixado/)).toBeNull();
     expect(listModels).toHaveBeenCalledWith("summary", "ollama", "qwen3");
-    await userEvent.click(screen.getByRole("button", { name: "Baixar agora" }));
+    await userEvent.click(button);
 
     expect(queue.start).toHaveBeenCalledWith("summary", "ollama", "qwen3:8b");
+  });
+
+  it("offers the download without a size when the catalog does not know it", async () => {
+    listModels.mockResolvedValue(variants(false, "compatible", null));
+    renderWithRouter(
+      <ModelStatus
+        downloads={downloads()}
+        model="qwen3:8b"
+        needsModel={false}
+        onModelsChanged={vi.fn()}
+        provider="ollama"
+        stage="summary"
+      />,
+    );
+
+    expect(await screen.findByRole("button", { name: "Baixar" })).toBeInTheDocument();
   });
 
   it("explains why a download could not start", async () => {
@@ -148,7 +160,7 @@ describe("ModelStatus", () => {
         stage="summary"
       />,
     );
-    await userEvent.click(await screen.findByRole("button", { name: "Baixar agora" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Baixar · 5,2 GB" }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "A fila de downloads está cheia. Aguarde um download terminar e tente de novo.",
@@ -173,6 +185,7 @@ describe("ModelStatus", () => {
       "aria-valuenow",
       "35",
     );
+    expect(screen.queryByText(/Você pode salvar o perfil agora/)).toBeNull();
     await userEvent.click(screen.getByRole("button", { name: "Cancelar download" }));
 
     expect(queue.cancel).toHaveBeenCalledWith("d1");

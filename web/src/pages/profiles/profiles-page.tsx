@@ -519,6 +519,8 @@ function ProfileEditor(props: ProfileEditorProps) {
         changed={props.dirty}
         downloads={props.downloads}
         draftMissing={draftMissing}
+        onGoTo={props.onStageChange}
+        stage={stage}
       />
       <StageTrail
         dirty={dirtyStages}

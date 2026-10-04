@@ -573,15 +573,29 @@ describe("ProfilesPage", () => {
     expect(screen.getByRole("button", { name: /^Modelo/ })).toHaveTextContent("Escolha um modelo");
   });
 
-  it("says a profile cannot record while a local model is missing and offers the download", async () => {
+  /** Makes every local catalog report its models as absent from this machine. */
+  function withoutLocalModels() {
+    vi.mocked(api.listModels).mockImplementation((phase, provider, family) => {
+      const catalog = catalogFor(phase, provider, family);
+      if (provider === "openrouter") return Promise.resolve(catalog);
+      return Promise.resolve({
+        ...catalog,
+        installedModels: [],
+        items: catalog.items.map((entry) => ({ ...entry, installed: false })),
+      });
+    });
+  }
+
+  function missing(...models: ProfileAvailability["missingModels"]): ProfileListItem {
+    return item(localProfile, {
+      availability: { missingModels: models, status: "missing_models", unavailableProviders: [] },
+    });
+  }
+
+  it("sends the person to the stage of a missing model to download it there", async () => {
+    withoutLocalModels();
     listProfiles.mockResolvedValue([
-      item(localProfile, {
-        availability: {
-          missingModels: [{ model: "qwen3:8b", phase: "summary", provider: "ollama" }],
-          status: "missing_models",
-          unavailableProviders: [],
-        },
-      }),
+      missing({ model: "qwen3:8b", phase: "summary", provider: "ollama" }),
     ]);
     vi.mocked(api.startModelDownload).mockResolvedValue({
       completedBytes: 0,
@@ -598,9 +612,42 @@ describe("ProfilesPage", () => {
       name: "Este perfil ainda não pode gravar.",
     });
     expect(banner).toHaveTextContent("Falta instalar qwen3:8b (Resumo).");
-    await userEvent.click(within(banner).getByRole("button", { name: "Baixar qwen3:8b" }));
+    expect(within(banner).queryByRole("button", { name: /^Baixar/ })).toBeNull();
+    await userEvent.click(within(banner).getByRole("button", { name: "Ir para Resumo" }));
+
+    expect(screen.getByRole("tab", { name: /Resumo/ })).toHaveAttribute("aria-selected", "true");
+    expect(within(banner).queryByRole("button", { name: "Ir para Resumo" })).toBeNull();
+    const [download, ...others] = await screen.findAllByRole("button", { name: /^Baixar/ });
+    expect(others).toHaveLength(0);
+    await userEvent.click(download as HTMLElement);
 
     expect(api.startModelDownload).toHaveBeenCalledWith("summary", "ollama", "qwen3:8b");
+  });
+
+  it("shows a running download in one place only", async () => {
+    withoutLocalModels();
+    listProfiles.mockResolvedValue([
+      missing({ model: "large-v3", phase: "transcription", provider: "faster-whisper" }),
+    ]);
+    vi.mocked(api.listModelDownloads).mockResolvedValue([
+      {
+        completedBytes: 1_545_417_851,
+        downloadId: "d1",
+        failureCode: null,
+        model: "large-v3",
+        provider: "faster-whisper",
+        status: "downloading",
+        totalBytes: 3_090_835_702,
+      },
+    ]);
+    renderScreen(<ProfilesPage />);
+
+    const banner = await screen.findByRole("region", {
+      name: "Este perfil ainda não pode gravar.",
+    });
+    await waitFor(() => expect(banner).toHaveTextContent("Baixando… 50% de 3,1 GB"));
+    expect(within(banner).queryByRole("button")).toBeNull();
+    expect(await screen.findAllByRole("button", { name: "Cancelar download" })).toHaveLength(1);
   });
 
   it("lists voice detection values adjusted for the external API before saving", async () => {
