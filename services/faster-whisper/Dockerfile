@@ -2,7 +2,7 @@ FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe6
 
 ARG FFMPEG_VERSION=8.1.2
 ARG FFMPEG_SHA256=464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
-ARG DEBIAN_SNAPSHOT=20260913T000000Z
+ARG DEBIAN_SNAPSHOT=20261004T000000Z
 
 RUN sed -i \
       "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
@@ -16,7 +16,7 @@ RUN /usr/local/bin/build-ffmpeg-lgpl
 
 FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS python-wheels
 
-ARG DEBIAN_SNAPSHOT=20260913T000000Z
+ARG DEBIAN_SNAPSHOT=20261004T000000Z
 ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PKG_CONFIG_PATH=/opt/ffmpeg/lib/pkgconfig
 RUN sed -i \
@@ -40,7 +40,7 @@ RUN pip wheel \
 
 FROM python:3.12.14-slim-bookworm@sha256:782412e85d0f0984994c290652577d4018aff08145c85b262bb63dc0c7522254 AS cpu
 
-ARG DEBIAN_SNAPSHOT=20260913T000000Z
+ARG DEBIAN_SNAPSHOT=20261004T000000Z
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     HOME=/models/home \

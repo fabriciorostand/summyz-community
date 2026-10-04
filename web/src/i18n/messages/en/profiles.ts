@@ -84,11 +84,8 @@ export const profilesMessages: typeof portuguese = {
     bannerUnavailableBody:
       "The model service of this installation did not respond. Recording may be refused.",
     bannerUnavailableTitle: "Unable to verify the local models of this profile.",
-    cancelDownloadOf: (model: string) => `Cancel download of ${model}`,
     cancelFailed: "Unable to cancel the download. Try again.",
     downloadFailedSuffix: " · the download failed",
-    downloadNow: "Download now",
-    downloadOf: (model: string) => `Download ${model}`,
     downloading: (model: string) => `Downloading ${model}`,
     incompleteLine: "Incomplete: choose the execution and the model of the stages",
     missingEntry: (model: string, stage: string) => `${model} (${stage})`,
@@ -252,10 +249,12 @@ export const profilesMessages: typeof portuguese = {
     chooseFrom: (source: string) => `Choose a model from ${source}`,
     chooseModel: "Choose a model",
     compatible: "Compatible",
+    download: "Download",
     downloadFailedBody:
       "Check the disk space and the connection of this installation and try again.",
     downloadFailedTitle: (model: string) => `Unable to download ${model}.`,
     downloadOf: (model: string) => `Download of ${model}`,
+    downloadWithSize: (size: string) => `Download · ${size}`,
     downloadingBytes: (bytes: string) => `Downloading… ${bytes}`,
     downloadingPercent: (percent: string, total: string) => `Downloading… ${percent}% of ${total}`,
     downloadingTag: "Downloading",
@@ -275,11 +274,8 @@ export const profilesMessages: typeof portuguese = {
     models: "Models",
     noMatch: (query: string) => `No model found for “${query}”.`,
     notInstalled: "Not installed",
-    notInstalledBody:
-      "You can save the profile, but it will not record until the model is downloaded.",
     notInstalledSize: (size: string) => `Not installed · ${size}`,
-    notInstalledTitle: (model: string, size: string | null) =>
-      `${model} is not installed yet${size === null ? "" : ` (${size})`}.`,
+    notInstalledHere: "Not installed on this machine.",
     ollamaLibrary: "Ollama library",
     openInstallation: "Open Installation",
     openRouterCost:
@@ -287,8 +283,6 @@ export const profilesMessages: typeof portuguese = {
     queued: "Queued. One download happens at a time.",
     queuedTag: "Queued",
     recommended: "Recommended",
-    saveWhileDownloading:
-      "You can save the profile now, but it will only record once the download finishes.",
     search: "Search models",
     stageEmpty: "No model available for this stage.",
     stale: (date: string) => `This list is from ${date} and may be out of date.`,

@@ -1,16 +1,10 @@
 import { TriangleAlert } from "lucide-react";
-import { useState } from "react";
 
-import { Button, FormError } from "../../components/ui";
+import { Button } from "../../components/ui";
 import { useModelCatalog } from "../../hooks/use-model-catalog";
 import { isDownloadActive, type ModelDownloads } from "../../hooks/use-model-downloads";
 import { type I18nSnapshot, useI18n } from "../../i18n/store";
-import {
-  ApiError,
-  type ModelDownload,
-  type Profile,
-  type ProfileAvailability,
-} from "../../lib/api";
+import type { ModelDownload, Profile, ProfileAvailability } from "../../lib/api";
 import { downloadProgress } from "./model-labels";
 import type { Stage } from "./profile-stages";
 
@@ -80,64 +74,42 @@ export function availabilityLine(
   return { text: t.availability.missingLine(models), tone: "warn" };
 }
 
-function MissingRow({ downloads, entry }: { downloads: ModelDownloads; entry: MissingModel }) {
+/** A missing model; its download lives in the stage panel, so this row only points there. */
+function MissingRow({
+  downloads,
+  entry,
+  onGoTo,
+  stage,
+}: {
+  downloads: ModelDownloads;
+  entry: MissingModel;
+  onGoTo: (stage: Stage) => void;
+  stage: Stage;
+}) {
   const i18n = useI18n();
   const { t } = i18n;
-  const [error, setError] = useState<string | null>(null);
   const job = downloads.jobFor(entry.provider, entry.model);
   const progress = job !== undefined && isDownloadActive(job) ? downloadProgress(job, i18n) : null;
   return (
-    <li className="flex flex-col gap-1.5">
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
-        <code className="font-mono text-[11.5px] text-ink">{entry.model}</code>
-        <span className="text-[11.5px] text-ink-muted">
-          {t.stages.titles[entry.phase]}
-          {job?.status === "failed" ? t.availability.downloadFailedSuffix : ""}
-        </span>
-        <span className="ml-auto flex items-center gap-2">
-          {progress !== null && job !== undefined ? (
-            <>
-              <span className="text-[11px] text-ink-muted">{progress.label}</span>
-              {job.status !== "cancelling" && (
-                <Button
-                  aria-label={t.availability.cancelDownloadOf(entry.model)}
-                  className="px-2 py-1 text-[11.5px]"
-                  onClick={() => {
-                    void downloads
-                      .cancel(job.downloadId)
-                      .catch(() => setError(t.availability.cancelFailed));
-                  }}
-                  type="button"
-                  variant="ghost"
-                >
-                  {t.common.cancel}
-                </Button>
-              )}
-            </>
-          ) : (
-            <Button
-              aria-label={t.availability.downloadOf(entry.model)}
-              className="px-2.5 py-1 text-[11.5px]"
-              onClick={() => {
-                setError(null);
-                downloads
-                  .start(entry.phase, entry.provider, entry.model)
-                  .catch((reason: unknown) =>
-                    setError(
-                      (reason instanceof ApiError ? t.modelOperations[reason.code] : undefined) ??
-                        t.availability.startFailed,
-                    ),
-                  );
-              }}
-              type="button"
-              variant="secondary"
-            >
-              {job?.status === "failed" ? t.common.tryAgain : t.availability.downloadNow}
-            </Button>
-          )}
-        </span>
-      </div>
-      {error !== null && <FormError>{error}</FormError>}
+    <li className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5">
+      <code className="font-mono text-[11.5px] text-ink">{entry.model}</code>
+      <span className="text-[11.5px] text-ink-muted">
+        {t.stages.titles[entry.phase]}
+        {job?.status === "failed" ? t.availability.downloadFailedSuffix : ""}
+      </span>
+      {progress !== null && (
+        <span className="ml-auto text-[11px] text-ink-muted">{progress.label}</span>
+      )}
+      {progress === null && entry.phase !== stage && (
+        <Button
+          className="ml-auto px-2 py-1 text-[11.5px]"
+          onClick={() => onGoTo(entry.phase)}
+          type="button"
+          variant="ghost"
+        >
+          {t.saveBar.goTo(t.stages.titles[entry.phase])}
+        </Button>
+      )}
     </li>
   );
 }
@@ -172,6 +144,8 @@ export function AvailabilityBanner({
   changed,
   downloads,
   draftMissing,
+  onGoTo,
+  stage,
 }: {
   activeServerCount: number;
   availability: ProfileAvailability;
@@ -179,6 +153,9 @@ export function AvailabilityBanner({
   changed: boolean;
   downloads: ModelDownloads;
   draftMissing: readonly MissingModel[];
+  onGoTo: (stage: Stage) => void;
+  /** The stage open below, whose panel already holds the download of its model. */
+  stage: Stage;
 }) {
   const i18n = useI18n();
   const missing = changed ? draftMissing : availability.missingModels;
@@ -201,6 +178,8 @@ export function AvailabilityBanner({
                 downloads={downloads}
                 entry={entry}
                 key={`${entry.phase}-${entry.model}`}
+                onGoTo={onGoTo}
+                stage={stage}
               />
             ))}
           </ul>
