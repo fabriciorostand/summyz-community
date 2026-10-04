@@ -205,8 +205,8 @@ describe("runtime packaging", () => {
     );
 
     for (const contents of [dockerfile, fasterWhisperDockerfile]) {
-      expect(contents).toContain("DEBIAN_SNAPSHOT=20260913T000000Z");
-      expect(contents).not.toContain("DEBIAN_SNAPSHOT=20260906T000000Z");
+      expect(contents).toContain("DEBIAN_SNAPSHOT=20261004T000000Z");
+      expect(contents).not.toContain("DEBIAN_SNAPSHOT=20260913T000000Z");
       expect(contents).toMatch(/snapshot\.debian\.org\/archive\/debian\/\$\{DEBIAN_SNAPSHOT\}/u);
       expect(contents).toMatch(
         /snapshot\.debian\.org\/archive\/debian-security\/\$\{DEBIAN_SNAPSHOT\}/u,
