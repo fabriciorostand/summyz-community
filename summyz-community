@@ -205,7 +205,6 @@ print_selection() {
 }
 
 run_compose() {
-  set -- -f docker/compose.hardware.yaml "$@"
   if [ "$profile" = "nvidia" ]; then
     if [ "${SUMMYZ_PUBLIC_MODE:-false}" = "true" ]; then
       set -- -f compose.yaml -f docker/compose.nvidia.yaml -f docker/compose.public.yaml "$@"
@@ -285,17 +284,15 @@ case "$command_name" in
   up)
     detect_acceleration
     print_selection
-    run_compose up -d --build postgres ollama faster-whisper
-    start_gpu_services
     run_compose up -d --build
+    start_gpu_services
     if [ "$dry_run" = false ]; then show_setup_page; fi
     ;;
   restart)
     detect_acceleration
     print_selection
-    run_compose up -d --build postgres ollama faster-whisper
-    start_gpu_services
     run_compose up -d --build --force-recreate
+    start_gpu_services
     ;;
   down)
     run_compose down --remove-orphans

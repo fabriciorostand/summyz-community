@@ -25,33 +25,6 @@ estruturados incluem falhas e contexto de retries. O Discord recebe erros genér
 traces, caminhos internos, credenciais ou áudio bruto. Mantenha gravações, transcrições, dumps do
 banco e URLs de setup/recuperação privados.
 
-## Redetectar hardware no Windows e Linux
-
-Os containers iniciados pelos launchers Windows e Linux oferecem `POST /api/local-ai/hardware/refresh`.
-Envie a requisição sem corpo ou com `{}`, usando a mesma origem do dashboard no cabeçalho `Origin`.
-Em modo público, a sessão autenticada da instalação (`summyz_session`) também é obrigatória;
-no modo local, aplicam-se as restrições existentes de host e origem em loopback. A requisição não
-recebe URLs, comandos ou caminhos e não altera configurações de modelos nem recria containers.
-O endpoint antigo do agente do host foi removido; a redetecção manual está disponível no modo
-de inventário dos containers Windows e Linux.
-
-Sucesso retorna HTTP 200 com `source: "container"`, `status: "current"`, `detectedAt` e `hardware`.
-`hardware` contém `cpuCores`, `memoryBytes` e `accelerators` (com `id`, `name`, `vendor` e
-`memoryBytes` quando conhecidos). Cotas fracionárias de CPU são preservadas.
-Falha retorna HTTP 503 com `error: "hardware_detection_failed"` e `inventory` contendo a última
-leitura válida com `status: "stale"`. Seu `detectedAt` continua sendo o horário da leitura válida,
-sem substituir a data por uma tentativa que falhou. Logs e respostas não expõem detalhes internos
-do erro. Gravações e processamento em andamento continuam; perfis de reuniões já iniciadas não
-são alterados. A próxima leitura bem-sucedida remove a marca de desatualização.
-
-Uma requisição durante outra redetecção retorna HTTP 409 (`hardware_refresh_in_progress`), sem
-cancelar a primeira. Corpo inesperado retorna HTTP 400. `GET /api/local-ai/hardware` consulta a
-última leitura e seu estado; `GET /api/local-ai/hardware/events` anuncia mudanças ao cliente.
-Consultar o catálogo ou a disponibilidade dos provedores não dispara redetecção. Depois de mudar
-limites ou dispositivos do Docker/WSL, reinicie os containers ou solicite a leitura manual.
-Esta implementação prepara a API para um botão futuro; o front ainda não possui esse botão nem
-apresenta visualmente o novo estado de desatualização.
-
 ## Ciclo de gravação e processamento
 
 Apenas uma gravação pode ficar ativa por servidor. `/record` exige proprietário conectado e

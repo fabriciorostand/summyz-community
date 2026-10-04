@@ -109,24 +109,42 @@ describe("Community launcher", () => {
     expect(output).toContain("NVIDIA GeForce RTX");
   });
 
-  it("prepares optional GPU providers before starting Windows or Linux bot and API", async () => {
+  it("starts the whole stack once before optional GPU providers without a hardware overlay", async () => {
     for (const command of ["up", "restart"]) {
       const output = await runLauncher(
         { SUMMYZ_DETECTED_GPU_VENDOR: "nvidia" },
         undefined,
         command,
       );
-      expect(output).toContain("docker/compose.hardware.yaml");
+      expect(output).not.toContain("compose.hardware.yaml");
       const commands = output.split(/\r?\n/).filter((line) => line.startsWith("Executing:"));
-      const provider = commands.findIndex((line) => line.endsWith("faster-whisper-gpu"));
-      const application = commands.findIndex((line) =>
+      const application = commands.filter((line) =>
         /up -d --build(?: --force-recreate)?$/.test(line),
       );
-      expect(provider).toBeGreaterThanOrEqual(0);
-      expect(application).toBeGreaterThan(provider);
-      if (command === "restart")
-        expect(commands.filter((line) => line.includes("--force-recreate"))).toHaveLength(1);
+      expect(application).toHaveLength(1);
+      expect(application[0]?.endsWith("--force-recreate")).toBe(command === "restart");
+      expect(commands.some((line) => line.endsWith("postgres ollama faster-whisper"))).toBe(false);
+      const provider = commands.findIndex((line) => line.endsWith("faster-whisper-gpu"));
+      expect(provider).toBeGreaterThan(commands.indexOf(application[0] ?? ""));
       expect(output).not.toMatch(/Hardware event detector|RunAs|registration/);
+    }
+  });
+
+  it("passes the name and VRAM reported by nvidia-smi to Compose", async () => {
+    const fixtureRoot = await createLauncherFixture();
+    try {
+      const executableDirectory = await createNvidiaSmiStub(fixtureRoot);
+      const output = await runLauncherWithDockerStub(fixtureRoot, executableDirectory, {
+        SUMMYZ_DETECTED_GPU_MEMORY_BYTES: "",
+        SUMMYZ_DETECTED_GPU_NAME: "",
+        SUMMYZ_DETECTED_GPU_VENDOR: "",
+      });
+
+      expect(output).toContain(
+        `compose-env vendor=nvidia name=NVIDIA GeForce RTX 2060 vram=${String(6144 * 1024 ** 2)}`,
+      );
+    } finally {
+      await rm(fixtureRoot, { recursive: true, force: true });
     }
   });
 
@@ -303,7 +321,7 @@ async function createNvidiaSmiStub(fixtureRoot: string): Promise<string> {
   if (process.platform === "win32") {
     await writeFile(
       join(executableDirectory, "nvidia-smi.cmd"),
-      "@echo off\r\necho 0, NVIDIA GeForce RTX 2060\r\n",
+      "@echo off\r\necho 0, NVIDIA GeForce RTX 2060, 6144\r\n",
     );
     return executableDirectory;
   }
@@ -341,6 +359,58 @@ function parseDotEnv(contents: string): Record<string, string> {
         return [line.slice(0, separator).trim(), line.slice(separator + 1).trim()];
       }),
   );
+}
+
+/** Runs restart without --dry-run, replacing Docker with a stub that prints the GPU settings. */
+async function runLauncherWithDockerStub(
+  launcherRoot: string,
+  executableDirectory: string,
+  environment: NodeJS.ProcessEnv,
+): Promise<string> {
+  const commonEnvironment = {
+    ...process.env,
+    ...environment,
+    ...createIsolatedPathEnvironment(executableDirectory),
+    SUMMYZ_PUBLIC_MODE: "false",
+  };
+  if (process.platform === "win32") {
+    const bootstrap = [
+      "function global:docker.exe {}",
+      "function global:docker {",
+      "  $global:LASTEXITCODE = 0",
+      "  if ($args[0] -eq 'compose') {",
+      '    Write-Output "compose-env vendor=$env:SUMMYZ_DETECTED_GPU_VENDOR name=$env:SUMMYZ_DETECTED_GPU_NAME vram=$env:SUMMYZ_DETECTED_GPU_MEMORY_BYTES"',
+      "  }",
+      "}",
+      `& (Join-Path $PSScriptRoot '${launcherName}') restart`,
+    ].join("\n");
+    await writeFile(join(launcherRoot, "bootstrap.ps1"), bootstrap);
+    const result = await execFileAsync(
+      "powershell.exe",
+      [
+        "-NoProfile",
+        "-NonInteractive",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        join(launcherRoot, "bootstrap.ps1"),
+      ],
+      { encoding: "utf8", env: commonEnvironment },
+    );
+    return result.stdout + result.stderr;
+  }
+
+  const docker = join(executableDirectory, "docker");
+  await writeFile(
+    docker,
+    '#!/bin/sh\nif [ "$1" = compose ]; then echo "compose-env vendor=$SUMMYZ_DETECTED_GPU_VENDOR name=$SUMMYZ_DETECTED_GPU_NAME vram=$SUMMYZ_DETECTED_GPU_MEMORY_BYTES"; fi\nexit 0\n',
+  );
+  await chmod(docker, 0o755);
+  const result = await execFileAsync("sh", [join(launcherRoot, launcherName), "restart"], {
+    encoding: "utf8",
+    env: commonEnvironment,
+  });
+  return result.stdout + result.stderr;
 }
 
 async function runLauncher(

@@ -10,7 +10,10 @@ import { databaseMigrations } from "../src/database/migrations.js";
 describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
-    expect(databaseMigrations.at(-1)).toMatchObject({ version: 19 });
+    expect(databaseMigrations.at(-1)).toMatchObject({ version: 20 });
+    expect(databaseMigrations.find(({ version }) => version === 20)?.sql.trim()).toBe(
+      "DROP TABLE local_hardware_snapshot;",
+    );
     expect(databaseMigrations.find(({ version }) => version === 19)?.sql).toContain(
       "CREATE TABLE local_hardware_snapshot",
     );
@@ -63,6 +66,60 @@ describe("segurança das migrações do banco", () => {
     "UPDATE meeting_contents SET raw_transcript = ''",
     "UPDATE meeting_audio_segments SET relative_path = ''",
   ])("rejeita operação destrutiva: %s", (sql) => {
+    expect(() => assertSafeDatabaseMigrations([{ sql, version: 10 }])).toThrow(
+      UnsafeDatabaseMigrationError,
+    );
+  });
+
+  it.each([
+    "DROP TABLE local_hardware_snapshot",
+    "DROP TABLE IF EXISTS public.model_catalog_cache",
+    'drop table "model_downloads", runtime_component_heartbeats RESTRICT',
+    "DROP TABLE dashboard_sessions; DROP TABLE installation_oauth_states",
+    "DROP TABLE installation_recovery_tokens",
+  ])("aceita remoção de tabela sem dados de reunião ou configuração: %s", (sql) => {
+    expect(() => assertSafeDatabaseMigrations([{ sql, version: 10 }])).not.toThrow();
+  });
+
+  it.each([
+    "meetings",
+    "meeting_contents",
+    "meeting_audio_segments",
+    "meeting_participants",
+    "meeting_tasks",
+    "live_meeting_states",
+    "processing_jobs",
+    "provider_cost_attempts",
+    "ai_profiles",
+    "guild_configurations",
+    "guild_history",
+    "guild_owner_approvals",
+    "installation_settings",
+    "installation_secrets",
+    "installation_access",
+    "installation_discord_connection",
+    "schema_migrations",
+  ])("rejeita remoção da tabela protegida %s", (table) => {
+    for (const sql of [
+      `DROP TABLE ${table}`,
+      `DROP TABLE IF EXISTS public."${table.toUpperCase()}"`,
+      `DROP TABLE model_downloads, ${table}`,
+      `DROP TABLE model_downloads; DROP TABLE ${table}`,
+    ]) {
+      expect(() => assertSafeDatabaseMigrations([{ sql, version: 10 }])).toThrow(
+        UnsafeDatabaseMigrationError,
+      );
+    }
+  });
+
+  it.each([
+    "DROP TABLE",
+    "DROP TABLE IF EXISTS",
+    "DROP TABLE model_downloads CASCADE",
+    "ALTER TABLE model_downloads DROP COLUMN status",
+    "TRUNCATE model_catalog_cache",
+    "DELETE FROM model_downloads",
+  ])("mantém bloqueadas outras operações destrutivas fora das tabelas protegidas: %s", (sql) => {
     expect(() => assertSafeDatabaseMigrations([{ sql, version: 10 }])).toThrow(
       UnsafeDatabaseMigrationError,
     );

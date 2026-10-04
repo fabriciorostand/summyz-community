@@ -23,9 +23,7 @@ import type { PostgresParticipantDirectoryStore } from "../database/postgres-par
 import type { DashboardTask } from "../database/postgres-task-store.js";
 import type { InstallationDiscordConnection } from "../discord/installation-discord-connection.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
-import type { ContainerHardwareInventory } from "../local-ai/container-hardware-inventory.js";
 import type { LocalHardwareProfile } from "../local-ai/hardware-profile.js";
-import type { HardwareStore } from "../local-ai/hardware-snapshot.js";
 import type { LocalModelInventory } from "../models/local-model-inventory.js";
 import type { ModelCatalogService } from "../models/model-catalog-service.js";
 import type { ModelDownloadManager } from "../models/model-download-manager.js";
@@ -167,9 +165,7 @@ export interface ApiAnalyticsStore {
 
 export interface ApiServerDependencies {
   hardware?: {
-    store: HardwareStore;
-    readHardware?: () => Promise<LocalHardwareProfile>;
-    containerInventory?: Pick<ContainerHardwareInventory, "read" | "refresh">;
+    readHardware(): Promise<LocalHardwareProfile>;
   };
   models?: {
     catalog: Pick<ModelCatalogService, "list" | "validateProfile">;

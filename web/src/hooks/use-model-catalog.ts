@@ -15,7 +15,6 @@ export type CatalogState =
 const requests = new Map<string, Promise<ModelCatalog>>();
 let generation = 0;
 const listeners = new Set<() => void>();
-let hardwareEvents: EventSource | undefined;
 
 export function invalidateModelCatalogs(): void {
   requests.clear();
@@ -25,21 +24,7 @@ export function invalidateModelCatalogs(): void {
 
 function subscribe(listener: () => void): () => void {
   listeners.add(listener);
-  if (hardwareEvents === undefined && typeof EventSource !== "undefined") {
-    hardwareEvents = new EventSource("/api/local-ai/hardware/events");
-    hardwareEvents.addEventListener("hardware-changed", invalidateModelCatalogs);
-  }
-  return () => {
-    listeners.delete(listener);
-    if (listeners.size === 0) {
-      hardwareEvents?.close();
-      hardwareEvents = undefined;
-    }
-  };
-}
-
-export function useHardwareVersion(): number {
-  return useSyncExternalStore(subscribe, () => generation);
+  return () => listeners.delete(listener);
 }
 
 function load(

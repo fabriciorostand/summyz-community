@@ -39,23 +39,6 @@ def runtime(transcriber: object | None = None) -> server.LoadedRuntime:
 
 
 class TestModels:
-    def test_inventory_endpoint_reads_fresh_data_and_sanitizes_failures(
-        self, monkeypatch: object
-    ) -> None:
-        monkeypatch.setattr(server.ctranslate2, "get_cuda_device_count", lambda: 1)  # type: ignore[attr-defined]
-        report = {"cudaDevices": 1, "accelerators": [{"id": "nvidia-0"}]}
-        monkeypatch.setattr(server, "read_hardware_inventory", Mock(return_value=report))  # type: ignore[attr-defined]
-        assert asyncio.run(server.hardware_inventory()) == report
-        monkeypatch.setattr(
-            server,
-            "read_hardware_inventory",
-            Mock(side_effect=OSError("Authorization: sensitive-secret /private/audio")),
-        )  # type: ignore[attr-defined]
-        with pytest.raises(HTTPException) as failure:
-            asyncio.run(server.hardware_inventory())
-        assert failure.value.status_code == 503
-        assert failure.value.detail == "Hardware inventory is unavailable"
-
     def test_validates_revision_and_vad_ranges(self) -> None:
         request = server.ModelRequest(
             model="tiny",

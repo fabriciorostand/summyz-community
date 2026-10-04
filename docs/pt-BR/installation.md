@@ -73,21 +73,13 @@ Mantenha o modo local em loopback; o acesso pela rede exige o modo público.
 O launcher local abre a URL de setup no Windows ou a abre/imprime no Linux conforme a
 disponibilidade do navegador. O fragmento carrega a credencial de setup; não o compartilhe.
 
-No Windows e no Linux, os launchers local e público adicionam `docker/compose.hardware.yaml`. A detecção
-acontece dentro do bot e da API, sem elevação administrativa, tarefa agendada ou processo residente
-no host. Cada processo aguarda uma leitura inicial válida antes de iniciar suas funções, inclusive
-na retomada automática pelo Docker; falha nessa leitura impede sua inicialização. O launcher prepara
-os provedores CPU e tenta os provedores GPU antes de iniciar bot/API. A ausência de um provedor GPU
-opcional mantém CPU disponível; uma resposta inválida ou uma falha declarada pelo sensor impede a
-leitura. Alterações posteriores podem ser consultadas pela [redetecção manual da API](./operations.md#redetectar-hardware-no-windows-e-linux).
-Esta etapa não adiciona um botão ao dashboard nem redetecção automática por eventos ou temporizador.
-Encerrar um container encerra sua detecção; o outro continua independente. O endpoint antigo de
-relatórios do host foi removido. Os launchers não removem automaticamente tarefas Windows ou
-serviços Linux antigos.
-
-Um inventário armazenado inválido só é substituído após uma nova detecção bem-sucedida e validada.
-Erros de acesso ao banco continuam impedindo a inicialização. Essa recuperação altera somente o
-inventário de hardware, sem modificar reuniões, áudios ou dados de processamento.
+No Windows e no Linux, o launcher detecta a GPU do host antes de iniciar os containers, sem
+elevação administrativa, tarefa agendada ou processo residente no host. Com NVIDIA, ele repassa ao
+bot e à API o nome e a VRAM que o `nvidia-smi` informa para a primeira GPU; no Linux, AMD é
+reconhecida sem VRAM. Bot e API leem CPU e RAM uma única vez, na inicialização. Não há botão no
+dashboard, redetecção manual nem detecção automática por eventos ou temporizador: execute
+`restart` depois de mudanças de hardware. Os launchers não removem automaticamente tarefas
+Windows ou serviços Linux antigos.
 
 Uma instalação Linux existente pode ainda ter o serviço antigo cadastrado. Antes de atualizar,
 confira seu nome e o `ExecStart` para confirmar que pertence a este repositório, e remova somente
@@ -108,14 +100,12 @@ instalam serviços de detecção no host.
 
 ### Recursos no Windows
 
-O inventário registra CPU e RAM efetivamente expostas ao container, considerando afinidade de CPU,
-cotas de CPU do cgroup v2 e limites de memória. A GPU é consultada no faster-whisper GPU; se somente
-Ollama GPU estiver acessível, seu modelo e VRAM permanecem desconhecidos. Dados antigos do launcher
-não substituem uma nova leitura. No Linux, AMD/ROCm é reconhecido pelo serviço Ollama GPU disponível;
-seu modelo e VRAM permanecem desconhecidos. A aceleração AMD continua disponível para resumos,
-com transcrição em CPU. Detectar uma GPU não amplia o acesso de containers já existentes:
-pode ser necessário recriar os serviços GPU com o Compose, executar o launcher novamente e depois
-solicitar uma nova leitura.
+CPU e RAM são os recursos informados pelo sistema operacional do container: no Windows, os da
+máquina virtual do WSL 2; no Linux, os do host. Limites de CPU ou memória definidos para um
+container no Docker não são considerados. Nome e VRAM da GPU vêm do launcher; quando indisponíveis,
+como na AMD, a VRAM permanece desconhecida. No Linux, a aceleração AMD continua disponível para
+resumos, com transcrição em CPU. Detectar uma GPU não amplia o acesso de containers já existentes:
+execute o launcher novamente para recriar os serviços GPU.
 
 Para usar todo o poder computacional disponível da máquina física, provavelmente será necessário
 configurar os recursos do Docker Desktop/WSL 2. O Compose do Summyz não impõe cotas de CPU/RAM e o

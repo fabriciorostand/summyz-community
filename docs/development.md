@@ -145,9 +145,11 @@ Migrations are ordered TypeScript SQL definitions under `src/database/migrations
 Applied migrations are immutable: PostgreSQL records a SHA-256 checksum, and startup fails closed
 if the checked-in SQL differs. Do not repair an applied migration by editing its historical SQL.
 
-From version 10 onward, migrations must be expand-only: no business-data deletion, truncation,
-table/column drops, cascading deletion, or meeting-processing data updates. Cleanup belongs to
-the explicit retention lifecycle after a terminal state. Initialization must preserve pending artifacts.
+From version 10 onward, migrations must preserve every non-terminal meeting: no business-data
+deletion, truncation, column drops, cascading deletion, or meeting-processing data updates. Tables
+may be dropped only when they hold no meeting or configuration data; protected tables are listed in
+`src/database/migration-safety.ts`. Cleanup belongs to the explicit retention lifecycle after a
+terminal state. Initialization must preserve pending artifacts.
 Processing/manifest schema upgrades require contract tests proving that meetings, jobs, cost attempts,
 manifests, and audio catalogs survive and remain recoverable. See the upgrade integration tests and
 `tests/database-migration-safety.test.ts`.

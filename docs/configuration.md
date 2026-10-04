@@ -187,12 +187,10 @@ transcription. On AMD-only hosts, automatic local transcription uses CPU and its
 remains unavailable. Windows Docker Desktop exposes NVIDIA GPUs, not AMD. Intel and
 unknown vendors have no supported acceleration container profile at this stage.
 
-On Windows and Linux, bot/API read resources exposed to containers at startup and offer
-[manual API refresh](./operations.md#refresh-hardware-on-windows-and-linux),
-without periodic inventory scans. Service availability is still checked when querying the catalog
-or preparing a recording; those checks do not rescan inventory. A newly added GPU may require
-running the launcher again to prepare its service; detection never recreates containers or expands
-their device access. See [Docker/WSL limits](./installation.md#windows-resources) to expose the
+The launcher detects the host GPU and bot/API read CPU and RAM once at startup, without periodic
+scans or manual refresh. Service availability is still checked when querying the catalog or
+preparing a recording; those checks do not detect hardware again. After hardware changes, run the
+launcher again; detection never recreates containers or expands their device access. See [Docker/WSL limits](./installation.md#windows-resources) to expose the
 machine's maximum capacity on Windows.
 
 VAD belongs to the transcription stage. OpenRouter transcription uses Summyz's Silero detector;

@@ -192,13 +192,11 @@ a transcrição local em `auto` usa CPU; GPU permanece indisponível nessa etapa
 no Windows expõe GPUs NVIDIA, não AMD. Intel e fabricantes desconhecidos não possuem
 perfil de contêiner de aceleração compatível nesta etapa.
 
-No Windows e no Linux, o bot/API
-detectam os recursos expostos aos containers na inicialização e oferecem [redetecção manual pela
-API](./operations.md#redetectar-hardware-no-windows-e-linux), sem verificações periódicas do inventário.
-A disponibilidade dos serviços continua sendo verificada ao consultar o catálogo ou preparar uma
-gravação; essa consulta não refaz o inventário. Uma GPU nova pode exigir executar o launcher
-novamente para preparar seu serviço; a detecção não recria containers nem amplia seu acesso a
-dispositivos. Para disponibilizar a capacidade máxima da máquina no Windows, consulte os
+O launcher detecta a GPU do host, e o bot e a API leem CPU e RAM uma única vez, na inicialização,
+sem verificações periódicas nem redetecção manual. A disponibilidade dos serviços continua sendo
+verificada ao consultar o catálogo ou preparar uma gravação; essa consulta não detecta o hardware
+novamente. Depois de mudanças de hardware, execute o launcher novamente; a detecção não recria
+containers nem amplia seu acesso a dispositivos. Para disponibilizar a capacidade máxima da máquina no Windows, consulte os
 [limites do Docker/WSL](./installation.md#recursos-no-windows).
 
 O VAD pertence à etapa de transcrição. OpenRouter usa o detector Silero do Summyz; faster-whisper
