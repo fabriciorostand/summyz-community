@@ -59,12 +59,12 @@ describe("SidebarAccount", () => {
     const switchButton = await within(account()).findByRole("button", { name: "Trocar conta" });
     expect(switchButton).toHaveAttribute("title", "Trocar conta");
     await userEvent.click(switchButton);
-    const dialog = screen.getByRole("dialog", { name: "Trocar a conta do dono?" });
+    const dialog = screen.getByRole("dialog", { name: "Trocar a conta do Discord?" });
     expect(dialog).toHaveTextContent(
-      "No Discord, entre com a conta dona dos servidores. Os servidores de pixel.owner deixam de aceitar gravações e aparecem como somente histórico; calls e configurações continuam salvas.",
+      "No Discord, entre com a conta que administra os servidores. Os servidores da conta atual deixam de aceitar gravações e ficam só no histórico; calls e configurações continuam salvas.",
     );
-    expect(dialog).not.toHaveTextContent(/senha da instalação/);
-    await userEvent.click(within(dialog).getByRole("button", { name: "Trocar no Discord" }));
+    expect(dialog).not.toHaveTextContent(/pixel\.owner|senha da instalação/);
+    await userEvent.click(within(dialog).getByRole("button", { name: "Alterar" }));
     await waitFor(() => expect(leaveDashboardFor).toHaveBeenCalledWith(authorizationUrl));
   });
 
@@ -79,7 +79,7 @@ describe("SidebarAccount", () => {
   it("warns in public mode that switching asks for the password again", async () => {
     renderWithRouter(<SidebarAccount settings={aSettings({ accessMode: "public" })} />);
     await userEvent.click(await within(account()).findByRole("button", { name: "Trocar conta" }));
-    expect(screen.getByRole("dialog", { name: "Trocar a conta do dono?" })).toHaveTextContent(
+    expect(screen.getByRole("dialog", { name: "Trocar a conta do Discord?" })).toHaveTextContent(
       "Ao voltar, entre de novo com a senha da instalação.",
     );
   });
@@ -185,8 +185,12 @@ describe("SidebarAccount", () => {
     setLanguage("en");
     renderWithRouter(<SidebarAccount settings={aSettings()} />);
     const region = screen.getByRole("region", { name: "Owner's Discord account" });
-    expect(
-      await within(region).findByRole("button", { name: "Switch account" }),
-    ).toBeInTheDocument();
+    await userEvent.click(await within(region).findByRole("button", { name: "Switch account" }));
+    const dialog = screen.getByRole("dialog", { name: "Switch Discord account?" });
+    expect(dialog).toHaveTextContent(
+      "On Discord, sign in with the account that manages the servers. The current account's servers stop accepting recordings and stay in history only; calls and settings stay saved.",
+    );
+    expect(dialog).not.toHaveTextContent(/pixel\.owner/);
+    expect(within(dialog).getByRole("button", { name: "Change" })).toBeInTheDocument();
   });
 });

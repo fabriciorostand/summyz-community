@@ -2,7 +2,7 @@ FROM debian:bookworm-slim@sha256:88200866dfff7ea7f5cbcb6ec7c8a701889efe6fe859fe6
 
 ARG FFMPEG_VERSION=8.1.2
 ARG FFMPEG_SHA256=464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c
-ARG DEBIAN_SNAPSHOT=20261004T000000Z
+ARG DEBIAN_SNAPSHOT=20261005T120000Z
 
 RUN sed -i \
       "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
@@ -30,7 +30,7 @@ COPY web ./web
 RUN npm run build
 
 FROM build AS test
-ARG DEBIAN_SNAPSHOT=20261004T000000Z
+ARG DEBIAN_SNAPSHOT=20261005T120000Z
 RUN sed -i \
       "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
       /etc/apt/sources.list.d/debian.sources && \
@@ -57,7 +57,7 @@ CMD ["npm", "run", "test:smoke:local-ai"]
 FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime-base
 
 ARG NPM_VERSION=10.9.8
-ARG DEBIAN_SNAPSHOT=20261004T000000Z
+ARG DEBIAN_SNAPSHOT=20261005T120000Z
 ENV NODE_ENV=production
 # The node image lags behind bookworm-security; apply the snapshot's fixes before shipping.
 RUN sed -i \
@@ -81,7 +81,7 @@ RUN mkdir -p /app/data && chown node:node /app/data
 
 FROM runtime-base AS bot-runtime
 
-ARG DEBIAN_SNAPSHOT=20261004T000000Z
+ARG DEBIAN_SNAPSHOT=20261005T120000Z
 RUN sed -i \
       "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
       /etc/apt/sources.list.d/debian.sources && \

@@ -110,7 +110,7 @@ function ConnectedAccount({
         confirmLabel={messages.switchDialog.confirm}
         title={messages.switchDialog.title}
       >
-        <p className="m-0">{messages.switchDialog.body(name)}</p>
+        <p className="m-0">{messages.switchDialog.body}</p>
         {isPublic && <p className="m-0">{messages.switchDialog.publicNotice}</p>}
       </ConfirmDialog>
     </>

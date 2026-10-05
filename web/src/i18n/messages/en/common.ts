@@ -80,11 +80,10 @@ export const commonMessages: typeof portuguese = {
     statusFailed: "Unable to check the connected account.",
     switchAccount: "Switch account",
     switchDialog: {
-      body: (name: string) =>
-        `On Discord, sign in with the account that owns the servers. The servers of ${name} stop accepting recordings and show as history only; calls and settings stay saved.`,
-      confirm: "Switch on Discord",
+      body: "On Discord, sign in with the account that manages the servers. The current account's servers stop accepting recordings and stay in history only; calls and settings stay saved.",
+      confirm: "Change",
       publicNotice: "When you come back, sign in again with the installation password.",
-      title: "Switch the owner's account?",
+      title: "Switch Discord account?",
     },
     title: "Owner's Discord account",
     tokenMissing: "Save the bot token on the Bot tab",
