@@ -79,11 +79,10 @@ export const commonMessages = {
     statusFailed: "Não foi possível consultar a conta conectada.",
     switchAccount: "Trocar conta",
     switchDialog: {
-      body: (name: string) =>
-        `No Discord, entre com a conta dona dos servidores. Os servidores de ${name} deixam de aceitar gravações e aparecem como somente histórico; calls e configurações continuam salvas.`,
-      confirm: "Trocar no Discord",
+      body: "No Discord, entre com a conta que administra os servidores. Os servidores da conta atual deixam de aceitar gravações e ficam só no histórico; calls e configurações continuam salvas.",
+      confirm: "Alterar",
       publicNotice: "Ao voltar, entre de novo com a senha da instalação.",
-      title: "Trocar a conta do dono?",
+      title: "Trocar a conta do Discord?",
     },
     title: "Conta do dono no Discord",
     tokenMissing: "Salve o token do bot na aba Bot",

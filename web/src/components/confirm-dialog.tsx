@@ -52,7 +52,7 @@ export function ConfirmDialog({
           <div className="flex flex-col gap-2 text-[12.5px] leading-relaxed text-ink-muted">
             {children}
           </div>
-          <div className="mt-1 flex flex-wrap justify-end gap-2">
+          <div className="mt-1 flex flex-wrap justify-center gap-2">
             <Button autoFocus onClick={onCancel} type="button" variant="secondary">
               {cancelLabel ?? t.common.cancel}
             </Button>
