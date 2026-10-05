@@ -119,12 +119,15 @@ function GuildCard({ guild, onSelect }: { guild: Guild; onSelect: (guildId: stri
           </div>
         </div>
       </div>
+      {/* The body takes the free height so every action lines up at the bottom of its card. */}
       {guild.installed ? (
         <GuildFacts guild={guild} />
       ) : (
-        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
-          {status === "notInstalled" ? t.servers.notInstalledBody : t.servers.historyOnlyBody}
-        </p>
+        <div className={`flex flex-1 ${status === "notInstalled" ? "items-center" : ""}`}>
+          <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">
+            {status === "notInstalled" ? t.servers.notInstalledBody : t.servers.historyOnlyBody}
+          </p>
+        </div>
       )}
       <GuildAction guild={guild} onSelect={onSelect} status={status} />
     </Card>
@@ -132,9 +135,9 @@ function GuildCard({ guild, onSelect }: { guild: Guild; onSelect: (guildId: stri
 }
 
 function GuildFacts({ guild }: { guild: Guild }) {
-  const { format, t } = useI18n();
+  const { t } = useI18n();
   return (
-    <div className="flex flex-col">
+    <div className="flex flex-1 flex-col">
       <GuildFact
         label={t.servers.activeProfile}
         value={guild.activeProfile?.name ?? t.servers.none}
@@ -142,10 +145,6 @@ function GuildFacts({ guild }: { guild: Guild }) {
       <GuildFact
         label={t.servers.summaryForum}
         value={guild.summaryForum?.name ?? t.servers.notConfigured}
-      />
-      <GuildFact
-        label={t.servers.callsInPeriod}
-        value={guild.callCount == null ? "—" : format.number(guild.callCount)}
       />
     </div>
   );
