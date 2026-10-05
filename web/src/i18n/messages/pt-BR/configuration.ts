@@ -6,7 +6,6 @@ export const configurationMessages = {
     addCardTitle: "Adicionar o bot a um servidor",
     addToDiscord: "Adicionar o bot ao Discord",
     authorize: "Autorizar no Discord",
-    callsInPeriod: "Calls no período",
     configure: "Configurar",
     configured: "Instalado e configurado",
     connectBody:
@@ -23,7 +22,7 @@ export const configurationMessages = {
     none: "Nenhum",
     notConfigured: "Não configurado",
     notInstalled: "Bot não instalado",
-    notInstalledBody: "Este servidor é da conta conectada. Instale o bot para configurá-lo.",
+    notInstalledBody: "Instale o bot para configurá-lo",
     oauthResults: {
       cancelled: "A conexão foi cancelada no Discord. Nada mudou.",
       connected: "Conta Discord conectada. Os servidores dela aparecem abaixo.",

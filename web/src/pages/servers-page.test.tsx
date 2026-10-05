@@ -50,7 +50,7 @@ describe("ServersPage", () => {
     renderScreen(<ServersPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Servers" })).toBeInTheDocument();
     expect(screen.getByText("Installed and configured")).toBeInTheDocument();
-    expect(screen.getByText("Calls in the period")).toBeInTheDocument();
+    expect(screen.queryByText("Calls in the period")).toBeNull();
     expect(screen.getByRole("button", { name: /Refresh list/ })).toBeInTheDocument();
     await waitFor(() => expect(api.getBotInstallation).toHaveBeenCalled());
   });
@@ -61,7 +61,8 @@ describe("ServersPage", () => {
     expect(screen.getByText("Instalado e configurado")).toBeInTheDocument();
     expect(screen.getByText("Padrão OpenRouter")).toBeInTheDocument();
     expect(screen.getByText("#atas-de-reuniao")).toBeInTheDocument();
-    expect(screen.getByText("42")).toBeInTheDocument();
+    expect(screen.queryByText("Calls no período")).toBeNull();
+    expect(screen.queryByText("42")).toBeNull();
     expect(screen.getByRole("link", { name: /Configurar/ })).toHaveAttribute("href", "/guilds/g1");
     expect(screen.getByRole("link", { name: /Configurar/ })).toHaveClass(
       "bg-action-gradient",
@@ -89,7 +90,12 @@ describe("ServersPage", () => {
     expect(screen.getByText("Falta configurar")).toBeInTheDocument();
     expect(screen.getByText("Nenhum")).toBeInTheDocument();
     expect(screen.getByText("Não configurado")).toBeInTheDocument();
-    expect(screen.getByText("—")).toBeInTheDocument();
+    expect(screen.queryByText("Calls no período")).toBeNull();
+  });
+
+  it("lets the facts of an installed server fill the card above its action", () => {
+    renderScreen(<ServersPage />);
+    expect(screen.getByText("Perfil ativo").closest("div.flex-col")).toHaveClass("flex-1");
   });
 
   it("reloads the list on demand", async () => {
@@ -164,7 +170,10 @@ describe("ServersPage", () => {
       context: dashboardContext({ guilds: guildSelection({ guilds: [guild] }) }),
     });
     expect(screen.getByText("Bot não instalado")).toBeInTheDocument();
-    expect(screen.getByText(/Instale o bot para configurá-lo/)).toBeInTheDocument();
+    const hint = screen.getByText("Instale o bot para configurá-lo");
+    // The hint takes the free space and centers itself vertically, so the action sits at the bottom.
+    expect(hint.parentElement).toHaveClass("flex-1", "items-center");
+    expect(hint).not.toHaveClass("text-center");
     expect(screen.getByRole("link", { name: /Instalar neste servidor/ })).toHaveAttribute(
       "href",
       `${installUrl}&guild_id=g2`,
@@ -192,6 +201,9 @@ describe("ServersPage", () => {
       route: "/servers",
     });
     expect(screen.getByText("Somente histórico")).toBeInTheDocument();
+    const body = screen.getByText(/As calls gravadas continuam disponíveis/);
+    expect(body.parentElement).toHaveClass("flex-1");
+    expect(body.parentElement).not.toHaveClass("items-center");
     expect(screen.queryByRole("link", { name: /Instalar neste servidor/ })).toBeNull();
     const history = screen.getByRole("link", { name: /Ver histórico/ });
     expect(history).toHaveAttribute("href", "/history");

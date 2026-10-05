@@ -7,7 +7,6 @@ export const configurationMessages: typeof portuguese = {
     addCardTitle: "Add the bot to a server",
     addToDiscord: "Add the bot to Discord",
     authorize: "Authorize on Discord",
-    callsInPeriod: "Calls in the period",
     configure: "Configure",
     configured: "Installed and configured",
     connectBody:
@@ -24,8 +23,7 @@ export const configurationMessages: typeof portuguese = {
     none: "None",
     notConfigured: "Not configured",
     notInstalled: "Bot not installed",
-    notInstalledBody:
-      "This server belongs to the connected account. Install the bot to configure it.",
+    notInstalledBody: "Install the bot to configure it",
     oauthResults: {
       cancelled: "The connection was cancelled on Discord. Nothing changed.",
       connected: "Discord account connected. Its servers are listed below.",
