@@ -58,6 +58,40 @@ export function useSecretEditing(configured: boolean): {
   return { editing, inputRef, locked: configured && !editing, setEditing };
 }
 
+/**
+ * The actions beside an open secret field: send the typed value, and leave the edit when the
+ * field was opened over a stored value. Together they drop below the field on narrow screens.
+ */
+export function SecretEditActions({
+  busy,
+  editing,
+  onCancel,
+  onSubmit,
+  submitLabel,
+  value,
+}: {
+  busy: boolean;
+  editing: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+  submitLabel: string;
+  value: string;
+}) {
+  const { t } = useI18n();
+  return (
+    <div className="flex gap-2">
+      <Button disabled={busy || value === ""} onClick={onSubmit} type="button" variant="secondary">
+        {submitLabel}
+      </Button>
+      {editing && (
+        <Button disabled={busy} onClick={onCancel} type="button" variant="ghost">
+          {t.common.cancel}
+        </Button>
+      )}
+    </div>
+  );
+}
+
 /** Placeholder for a write-only field: locked, open over a stored value, or still empty. */
 export function useSecretPlaceholder(configured: boolean, locked: boolean): string {
   const { secretField } = useI18n().t;
@@ -142,21 +176,14 @@ export function SecretField({
           value={value}
         />
         {!locked && (
-          <div className="flex gap-2">
-            <Button
-              disabled={busy || value === ""}
-              onClick={() => void run(() => api.updateSecret(name, value), true)}
-              type="button"
-              variant="secondary"
-            >
-              {t.secretField.update}
-            </Button>
-            {editing && (
-              <Button disabled={busy} onClick={cancel} type="button" variant="ghost">
-                {t.common.cancel}
-              </Button>
-            )}
-          </div>
+          <SecretEditActions
+            busy={busy}
+            editing={editing}
+            onCancel={cancel}
+            onSubmit={() => void run(() => api.updateSecret(name, value), true)}
+            submitLabel={t.secretField.update}
+            value={value}
+          />
         )}
       </div>
       {failed && <FormError>{failedMessage}</FormError>}

@@ -13,9 +13,9 @@ import { type FormEvent, type ReactNode, useEffect, useId, useState } from "reac
 
 import { SecretField } from "../components/secret-field";
 import { Button, Card, Field, FormError, Notice, SectionHeading } from "../components/ui";
+import { useInstallationSettings } from "../hooks/use-installation-settings";
 import type { Messages } from "../i18n/messages/pt-BR";
 import { useI18n } from "../i18n/store";
-import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import { type AccessMode, ApiError, api, type InstallationHealth } from "../lib/api";
 import { Screen } from "./screen";
@@ -24,13 +24,8 @@ const minimumPasswordLength = 15;
 
 /** Every block saves on its own; there is no page-wide form. */
 export function InstallationPage() {
-  const { patchSettings, reloadSettings, settings } = useDashboard();
+  const { secretSaved, settings } = useInstallationSettings();
   const { t } = useI18n();
-
-  // The shared snapshot may predate a save made on this screen, so the server decides.
-  useEffect(() => {
-    void reloadSettings();
-  }, [reloadSettings]);
 
   return (
     <>
@@ -40,11 +35,7 @@ export function InstallationPage() {
           <div className="flex min-w-0 flex-col gap-4">
             <ProvidersCard
               configured={settings.secrets.openRouterApiKey}
-              // The write succeeded, so reflect it right away and let the reload confirm it.
-              onChange={(configured) => {
-                patchSettings({ secrets: { ...settings.secrets, openRouterApiKey: configured } });
-                void reloadSettings();
-              }}
+              onChange={secretSaved("openRouterApiKey")}
             />
             {settings.accessMode === "public" && <PasswordCard />}
           </div>

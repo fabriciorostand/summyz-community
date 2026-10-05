@@ -1,5 +1,5 @@
 import { ArrowLeftRight } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ConfirmDialog } from "../components/confirm-dialog";
@@ -83,10 +83,8 @@ function ConnectedAccount({
   isPublic: boolean;
   name: string;
 }) {
-  const { t } = useI18n();
-  const messages = t.ownerAccount;
-  const { connect, connecting, failure } = useDiscordConnect();
-  const [confirming, setConfirming] = useState(false);
+  const messages = useI18n().t.ownerAccount;
+  const { ask, connecting, dialog, failureMessage } = useConfirmedConnect();
   return (
     <>
       <div className="flex items-center gap-2.5 px-1">
@@ -98,7 +96,7 @@ function ConnectedAccount({
           aria-label={messages.switchAccount}
           className="touch-target px-2"
           disabled={blocked || connecting}
-          onClick={() => setConfirming(true)}
+          onClick={ask}
           title={messages.switchAccount}
           type="button"
           variant="ghost"
@@ -106,15 +104,10 @@ function ConnectedAccount({
           <ArrowLeftRight className="size-4" />
         </Button>
       </div>
-      {failure !== undefined && <FormError>{t.discordConnect.failures[failure]}</FormError>}
+      {failureMessage}
       <ConfirmDialog
+        {...dialog}
         confirmLabel={messages.switchDialog.confirm}
-        onCancel={() => setConfirming(false)}
-        onConfirm={() => {
-          setConfirming(false);
-          void connect();
-        }}
-        open={confirming}
         title={messages.switchDialog.title}
       >
         <p className="m-0">{messages.switchDialog.body(name)}</p>
@@ -127,30 +120,24 @@ function ConnectedAccount({
 function ConnectButton({ blocked, isPublic }: { blocked: boolean; isPublic: boolean }) {
   const { t } = useI18n();
   const messages = t.ownerAccount;
-  const { connect, connecting, failure } = useDiscordConnect();
-  const [confirming, setConfirming] = useState(false);
+  const { ask, connect, connecting, dialog, failureMessage } = useConfirmedConnect();
   return (
     <>
       <Button
         className="w-full"
         disabled={blocked || connecting}
         // Public mode ends the dashboard session on return, so it asks first.
-        onClick={() => (isPublic ? setConfirming(true) : void connect())}
+        onClick={isPublic ? ask : connect}
         type="button"
       >
         <DiscordIcon className="size-4" />
         {connecting ? t.discordConnect.connecting : messages.connect}
       </Button>
-      {failure !== undefined && <FormError>{t.discordConnect.failures[failure]}</FormError>}
+      {failureMessage}
       <ConfirmDialog
+        {...dialog}
         confirmLabel={messages.connectDialog.confirm}
         confirmTone="primary"
-        onCancel={() => setConfirming(false)}
-        onConfirm={() => {
-          setConfirming(false);
-          void connect();
-        }}
-        open={confirming}
         title={messages.connectDialog.title}
       >
         <p className="m-0">{messages.connectDialog.body}</p>
@@ -181,4 +168,32 @@ function AccountPhoto({ avatarUrl, name }: { avatarUrl: string | null; name: str
       {[...name.trim()][0]?.toLocaleUpperCase() ?? "?"}
     </span>
   );
+}
+
+/** Starts the Discord authorization, directly or after a confirmation dialog. */
+function useConfirmedConnect(): {
+  ask: () => void;
+  connect: () => void;
+  connecting: boolean;
+  dialog: { onCancel: () => void; onConfirm: () => void; open: boolean };
+  failureMessage: ReactNode;
+} {
+  const { t } = useI18n();
+  const { connect, connecting, failure } = useDiscordConnect();
+  const [confirming, setConfirming] = useState(false);
+  return {
+    ask: () => setConfirming(true),
+    connect: () => void connect(),
+    connecting,
+    dialog: {
+      onCancel: () => setConfirming(false),
+      onConfirm: () => {
+        setConfirming(false);
+        void connect();
+      },
+      open: confirming,
+    },
+    failureMessage:
+      failure === undefined ? null : <FormError>{t.discordConnect.failures[failure]}</FormError>,
+  };
 }

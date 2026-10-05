@@ -1,20 +1,13 @@
-import { useEffect } from "react";
-
+import { useInstallationSettings } from "../hooks/use-installation-settings";
 import { useI18n } from "../i18n/store";
-import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
 import { DiscordApplicationCard } from "./bot/application-card";
 import { Screen } from "./screen";
 
 /** The Discord application behind the bot; the owner's account lives in the sidebar. */
 export function BotPage() {
-  const { patchSettings, reloadSettings, settings } = useDashboard();
+  const { reloadSettings, secretSaved, settings } = useInstallationSettings();
   const { t } = useI18n();
-
-  // The shared snapshot may predate a save made on this screen, so the server decides.
-  useEffect(() => {
-    void reloadSettings();
-  }, [reloadSettings]);
 
   return (
     <>
@@ -23,11 +16,7 @@ export function BotPage() {
         <DiscordApplicationCard
           applicationId={settings.discordApplicationId}
           clientSecretConfigured={settings.secrets.discordClientSecret}
-          // The write succeeded, so reflect it right away and let the reload confirm it.
-          onClientSecretChange={(configured) => {
-            patchSettings({ secrets: { ...settings.secrets, discordClientSecret: configured } });
-            void reloadSettings();
-          }}
+          onClientSecretChange={secretSaved("discordClientSecret")}
           onReplaced={reloadSettings}
           redirectUri={settings.discordRedirectUri}
           tokenConfigured={settings.secrets.discordBotToken}

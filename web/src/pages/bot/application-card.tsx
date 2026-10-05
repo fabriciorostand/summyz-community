@@ -5,12 +5,12 @@ import { ConfirmDialog } from "../../components/confirm-dialog";
 import { CopyableValue } from "../../components/copyable-value";
 import {
   EditSecretButton,
+  SecretEditActions,
   SecretField,
   useSecretEditing,
   useSecretPlaceholder,
 } from "../../components/secret-field";
 import {
-  Button,
   Card,
   DiscordIcon,
   Field,
@@ -112,8 +112,7 @@ function BotTokenField({
   configured: boolean;
   onReplaced: () => Promise<DashboardSettings | undefined>;
 }) {
-  const { t } = useI18n();
-  const messages = t.bot.application;
+  const messages = useI18n().t.bot.application;
   const { editing, inputRef, locked, setEditing } = useSecretEditing(configured);
   const placeholder = useSecretPlaceholder(configured, locked);
   const [token, setToken] = useState("");
@@ -176,21 +175,14 @@ function BotTokenField({
           value={token}
         />
         {!locked && (
-          <div className="flex gap-2">
-            <Button
-              disabled={busy || token === ""}
-              onClick={() => setConfirming(true)}
-              type="button"
-              variant="secondary"
-            >
-              {busy ? messages.validating : messages.replace}
-            </Button>
-            {editing && (
-              <Button disabled={busy} onClick={cancel} type="button" variant="ghost">
-                {t.common.cancel}
-              </Button>
-            )}
-          </div>
+          <SecretEditActions
+            busy={busy}
+            editing={editing}
+            onCancel={cancel}
+            onSubmit={() => setConfirming(true)}
+            submitLabel={busy ? messages.validating : messages.replace}
+            value={token}
+          />
         )}
       </div>
       {outcome !== undefined && <TokenOutcomeMessage outcome={outcome} />}

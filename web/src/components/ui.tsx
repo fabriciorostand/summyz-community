@@ -83,6 +83,33 @@ function Hint({ children, id }: { children: string; id: string }) {
   );
 }
 
+/** A native control with its label above and an optional hint below, tied by id. */
+function LabelledControl({
+  children,
+  className,
+  controlId,
+  hint,
+  hintId,
+  label,
+}: {
+  children: ReactNode;
+  className: string;
+  controlId: string;
+  hint: string | undefined;
+  hintId: string;
+  label: string;
+}) {
+  return (
+    <div className={`flex flex-col gap-1.5 ${className}`}>
+      <label htmlFor={controlId}>
+        <Label>{label}</Label>
+      </label>
+      {children}
+      {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
+    </div>
+  );
+}
+
 export function Field({
   hint,
   label,
@@ -97,10 +124,13 @@ export function Field({
 }) {
   const { controlId, describedBy, hintId } = useFieldIds(hint);
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
-      <label htmlFor={controlId}>
-        <Label>{label}</Label>
-      </label>
+    <LabelledControl
+      className={className}
+      controlId={controlId}
+      hint={hint}
+      hintId={hintId}
+      label={label}
+    >
       {/* Always wrapped, so the input survives trailing controls coming and going. With them,
           the wrapper draws the box and the input sits beside the controls inside it. */}
       <div className={trailing === undefined ? "" : boxedControlClass}>
@@ -114,8 +144,7 @@ export function Field({
           <span className="flex shrink-0 items-center gap-1">{trailing}</span>
         )}
       </div>
-      {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
-    </div>
+    </LabelledControl>
   );
 }
 
@@ -152,18 +181,20 @@ export function TextAreaField({
 }: TextareaHTMLAttributes<HTMLTextAreaElement> & { hint?: string; label: string }) {
   const { controlId, describedBy, hintId } = useFieldIds(hint);
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
-      <label htmlFor={controlId}>
-        <Label>{label}</Label>
-      </label>
+    <LabelledControl
+      className={className}
+      controlId={controlId}
+      hint={hint}
+      hintId={hintId}
+      label={label}
+    >
       <textarea
         aria-describedby={describedBy}
         className={`${controlClass} font-mono text-base leading-relaxed pointer-fine:text-[12.5px]`}
         id={controlId}
         {...props}
       />
-      {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
-    </div>
+    </LabelledControl>
   );
 }
 
