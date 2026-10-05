@@ -61,9 +61,9 @@ describe("SidebarAccount", () => {
     await userEvent.click(switchButton);
     const dialog = screen.getByRole("dialog", { name: "Trocar a conta do Discord?" });
     expect(dialog).toHaveTextContent(
-      "No Discord, entre com a conta que administra os servidores. Os servidores da conta atual deixam de aceitar gravações e ficam só no histórico; calls e configurações continuam salvas.",
+      "Os servidores da conta atual deixarão de aceitar gravações e ficarão só no histórico; calls e configurações continuarão salvas.",
     );
-    expect(dialog).not.toHaveTextContent(/pixel\.owner|senha da instalação/);
+    expect(dialog).not.toHaveTextContent(/No Discord|pixel\.owner|senha da instalação/);
     await userEvent.click(within(dialog).getByRole("button", { name: "Alterar" }));
     await waitFor(() => expect(leaveDashboardFor).toHaveBeenCalledWith(authorizationUrl));
   });
@@ -188,9 +188,9 @@ describe("SidebarAccount", () => {
     await userEvent.click(await within(region).findByRole("button", { name: "Switch account" }));
     const dialog = screen.getByRole("dialog", { name: "Switch Discord account?" });
     expect(dialog).toHaveTextContent(
-      "On Discord, sign in with the account that manages the servers. The current account's servers stop accepting recordings and stay in history only; calls and settings stay saved.",
+      "The current account's servers will stop accepting recordings and stay in history only; calls and settings will stay saved.",
     );
-    expect(dialog).not.toHaveTextContent(/pixel\.owner/);
+    expect(dialog).not.toHaveTextContent(/On Discord|pixel\.owner/);
     expect(within(dialog).getByRole("button", { name: "Change" })).toBeInTheDocument();
   });
 });
