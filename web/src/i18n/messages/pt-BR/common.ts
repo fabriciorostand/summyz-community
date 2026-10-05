@@ -79,7 +79,7 @@ export const commonMessages = {
     statusFailed: "Não foi possível consultar a conta conectada.",
     switchAccount: "Trocar conta",
     switchDialog: {
-      body: "No Discord, entre com a conta que administra os servidores. Os servidores da conta atual deixam de aceitar gravações e ficam só no histórico; calls e configurações continuam salvas.",
+      body: "Os servidores da conta atual deixarão de aceitar gravações e ficarão só no histórico; calls e configurações continuarão salvas.",
       confirm: "Alterar",
       publicNotice: "Ao voltar, entre de novo com a senha da instalação.",
       title: "Trocar a conta do Discord?",
