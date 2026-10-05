@@ -1,6 +1,7 @@
 import { z } from "zod";
 import type {
   ConnectedDiscordAccount,
+  ConnectedDiscordProfile,
   InstallationDiscordConnectionRepository,
 } from "../discord/installation-discord-connection.js";
 import type { SecretBox } from "../security/secret-box.js";
@@ -16,6 +17,23 @@ const connectionRowSchema = z.object({
 });
 const dateSchema = z.iso.datetime();
 const hashSchema = z.string().min(1).max(128);
+const avatarUrlSchema = z.url().refine((value) => {
+  const url = new URL(value);
+  return (
+    url.protocol === "https:" &&
+    url.hostname === "cdn.discordapp.com" &&
+    url.username === "" &&
+    url.password === "" &&
+    url.port === ""
+  );
+});
+const profileRowSchema = z.object({
+  avatar_url: avatarUrlSchema.nullable(),
+  discord_user_id: z.string().min(1),
+  discord_username: z.string().min(1),
+  generation: z.coerce.number().int().positive(),
+  profile_updated_at: z.union([z.date(), dateSchema]).nullable(),
+});
 
 export class PostgresInstallationDiscordConnectionStore
   implements InstallationDiscordConnectionRepository
@@ -102,6 +120,8 @@ export class PostgresInstallationDiscordConnectionStore
          ON CONFLICT (singleton) DO UPDATE SET
            discord_user_id = EXCLUDED.discord_user_id,
            discord_username = EXCLUDED.discord_username,
+           avatar_url = NULL,
+           profile_updated_at = NULL,
            encrypted_access_token = EXCLUDED.encrypted_access_token,
            encrypted_refresh_token = EXCLUDED.encrypted_refresh_token,
            token_expires_at = EXCLUDED.token_expires_at,
@@ -138,6 +158,49 @@ export class PostgresInstallationDiscordConnectionStore
         this.#secretBox.encrypt(z.string().min(1).parse(input.accessToken)),
         this.#secretBox.encrypt(z.string().min(1).parse(input.refreshToken)),
         dateSchema.parse(input.expiresAt),
+        z.number().int().positive().parse(input.expectedGeneration),
+      ],
+    );
+    return result.rowCount === 1;
+  }
+
+  public async getProfile(): Promise<ConnectedDiscordProfile | undefined> {
+    const result = await this.#database.query(
+      `SELECT discord_user_id, discord_username, avatar_url, profile_updated_at, generation
+       FROM installation_discord_connection WHERE singleton = true`,
+    );
+    const first = result.rows[0];
+    if (first === undefined) return undefined;
+    const row = profileRowSchema.parse(first);
+    return {
+      avatarUrl: row.avatar_url,
+      discordUserId: row.discord_user_id,
+      discordUsername: row.discord_username,
+      generation: row.generation,
+      profileUpdatedAt:
+        row.profile_updated_at instanceof Date
+          ? row.profile_updated_at.toISOString()
+          : row.profile_updated_at,
+    };
+  }
+
+  public async updateProfile(input: {
+    avatarUrl: string;
+    discordUserId: string;
+    discordUsername: string;
+    expectedGeneration: number;
+    profileUpdatedAt: string;
+  }): Promise<boolean> {
+    const result = await this.#database.query(
+      `UPDATE installation_discord_connection
+       SET discord_username = $1, avatar_url = $2, profile_updated_at = $3, updated_at = now()
+       WHERE singleton = true AND discord_user_id = $4 AND generation = $5
+       RETURNING singleton`,
+      [
+        z.string().min(1).parse(input.discordUsername),
+        avatarUrlSchema.parse(input.avatarUrl),
+        dateSchema.parse(input.profileUpdatedAt),
+        z.string().min(1).parse(input.discordUserId),
         z.number().int().positive().parse(input.expectedGeneration),
       ],
     );

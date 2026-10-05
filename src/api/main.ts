@@ -75,6 +75,7 @@ const discordConnection = new InstallationDiscordConnection({
   applicationId: async () => (await settings.getSettings()).discordApplicationId,
   clientSecret: () => settings.getSecret("discord_client_secret"),
   fetch: discordFetch,
+  logger,
   publicBaseUrl: config.publicBaseUrl,
   repository: new PostgresInstallationDiscordConnectionStore(database, secretBox),
 });

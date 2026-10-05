@@ -14,6 +14,36 @@ const localOrigin = { origin: "http://127.0.0.1:8787" };
 
 describe("Community dashboard API", () => {
   it.each(["local", "public"] as const)(
+    "exposes the account avatar only with %s dashboard authorization",
+    async (mode) => {
+      const dependencies = createDependencies(mode);
+      const profile = {
+        avatarUrl: "https://cdn.discordapp.com/embed/avatars/0.png",
+        connected: true as const,
+        discordUserId: "owner-a",
+        discordUsername: "Current Name",
+      };
+      dependencies.discordConnection.getConnectionProfile = vi.fn(async () => profile);
+      const app = await createApiServer(dependencies);
+      try {
+        if (mode === "public") {
+          expect((await app.inject("/api/discord/connection")).statusCode).toBe(401);
+          expect(dependencies.discordConnection.getConnectionProfile).not.toHaveBeenCalled();
+        }
+        const response = await app.inject({
+          url: "/api/discord/connection",
+          cookies: { summyz_session: "session-token" },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.json()).toEqual(profile);
+        expect(dependencies.discordConnection.getConnectionStatus).not.toHaveBeenCalled();
+      } finally {
+        await app.close();
+      }
+    },
+  );
+
+  it.each(["local", "public"] as const)(
     "reads hardware only with %s dashboard authorization and exposes no inventory refresh",
     async (mode) => {
       const dependencies = createDependencies(mode);
@@ -1323,6 +1353,12 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
       completeAuthorization: vi.fn(async () => undefined),
       createAuthorizationUrl: vi.fn(async () => "https://discord.com/oauth2/authorize"),
       getConnectedUserId: vi.fn(async () => "owner-a"),
+      getConnectionProfile: vi.fn(async () => ({
+        avatarUrl: null,
+        connected: true as const,
+        discordUserId: "owner-a",
+        discordUsername: "Owner A",
+      })),
       getConnectionStatus: vi.fn(async () => ({
         connected: true as const,
         discordUserId: "owner-a",
