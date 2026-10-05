@@ -1,6 +1,6 @@
 import { type RenderResult, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { ReactElement, ReactNode } from "react";
+import { type ReactElement, type ReactNode, useCallback, useState } from "react";
 import { MemoryRouter, Outlet, Route, Routes } from "react-router-dom";
 
 import type { DashboardContext } from "../layout/dashboard-layout";
@@ -8,6 +8,7 @@ import type {
   DashboardAnalytics,
   DashboardSettings,
   DashboardTask,
+  DiscordConnection,
   Guild,
   GuildConfiguration,
   GuildResources,
@@ -22,6 +23,18 @@ export function aSettings(overrides: Partial<DashboardSettings> = {}): Dashboard
     discordApplicationId: "123456789012345678",
     discordRedirectUri: "http://127.0.0.1:8787/api/discord/callback",
     secrets: { discordBotToken: true, discordClientSecret: true, openRouterApiKey: true },
+    ...overrides,
+  };
+}
+
+export function aConnectedAccount(
+  overrides: Partial<Extract<DiscordConnection, { connected: true }>> = {},
+): DiscordConnection {
+  return {
+    avatarUrl: "https://cdn.discordapp.com/avatars/owner-1/a1b2c3.png",
+    connected: true,
+    discordUserId: "owner-1",
+    discordUsername: "pixel.owner",
     ...overrides,
   };
 }
@@ -343,6 +356,55 @@ export function renderScreen(
       </Routes>
     </MemoryRouter>,
   );
+}
+
+/**
+ * The real layout owns the settings; this stand-in keeps them in state so a screen can be
+ * observed reacting to its own patches and to what the server answers on reload.
+ */
+function LiveSettingsHarness({
+  element,
+  initialSettings,
+  serverSettings,
+}: {
+  element: ReactElement;
+  initialSettings: DashboardSettings;
+  serverSettings: () => Promise<DashboardSettings>;
+}) {
+  const [settings, setSettings] = useState(initialSettings);
+  // Stable like the real layout callbacks, otherwise the screen would refresh on every render.
+  const patchSettings = useCallback(
+    (patch: Partial<DashboardSettings>) => setSettings((current) => ({ ...current, ...patch })),
+    [],
+  );
+  const reloadSettings = useCallback(
+    () =>
+      serverSettings().then(
+        (next) => {
+          setSettings(next);
+          return next;
+        },
+        () => undefined,
+      ),
+    [serverSettings],
+  );
+  const context = dashboardContext({ patchSettings, reloadSettings, settings });
+  return (
+    <MemoryRouter>
+      <Routes>
+        <Route element={<Outlet context={context} />}>
+          <Route element={element} path="/" />
+        </Route>
+      </Routes>
+    </MemoryRouter>
+  );
+}
+
+export function renderWithLiveSettings(
+  element: ReactElement,
+  options: { initialSettings: DashboardSettings; serverSettings: () => Promise<DashboardSettings> },
+): RenderResult {
+  return render(<LiveSettingsHarness element={element} {...options} />);
 }
 
 export function renderWithRouter(children: ReactNode): RenderResult {

@@ -1,4 +1,5 @@
 import {
+  Bot,
   Command,
   Gauge,
   PhoneCall,
@@ -12,6 +13,8 @@ import type { ReactNode } from "react";
 import { NavLink } from "react-router-dom";
 
 import { useI18n } from "../i18n/store";
+import type { DashboardSettings } from "../lib/api";
+import { SidebarAccount } from "./sidebar-account";
 
 export function Brand({ label = "Summyz", size = 28 }: { label?: string; size?: number }) {
   return (
@@ -84,23 +87,29 @@ function NavItem({
 }
 
 const sidebarVariants = {
-  // The fixed rail only fits next to the content from the desktop breakpoint up.
-  drawer: "flex min-h-full w-full",
-  rail: "hidden w-[236px] shrink-0 border-r border-line-soft lg:flex",
+  // The fixed rail only fits next to the content from the desktop breakpoint up. It stays pinned
+  // to the screen while the page scrolls, so the owner's account at its foot is always in view.
+  drawer: "flex h-full w-full",
+  rail: "hidden w-[236px] shrink-0 border-r border-line-soft lg:sticky lg:top-0 lg:flex lg:h-dvh",
 } as const;
 
-/** No account footer: the design has no user identity, only the installation itself. */
+/**
+ * The foot shows the Discord account that owns the servers. It is not a dashboard user: the
+ * installation has no user accounts, so there is no sign-out here.
+ */
 export function Sidebar({
   action,
   callCount,
   onNavigate,
   openTaskCount,
+  settings,
   variant = "rail",
 }: {
   action?: ReactNode;
   callCount: number | undefined;
   onNavigate?: () => void;
   openTaskCount: number | undefined;
+  settings: DashboardSettings;
   variant?: keyof typeof sidebarVariants;
 }) {
   const { nav } = useI18n().t;
@@ -111,63 +120,73 @@ export function Sidebar({
         <Brand />
         {action}
       </div>
-      <NavGroup label={nav.meetings}>
-        <NavItem
-          onNavigate={onNavigate}
-          icon={<Gauge className={iconClass} />}
-          label={nav.overview}
-          to="/"
-        />
-        <NavItem
-          onNavigate={onNavigate}
-          count={callCount}
-          icon={<PhoneCall className={iconClass} />}
-          label={nav.calls}
-          to="/history"
-        />
-        <NavItem
-          onNavigate={onNavigate}
-          count={openTaskCount}
-          icon={<SquareCheckBig className={iconClass} />}
-          label={nav.tasks}
-          to="/tasks"
-          tone="alert"
-        />
-      </NavGroup>
-      <NavGroup label={nav.configuration}>
-        <NavItem
-          onNavigate={onNavigate}
-          icon={<Server className={iconClass} />}
-          label={nav.servers}
-          to="/servers"
-        />
-        <NavItem
-          onNavigate={onNavigate}
-          icon={<SlidersHorizontal className={iconClass} />}
-          label={nav.profiles}
-          to="/profiles"
-        />
-        <NavItem
-          onNavigate={onNavigate}
-          icon={<Command className={iconClass} />}
-          label={nav.commands}
-          to="/commands"
-        />
-      </NavGroup>
-      <NavGroup label={nav.system}>
-        <NavItem
-          onNavigate={onNavigate}
-          icon={<SlidersVertical className={iconClass} />}
-          label={nav.preferences}
-          to="/settings"
-        />
-        <NavItem
-          onNavigate={onNavigate}
-          icon={<Settings className={iconClass} />}
-          label={nav.installation}
-          to="/installation"
-        />
-      </NavGroup>
+      {/* Only the navigation scrolls on short screens; the account below never leaves view. */}
+      <div className="min-h-0 flex-1 overflow-y-auto [scrollbar-width:thin]">
+        <NavGroup label={nav.meetings}>
+          <NavItem
+            onNavigate={onNavigate}
+            icon={<Gauge className={iconClass} />}
+            label={nav.overview}
+            to="/"
+          />
+          <NavItem
+            onNavigate={onNavigate}
+            count={callCount}
+            icon={<PhoneCall className={iconClass} />}
+            label={nav.calls}
+            to="/history"
+          />
+          <NavItem
+            onNavigate={onNavigate}
+            count={openTaskCount}
+            icon={<SquareCheckBig className={iconClass} />}
+            label={nav.tasks}
+            to="/tasks"
+            tone="alert"
+          />
+        </NavGroup>
+        <NavGroup label={nav.configuration}>
+          <NavItem
+            onNavigate={onNavigate}
+            icon={<Server className={iconClass} />}
+            label={nav.servers}
+            to="/servers"
+          />
+          <NavItem
+            onNavigate={onNavigate}
+            icon={<SlidersHorizontal className={iconClass} />}
+            label={nav.profiles}
+            to="/profiles"
+          />
+          <NavItem
+            onNavigate={onNavigate}
+            icon={<Command className={iconClass} />}
+            label={nav.commands}
+            to="/commands"
+          />
+        </NavGroup>
+        <NavGroup label={nav.system}>
+          <NavItem
+            onNavigate={onNavigate}
+            icon={<SlidersVertical className={iconClass} />}
+            label={nav.preferences}
+            to="/settings"
+          />
+          <NavItem
+            onNavigate={onNavigate}
+            icon={<Bot className={iconClass} />}
+            label={nav.bot}
+            to="/bot"
+          />
+          <NavItem
+            onNavigate={onNavigate}
+            icon={<Settings className={iconClass} />}
+            label={nav.installation}
+            to="/installation"
+          />
+        </NavGroup>
+      </div>
+      <SidebarAccount onNavigate={onNavigate} settings={settings} />
     </aside>
   );
 }

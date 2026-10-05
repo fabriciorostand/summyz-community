@@ -40,6 +40,8 @@ export const botInstallationSchema = z.discriminatedUnion("configured", [
 export const discordConnectionSchema = z.discriminatedUnion("connected", [
   z.object({ connected: z.literal(false) }),
   z.object({
+    // Null until the backend has fetched the profile from Discord at least once.
+    avatarUrl: z.url().nullable(),
     connected: z.literal(true),
     discordUserId: z.string(),
     discordUsername: z.string(),

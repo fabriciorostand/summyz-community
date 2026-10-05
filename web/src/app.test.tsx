@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, api, subscribeToSessionExpiry } from "./lib/api";
 import { routes } from "./routes";
-import { aDashboard, aGuild, aSettings } from "./tests/test-utils";
+import { aConnectedAccount, aDashboard, aGuild, aSettings } from "./tests/test-utils";
 
 vi.mock("./lib/api", async () => {
   const actual = await vi.importActual<typeof import("./lib/api")>("./lib/api");
@@ -53,11 +53,7 @@ beforeEach(() => {
   vi.mocked(api.getBotInstallation).mockResolvedValue({ configured: false });
   vi.mocked(api.listGuilds).mockResolvedValue([aGuild()]);
   vi.mocked(api.getDashboard).mockResolvedValue(aDashboard());
-  vi.mocked(api.getDiscordConnection).mockResolvedValue({
-    connected: true,
-    discordUserId: "owner-1",
-    discordUsername: "pixel.owner",
-  });
+  vi.mocked(api.getDiscordConnection).mockResolvedValue(aConnectedAccount());
   vi.mocked(api.listMeetings).mockResolvedValue({
     items: [],
     page: 1,

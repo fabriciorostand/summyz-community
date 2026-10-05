@@ -2,16 +2,11 @@
 export const configurationMessages = {
   servers: {
     activeProfile: "Perfil ativo",
-    addCardBody: "Abre a autorização oficial do Discord, onde você escolhe o servidor.",
-    addCardTitle: "Adicionar o bot a um servidor",
-    addToDiscord: "Adicionar o bot ao Discord",
-    authorize: "Autorizar no Discord",
     configure: "Configurar",
     configured: "Instalado e configurado",
     connectBody:
       "Sem ela, a lista mostra só servidores com histórico e nenhum servidor pode ser configurado.",
-    connectNeedsClientSecret: "Antes, salve o Client Secret da aplicação em Instalação.",
-    connectTitle: "Conecte a conta Discord do dono",
+    connectTitle: "Conecte a conta Discord",
     dismiss: "Fechar aviso",
     historyOnly: "Somente histórico",
     historyOnlyBody:
@@ -34,10 +29,10 @@ export const configurationMessages = {
     summaryForum: "Fórum de resumos",
     title: "Servidores",
     unavailableBody:
-      "O bot não conseguiu listar os servidores em que está. Confira o token em Instalação e tente novamente.",
+      "O bot não conseguiu listar os servidores em que está. Confira o token na aba Bot e tente novamente.",
     unavailableTitle: "Servidores indisponíveis",
+    openBot: "Abrir aba Bot",
     viewHistory: "Ver histórico",
-    viewInstallation: "Ver instalação",
   },
   guild: {
     activeIncomplete: (name: string) =>
@@ -82,7 +77,7 @@ export const configurationMessages = {
         guild_configuration_incomplete:
           "Defina o fórum de resumos e um perfil ativo completo antes de confirmar.",
         guild_owner_changed:
-          "A conta conectada não é a dona atual deste servidor. Reconecte a conta do dono em Instalação.",
+          "A conta conectada não é a dona atual deste servidor. Conecte a conta do dono ao dashboard.",
         request_failed: "Não foi possível confirmar agora. Tente de novo.",
       },
       title: "Confirme a configuração deste servidor",
@@ -118,12 +113,49 @@ export const configurationMessages = {
     whoCanRecord: "Quem pode iniciar uma gravação",
     whoCanRecordDescription: "O dono do servidor sempre pode. Autorize também cargos ou membros.",
   },
+  bot: {
+    application: {
+      applicationReplaced:
+        "Aplicação trocada. Salve o Client Secret da nova aplicação, reconecte a conta do dono e instale o novo bot nos servidores.",
+      botToken: "Token do bot",
+      copyApplicationId: "Copiar Application ID",
+      editToken: "Editar token do bot",
+      oauth: {
+        clientSecret: "Client Secret",
+        clientSecretFailed: "Não foi possível salvar o Client Secret. Tente novamente.",
+        copyRedirectUri: "Copiar URL de redirecionamento",
+        editClientSecret: "Editar Client Secret",
+        redirectHint: "Cadastre exatamente esta URL em OAuth2 → Redirects no Developer Portal.",
+        redirectUri: "URL de redirecionamento",
+        removeClientSecret: "Remover Client Secret",
+      },
+      replace: "Substituir",
+      replaceDialog: {
+        confirm: "Substituir token",
+        otherApplication:
+          "Token de outra aplicação: a conta do dono e o Client Secret são apagados, todas as sessões do dashboard são encerradas e a troca é recusada enquanto houver reunião em processamento.",
+        sameApplication:
+          "Token da mesma aplicação: só a credencial muda. A troca é recusada enquanto houver gravação em andamento.",
+        title: "Substituir o token do bot?",
+      },
+      title: "Aplicação Discord",
+      tokenBlocked: {
+        active_recording: "Há uma gravação em andamento. Encerre-a antes de trocar o token.",
+        pending_meetings:
+          "Ainda há reuniões em processamento. Aguarde terminarem antes de trocar de aplicação.",
+      },
+      tokenFailed: "Não foi possível substituir o token.",
+      tokenRejected: "Token recusado pelo Discord.",
+      tokenRotated: "Token salvo. O bot reinicia sozinho com a nova credencial.",
+      tokenWarning:
+        "Substituir o token revalida a aplicação e reescreve o Application ID. O bot reinicia sozinho com a nova credencial.",
+      validating: "Validando…",
+    },
+    title: "Bot",
+  },
   installation: {
     access: "Acesso ao dashboard",
     active: "Ativo",
-    applicationReplaced:
-      "Aplicação trocada. Salve o Client Secret da nova aplicação, reconecte a conta do dono e instale o novo bot nos servidores.",
-    botToken: "Token do bot",
     changePassword: "Trocar senha",
     changing: "Trocando…",
     components: {
@@ -136,28 +168,8 @@ export const configurationMessages = {
       queue: "Fila durável de processamento",
       worker: "Worker de processamento",
     },
-    configuredReplace: "Configurado — digite para substituir",
-    copyApplicationId: "Copiar Application ID",
     currentPassword: "Senha atual",
-    discordApplication: "Aplicação Discord",
-    discordOwner: {
-      clientSecret: "Client Secret",
-      clientSecretFailed: "Não foi possível salvar o Client Secret. Tente novamente.",
-      connectedAs: (name: string) => `Conectada como ${name}`,
-      copyRedirectUri: "Copiar URL de redirecionamento",
-      description:
-        "Conectar a conta do dono libera a configuração dos servidores dela. O Summyz pede só os escopos identify e guilds.",
-      needsClientSecret: "Salve o Client Secret antes de conectar.",
-      notConnected: "Nenhuma conta conectada",
-      publicSessionNotice:
-        "Conectar ou trocar a conta encerra as sessões do dashboard. Ao voltar do Discord, entre de novo com a senha da instalação.",
-      redirectHint: "Cadastre exatamente esta URL em OAuth2 → Redirects no Developer Portal.",
-      redirectUri: "URL de redirecionamento",
-      removeClientSecret: "Remover Client Secret",
-      statusFailed: "Não foi possível consultar a conta conectada.",
-      switchAccount: "Trocar conta",
-      title: "Conta do dono no Discord",
-    },
+    editKey: "Editar chave OpenRouter",
     health: "Estado da instalação",
     healthFailed: "Não foi possível consultar o estado dos componentes.",
     healthLoading: "Consultando componentes…",
@@ -167,7 +179,6 @@ export const configurationMessages = {
     newPassword: "Nova senha",
     newPasswordHint:
       "De 15 a 128 caracteres. Sem exigência de maiúsculas, números ou símbolos — só o comprimento importa. Senhas comuns são recusadas.",
-    notConfigured: "Ainda não configurado",
     openRouterKey: "Chave OpenRouter",
     passwordChanged: "Senha trocada. As outras sessões foram encerradas.",
     passwordFailed: "Não foi possível trocar a senha.",
@@ -182,29 +193,8 @@ export const configurationMessages = {
       "no host: ele imprime uma URL de uso único, válida por 10 minutos. A senha antiga só deixa de valer quando a nova é gravada.",
     recoverBefore: "Perdeu a senha? Rode",
     removeKey: "Remover chave OpenRouter",
-    replace: "Substituir",
-    replaceDialog: {
-      confirm: "Substituir token",
-      otherApplication:
-        "Token de outra aplicação: a conta do dono e o Client Secret são apagados, todas as sessões do dashboard são encerradas e a troca é recusada enquanto houver reunião em processamento.",
-      sameApplication:
-        "Token da mesma aplicação: só a credencial muda. A troca é recusada enquanto houver gravação em andamento.",
-      title: "Substituir o token do bot?",
-    },
     stale: "sem heartbeat recente",
     title: "Instalação",
-    tokenBlocked: {
-      active_recording: "Há uma gravação em andamento. Encerre-a antes de trocar o token.",
-      pending_meetings:
-        "Ainda há reuniões em processamento. Aguarde terminarem antes de trocar de aplicação.",
-    },
-    tokenFailed: "Não foi possível substituir o token.",
-    tokenRejected: "Token recusado pelo Discord.",
-    tokenRotated: "Token salvo. O bot reinicia sozinho com a nova credencial.",
-    tokenWarning:
-      "Substituir o token revalida a aplicação e reescreve o Application ID. O bot reinicia sozinho com a nova credencial.",
-    update: "Atualizar",
-    validating: "Validando…",
   },
   commands: {
     descriptions: {
@@ -232,10 +222,10 @@ export const configurationMessages = {
   },
   preferences: {
     automatic: "Automático (região do navegador)",
-    card: "Idioma, data e tema",
     dark: "Escuro",
     dateFormat: "Formato de data",
-    language: "Idioma do dashboard",
+    dateTime: "Data e hora",
+    language: "Idioma",
     light: "Claro",
     system: "Seguir o sistema",
     theme: "Tema",

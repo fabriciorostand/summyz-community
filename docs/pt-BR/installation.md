@@ -146,9 +146,10 @@ o comportamento das sessões e da recuperação de senha.
    o token no Discord e obtém o Application ID automaticamente.
 2. Configure o Client Secret da aplicação e conecte a conta Discord do proprietário do servidor.
    O setup oferece uma etapa opcional para o Client Secret e mostra a URL de redirecionamento a
-   cadastrar; a tela **Instalação** permite fazer o mesmo depois. Autorize os escopos
-   `identify guilds`. No modo público, entre novamente após concluir a conexão, pois as sessões
-   anteriores do dashboard são revogadas; o dashboard volta para **Servidores** com o resultado.
+   cadastrar; a aba **Bot** permite fazer o mesmo depois. Conecte a conta pelo botão no fim do
+   menu lateral e autorize os escopos `identify guilds`. No modo público, entre novamente após
+   concluir a conexão, pois as sessões anteriores do dashboard são revogadas; o dashboard volta
+   para **Servidores** com o resultado.
 3. Instale o bot em um servidor da conta conectada. Configure o fórum de publicação e os cargos
    ou membros individuais autorizados a gravar.
 4. Complete o perfil inicial de IA escolhendo provedor e modelo para transcrição, refinamento e

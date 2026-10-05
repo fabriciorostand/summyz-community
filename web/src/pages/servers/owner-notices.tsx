@@ -1,39 +1,24 @@
 import { CircleAlert, CircleCheck, Info, X } from "lucide-react";
-import { Link, useSearchParams } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 
-import { DiscordConnectButton } from "../../components/discord-connect-button";
-import { secondaryLinkClass } from "../../components/states";
 import { Notice } from "../../components/ui";
 import { useDiscordConnection } from "../../hooks/use-discord-connection";
 import { useI18n } from "../../i18n/store";
 
-/** Without the owner's account the list only holds history, so the screen asks for it first. */
-export function ConnectOwnerBanner({
-  clientSecretConfigured,
-}: {
-  clientSecretConfigured: boolean;
-}) {
+/**
+ * Without the owner's account the list only holds history. The banner only warns: connecting
+ * happens from the account at the foot of the sidebar.
+ */
+export function ConnectOwnerBanner() {
   const { t } = useI18n();
   const { connection } = useDiscordConnection();
   if (connection?.connected !== false) return null;
   return (
-    <section className="flex flex-col gap-3 rounded-xl border border-warn/40 bg-surface p-5">
-      <div className="flex flex-col gap-1">
-        <strong className="text-[14px] font-semibold tracking-tight text-ink">
-          {t.servers.connectTitle}
-        </strong>
-        <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">{t.servers.connectBody}</p>
-      </div>
-      {clientSecretConfigured ? (
-        <DiscordConnectButton />
-      ) : (
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="text-[12.5px] text-warn">{t.servers.connectNeedsClientSecret}</span>
-          <Link className={secondaryLinkClass} to="/installation">
-            {t.servers.viewInstallation}
-          </Link>
-        </div>
-      )}
+    <section className="flex flex-col gap-1 rounded-xl border border-warn/40 bg-surface p-5">
+      <strong className="text-[14px] font-semibold tracking-tight text-ink">
+        {t.servers.connectTitle}
+      </strong>
+      <p className="m-0 text-[12.5px] leading-relaxed text-ink-muted">{t.servers.connectBody}</p>
     </section>
   );
 }

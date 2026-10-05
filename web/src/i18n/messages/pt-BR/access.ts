@@ -8,7 +8,7 @@ export const accessMessages = {
     continue: "Continuar",
     copyRedirect: "Copiar URL de redirecionamento",
     discordHelp:
-      "Developer Portal → sua aplicação → OAuth2 → Client Secret. Ele permite conectar a conta Discord do dono dos servidores; dá para fazer isso depois em Instalação.",
+      "Developer Portal → sua aplicação → OAuth2 → Client Secret. Ele permite conectar a conta Discord do dono dos servidores; dá para fazer isso depois na aba Bot.",
     discordLabel: "Conta do dono (opcional)",
     discordTitle: "Prepare a conexão do dono",
     doneHelpAfter: ".",
@@ -43,7 +43,7 @@ export const accessMessages = {
     redirectLabel: "Cadastre esta URL em OAuth2 → Redirects",
     skip: "Pular por enquanto",
     skippedNotice:
-      "Sem o Client Secret, nenhum servidor pode ser configurado. Salve-o depois em Instalação e conecte a conta do dono.",
+      "Sem o Client Secret, nenhum servidor pode ser configurado. Salve-o depois na aba Bot e conecte a conta do dono.",
     tokenHelp:
       "Developer Portal → sua aplicação → Bot → Reset Token. O Application ID é derivado dele.",
     tokenLabel: "Token do bot",

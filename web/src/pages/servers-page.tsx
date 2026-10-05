@@ -1,6 +1,5 @@
 import {
   ArrowRight,
-  ArrowUpRight,
   CircleAlert,
   CircleCheck,
   History,
@@ -17,7 +16,7 @@ import {
   NoServerState,
   secondaryLinkClass,
 } from "../components/states";
-import { Avatar, Button, Card, DiscordIcon } from "../components/ui";
+import { Avatar, Button, Card } from "../components/ui";
 import { useBotInstallation } from "../hooks/use-bot-installation";
 import { useI18n } from "../i18n/store";
 import { useDashboard } from "../layout/dashboard-layout";
@@ -31,7 +30,7 @@ import { ConnectOwnerBanner, OAuthResultNotice } from "./servers/owner-notices";
  * their recorded history.
  */
 export function ServersPage() {
-  const { guilds, settings } = useDashboard();
+  const { guilds } = useDashboard();
   const { t } = useI18n();
   const { installUrl } = useBotInstallation();
   const list = guilds.guilds;
@@ -49,14 +48,14 @@ export function ServersPage() {
       />
       <Screen>
         <OAuthResultNotice />
-        <ConnectOwnerBanner clientSecretConfigured={settings.secrets.discordClientSecret} />
+        <ConnectOwnerBanner />
         {guilds.error ? (
           <ErrorState
             code="request_failed"
             onRetry={guilds.reload}
             secondaryAction={
-              <Link className={secondaryLinkClass} to="/installation">
-                {t.servers.viewInstallation}
+              <Link className={secondaryLinkClass} to="/bot">
+                {t.servers.openBot}
               </Link>
             }
             title={t.servers.unavailableTitle}
@@ -68,19 +67,11 @@ export function ServersPage() {
         ) : list.length === 0 ? (
           <NoServerState installUrl={installUrl} />
         ) : (
-          <>
-            <div>
-              <InstallBotLink installUrl={installUrl} variant="secondary">
-                {t.servers.addToDiscord}
-              </InstallBotLink>
-            </div>
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
-              {list.map((guild) => (
-                <GuildCard guild={guild} key={guild.id} onSelect={guilds.setSelectedGuildId} />
-              ))}
-              <AddServerCard installUrl={installUrl} />
-            </div>
-          </>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2 2xl:grid-cols-3">
+            {list.map((guild) => (
+              <GuildCard guild={guild} key={guild.id} onSelect={guilds.setSelectedGuildId} />
+            ))}
+          </div>
         )}
       </Screen>
     </>
@@ -193,48 +184,5 @@ function GuildFact({ label, value }: { label: string; value: string }) {
       <span className="text-[12px] text-ink-muted">{label}</span>
       <span className="truncate text-right text-[12px] text-ink-secondary">{value}</span>
     </div>
-  );
-}
-
-/** Dashed card at the end of the grid: the authorization happens on Discord, not here. */
-function AddServerCard({ installUrl }: { installUrl: string | undefined }) {
-  const { t } = useI18n();
-  const body = (
-    <>
-      <span className="grid size-10 place-items-center rounded-xl bg-surface-inset text-ink-muted">
-        <DiscordIcon className="size-5" />
-      </span>
-      <span className="flex flex-col gap-1">
-        <strong className="text-[14px] font-semibold tracking-tight text-ink">
-          {t.servers.addCardTitle}
-        </strong>
-        <span className="text-[12.5px] leading-relaxed text-ink-muted">
-          {t.servers.addCardBody}
-        </span>
-      </span>
-      <span className="mt-auto inline-flex items-center gap-1 text-[12.5px] text-accent">
-        {t.servers.authorize} <ArrowUpRight className="size-3.5" />
-      </span>
-    </>
-  );
-  const className =
-    "flex flex-col gap-3 rounded-xl border border-dashed border-line-strong bg-transparent p-5 transition-colors";
-  if (installUrl === undefined) {
-    return (
-      <div aria-disabled="true" className={`${className} opacity-60`}>
-        {body}
-      </div>
-    );
-  }
-  return (
-    <a
-      aria-label={t.servers.addCardTitle}
-      className={`${className} hover:border-action/60 hover:bg-surface`}
-      href={installUrl}
-      rel="noreferrer"
-      target="_blank"
-    >
-      {body}
-    </a>
   );
 }

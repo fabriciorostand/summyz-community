@@ -16,8 +16,7 @@ export const commonMessages = {
   },
   states: {
     addBack: "Adicionar o bot",
-    discordNotConnectedBody:
-      "Configurar servidores e perfis exige a conta Discord do dono conectada. Conecte-a em Instalação.",
+    discordNotConnectedBody: "Conecte a conta Discord para configurar servidores e perfis.",
     discordNotConnectedTitle: "Conta do dono não conectada",
     discordRateLimitedBody:
       "O Discord pediu uma pausa nas consultas. Aguarde alguns segundos e tente de novo.",
@@ -33,7 +32,6 @@ export const commonMessages = {
     sessionExpiredBody:
       "A sessão cai após 7 dias sem uso, ou 30 dias no total. Digite a senha da instalação para continuar.",
     sessionExpiredTitle: "Sua sessão expirou",
-    openInstallation: "Ir para Instalação",
     unlock: "Desbloquear",
     viewServers: "Ver servidores",
   },
@@ -50,6 +48,7 @@ export const commonMessages = {
   nav: {
     calls: "Calls",
     closeMenu: "Fechar menu",
+    bot: "Bot",
     commands: "Comandos",
     configuration: "Configuração",
     installation: "Instalação",
@@ -62,6 +61,32 @@ export const commonMessages = {
     servers: "Servidores",
     system: "Sistema",
     tasks: "Tarefas",
+  },
+  secretField: {
+    configured: "Configurado",
+    configuredReplace: "Configurado — digite para substituir",
+    notConfigured: "Ainda não configurado",
+    update: "Atualizar",
+  },
+  ownerAccount: {
+    clientSecretMissing: "Salve o Client Secret na aba Bot",
+    connect: "Conectar Discord",
+    connectDialog: {
+      body: "Ao voltar do Discord, entre de novo com a senha da instalação.",
+      confirm: "Continuar no Discord",
+      title: "Conectar a conta Discord?",
+    },
+    statusFailed: "Não foi possível consultar a conta conectada.",
+    switchAccount: "Trocar conta",
+    switchDialog: {
+      body: (name: string) =>
+        `No Discord, entre com a conta dona dos servidores. Os servidores de ${name} deixam de aceitar gravações e aparecem como somente histórico; calls e configurações continuam salvas.`,
+      confirm: "Trocar no Discord",
+      publicNotice: "Ao voltar, entre de novo com a senha da instalação.",
+      title: "Trocar a conta do dono?",
+    },
+    title: "Conta do dono no Discord",
+    tokenMissing: "Salve o token do bot na aba Bot",
   },
   routeError: {
     body: "O painel pode ter sido atualizado enquanto estava aberto. Recarregue a página para continuar.",

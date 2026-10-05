@@ -4,13 +4,20 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api";
-import { aDashboard, aGuild, aSettings, chooseOption } from "../tests/test-utils";
+import {
+  aConnectedAccount,
+  aDashboard,
+  aGuild,
+  aSettings,
+  chooseOption,
+} from "../tests/test-utils";
 import { DashboardLayout, useDashboard } from "./dashboard-layout";
 import { TopBar } from "./top-bar";
 
 vi.mock("../lib/api", () => ({
   api: {
     getDashboard: vi.fn(),
+    getDiscordConnection: vi.fn(),
     getSettings: vi.fn(),
     listGuilds: vi.fn(),
   },
@@ -76,6 +83,7 @@ beforeEach(() => {
   localStorage.clear();
   vi.mocked(api.listGuilds).mockResolvedValue([aGuild()]);
   vi.mocked(api.getDashboard).mockResolvedValue(aDashboard());
+  vi.mocked(api.getDiscordConnection).mockResolvedValue(aConnectedAccount());
 });
 
 afterEach(() => {
@@ -90,6 +98,7 @@ describe("DashboardLayout", () => {
     expect(screen.getByText("Configuração")).toBeInTheDocument();
     expect(screen.getByText("Sistema")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "Preferências" })).toHaveAttribute("href", "/settings");
+    expect(screen.getByRole("link", { name: "Bot" })).toHaveAttribute("href", "/bot");
     expect(screen.getByRole("link", { name: "Instalação" })).toHaveAttribute(
       "href",
       "/installation",
@@ -98,7 +107,51 @@ describe("DashboardLayout", () => {
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
   });
 
-  it("has no account footer because there are no user accounts", async () => {
+  it("lists the Bot tab between Preferences and Installation", async () => {
+    renderLayout();
+    const system = screen.getByText("Sistema").nextElementSibling;
+    expect(system).not.toBeNull();
+    const names = within(system as HTMLElement)
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+    expect(names).toEqual(["Preferências", "Bot", "Instalação"]);
+    await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
+  });
+
+  it("closes the sidebar with the owner's Discord account", async () => {
+    renderLayout();
+    const sidebar = screen.getByRole("complementary");
+    const account = within(sidebar).getByRole("region", { name: "Conta do dono no Discord" });
+    expect(sidebar.lastElementChild).toBe(account);
+    expect(await within(account).findByText("pixel.owner")).toBeInTheDocument();
+  });
+
+  it("unlocks the account connection as soon as a screen saves the Client Secret", async () => {
+    vi.mocked(api.getDiscordConnection).mockResolvedValue({ connected: false });
+    renderLayout(
+      aSettings({
+        secrets: { discordBotToken: true, discordClientSecret: false, openRouterApiKey: true },
+      }),
+    );
+    const account = screen.getByRole("region", { name: "Conta do dono no Discord" });
+    const connect = await within(account).findByRole("button", { name: "Conectar Discord" });
+    expect(connect).toBeDisabled();
+    await userEvent.click(screen.getByRole("button", { name: "patch" }));
+    expect(connect).toBeEnabled();
+    expect(within(account).queryByRole("link")).toBeNull();
+  });
+
+  it("pins the sidebar to the screen so the account stays in view", async () => {
+    renderLayout();
+    const sidebar = screen.getByRole("complementary");
+    expect(sidebar).toHaveClass("lg:sticky", "lg:top-0", "lg:h-dvh");
+    // On short screens only the navigation scrolls, never the account below it.
+    const navigation = screen.getByText("Reuniões").parentElement;
+    expect(navigation).toHaveClass("overflow-y-auto", "flex-1");
+    await waitFor(() => expect(api.getDiscordConnection).toHaveBeenCalled());
+  });
+
+  it("offers no sign-out or user account, since the dashboard has no users", async () => {
     renderLayout(aSettings({ accessMode: "public" }));
     expect(screen.queryByRole("button", { name: "Sair" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Minha conta" })).toBeNull();
@@ -222,6 +275,9 @@ describe("Navigation drawer", () => {
     await userEvent.click(menu);
     const drawer = screen.getByRole("dialog", { name: "Navegação" });
     expect(within(drawer).getByRole("link", { name: "Preferências" })).toBeInTheDocument();
+    expect(
+      within(drawer).getByRole("region", { name: "Conta do dono no Discord" }),
+    ).toBeInTheDocument();
     expect(menu).toHaveAttribute("aria-expanded", "true");
     await waitFor(() => expect(api.getDashboard).toHaveBeenCalled());
   });

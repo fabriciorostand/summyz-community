@@ -134,7 +134,11 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
   return (
     <NavigationContext.Provider value={navigation}>
       <div className="flex min-h-screen bg-canvas text-ink">
-        <Sidebar callCount={dashboard?.totalCalls} openTaskCount={dashboard?.openTaskCount} />
+        <Sidebar
+          callCount={dashboard?.totalCalls}
+          openTaskCount={dashboard?.openTaskCount}
+          settings={settings}
+        />
         <div className="flex min-w-0 flex-1 flex-col">
           <Outlet context={context} />
         </div>
@@ -159,6 +163,7 @@ export function DashboardLayout({ settings: initialSettings }: { settings: Dashb
             callCount={dashboard?.totalCalls}
             onNavigate={close}
             openTaskCount={dashboard?.openTaskCount}
+            settings={settings}
             variant="drawer"
           />
         )}

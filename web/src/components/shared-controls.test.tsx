@@ -31,6 +31,28 @@ describe("CopyableValue", () => {
 });
 
 describe("ConfirmDialog", () => {
+  it("keeps the confirm button red by default and uses the action color for safe steps", () => {
+    const { rerender } = render(
+      <ConfirmDialog confirmLabel="Apagar" onCancel={vi.fn()} onConfirm={vi.fn()} open title="T">
+        <p>Corpo</p>
+      </ConfirmDialog>,
+    );
+    expect(screen.getByRole("button", { name: "Apagar" })).not.toHaveClass("bg-action-gradient");
+    rerender(
+      <ConfirmDialog
+        confirmLabel="Continuar"
+        confirmTone="primary"
+        onCancel={vi.fn()}
+        onConfirm={vi.fn()}
+        open
+        title="T"
+      >
+        <p>Corpo</p>
+      </ConfirmDialog>,
+    );
+    expect(screen.getByRole("button", { name: "Continuar" })).toHaveClass("bg-action-gradient");
+  });
+
   it("asks before acting and treats every close path as cancel", async () => {
     const onCancel = vi.fn();
     const onConfirm = vi.fn();

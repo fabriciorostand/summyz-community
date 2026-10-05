@@ -83,6 +83,10 @@ export const routes: RouteObject[] = [
                 ...screen(async () => (await import("./pages/preferences-page")).PreferencesPage),
               },
               {
+                path: "bot",
+                ...screen(async () => (await import("./pages/bot-page")).BotPage),
+              },
+              {
                 path: "installation",
                 ...screen(async () => (await import("./pages/installation-page")).InstallationPage),
               },
