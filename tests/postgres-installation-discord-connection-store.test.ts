@@ -6,6 +6,108 @@ import { SecretBox } from "../src/security/secret-box.js";
 describe("PostgresInstallationDiscordConnectionStore", () => {
   const box = new SecretBox(Buffer.alloc(32, 23).toString("base64url"));
 
+  it("reads the persisted profile without decrypting OAuth credentials", async () => {
+    const query = vi
+      .fn<PostgresExecutor["query"]>()
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            discord_user_id: "owner-a",
+            discord_username: "Owner A",
+            avatar_url: null,
+            profile_updated_at: null,
+            generation: 1,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            discord_user_id: "owner-a",
+            discord_username: "New Name",
+            avatar_url: "https://cdn.discordapp.com/embed/avatars/0.png",
+            profile_updated_at: new Date("2026-10-05T12:00:00.000Z"),
+            generation: 1,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rowCount: 1,
+        rows: [
+          {
+            discord_user_id: "owner-a",
+            discord_username: "New Name",
+            avatar_url: "https://cdn.discordapp.com/embed/avatars/0.png",
+            profile_updated_at: "2026-10-05T12:00:00.000Z",
+            generation: 1,
+          },
+        ],
+      });
+    const store = new PostgresInstallationDiscordConnectionStore({ query }, box);
+    await expect(store.getProfile()).resolves.toBeUndefined();
+    await expect(store.getProfile()).resolves.toMatchObject({
+      avatarUrl: null,
+      profileUpdatedAt: null,
+    });
+    for (let index = 0; index < 2; index += 1) {
+      await expect(store.getProfile()).resolves.toMatchObject({
+        discordUsername: "New Name",
+        profileUpdatedAt: "2026-10-05T12:00:00.000Z",
+      });
+    }
+    expect(query.mock.calls[0]?.[0]).not.toContain("encrypted_access_token");
+  });
+
+  it("updates the profile only for the same account generation, without revoking sessions", async () => {
+    const query = vi
+      .fn<PostgresExecutor["query"]>()
+      .mockResolvedValueOnce({ rowCount: 1, rows: [] })
+      .mockResolvedValueOnce({ rowCount: 0, rows: [] });
+    const store = new PostgresInstallationDiscordConnectionStore({ query }, box);
+    const input = {
+      avatarUrl: "https://cdn.discordapp.com/embed/avatars/0.png",
+      discordUserId: "owner-a",
+      discordUsername: "New Name",
+      expectedGeneration: 2,
+      profileUpdatedAt: "2026-10-05T12:00:00.000Z",
+    };
+    await expect(store.updateProfile(input)).resolves.toBe(true);
+    await expect(store.updateProfile(input)).resolves.toBe(false);
+    expect(query.mock.calls[0]?.[0]).toContain("generation = $5");
+    expect(query.mock.calls[0]?.[0]).toContain("discord_user_id = $4");
+    expect(query.mock.calls).toHaveLength(2);
+    expect(query.mock.calls[0]?.[1]).toEqual([
+      input.discordUsername,
+      input.avatarUrl,
+      input.profileUpdatedAt,
+      input.discordUserId,
+      input.expectedGeneration,
+    ]);
+  });
+
+  it.each([
+    "https://evil.example/avatar.png",
+    "http://cdn.discordapp.com/avatar.png",
+    "https://user:password@cdn.discordapp.com/avatar.png",
+    "https://cdn.discordapp.com:444/avatar.png",
+  ])("rejects an unsafe persisted avatar URL: %s", async (avatarUrl) => {
+    const query = vi.fn<PostgresExecutor["query"]>();
+    const store = new PostgresInstallationDiscordConnectionStore({ query }, box);
+    await expect(
+      store.updateProfile({
+        avatarUrl,
+        discordUserId: "owner-a",
+        discordUsername: "Owner A",
+        expectedGeneration: 1,
+        profileUpdatedAt: "2026-10-05T12:00:00.000Z",
+      }),
+    ).rejects.toThrow();
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it("atomically replaces account tokens and revokes every dashboard session", async () => {
     const query = vi.fn<PostgresExecutor["query"]>().mockResolvedValue({ rowCount: 1, rows: [] });
     const database: PostgresExecutor = {
@@ -23,6 +125,8 @@ describe("PostgresInstallationDiscordConnectionStore", () => {
     });
 
     expect(query.mock.calls[0]?.[0]).toContain("installation_discord_connection");
+    expect(query.mock.calls[0]?.[0]).toContain("avatar_url = NULL");
+    expect(query.mock.calls[0]?.[0]).toContain("profile_updated_at = NULL");
     expect(query.mock.calls.some(([sql]) => sql.includes("UPDATE dashboard_sessions"))).toBe(true);
     expect(JSON.stringify(query.mock.calls)).not.toContain("raw-access-token");
     expect(JSON.stringify(query.mock.calls)).not.toContain("raw-refresh-token");

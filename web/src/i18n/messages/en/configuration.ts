@@ -3,16 +3,11 @@ import type { configurationMessages as portuguese } from "../pt-BR/configuration
 export const configurationMessages: typeof portuguese = {
   servers: {
     activeProfile: "Active profile",
-    addCardBody: "Opens Discord's official authorization, where you pick the server.",
-    addCardTitle: "Add the bot to a server",
-    addToDiscord: "Add the bot to Discord",
-    authorize: "Authorize on Discord",
     configure: "Configure",
     configured: "Installed and configured",
     connectBody:
       "Without it, the list only shows servers with history and no server can be configured.",
-    connectNeedsClientSecret: "First, save the application's Client Secret under Installation.",
-    connectTitle: "Connect the owner's Discord account",
+    connectTitle: "Connect the Discord account",
     dismiss: "Dismiss notice",
     historyOnly: "History only",
     historyOnlyBody:
@@ -35,10 +30,10 @@ export const configurationMessages: typeof portuguese = {
     summaryForum: "Summary forum",
     title: "Servers",
     unavailableBody:
-      "The bot could not list the servers it is in. Check the token under Installation and try again.",
+      "The bot could not list the servers it is in. Check the token on the Bot tab and try again.",
     unavailableTitle: "Servers unavailable",
+    openBot: "Open Bot tab",
     viewHistory: "View history",
-    viewInstallation: "View installation",
   },
   guild: {
     activeIncomplete: (name: string) =>
@@ -82,7 +77,7 @@ export const configurationMessages: typeof portuguese = {
         guild_configuration_incomplete:
           "Set the summary forum and a complete active profile before confirming.",
         guild_owner_changed:
-          "The connected account is not the current owner of this server. Reconnect the owner's account under Installation.",
+          "The connected account is not the current owner of this server. Connect the owner's account to the dashboard.",
         request_failed: "Unable to confirm right now. Try again.",
       },
       title: "Confirm this server's configuration",
@@ -118,12 +113,49 @@ export const configurationMessages: typeof portuguese = {
     whoCanRecord: "Who can start a recording",
     whoCanRecordDescription: "The server owner always can. Also authorize roles or members.",
   },
+  bot: {
+    application: {
+      applicationReplaced:
+        "Application replaced. Save the new application's Client Secret, reconnect the owner's account and install the new bot in your servers.",
+      botToken: "Bot token",
+      copyApplicationId: "Copy Application ID",
+      editToken: "Edit bot token",
+      oauth: {
+        clientSecret: "Client Secret",
+        clientSecretFailed: "Unable to save the Client Secret. Try again.",
+        copyRedirectUri: "Copy redirect URL",
+        editClientSecret: "Edit Client Secret",
+        redirectHint: "Register exactly this URL under OAuth2 → Redirects in the Developer Portal.",
+        redirectUri: "Redirect URL",
+        removeClientSecret: "Remove Client Secret",
+      },
+      replace: "Replace",
+      replaceDialog: {
+        confirm: "Replace token",
+        otherApplication:
+          "A token from another application: the owner's account and the Client Secret are erased, every dashboard session ends, and the change is refused while any meeting is still processing.",
+        sameApplication:
+          "A token from the same application: only the credential changes. The change is refused while a recording is in progress.",
+        title: "Replace the bot token?",
+      },
+      title: "Discord application",
+      tokenBlocked: {
+        active_recording: "A recording is in progress. Stop it before replacing the token.",
+        pending_meetings:
+          "Some meetings are still processing. Wait for them to finish before switching applications.",
+      },
+      tokenFailed: "Unable to replace the token.",
+      tokenRejected: "Discord rejected the token.",
+      tokenRotated: "Token saved. The bot restarts on its own with the new credential.",
+      tokenWarning:
+        "Replacing the token revalidates the application and rewrites the Application ID. The bot restarts on its own with the new credential.",
+      validating: "Validating…",
+    },
+    title: "Bot",
+  },
   installation: {
     access: "Dashboard access",
     active: "Active",
-    applicationReplaced:
-      "Application replaced. Save the new application's Client Secret, reconnect the owner's account and install the new bot in your servers.",
-    botToken: "Bot token",
     changePassword: "Change password",
     changing: "Changing…",
     components: {
@@ -136,28 +168,8 @@ export const configurationMessages: typeof portuguese = {
       queue: "Durable processing queue",
       worker: "Processing worker",
     },
-    configuredReplace: "Configured — type to replace",
-    copyApplicationId: "Copy Application ID",
     currentPassword: "Current password",
-    discordApplication: "Discord application",
-    discordOwner: {
-      clientSecret: "Client Secret",
-      clientSecretFailed: "Unable to save the Client Secret. Try again.",
-      connectedAs: (name: string) => `Connected as ${name}`,
-      copyRedirectUri: "Copy redirect URL",
-      description:
-        "Connecting the owner's account unlocks the configuration of their servers. Summyz only asks for the identify and guilds scopes.",
-      needsClientSecret: "Save the Client Secret before connecting.",
-      notConnected: "No account connected",
-      publicSessionNotice:
-        "Connecting or switching the account ends the dashboard sessions. When you come back from Discord, sign in again with the installation password.",
-      redirectHint: "Register exactly this URL under OAuth2 → Redirects in the Developer Portal.",
-      redirectUri: "Redirect URL",
-      removeClientSecret: "Remove Client Secret",
-      statusFailed: "Unable to check the connected account.",
-      switchAccount: "Switch account",
-      title: "Owner's Discord account",
-    },
+    editKey: "Edit OpenRouter key",
     health: "Installation status",
     healthFailed: "Unable to check the status of the components.",
     healthLoading: "Checking components…",
@@ -167,7 +179,6 @@ export const configurationMessages: typeof portuguese = {
     newPassword: "New password",
     newPasswordHint:
       "15 to 128 characters. No uppercase, number or symbol requirements — only length matters. Common passwords are rejected.",
-    notConfigured: "Not configured yet",
     openRouterKey: "OpenRouter key",
     passwordChanged: "Password changed. The other sessions were signed out.",
     passwordFailed: "Unable to change the password.",
@@ -182,29 +193,8 @@ export const configurationMessages: typeof portuguese = {
       "on the host: it prints a single-use URL valid for 10 minutes. The old password only stops working once the new one is saved.",
     recoverBefore: "Lost the password? Run",
     removeKey: "Remove OpenRouter key",
-    replace: "Replace",
-    replaceDialog: {
-      confirm: "Replace token",
-      otherApplication:
-        "A token from another application: the owner's account and the Client Secret are erased, every dashboard session ends, and the change is refused while any meeting is still processing.",
-      sameApplication:
-        "A token from the same application: only the credential changes. The change is refused while a recording is in progress.",
-      title: "Replace the bot token?",
-    },
     stale: "no recent heartbeat",
     title: "Installation",
-    tokenBlocked: {
-      active_recording: "A recording is in progress. Stop it before replacing the token.",
-      pending_meetings:
-        "Some meetings are still processing. Wait for them to finish before switching applications.",
-    },
-    tokenFailed: "Unable to replace the token.",
-    tokenRejected: "Discord rejected the token.",
-    tokenRotated: "Token saved. The bot restarts on its own with the new credential.",
-    tokenWarning:
-      "Replacing the token revalidates the application and rewrites the Application ID. The bot restarts on its own with the new credential.",
-    update: "Update",
-    validating: "Validating…",
   },
   commands: {
     // The API already describes the commands in English.
@@ -221,10 +211,10 @@ export const configurationMessages: typeof portuguese = {
   },
   preferences: {
     automatic: "Automatic (browser region)",
-    card: "Language, date and theme",
     dark: "Dark",
     dateFormat: "Date format",
-    language: "Dashboard language",
+    dateTime: "Date and time",
+    language: "Language",
     light: "Light",
     system: "Follow the system",
     theme: "Theme",

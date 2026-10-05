@@ -11,40 +11,21 @@ import {
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
 
+import { SecretField } from "../components/secret-field";
 import { Button, Card, Field, FormError, Notice, SectionHeading } from "../components/ui";
+import { useInstallationSettings } from "../hooks/use-installation-settings";
 import type { Messages } from "../i18n/messages/pt-BR";
 import { useI18n } from "../i18n/store";
-import { useDashboard } from "../layout/dashboard-layout";
 import { TopBar } from "../layout/top-bar";
-import {
-  type AccessMode,
-  ApiError,
-  api,
-  type DashboardSettings,
-  type InstallationHealth,
-} from "../lib/api";
-import { DiscordApplicationCard } from "./installation/discord-application-card";
-import { DiscordOwnerCard } from "./installation/discord-owner-card";
-import { SecretField } from "./installation/secret-field";
+import { type AccessMode, ApiError, api, type InstallationHealth } from "../lib/api";
 import { Screen } from "./screen";
 
 const minimumPasswordLength = 15;
 
 /** Every block saves on its own; there is no page-wide form. */
 export function InstallationPage() {
-  const { patchSettings, reloadSettings, settings } = useDashboard();
+  const { secretSaved, settings } = useInstallationSettings();
   const { t } = useI18n();
-
-  // The write succeeded, so reflect it right away and let the reload confirm it.
-  const secretChanged = (secret: keyof DashboardSettings["secrets"]) => (configured: boolean) => {
-    patchSettings({ secrets: { ...settings.secrets, [secret]: configured } });
-    void reloadSettings();
-  };
-
-  // The shared snapshot may predate a save made on this screen, so the server decides.
-  useEffect(() => {
-    void reloadSettings();
-  }, [reloadSettings]);
 
   return (
     <>
@@ -52,21 +33,9 @@ export function InstallationPage() {
       <Screen>
         <div className="grid grid-cols-1 items-start gap-4 xl:grid-cols-2">
           <div className="flex min-w-0 flex-col gap-4">
-            <DiscordApplicationCard
-              applicationId={settings.discordApplicationId}
-              onReplaced={reloadSettings}
-              tokenConfigured={settings.secrets.discordBotToken}
-            />
-            <DiscordOwnerCard
-              accessMode={settings.accessMode}
-              applicationId={settings.discordApplicationId}
-              clientSecretConfigured={settings.secrets.discordClientSecret}
-              onClientSecretChange={secretChanged("discordClientSecret")}
-              redirectUri={settings.discordRedirectUri}
-            />
             <ProvidersCard
               configured={settings.secrets.openRouterApiKey}
-              onChange={secretChanged("openRouterApiKey")}
+              onChange={secretSaved("openRouterApiKey")}
             />
             {settings.accessMode === "public" && <PasswordCard />}
           </div>
@@ -98,6 +67,7 @@ function ProvidersCard({
       />
       <SecretField
         configured={configured}
+        editLabel={t.installation.editKey}
         failedMessage={t.installation.keyFailed}
         label={t.installation.openRouterKey}
         name="openrouter_api_key"

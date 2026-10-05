@@ -1,5 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
+import type { Logger } from "pino";
 import { z } from "zod";
+import { DiscordRateLimitError } from "./discord-api-fetch.js";
+import { parseDiscordUserProfile } from "./discord-user-profile.js";
+
+const PROFILE_CACHE_TTL_MS = 5 * 60_000;
 
 const tokenResponseSchema = z.object({
   access_token: z.string().min(1),
@@ -31,6 +36,18 @@ export interface ConnectedDiscordAccount {
   refreshToken: string;
 }
 
+export interface ConnectedDiscordProfile {
+  avatarUrl: string | null;
+  discordUserId: string;
+  discordUsername: string;
+  generation: number;
+  profileUpdatedAt: string | null;
+}
+
+export type DiscordConnectionProfile =
+  | { connected: false }
+  | { connected: true; avatarUrl: string | null; discordUserId: string; discordUsername: string };
+
 export interface InstallationDiscordConnectionRepository {
   consumeState(input: {
     browserBindingHash: string;
@@ -43,7 +60,15 @@ export interface InstallationDiscordConnectionRepository {
     stateHash: string;
   }): Promise<void>;
   getConnection(): Promise<ConnectedDiscordAccount | undefined>;
+  getProfile(): Promise<ConnectedDiscordProfile | undefined>;
   replaceConnection(connection: Omit<ConnectedDiscordAccount, "generation">): Promise<void>;
+  updateProfile(input: {
+    avatarUrl: string;
+    discordUserId: string;
+    discordUsername: string;
+    expectedGeneration: number;
+    profileUpdatedAt: string;
+  }): Promise<boolean>;
   updateTokens(input: {
     accessToken: string;
     expiresAt: string;
@@ -66,6 +91,7 @@ interface InstallationDiscordConnectionOptions {
   applicationId(): Promise<string | null>;
   clientSecret(): Promise<string | undefined>;
   fetch: typeof globalThis.fetch;
+  logger?: Pick<Logger, "warn">;
   now?: () => Date;
   publicBaseUrl: string;
   randomToken?: () => string;
@@ -76,6 +102,7 @@ export class InstallationDiscordConnection {
   readonly #applicationId: InstallationDiscordConnectionOptions["applicationId"];
   readonly #clientSecret: InstallationDiscordConnectionOptions["clientSecret"];
   readonly #fetch: typeof globalThis.fetch;
+  readonly #logger: Pick<Logger, "warn"> | undefined;
   readonly #now: () => Date;
   readonly #publicBaseUrl: string;
   readonly #randomToken: () => string;
@@ -87,11 +114,13 @@ export class InstallationDiscordConnection {
       }
     | undefined;
   #tokenRefresh: { key: string; request: Promise<ConnectedDiscordAccount> } | undefined;
+  #profileRefresh: { key: string; request: Promise<void> } | undefined;
 
   public constructor(options: InstallationDiscordConnectionOptions) {
     this.#applicationId = options.applicationId;
     this.#clientSecret = options.clientSecret;
     this.#fetch = options.fetch;
+    this.#logger = options.logger;
     this.#now = options.now ?? (() => new Date());
     this.#publicBaseUrl = options.publicBaseUrl;
     this.#randomToken = options.randomToken ?? (() => randomBytes(32).toString("base64url"));
@@ -176,6 +205,67 @@ export class InstallationDiscordConnection {
 
   public async getConnectedUserId(): Promise<string | null> {
     return (await this.#repository.getConnection())?.discordUserId ?? null;
+  }
+
+  public async getConnectionProfile(): Promise<DiscordConnectionProfile> {
+    const profile = await this.#repository.getProfile();
+    if (profile === undefined) return { connected: false };
+    if (
+      profile.profileUpdatedAt === null ||
+      Date.parse(profile.profileUpdatedAt) + PROFILE_CACHE_TTL_MS <= this.#now().getTime()
+    ) {
+      const key = `${profile.discordUserId}:${profile.generation}`;
+      const request =
+        this.#profileRefresh?.key === key
+          ? this.#profileRefresh.request
+          : this.#refreshProfile(profile);
+      this.#profileRefresh = { key, request };
+      try {
+        await request;
+      } finally {
+        if (this.#profileRefresh?.request === request) this.#profileRefresh = undefined;
+      }
+      // Re-read after the guarded write or a failed lookup: the account may have changed.
+      return connectionProfileOf(await this.#repository.getProfile());
+    }
+    return connectionProfileOf(profile);
+  }
+
+  async #refreshProfile(profile: ConnectedDiscordProfile): Promise<void> {
+    let connection: ConnectedDiscordAccount;
+    let current: ReturnType<typeof parseDiscordUserProfile>;
+    try {
+      connection = await this.#getCurrentConnection();
+      if (connection.discordUserId !== profile.discordUserId) return;
+      const response = await this.#fetch("https://discord.com/api/v10/users/@me", {
+        headers: { authorization: `Bearer ${connection.accessToken}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        await response.body?.cancel();
+        throw new DiscordConnectionError("discord_identity_unavailable", 502);
+      }
+      current = parseDiscordUserProfile(await response.json());
+      if (current.discordUserId !== connection.discordUserId) {
+        throw new DiscordConnectionError("discord_identity_mismatch", 502);
+      }
+    } catch (error) {
+      // External error messages and payloads can contain credentials; log only known codes.
+      const code =
+        error instanceof DiscordConnectionError || error instanceof DiscordRateLimitError
+          ? error.code
+          : "discord_profile_unavailable";
+      this.#logger?.warn(
+        { code, event: "discord_profile_refresh_failed" },
+        "Discord profile refresh failed",
+      );
+      return;
+    }
+    await this.#repository.updateProfile({
+      ...current,
+      expectedGeneration: connection.generation,
+      profileUpdatedAt: this.#now().toISOString(),
+    });
   }
 
   public async listOwnedGuilds(): Promise<{ iconUrl: string | null; id: string; name: string }[]> {
@@ -285,4 +375,16 @@ export function createDiscordOAuthRedirectUri(publicBaseUrl: string): string {
 
 function hash(value: string): string {
   return createHash("sha256").update(z.string().min(1).parse(value), "utf8").digest("base64url");
+}
+
+function connectionProfileOf(
+  profile: ConnectedDiscordProfile | undefined,
+): DiscordConnectionProfile {
+  if (profile === undefined) return { connected: false };
+  return {
+    avatarUrl: profile.avatarUrl,
+    connected: true,
+    discordUserId: profile.discordUserId,
+    discordUsername: profile.discordUsername,
+  };
 }

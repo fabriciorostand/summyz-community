@@ -2,7 +2,6 @@ import {
   type ComponentProps,
   type CSSProperties,
   type HTMLAttributes,
-  type InputHTMLAttributes,
   type ReactNode,
   type TextareaHTMLAttributes,
   useId,
@@ -55,6 +54,12 @@ const controlClass =
 
 const fieldTextClass = "text-base pointer-fine:text-[13.5px]";
 
+const boxedControlClass =
+  "flex w-full items-center gap-2 rounded-lg border border-line bg-surface-raised pr-2 transition-colors focus-within:border-action";
+
+const boxedInputClass =
+  "min-w-0 flex-1 bg-transparent py-2 pl-3 text-ink outline-none placeholder:text-ink-dim";
+
 interface FieldIds {
   controlId: string;
   describedBy: string | undefined;
@@ -78,26 +83,68 @@ function Hint({ children, id }: { children: string; id: string }) {
   );
 }
 
-export function Field({
+/** A native control with its label above and an optional hint below, tied by id. */
+function LabelledControl({
+  children,
+  className,
+  controlId,
   hint,
+  hintId,
   label,
-  className = "",
-  ...props
-}: InputHTMLAttributes<HTMLInputElement> & { hint?: string; label: string }) {
-  const { controlId, describedBy, hintId } = useFieldIds(hint);
+}: {
+  children: ReactNode;
+  className: string;
+  controlId: string;
+  hint: string | undefined;
+  hintId: string;
+  label: string;
+}) {
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
       <label htmlFor={controlId}>
         <Label>{label}</Label>
       </label>
-      <input
-        aria-describedby={describedBy}
-        className={`${controlClass} ${fieldTextClass}`}
-        id={controlId}
-        {...props}
-      />
+      {children}
       {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
     </div>
+  );
+}
+
+export function Field({
+  hint,
+  label,
+  className = "",
+  trailing,
+  ...props
+}: ComponentProps<"input"> & {
+  hint?: string;
+  label: string;
+  /** Small controls drawn inside the box, at its right end. */
+  trailing?: ReactNode;
+}) {
+  const { controlId, describedBy, hintId } = useFieldIds(hint);
+  return (
+    <LabelledControl
+      className={className}
+      controlId={controlId}
+      hint={hint}
+      hintId={hintId}
+      label={label}
+    >
+      {/* Always wrapped, so the input survives trailing controls coming and going. With them,
+          the wrapper draws the box and the input sits beside the controls inside it. */}
+      <div className={trailing === undefined ? "" : boxedControlClass}>
+        <input
+          aria-describedby={describedBy}
+          className={`${trailing === undefined ? controlClass : boxedInputClass} ${fieldTextClass}`}
+          id={controlId}
+          {...props}
+        />
+        {trailing !== undefined && (
+          <span className="flex shrink-0 items-center gap-1">{trailing}</span>
+        )}
+      </div>
+    </LabelledControl>
   );
 }
 
@@ -134,18 +181,20 @@ export function TextAreaField({
 }: TextareaHTMLAttributes<HTMLTextAreaElement> & { hint?: string; label: string }) {
   const { controlId, describedBy, hintId } = useFieldIds(hint);
   return (
-    <div className={`flex flex-col gap-1.5 ${className}`}>
-      <label htmlFor={controlId}>
-        <Label>{label}</Label>
-      </label>
+    <LabelledControl
+      className={className}
+      controlId={controlId}
+      hint={hint}
+      hintId={hintId}
+      label={label}
+    >
       <textarea
         aria-describedby={describedBy}
         className={`${controlClass} font-mono text-base leading-relaxed pointer-fine:text-[12.5px]`}
         id={controlId}
         {...props}
       />
-      {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
-    </div>
+    </LabelledControl>
   );
 }
 
@@ -207,7 +256,10 @@ export function SectionHeading({
   title: string;
 }) {
   return (
-    <div className="mb-4 flex items-start gap-3">
+    // A lone title centres on the icon; with a description the pair aligns to the icon's top.
+    <div
+      className={`mb-4 flex gap-3 ${description === undefined ? "items-center" : "items-start"}`}
+    >
       {icon !== undefined && (
         <span className="grid size-8 shrink-0 place-items-center rounded-lg bg-action-soft text-accent">
           {icon}

@@ -17,8 +17,7 @@ export const commonMessages: typeof portuguese = {
   },
   states: {
     addBack: "Add the bot",
-    discordNotConnectedBody:
-      "Configuring servers and profiles requires the owner's Discord account to be connected. Connect it under Installation.",
+    discordNotConnectedBody: "Connect the Discord account to configure servers and profiles.",
     discordNotConnectedTitle: "Owner account not connected",
     discordRateLimitedBody:
       "Discord asked the dashboard to slow down. Wait a few seconds and try again.",
@@ -34,7 +33,6 @@ export const commonMessages: typeof portuguese = {
     sessionExpiredBody:
       "Sessions end after 7 days without use, or 30 days in total. Enter the installation password to continue.",
     sessionExpiredTitle: "Your session has expired",
-    openInstallation: "Go to Installation",
     unlock: "Unlock",
     viewServers: "View servers",
   },
@@ -51,6 +49,7 @@ export const commonMessages: typeof portuguese = {
   nav: {
     calls: "Calls",
     closeMenu: "Close menu",
+    bot: "Bot",
     commands: "Commands",
     configuration: "Configuration",
     installation: "Installation",
@@ -63,6 +62,32 @@ export const commonMessages: typeof portuguese = {
     servers: "Servers",
     system: "System",
     tasks: "Tasks",
+  },
+  secretField: {
+    configured: "Configured",
+    configuredReplace: "Configured — type to replace",
+    notConfigured: "Not configured yet",
+    update: "Update",
+  },
+  ownerAccount: {
+    clientSecretMissing: "Save the Client Secret on the Bot tab",
+    connect: "Connect Discord",
+    connectDialog: {
+      body: "When you come back from Discord, sign in again with the installation password.",
+      confirm: "Continue on Discord",
+      title: "Connect the Discord account?",
+    },
+    statusFailed: "Unable to check the connected account.",
+    switchAccount: "Switch account",
+    switchDialog: {
+      body: (name: string) =>
+        `On Discord, sign in with the account that owns the servers. The servers of ${name} stop accepting recordings and show as history only; calls and settings stay saved.`,
+      confirm: "Switch on Discord",
+      publicNotice: "When you come back, sign in again with the installation password.",
+      title: "Switch the owner's account?",
+    },
+    title: "Owner's Discord account",
+    tokenMissing: "Save the bot token on the Bot tab",
   },
   routeError: {
     body: "The dashboard may have been updated while it was open. Reload the page to continue.",

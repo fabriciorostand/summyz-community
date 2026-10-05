@@ -15,6 +15,7 @@ vi.mock("./lib/api", async () => {
     api: {
       getAccessStatus: vi.fn(),
       getDashboard: vi.fn(),
+      getDiscordConnection: vi.fn(),
       getSettings: vi.fn(),
       listGuilds: vi.fn(),
     },
@@ -48,6 +49,7 @@ beforeEach(() => {
   vi.mocked(api.getSettings).mockResolvedValue(aSettings());
   vi.mocked(api.listGuilds).mockResolvedValue([aGuild()]);
   vi.mocked(api.getDashboard).mockResolvedValue(aDashboard());
+  vi.mocked(api.getDiscordConnection).mockResolvedValue({ connected: false });
   vi.stubGlobal("location", { ...window.location, reload });
   vi.spyOn(console, "error").mockImplementation(() => undefined);
 });
@@ -104,5 +106,10 @@ describe("a screen that fails to load", () => {
   it("still opens the other screens", async () => {
     renderApp("/settings");
     expect(await screen.findByRole("heading", { name: "Preferências" })).toBeInTheDocument();
+  });
+
+  it("opens the Bot tab at its own path", async () => {
+    renderApp("/bot");
+    expect(await screen.findByRole("heading", { level: 1, name: "Bot" })).toBeInTheDocument();
   });
 });

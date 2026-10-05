@@ -7,6 +7,7 @@ export function ConfirmDialog({
   cancelLabel,
   children,
   confirmLabel,
+  confirmTone = "danger",
   onCancel,
   onConfirm,
   open,
@@ -15,6 +16,8 @@ export function ConfirmDialog({
   cancelLabel?: string;
   children: ReactNode;
   confirmLabel: string;
+  /** Red for actions that lose something; the action color for steps that only move on. */
+  confirmTone?: "danger" | "primary";
   onCancel: () => void;
   onConfirm: () => void;
   open: boolean;
@@ -53,7 +56,7 @@ export function ConfirmDialog({
             <Button autoFocus onClick={onCancel} type="button" variant="secondary">
               {cancelLabel ?? t.common.cancel}
             </Button>
-            <Button onClick={onConfirm} type="button" variant="danger">
+            <Button onClick={onConfirm} type="button" variant={confirmTone}>
               {confirmLabel}
             </Button>
           </div>

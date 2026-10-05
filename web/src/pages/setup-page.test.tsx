@@ -204,6 +204,8 @@ describe("SetupPage in public mode", () => {
     expect(screen.getByText("Não conectado")).toBeInTheDocument();
   });
 
+  // Typing the whole flow key by key takes about 1.5s alone but passes 5s under a loaded
+  // coverage run.
   it("walks through token, owner connection, password and the Discord authorization", async () => {
     const onComplete = renderSetup("public", "#claim=setup-claim-token");
     await enterToken();
@@ -236,7 +238,7 @@ describe("SetupPage in public mode", () => {
     expect(screen.getByText(/entre com a senha da instalação/)).toBeInTheDocument();
     await userEvent.click(screen.getByRole("button", { name: "Ir para o dashboard" }));
     expect(onComplete).toHaveBeenCalledTimes(1);
-  });
+  }, 15_000);
 
   it("goes back from the password to the owner step and then to the token", async () => {
     renderSetup("public", "#claim=setup-claim-token");

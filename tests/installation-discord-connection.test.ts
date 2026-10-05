@@ -13,8 +13,10 @@ function repository(): InstallationDiscordConnectionRepository {
     consumeState: vi.fn(async () => true),
     createState: vi.fn(async () => undefined),
     getConnection: vi.fn(async () => undefined),
+    getProfile: vi.fn(async () => undefined),
     replaceConnection: vi.fn(async () => undefined),
     updateTokens: vi.fn(async () => true),
+    updateProfile: vi.fn(async () => true),
   };
 }
 

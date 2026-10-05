@@ -10,7 +10,11 @@ import { databaseMigrations } from "../src/database/migrations.js";
 describe("segurança das migrações do banco", () => {
   it("aceita todas as migrações protegidas do projeto", () => {
     expect(() => assertSafeDatabaseMigrations(databaseMigrations)).not.toThrow();
-    expect(databaseMigrations.at(-1)).toMatchObject({ version: 20 });
+    expect(databaseMigrations.at(-1)).toMatchObject({ version: 21 });
+    const profileMigration = databaseMigrations.find(({ version }) => version === 21)?.sql;
+    expect(profileMigration).toContain("ALTER TABLE installation_discord_connection");
+    expect(profileMigration).toContain("ADD COLUMN avatar_url text");
+    expect(profileMigration).toContain("ADD COLUMN profile_updated_at timestamptz");
     expect(databaseMigrations.find(({ version }) => version === 20)?.sql.trim()).toBe(
       "DROP TABLE local_hardware_snapshot;",
     );

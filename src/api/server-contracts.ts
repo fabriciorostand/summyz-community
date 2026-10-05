@@ -184,6 +184,7 @@ export interface ApiServerDependencies {
     | "completeAuthorization"
     | "createAuthorizationUrl"
     | "getConnectedUserId"
+    | "getConnectionProfile"
     | "getConnectionStatus"
     | "listOwnedGuilds"
   >;

@@ -18,6 +18,7 @@ describe("useDiscordConnection", () => {
       connected: true,
       discordUserId: "u1",
       discordUsername: "owner",
+      avatarUrl: null,
     });
     const { result } = renderHook(() => useDiscordConnection());
     expect(result.current.connection).toBeUndefined();
@@ -26,6 +27,7 @@ describe("useDiscordConnection", () => {
         connected: true,
         discordUserId: "u1",
         discordUsername: "owner",
+        avatarUrl: null,
       }),
     );
     expect(result.current.loadFailed).toBe(false);
@@ -33,7 +35,12 @@ describe("useDiscordConnection", () => {
 
   it("reads the connection again when the Discord application changes", async () => {
     vi.mocked(api.getDiscordConnection)
-      .mockResolvedValueOnce({ connected: true, discordUserId: "u1", discordUsername: "owner" })
+      .mockResolvedValueOnce({
+        avatarUrl: null,
+        connected: true,
+        discordUserId: "u1",
+        discordUsername: "owner",
+      })
       .mockResolvedValueOnce({ connected: false });
     const { rerender, result } = renderHook(
       ({ applicationId }) => useDiscordConnection(applicationId),

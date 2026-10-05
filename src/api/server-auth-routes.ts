@@ -116,7 +116,7 @@ export function registerAuthRoutes(
 
   app.get("/api/discord/connection", async (request) => {
     await authorizeDashboard(request, dependencies);
-    return dependencies.discordConnection.getConnectionStatus();
+    return dependencies.discordConnection.getConnectionProfile();
   });
 
   app.get("/api/access/status", async (request) => {

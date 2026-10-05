@@ -794,15 +794,16 @@ describe("ProfilesPage", () => {
     await waitFor(() => expect(listProfiles).toHaveBeenCalledTimes(2));
   });
 
-  it("sends the operator to Installation when the owner's account is not connected", async () => {
+  it("only warns that the owner's account is not connected", async () => {
     listProfiles.mockRejectedValue(new ApiError(403, "discord_account_not_connected"));
     renderScreen(<ProfilesPage />);
     expect(
       await screen.findByRole("heading", { name: "Conta do dono não conectada" }),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Ir para Instalação" })).toHaveAttribute(
-      "href",
-      "/installation",
-    );
+    expect(
+      screen.getByText("Conecte a conta Discord para configurar servidores e perfis."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /Discord|Bot/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /Conectar/ })).toBeNull();
   });
 });

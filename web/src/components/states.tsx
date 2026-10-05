@@ -187,15 +187,7 @@ export function SessionExpiredState({ onUnlock }: { onUnlock: () => void }) {
 export function DiscordNotConnectedState() {
   const { t } = useI18n();
   return (
-    <EmptyState
-      action={
-        <Link className={primaryLinkClass} to="/installation">
-          {t.states.openInstallation}
-        </Link>
-      }
-      icon={<DiscordIcon className="size-5" />}
-      title={t.states.discordNotConnectedTitle}
-    >
+    <EmptyState icon={<DiscordIcon className="size-5" />} title={t.states.discordNotConnectedTitle}>
       {t.states.discordNotConnectedBody}
     </EmptyState>
   );

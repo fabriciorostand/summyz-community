@@ -229,6 +229,18 @@ describe("layout primitives", () => {
     expect(screen.getByRole("button", { name: "Gerenciar" })).toBeInTheDocument();
   });
 
+  it("centers a lone title on its icon and tops it when a description follows", () => {
+    const { unmount } = render(<SectionHeading icon={<span />} title="Acesso" />);
+    const row = (name: string) =>
+      screen.getByRole("heading", { name }).parentElement?.parentElement;
+    expect(row("Acesso")).toHaveClass("items-center");
+    expect(row("Acesso")).not.toHaveClass("items-start");
+    unmount();
+    render(<SectionHeading description="Descrição" icon={<span />} title="Perfil" />);
+    expect(row("Perfil")).toHaveClass("items-start");
+    expect(row("Perfil")).not.toHaveClass("items-center");
+  });
+
   it("renders a heading without the optional parts", () => {
     render(<SectionHeading title="Acesso" />);
     expect(screen.getByRole("heading", { name: "Acesso" })).toBeInTheDocument();

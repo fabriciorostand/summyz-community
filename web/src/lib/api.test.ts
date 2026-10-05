@@ -470,7 +470,12 @@ describe("dashboard API client", () => {
       .fn<typeof fetch>()
       .mockResolvedValueOnce(Response.json({ connected: false }))
       .mockResolvedValueOnce(
-        Response.json({ connected: true, discordUserId: "u1", discordUsername: "owner" }),
+        Response.json({
+          avatarUrl: "https://cdn.discordapp.com/avatars/u1/a1.png",
+          connected: true,
+          discordUserId: "u1",
+          discordUsername: "owner",
+        }),
       )
       .mockResolvedValueOnce(
         Response.json({ authorizationUrl: "https://discord.com/oauth2/authorize?state=s" }),
@@ -479,6 +484,7 @@ describe("dashboard API client", () => {
 
     await expect(api.getDiscordConnection()).resolves.toEqual({ connected: false });
     await expect(api.getDiscordConnection()).resolves.toEqual({
+      avatarUrl: "https://cdn.discordapp.com/avatars/u1/a1.png",
       connected: true,
       discordUserId: "u1",
       discordUsername: "owner",
@@ -491,6 +497,21 @@ describe("dashboard API client", () => {
       "/api/discord/connection",
       "/api/discord/connect",
     ]);
+  });
+
+  it("accepts a connected account whose avatar was never fetched", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          avatarUrl: null,
+          connected: true,
+          discordUserId: "u1",
+          discordUsername: "owner",
+        }),
+      ),
+    );
+    await expect(api.getDiscordConnection()).resolves.toMatchObject({ avatarUrl: null });
   });
 
   it("reads the redirect URL the setup asks the owner to register", async () => {

@@ -1,11 +1,11 @@
-import { screen, waitFor } from "@testing-library/react";
+import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { setLanguage } from "../i18n/store";
 import { api } from "../lib/api";
-import { leaveDashboardFor } from "../lib/browser-navigation";
 import {
+  aConnectedAccount,
   aGuild,
   aSettings,
   dashboardContext,
@@ -19,10 +19,8 @@ vi.mock("../lib/api", async (importOriginal) => ({
   api: {
     getBotInstallation: vi.fn(),
     getDiscordConnection: vi.fn(),
-    startDiscordConnection: vi.fn(),
   },
 }));
-vi.mock("../lib/browser-navigation", () => ({ leaveDashboardFor: vi.fn() }));
 
 const installUrl = "https://discord.com/oauth2/authorize?client_id=123456789012345678";
 
@@ -32,12 +30,7 @@ beforeEach(() => {
     configured: true,
     installUrl,
   });
-  vi.mocked(api.getDiscordConnection).mockResolvedValue({
-    connected: true,
-    discordUserId: "owner-1",
-    discordUsername: "pixel.owner",
-  });
-  vi.mocked(api.startDiscordConnection).mockResolvedValue("https://discord.com/oauth2/authorize");
+  vi.mocked(api.getDiscordConnection).mockResolvedValue(aConnectedAccount());
 });
 
 afterEach(() => {
@@ -68,9 +61,15 @@ describe("ServersPage", () => {
       "bg-action-gradient",
       "hover:bg-action-gradient-hover",
     );
-    const links = await screen.findAllByRole("link", { name: /Adicionar o bot/ });
-    expect(links).toHaveLength(2);
-    for (const link of links) expect(link).toHaveAttribute("href", installUrl);
+    await waitFor(() => expect(api.getBotInstallation).toHaveBeenCalled());
+  });
+
+  it("offers no generic install shortcut next to the owner's servers", async () => {
+    renderScreen(<ServersPage />);
+    await waitFor(() => expect(api.getBotInstallation).toHaveBeenCalled());
+    expect(screen.queryByText("Adicionar o bot ao Discord")).toBeNull();
+    expect(screen.queryByText("Adicionar o bot a um servidor")).toBeNull();
+    expect(screen.queryByRole("link", { name: /Adicionar o bot/ })).toBeNull();
   });
 
   it("leaves the server count out of the header", () => {
@@ -133,10 +132,16 @@ describe("ServersPage", () => {
     ).toHaveAttribute("href", installUrl);
   });
 
-  it("keeps the Discord shortcut inert until the bot is configured", async () => {
+  it("keeps the empty list shortcut inert until the bot is configured", async () => {
     vi.mocked(api.getBotInstallation).mockResolvedValue({ configured: false });
-    renderScreen(<ServersPage />);
+    renderScreen(<ServersPage />, {
+      context: dashboardContext({ guilds: guildSelection({ guilds: [] }) }),
+    });
     await waitFor(() => expect(api.getBotInstallation).toHaveBeenCalled());
+    expect(screen.getByText("Adicionar o bot a um servidor")).toHaveAttribute(
+      "aria-disabled",
+      "true",
+    );
     expect(screen.queryByRole("link", { name: /Adicionar o bot/ })).toBeNull();
   });
 
@@ -150,10 +155,8 @@ describe("ServersPage", () => {
       context: dashboardContext({ guilds: guildSelection({ error: true, guilds: undefined }) }),
     });
     expect(screen.getByRole("alert")).toHaveTextContent("Servidores indisponíveis");
-    expect(screen.getByRole("link", { name: "Ver instalação" })).toHaveAttribute(
-      "href",
-      "/installation",
-    );
+    expect(screen.getByRole("alert")).toHaveTextContent("Confira o token na aba Bot");
+    expect(screen.getByRole("link", { name: "Abrir aba Bot" })).toHaveAttribute("href", "/bot");
   });
 
   it("offers to install the bot in an owned server that does not have it", () => {
@@ -211,15 +214,19 @@ describe("ServersPage", () => {
     expect(setSelectedGuildId).toHaveBeenCalledWith("g3");
   });
 
-  it("asks to connect the owner's account when none is connected", async () => {
+  it("only warns that the Discord account is not connected", async () => {
     vi.mocked(api.getDiscordConnection).mockResolvedValue({ connected: false });
     renderScreen(<ServersPage />);
-    expect(await screen.findByText("Conecte a conta Discord do dono")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Conectar conta Discord/ }));
-    expect(leaveDashboardFor).toHaveBeenCalledWith("https://discord.com/oauth2/authorize");
+    expect(await screen.findByText("Conecte a conta Discord")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Sem ela, a lista mostra só servidores com histórico e nenhum servidor pode ser configurado.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Conectar conta Discord/ })).toBeNull();
   });
 
-  it("points to Installation when the Client Secret is still missing", async () => {
+  it("keeps the same warning, with no link, when the Client Secret is still missing", async () => {
     vi.mocked(api.getDiscordConnection).mockResolvedValue({ connected: false });
     renderScreen(<ServersPage />, {
       context: dashboardContext({
@@ -228,20 +235,17 @@ describe("ServersPage", () => {
         }),
       }),
     });
-    expect(
-      await screen.findByText("Antes, salve o Client Secret da aplicação em Instalação."),
-    ).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /Conectar conta Discord/ })).toBeNull();
-    expect(screen.getByRole("link", { name: "Ver instalação" })).toHaveAttribute(
-      "href",
-      "/installation",
-    );
+    const banner = (await screen.findByText("Conecte a conta Discord")).closest("section");
+    expect(banner).not.toBeNull();
+    expect(screen.queryByText(/Client Secret/)).toBeNull();
+    expect(within(banner as HTMLElement).queryByRole("link")).toBeNull();
+    expect(within(banner as HTMLElement).queryByRole("button")).toBeNull();
   });
 
   it("asks nothing once the owner's account is connected", async () => {
     renderScreen(<ServersPage />);
     await waitFor(() => expect(api.getDiscordConnection).toHaveBeenCalled());
-    expect(screen.queryByText("Conecte a conta Discord do dono")).toBeNull();
+    expect(screen.queryByText("Conecte a conta Discord")).toBeNull();
   });
 
   it.each([
