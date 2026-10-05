@@ -64,6 +64,7 @@ describe("GuildPage", () => {
     expect(screen.getByText("Installation checklist")).toBeInTheDocument();
     expect(screen.getByText(/Português \(Brasil\) · no tag/)).toBeInTheDocument();
     expect(screen.getByText("Last 30 days.")).toBeInTheDocument();
+    expect(screen.getByText("Failures")).toBeInTheDocument();
   });
 
   it("puts the essentials in front", async () => {
@@ -268,7 +269,7 @@ describe("GuildPage", () => {
     renderGuild();
     expect(await screen.findByText("Este servidor em números")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText("1")).toBeInTheDocument();
+    expect(screen.getByText("Falhas").nextElementSibling).toHaveTextContent(/^1$/);
     expect(screen.getByText("38,0")).toBeInTheDocument();
   });
 

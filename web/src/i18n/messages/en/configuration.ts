@@ -87,7 +87,7 @@ export const configurationMessages: typeof portuguese = {
       "90d": "Last 90 days.",
       all: "Entire history.",
     },
-    pipelineFailures: "Pipeline failures",
+    pipelineFailures: "Failures",
     privacy: "Privacy and retention",
     profileActive: "AI profile active",
     profileHeading: "AI profile used in this server",

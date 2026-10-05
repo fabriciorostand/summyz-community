@@ -87,7 +87,7 @@ export const configurationMessages = {
       "90d": "Últimos 90 dias.",
       all: "Todo o histórico.",
     },
-    pipelineFailures: "Falhas no pipeline",
+    pipelineFailures: "Falhas",
     privacy: "Privacidade e retenção",
     profileActive: "Perfil de IA ativo",
     profileHeading: "Perfil de IA usado neste servidor",
