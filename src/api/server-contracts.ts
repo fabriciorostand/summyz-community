@@ -180,6 +180,7 @@ export interface ApiServerDependencies {
   accessMode: "local" | "public";
   analytics?: ApiAnalyticsStore;
   aiProfiles: AiProfileStore;
+  costReconciliation?: { reconcile(guildId: string): Promise<void> };
   auth: ApiAuthService;
   discordConnection: Pick<
     InstallationDiscordConnection,

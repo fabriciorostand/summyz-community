@@ -12,31 +12,9 @@ describe("comandos do bot", () => {
       "stop",
       "recording-role",
       "recording-summary-forum",
-      "recording-cost",
       "recording-profile",
       "recording-activate",
     ]);
-  });
-
-  it("expõe consulta administrativa por reunião e período", () => {
-    const command = commandDefinitions.find(
-      (definition) => definition.toJSON().name === "recording-cost",
-    );
-    const definition = command?.toJSON();
-
-    expect(definition?.default_member_permissions).toBe(String(8n));
-    expect(definition?.options?.map((option) => option.name)).toEqual(["meeting", "period"]);
-    expect(definition?.options?.[0]).toMatchObject({
-      name: "meeting",
-      options: [expect.objectContaining({ name: "id", required: true })],
-    });
-    expect(definition?.options?.[1]).toMatchObject({
-      name: "period",
-      options: [
-        expect.objectContaining({ name: "from", required: true }),
-        expect.objectContaining({ name: "to", required: true }),
-      ],
-    });
   });
 
   it("permite adicionar, remover e listar cargos de gravação", () => {
@@ -111,6 +89,6 @@ describe("comandos do bot", () => {
       ],
       label: "Recording",
     });
-    expect(english.map((group) => group.id)).toEqual(["recording", "administrative", "cost"]);
+    expect(english.map((group) => group.id)).toEqual(["recording", "administrative"]);
   });
 });

@@ -211,7 +211,6 @@ export const configurationMessages: typeof portuguese = {
     descriptions: {},
     groups: {
       administrative: "Administrative shortcuts",
-      cost: "Cost — server owner only",
       recording: "Recording",
     },
     loading: "Loading commands…",

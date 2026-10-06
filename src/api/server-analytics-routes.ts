@@ -71,6 +71,21 @@ function applyParticipantProfile<
   };
 }
 
+/** Pending OpenRouter attempts stay pending on failure, so the detail is still served. */
+async function reconcileProviderCosts(
+  guildId: string,
+  dependencies: ApiServerDependencies,
+): Promise<void> {
+  try {
+    await dependencies.costReconciliation?.reconcile(guildId);
+  } catch (error) {
+    dependencies.logger.warn(
+      { errorType: error instanceof Error ? error.name : typeof error, guildId },
+      "Unable to reconcile provider costs before the cost detail",
+    );
+  }
+}
+
 export function registerAnalyticsRoutes(
   app: FastifyInstance,
   dependencies: ApiServerDependencies,
@@ -118,7 +133,9 @@ export function registerAnalyticsRoutes(
   app.get("/api/guilds/:guildId/costs", async (request) => {
     const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
     const query = parseRequestInput(costDetailQuerySchema, request.query);
-    const detail = await requireAnalytics(dependencies).getCostDetail(guildId, query);
+    const analytics = requireAnalytics(dependencies);
+    await reconcileProviderCosts(guildId, dependencies);
+    const detail = await analytics.getCostDetail(guildId, query);
     return { ...detail, ...query };
   });
   app.get("/api/guilds/:guildId/meetings", async (request) => {

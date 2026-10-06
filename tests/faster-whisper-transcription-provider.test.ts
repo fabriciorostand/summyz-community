@@ -13,8 +13,6 @@ describe("FasterWhisperTranscriptionProvider", () => {
   it("registra execução local com modelo e sem custo externo", async () => {
     const attempts: CostAttempt[] = [];
     const store: CostLedgerStore = {
-      getMeeting: async () => undefined,
-      listMeetings: async () => [],
       saveAttempt: vi.fn(async (attempt) => {
         const index = attempts.findIndex((item) => item.attemptId === attempt.attemptId);
         if (index === -1) attempts.push(attempt);

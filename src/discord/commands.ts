@@ -6,7 +6,6 @@ export function createCommandDefinitions(language: CommandLanguage) {
   const {
     record,
     recordingActivate,
-    recordingCost,
     recordingProfile,
     recordingRole,
     recordingSummaryForum,
@@ -90,40 +89,6 @@ export function createCommandDefinitions(language: CommandLanguage) {
         .setDescription(recordingSummaryForum.subcommands.clear.description[language]),
     );
 
-  const recordingCostCommand = new SlashCommandBuilder()
-    .setName(recordingCost.name)
-    .setDescription(recordingCost.description[language])
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .setDMPermission(false)
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingCost.subcommands.meeting.name)
-        .setDescription(recordingCost.subcommands.meeting.description[language])
-        .addStringOption((option) =>
-          option
-            .setName(recordingCost.subcommands.meeting.options.id.name)
-            .setDescription(recordingCost.subcommands.meeting.options.id.description[language])
-            .setRequired(true),
-        ),
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingCost.subcommands.period.name)
-        .setDescription(recordingCost.subcommands.period.description[language])
-        .addStringOption((option) =>
-          option
-            .setName(recordingCost.subcommands.period.options.from.name)
-            .setDescription(recordingCost.subcommands.period.options.from.description[language])
-            .setRequired(true),
-        )
-        .addStringOption((option) =>
-          option
-            .setName(recordingCost.subcommands.period.options.to.name)
-            .setDescription(recordingCost.subcommands.period.options.to.description[language])
-            .setRequired(true),
-        ),
-    );
-
   const recordingProfileCommand = new SlashCommandBuilder()
     .setName(recordingProfile.name)
     .setDescription(recordingProfile.description[language])
@@ -155,7 +120,6 @@ export function createCommandDefinitions(language: CommandLanguage) {
     stopCommand,
     recordingRoleCommand,
     recordingSummaryForumCommand,
-    recordingCostCommand,
     recordingProfileCommand,
     recordingActivateCommand,
   ] as const;

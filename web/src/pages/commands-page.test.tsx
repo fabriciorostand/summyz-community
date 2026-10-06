@@ -30,16 +30,6 @@ const reference: CommandReference = [
     id: "administrative",
     label: "Administrative shortcuts",
   },
-  {
-    commands: [
-      {
-        description: "Shows costs for meetings started in a period",
-        name: "/recording-cost period",
-      },
-    ],
-    id: "cost",
-    label: "Cost — server owner only",
-  },
 ];
 
 beforeEach(() => {
@@ -56,7 +46,6 @@ describe("CommandsPage", () => {
     expect(screen.getByRole("banner")).not.toHaveTextContent("Registrados pelo bot no Discord");
     expect(await screen.findByText("Gravação")).toBeInTheDocument();
     expect(screen.getByText("Atalhos administrativos")).toBeInTheDocument();
-    expect(screen.getByText("Custo — só para o dono do servidor")).toBeInTheDocument();
   });
 
   it("lists every command the API returns with a translated description", async () => {
@@ -66,7 +55,6 @@ describe("CommandsPage", () => {
       screen.getByText("Inicia a gravação do canal de voz em que você está"),
     ).toBeInTheDocument();
     expect(screen.getByText("/recording-summary-forum set")).toBeInTheDocument();
-    expect(screen.getByText("/recording-cost period")).toBeInTheDocument();
     expect(screen.queryByText("/record start")).toBeNull();
   });
 

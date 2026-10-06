@@ -88,19 +88,7 @@ function validateCompletion(attempt: CostAttempt, context: CostAttemptValidation
   }
 }
 
-export interface CostMeetingWithAttempts {
-  attempts: CostAttempt[];
-  meeting: CostMeetingRecord;
-}
-
-export interface CostMeetingRange {
-  endedBefore: string;
-  startedAtOrAfter: string;
-}
-
 export interface CostLedgerStore {
-  getMeeting(guildId: string, meetingId: string): Promise<CostMeetingWithAttempts | undefined>;
-  listMeetings(guildId: string, range: CostMeetingRange): Promise<CostMeetingWithAttempts[]>;
   saveAttempt(attempt: CostAttempt): Promise<void>;
   saveMeeting(manifest: RecordingManifest): Promise<void>;
 }

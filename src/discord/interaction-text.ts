@@ -9,7 +9,6 @@ export interface InteractionText {
   connectedAccountRequired: string;
   connectedOwnerRequired: string;
   ownershipCheckUnavailable: string;
-  cannotViewCosts: string;
   cannotRecord: string;
   cannotStop: string;
   commandFailed: string;
@@ -38,9 +37,6 @@ export interface InteractionText {
   noAuthorizedRoles: string;
   noSummaryForum: string;
   openRouterApiKeyMissing: string;
-  costInvalidPeriod: string;
-  costMeetingInProgress: string;
-  costMeetingNotFound: string;
   recordingAlreadyActive: string;
   recordingRecoveryPending: string;
   recordingStarted(voiceChannelName: string, userMention: string, meetingId: string): string;
@@ -80,7 +76,6 @@ const texts = {
       "This server's owner is not the Discord account linked to this Summyz installation. Only that linked owner can configure or use this bot here.",
     ownershipCheckUnavailable:
       "Unable to verify server ownership right now. No changes were made; please try again shortly.",
-    cannotViewCosts: "Only the server owner can view recording costs.",
     cannotRecord: "You do not have an authorized role to start recordings.",
     cannotStop: "You do not have an authorized role to stop recordings.",
     commandFailed: "Unable to complete the command. Please try again.",
@@ -134,10 +129,6 @@ const texts = {
     noSummaryForum: "No summary forum is configured in this server.",
     openRouterApiKeyMissing:
       "The active profile uses OpenRouter, but its API key is not configured in the dashboard. Configure the key before recording.",
-    costInvalidPeriod: "Use valid dates in YYYY-MM-DD format, with the first date before the last.",
-    costMeetingInProgress:
-      "Wait for the meeting to end before checking its costs. Processing costs are available after recording ends.",
-    costMeetingNotFound: "This completed meeting was not found in this server.",
     recordingAlreadyActive: "There is already an active recording in this server.",
     recordingRecoveryPending:
       "A previous recording is suspended while server ownership verification is unavailable. A new recording can start after it resumes or is finalized.",
@@ -173,7 +164,6 @@ const texts = {
       "O dono deste servidor não é a conta Discord vinculada a esta instalação do Summyz. Apenas esse dono vinculado pode configurar ou usar o bot aqui.",
     ownershipCheckUnavailable:
       "Não foi possível verificar a posse do servidor agora. Nenhuma alteração foi feita; tente novamente em instantes.",
-    cannotViewCosts: "Somente o dono do servidor pode consultar custos de gravações.",
     cannotRecord: "Você não possui um cargo autorizado para gravar.",
     cannotStop: "Você não possui um cargo autorizado para encerrar.",
     commandFailed: "Não foi possível concluir o comando. Tente novamente.",
@@ -227,11 +217,6 @@ const texts = {
     noSummaryForum: "Nenhum fórum de resumos está configurado neste servidor.",
     openRouterApiKeyMissing:
       "O perfil ativo usa OpenRouter, mas a chave da API não está configurada no dashboard. Configure a chave antes de gravar.",
-    costInvalidPeriod:
-      "Informe datas válidas no formato AAAA-MM-DD, com a data inicial anterior à final.",
-    costMeetingInProgress:
-      "Aguarde a reunião terminar para consultar os custos. Os dados ficam disponíveis após o encerramento da gravação.",
-    costMeetingNotFound: "Essa reunião concluída não foi encontrada neste servidor.",
     recordingAlreadyActive: "Já existe uma gravação ativa neste servidor.",
     recordingRecoveryPending:
       "Uma gravação anterior está suspensa enquanto a verificação da posse do servidor está indisponível. Uma nova gravação poderá começar após a retomada ou finalização da anterior.",

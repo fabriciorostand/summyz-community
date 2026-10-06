@@ -6,8 +6,6 @@ import { ProviderCostRecorder } from "../src/cost/provider-cost-recorder.js";
 function createStore() {
   const attempts: CostAttempt[] = [];
   const store: CostLedgerStore = {
-    getMeeting: async () => undefined,
-    listMeetings: async () => [],
     saveAttempt: vi.fn(async (attempt: CostAttempt) => {
       const index = attempts.findIndex((candidate) => candidate.attemptId === attempt.attemptId);
       if (index === -1) attempts.push(attempt);

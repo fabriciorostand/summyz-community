@@ -209,8 +209,6 @@ export const configurationMessages = {
   commands: {
     descriptions: {
       "/record": "Inicia a gravação do canal de voz em que você está",
-      "/recording-cost meeting": "Mostra os custos de uma reunião concluída",
-      "/recording-cost period": "Mostra os custos das reuniões iniciadas em um período",
       "/recording-role add": "Autoriza um cargo a iniciar e encerrar gravações",
       "/recording-role list": "Lista os cargos autorizados neste servidor",
       "/recording-role remove": "Remove a autorização de um cargo",
@@ -222,7 +220,6 @@ export const configurationMessages = {
     } as Readonly<Record<string, string>>,
     groups: {
       administrative: "Atalhos administrativos",
-      cost: "Custo — só para o dono do servidor",
       recording: "Gravação",
     } as Readonly<Record<string, string>>,
     loading: "Carregando comandos…",

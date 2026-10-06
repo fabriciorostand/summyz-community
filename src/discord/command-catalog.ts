@@ -50,51 +50,6 @@ export const commandCatalog = {
     ),
     name: "record",
   },
-  recordingCost: {
-    description: localized(
-      "Shows confirmed AI processing costs",
-      "Mostra os custos confirmados do processamento por IA",
-    ),
-    name: "recording-cost",
-    subcommands: {
-      meeting: {
-        description: localized(
-          "Shows costs for a completed meeting",
-          "Mostra os custos de uma reunião concluída",
-        ),
-        name: "meeting",
-        options: {
-          id: {
-            description: localized("Meeting ID", "ID da reunião"),
-            name: "id",
-          },
-        },
-      },
-      period: {
-        description: localized(
-          "Shows costs for meetings started in a period",
-          "Mostra os custos das reuniões iniciadas em um período",
-        ),
-        name: "period",
-        options: {
-          from: {
-            description: localized(
-              "First meeting date (YYYY-MM-DD)",
-              "Primeira data de reunião (AAAA-MM-DD)",
-            ),
-            name: "from",
-          },
-          to: {
-            description: localized(
-              "Last meeting date (YYYY-MM-DD)",
-              "Última data de reunião (AAAA-MM-DD)",
-            ),
-            name: "to",
-          },
-        },
-      },
-    },
-  },
   recordingRole: {
     description: localized(
       "Configures the roles that can control recordings",
@@ -213,7 +168,6 @@ export function createCommandReference() {
   const {
     record,
     recordingActivate,
-    recordingCost,
     recordingProfile,
     recordingRole,
     recordingSummaryForum,
@@ -239,14 +193,6 @@ export function createCommandReference() {
       ],
       id: "administrative",
       label: "Administrative shortcuts",
-    },
-    {
-      commands: [
-        subcommandReference(recordingCost, recordingCost.subcommands.meeting),
-        subcommandReference(recordingCost, recordingCost.subcommands.period),
-      ],
-      id: "cost",
-      label: "Cost — server owner only",
     },
   ];
 }

@@ -171,17 +171,14 @@ this condition and never present the confirmed subtotal as necessarily complete.
 faster-whisper calls retain the effective model with a null external cost because computational
 cost is outside the current scope.
 
-Only the server owner can query costs with `/recording-cost meeting` or aggregate them by meeting
-start date with `/recording-cost period`. These commands include meetings whose recording has ended
-(`completed_at` is set); still-recording meetings are excluded. The pipeline may still be running,
-and background attempts can increase the total.
+Dashboard overview totals use rounded display values; stored amounts are unchanged.
 
-Results are ephemeral and always scoped to the current Discord server. Date boundaries use
-`SUMMARY_TIME_ZONE`; cost reports preserve exact financial values. Dashboard overview totals use
-rounded display values; stored amounts are unchanged.
-
-The "Details" link on the overview cost card opens the dashboard cost page. It applies the same
-rule as `/recording-cost period`, but uses the browser time zone and opens on the current month.
+The "Details" link on the overview cost card opens the dashboard cost page. It includes meetings
+whose recording has ended (`completed_at` is set) and whose start date falls within the range;
+still-recording meetings are excluded. The pipeline may still be running, and background attempts
+can increase the total. The page uses the browser time zone and opens on the current month.
+Before loading it, Summyz queries OpenRouter again for the server's pending attempts; if that query
+fails, they remain pending and the page is still shown.
 It shows the cost of each stage, the split by provider and model with requests and charged
 failures, and the five most expensive meetings in the range. Per-model and per-meeting values are
 exact; the total and the stages are rounded for reading.

@@ -12,8 +12,6 @@ import { createBotProcessingRuntime } from "./bot-processing-runtime.js";
 import { reconcilePendingRecordings } from "./bot-recording-recovery.js";
 import { BOT_CONFIGURATION_RESTART_EXIT_CODE } from "./bot-supervisor.js";
 import { loadConfig, resolveBotConfig } from "./config.js";
-import { CostReconciler } from "./cost/cost-reconciler.js";
-import { createCostReportService } from "./cost/cost-report.js";
 import { PostgresCostLedgerStore } from "./cost/postgres-cost-ledger-store.js";
 import { PostgresAiProfileStore } from "./database/postgres-ai-profile-store.js";
 import { createPostgresDatabase, type PostgresDatabase } from "./database/postgres-database.js";
@@ -173,16 +171,6 @@ const aiRuntime = new ApplicationAiRuntime({
   installationHealth,
   logger,
 });
-const costReport = createCostReportService({
-  language: config.botLanguage,
-  reconcile: async (guildId) => {
-    const apiKey = await aiRuntime.resolveOpenRouterApiKey();
-    if (apiKey === undefined) return;
-    await new CostReconciler({ apiKey, logger, store: postgresCostLedger }).reconcile(guildId);
-  },
-  store: postgresCostLedger,
-  timeZone: config.summaryTimeZone,
-});
 const refinementStore = new RefinementStore(recordingsDirectory);
 const summaryStore = new SummaryStore(recordingsDirectory);
 const publicationStore = new PublicationStore(recordingsDirectory);
@@ -304,7 +292,6 @@ installInteractionHandler(
   coordinator,
   logger,
   config.botLanguage,
-  costReport,
   aiProfileStore,
   (guildId) => aiRuntime.assessActiveProfile(guildId),
   async () => (await aiRuntime.resolveOpenRouterApiKey()) !== undefined,

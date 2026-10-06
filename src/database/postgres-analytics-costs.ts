@@ -20,8 +20,8 @@ const costDetailOptionsSchema = z
   .refine((options) => options.dateFrom <= options.dateTo, { message: "invalid_period" });
 
 /**
- * Same scope as `/recording-cost period`: meetings that started inside the calendar range and
- * have stopped recording. Processing may still add attempts to them.
+ * Meetings that started inside the calendar range and have stopped recording. Processing may
+ * still add attempts to them.
  */
 const periodMeetingsCte = `WITH period_meetings AS (
   SELECT meeting.meeting_id, meeting.started_at, meeting.voice_channel_name

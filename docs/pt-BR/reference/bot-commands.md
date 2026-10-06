@@ -12,7 +12,7 @@ com mensagem efêmera.
 | Ação | Quem pode usar |
 | --- | --- |
 | Iniciar/encerrar gravação | Dono, cargos autorizados ou membros autorizados individualmente |
-| Gerenciar fórum, cargos, perfil ativo, ativação e custos | Somente o dono |
+| Gerenciar fórum, cargos, perfil ativo e ativação | Somente o dono |
 
 Administrar ou Gerenciar servidor, isoladamente, não concede acesso. Autorizar cargo/membro não
 concede gestão. Autorizações individuais dependem da participação atual e são revogadas ao sair.
@@ -99,30 +99,6 @@ A resposta é efêmera.
 
 O primeiro dono observado é confirmado automaticamente; o seguinte exige essa confirmação explícita
 ou o fluxo equivalente de ativação do servidor.
-
-## Custos
-
-### `/recording-cost meeting id:<ID da reunião>`
-
-Mostra custos confirmados de reunião cuja gravação terminou. Somente o dono; efêmero e restrito
-ao servidor atual. Uma reunião ainda gravando é recusada. O processamento em segundo plano pode
-continuar após o encerramento, por isso novas consultas podem incluir mais tentativas e cobranças.
-
-Para cada etapa, informa execução externa/local, modelo efetivo e quantidade de requisições externas.
-Etapas locais não têm custo computacional medido. Valores externos são os montantes exatos em USD
-confirmados pela OpenRouter, sem arredondamento de apresentação. Tentativas cobradas com falha,
-reconciliações pendentes e cobranças não atribuíveis automaticamente são informadas.
-
-### `/recording-cost period from:<AAAA-MM-DD> to:<AAAA-MM-DD>`
-
-Agrega reuniões cuja gravação terminou e que começaram no intervalo inclusivo. Somente o dono;
-efêmero. Datas devem ser válidas no formato `YYYY-MM-DD` e `from` não pode ser posterior a `to`.
-Os limites usam `SUMMARY_TIME_ZONE`.
-
-O relatório inclui quantidade/duração de reuniões, execuções locais, requisições externas, totais
-por etapa, médias confirmadas, falhas cobradas e tentativas não resolvidas. Processamento após
-encerrar a gravação ainda pode mudar os totais. Registros financeiros são independentes da retenção
-de conteúdo/áudio. Consulte [medição de custos](../operations.md#medição-de-custos-dos-provedores).
 
 ## Comportamento automático e restrições
 

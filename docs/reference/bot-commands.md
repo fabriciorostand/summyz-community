@@ -12,7 +12,7 @@ is refused with an ephemeral message.
 | Action | Who can use it |
 | --- | --- |
 | Start/stop recording | Server owner, authorized roles, or individually authorized members |
-| Manage forum, roles, active profile, activation, and costs | Server owner only |
+| Manage forum, roles, active profile, and activation | Server owner only |
 
 Administrator and Manage Server permissions alone do not grant access. Role/member authorization
 does not grant management powers. Individual grants depend on current membership and are revoked
@@ -101,30 +101,6 @@ download models or resume cancelled jobs. The response is ephemeral.
 
 The first observed owner is confirmed automatically; a later owner requires this explicit confirmation
 or the equivalent server activation flow.
-
-## Costs
-
-### `/recording-cost meeting id:<meeting ID>`
-
-Shows confirmed costs for a meeting whose recording has ended. Owner only; ephemeral and scoped
-to the current server. A still-recording meeting is refused. Background processing may still be
-running after recording ends, so later queries can include additional attempts and charges.
-
-For each stage the report identifies external/local execution, the effective model, and external
-request count. Local stages report no measured computational cost. External amounts are the exact
-USD values confirmed by OpenRouter, without display rounding. Charged failed attempts, pending
-reconciliation, and automatically unattributable charges are disclosed.
-
-### `/recording-cost period from:<YYYY-MM-DD> to:<YYYY-MM-DD>`
-
-Aggregates meetings whose recording has ended and whose start date falls within the inclusive
-interval. Owner only; ephemeral. Dates must be valid `YYYY-MM-DD`, and `from` cannot follow `to`.
-Boundaries use `SUMMARY_TIME_ZONE`.
-
-The report includes meeting counts/durations, local executions, external requests, stage totals,
-confirmed averages, charged failures, and unresolved attempts. Processing after recording ends
-can still change these totals. Financial records are kept independently of content/audio retention.
-See [cost accounting](../operations.md#provider-cost-accounting).
 
 ## Automatic behavior and restrictions
 

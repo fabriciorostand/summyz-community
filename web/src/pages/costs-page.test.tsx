@@ -114,7 +114,6 @@ describe("CostsPage", () => {
     expect(screen.getByLabelText("De")).toHaveValue("2026-10-01");
     expect(screen.getByLabelText("Até")).toHaveValue("2026-10-05");
     expect(screen.getByText("confirmados em 12 reuniões")).toBeInTheDocument();
-    expect(screen.queryByText(/recording-cost period/)).toBeNull();
   });
 
   it("returns to the overview from the header, separated from the title by a slash", async () => {

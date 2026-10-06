@@ -242,6 +242,52 @@ describe("Community dashboard API", () => {
     });
     await app.close();
   });
+  it("reconciles the guild's pending provider costs before reading the cost detail", async () => {
+    const dependencies = createDependencies("local");
+    const analytics = analyticsDependencies();
+    const reconcile = vi.fn(async (_guildId: string) => undefined);
+    dependencies.analytics = analytics;
+    dependencies.costReconciliation = { reconcile };
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/costs?timeZone=UTC&dateFrom=2026-09-01&dateTo=2026-09-30",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith("guild-1");
+    expect(reconcile.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(analytics.getCostDetail).mock.invocationCallOrder[0] ?? 0,
+    );
+    await app.close();
+  });
+  it("still serves the cost detail when reconciliation fails and logs only the error type", async () => {
+    const dependencies = createDependencies("local");
+    const analytics = analyticsDependencies();
+    const warn = vi.spyOn(dependencies.logger, "warn");
+    dependencies.analytics = analytics;
+    dependencies.costReconciliation = {
+      reconcile: vi.fn(async () => {
+        throw new Error("Bearer sk-or-secret was rejected");
+      }),
+    };
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/costs?timeZone=UTC&dateFrom=2026-09-01&dateTo=2026-09-30",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(analytics.getCostDetail).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      { errorType: "Error", guildId: "guild-1" },
+      "Unable to reconcile provider costs before the cost detail",
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-or-secret");
+    await app.close();
+  });
   it.each([
     "timeZone=UTC&dateTo=2026-09-30",
     "timeZone=UTC&dateFrom=2026-09-30&dateTo=2026-09-01",
@@ -905,7 +951,6 @@ describe("Community dashboard API", () => {
         label: "Recording",
       },
       expect.objectContaining({ label: "Administrative shortcuts" }),
-      expect.objectContaining({ label: "Cost — server owner only" }),
     ]);
     await app.close();
   });

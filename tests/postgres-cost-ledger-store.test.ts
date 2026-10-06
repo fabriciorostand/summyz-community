@@ -61,32 +61,11 @@ describe("PostgresCostLedgerStore", () => {
     );
   });
 
-  it("consulta somente a reunião pertencente ao servidor informado", async () => {
-    const { database, query } = createDatabase([
-      {
-        attempt_id: null,
-        completed_at: "2026-08-24T11:30:00.000Z",
-        guild_id: "guild-1",
-        meeting_id: "meeting-1",
-        started_at: "2026-08-24T10:00:00.000Z",
-      },
-    ]);
-    const store = new PostgresCostLedgerStore(database);
-
-    await expect(store.getMeeting("guild-1", "meeting-1")).resolves.toMatchObject({
-      attempts: [],
-      meeting: { guildId: "guild-1", meetingId: "meeting-1" },
-    });
-    expect(query.mock.calls[0]?.[0]).toMatch(/m\.guild_id = \$1[\s\S]+m\.meeting_id = \$2/);
-    expect(query.mock.calls[0]?.[1]).toEqual(["guild-1", "meeting-1"]);
-  });
-
   it("materializa tentativas retornadas pelo PostgreSQL", async () => {
     const { database } = createDatabase([
       {
         attempt_id: "attempt-1",
         attempt_started_at: new Date("2026-08-24T11:31:00.000Z"),
-        completed_at: new Date("2026-08-24T11:30:00.000Z"),
         confirmation_source: "response",
         cost: "0.01",
         currency: "USD",
@@ -100,27 +79,18 @@ describe("PostgresCostLedgerStore", () => {
         outcome: "success",
         phase: "summary",
         provider: "openrouter",
-        started_at: new Date("2026-08-24T10:00:00.000Z"),
       },
     ]);
     const store = new PostgresCostLedgerStore(database);
 
-    await expect(store.getMeeting("guild-1", "meeting-1")).resolves.toMatchObject({
-      attempts: [expect.objectContaining({ attemptId: "attempt-1", cost: "0.01" })],
-    });
-  });
-
-  it("usa o início da reunião no filtro por período", async () => {
-    const { database, query } = createDatabase();
-    const store = new PostgresCostLedgerStore(database);
-    await store.listMeetings("guild-1", {
-      endedBefore: "2026-09-01T03:00:00.000Z",
-      startedAtOrAfter: "2026-08-01T03:00:00.000Z",
-    });
-
-    expect(query.mock.calls[0]?.[0]).toMatch(
-      /m\.guild_id = \$1[\s\S]+m\.started_at >= \$2[\s\S]+m\.started_at < \$3/,
-    );
+    await expect(store.listReconciliationCandidates("guild-1")).resolves.toEqual([
+      expect.objectContaining({
+        attemptId: "attempt-1",
+        cost: "0.01",
+        endedAt: "2026-08-24T11:31:01.000Z",
+        startedAt: "2026-08-24T11:31:00.000Z",
+      }),
+    ]);
   });
 
   it("valida o manifesto mas usa a reunião persistida como catálogo", async () => {
