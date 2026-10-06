@@ -123,6 +123,7 @@ export const meetingsMessages = {
     search: "Buscar por canal ou ID da reunião",
     stateLabel: "Estado da call",
     summaryFailed: "resumo não gerado · transcrição disponível",
+    talkTimeDistribution: "Distribuição do tempo de fala",
     talkTimeUnavailable: "tempo de fala indisponível",
     title: "Calls",
     to: "Até",

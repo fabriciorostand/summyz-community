@@ -241,6 +241,65 @@ describe("CallsPage", () => {
     ).toBeInTheDocument();
   });
 
+  it("colours the three main speakers by rank and folds the rest into a neutral slice", async () => {
+    const page = aMeetingPage();
+    const [meeting] = page.items;
+    if (meeting === undefined) throw new Error("fixture");
+    const speaker = (userId: string, displayName: string, percentage: number) => ({
+      avatarUrl: null,
+      displayName,
+      percentage,
+      talkTimeMs: percentage * 1_000,
+      userId,
+    });
+    listMeetings.mockResolvedValue({
+      ...page,
+      items: [
+        {
+          ...meeting,
+          participants: [
+            speaker("u4", "Dora", 12),
+            speaker("u1", "Ana", 40),
+            speaker("u3", "Caio", 15),
+            speaker("u5", "Enzo", 8),
+            speaker("u2", "Bia", 25),
+          ],
+        },
+      ],
+    });
+    renderScreen(<CallsPage />);
+
+    const bar = await screen.findByRole("img", { name: "Distribuição do tempo de fala" });
+    const segments = [...bar.children] as HTMLElement[];
+    expect(segments.map((segment) => segment.className)).toEqual([
+      expect.stringContaining("bg-series-1"),
+      expect.stringContaining("bg-series-2"),
+      expect.stringContaining("bg-series-3"),
+      expect.stringContaining("bg-series-other"),
+    ]);
+    expect(segments.map((segment) => segment.style.width)).toEqual(["40%", "25%", "15%", "20%"]);
+    for (const [label, fill] of [
+      ["Ana 40%", "bg-series-1"],
+      ["Bia 25%", "bg-series-2"],
+      ["Caio 15%", "bg-series-3"],
+    ] as const) {
+      expect(screen.getByText(label).querySelector("span")).toHaveClass(fill);
+    }
+    expect(screen.getByText("+2").querySelector("span")).toHaveClass("bg-series-other");
+    expect(screen.queryByText(/Dora/)).toBeNull();
+  });
+
+  it("draws one slice per speaker without a neutral slice when everyone is named", async () => {
+    renderScreen(<CallsPage />);
+
+    const bar = await screen.findByRole("img", { name: "Distribuição do tempo de fala" });
+    expect([...bar.children].map((segment) => segment.className)).toEqual([
+      expect.stringContaining("bg-series-1"),
+      expect.stringContaining("bg-series-2"),
+    ]);
+    expect(screen.queryByText(/^\+\d/)).toBeNull();
+  });
+
   it("says when the participants have no talk time yet", async () => {
     const page = aMeetingPage();
     const [meeting] = page.items;

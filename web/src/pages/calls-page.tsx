@@ -14,7 +14,8 @@ import {
   type HistoricalParticipantPage,
   type MeetingHistoryPage as HistoryPage,
 } from "../lib/api";
-import { formatDuration, percentageOf, pipelineStatus } from "../lib/format";
+import { formatDuration, pipelineStatus } from "../lib/format";
+import { seriesColor } from "../lib/series";
 import { Screen } from "./screen";
 
 type StateFilter = "" | "completed" | "in_progress" | "failed";
@@ -361,7 +362,6 @@ function CallRow({
   const { format, t } = useI18n();
   const status = pipelineStatus(meeting.pipelineStatus, t.pipeline);
   const participants = meeting.participants ?? [];
-  const withTalkTime = participants.filter((participant) => participant.percentage !== null);
   return (
     <Link
       className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-3 rounded-xl border border-line bg-surface p-4 transition-colors [grid-template-areas:'when_duration'_'channel_channel'_'people_people'] hover:bg-surface-raised md:grid-cols-[150px_minmax(0,1fr)_minmax(0,1fr)_90px_28px] md:gap-y-4 md:rounded-none md:border-0 md:border-b md:border-line-soft md:bg-transparent md:px-4 md:py-3.5 md:[grid-template-areas:'when_channel_people_duration_chevron'] md:last:border-0"
@@ -384,41 +384,81 @@ function CallRow({
         </div>
       </div>
       <div className="min-w-0 [grid-area:people]">
-        {withTalkTime.length === 0 ? (
-          <span className="text-[11.5px] text-ink-dim">
-            {participants.length === 0 ? t.calls.unavailable : t.calls.talkTimeUnavailable}
-          </span>
-        ) : (
-          <>
-            <div className="flex flex-wrap gap-x-2 gap-y-1 text-[11.5px] text-ink-secondary">
-              {withTalkTime.slice(0, 2).map((participant) => (
-                <span key={participant.userId}>
-                  {participant.displayName} {String(participant.percentage)}%
-                </span>
-              ))}
-              {withTalkTime.length > 2 && (
-                <span className="text-ink-dim">+{String(withTalkTime.length - 2)}</span>
-              )}
-            </div>
-            <div className="mt-1.5 flex h-1 gap-0.5 overflow-hidden rounded-full">
-              {withTalkTime.slice(0, 4).map((participant) => (
-                <span
-                  className="bg-action first:rounded-l-full last:rounded-r-full"
-                  key={participant.userId}
-                  style={{
-                    width: `${String(percentageOf(participant.percentage ?? 0, 100))}%`,
-                  }}
-                />
-              ))}
-            </div>
-          </>
-        )}
+        <TalkTime participants={participants} />
       </div>
       <span className="text-right font-mono text-[12px] text-ink-secondary [grid-area:duration]">
         {meeting.durationMs === null ? "—" : formatDuration(meeting.durationMs)}
       </span>
       <ChevronRight className="hidden size-4 text-ink-dim [grid-area:chevron] md:block" />
     </Link>
+  );
+}
+
+/** Speakers named on each row; quieter ones fold into one neutral slice. */
+const namedSpeakers = 3;
+
+type Participant = NonNullable<HistoryPage["items"][number]["participants"]>[number];
+
+function TalkTime({ participants }: { participants: readonly Participant[] }) {
+  const { t } = useI18n();
+  const ranked = participants
+    .flatMap((participant) =>
+      participant.percentage === null
+        ? []
+        : [{ ...participant, percentage: participant.percentage }],
+    )
+    .sort((left, right) => right.percentage - left.percentage);
+  if (ranked.length === 0) {
+    return (
+      <span className="text-[11.5px] text-ink-dim">
+        {participants.length === 0 ? t.calls.unavailable : t.calls.talkTimeUnavailable}
+      </span>
+    );
+  }
+  const named = ranked.slice(0, namedSpeakers);
+  const rest = ranked.slice(namedSpeakers);
+  const slices = [
+    ...named.map((participant, index) => ({
+      fill: seriesColor(index),
+      key: participant.userId,
+      percentage: participant.percentage,
+    })),
+    {
+      fill: "bg-series-other",
+      key: "rest",
+      percentage: rest.reduce((sum, participant) => sum + participant.percentage, 0),
+    },
+  ].filter((slice) => slice.percentage > 0);
+  return (
+    <>
+      <div className="flex flex-wrap gap-x-2.5 gap-y-1 text-[11.5px] text-ink-secondary">
+        {named.map((participant, index) => (
+          <span className="inline-flex items-center gap-1.5" key={participant.userId}>
+            <span className={`size-1.5 shrink-0 rounded-full ${seriesColor(index)}`} />
+            {participant.displayName} {String(participant.percentage)}%
+          </span>
+        ))}
+        {rest.length > 0 && (
+          <span className="inline-flex items-center gap-1.5 text-ink-dim">
+            <span className="size-1.5 shrink-0 rounded-full bg-series-other" />+
+            {String(rest.length)}
+          </span>
+        )}
+      </div>
+      <div
+        aria-label={t.calls.talkTimeDistribution}
+        className="mt-1.5 flex h-1 gap-0.5 overflow-hidden rounded-full"
+        role="img"
+      >
+        {slices.map((slice) => (
+          <span
+            className={`${slice.fill} first:rounded-l-full last:rounded-r-full`}
+            key={slice.key}
+            style={{ width: `${String(slice.percentage)}%` }}
+          />
+        ))}
+      </div>
+    </>
   );
 }
 

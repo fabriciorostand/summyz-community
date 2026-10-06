@@ -122,6 +122,7 @@ export const meetingsMessages: typeof portuguese = {
     search: "Search by channel or meeting ID",
     stateLabel: "Call state",
     summaryFailed: "summary not generated · transcript available",
+    talkTimeDistribution: "Talk time distribution",
     talkTimeUnavailable: "talk time unavailable",
     title: "Calls",
     to: "To",
