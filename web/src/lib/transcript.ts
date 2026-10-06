@@ -6,10 +6,12 @@ export interface TranscriptTurn {
 
 /**
  * The pipeline stores the transcript as one line per turn, shaped as
- * `[hh:mm:ss – hh:mm:ss] Speaker: text` (see assembleTranscriptFromEntries).
+ * `[hh:mm:ss.mmm – hh:mm:ss.mmm] Speaker: text` (see assembleTranscriptFromEntries).
+ * The start time is kept to the second; milliseconds are optional.
  * Lines that do not carry a header belong to the turn that opened above them.
  */
-const turnPattern = /^\[(\d{2}:\d{2}:\d{2})\s*[–-]\s*\d{2}:\d{2}:\d{2}\]\s*([^:]+):\s?(.*)$/u;
+const turnPattern =
+  /^\[(\d{2}:\d{2}:\d{2})(?:\.\d{3})?\s*[–-]\s*\d{2}:\d{2}:\d{2}(?:\.\d{3})?\]\s*([^:]+):\s?(.*)$/u;
 
 export function parseTranscript(transcript: string): TranscriptTurn[] {
   const turns: TranscriptTurn[] = [];
