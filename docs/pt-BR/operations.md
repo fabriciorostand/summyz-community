@@ -25,6 +25,25 @@ estruturados incluem falhas e contexto de retries. O Discord recebe erros genér
 traces, caminhos internos, credenciais ou áudio bruto. Mantenha gravações, transcrições, dumps do
 banco e URLs de setup/recuperação privados.
 
+## Sincronização automática dos comandos Discord
+
+O catálogo atual em `src/discord/commands.ts` é a única fonte da verdade para os comandos slash
+da aplicação Summyz. Ao conectar, o bot cria ou atualiza todos os comandos globais desse catálogo.
+Depois, remove comandos slash globais ausentes do catálogo e os registros slash por servidor da
+mesma aplicação, que são substituídos pelos globais. Isso corrige duplicatas e remove comandos
+descontinuados ao atualizar de versões antigas, sem uma lista separada de nomes obsoletos.
+
+A limpeza abrange todos os servidores onde o bot está instalado e também ocorre quando ele entra
+em um servidor após conectar. Comandos de outras aplicações e comandos de contexto de usuário,
+mensagem ou atividade são preservados. Comandos slash registrados manualmente na aplicação Summyz
+também são gerenciados pelo catálogo e podem ser removidos.
+
+Nenhuma limpeza começa se a publicação do catálogo global falhar. Uma falha ao consultar um
+servidor ou excluir um comando é registrada sem impedir a limpeza dos demais. Falhas de publicação
+global exigem nova inicialização; falhas na limpeza de um servidor são tentadas novamente na próxima
+inicialização ou entrada nesse servidor. Não há agendamento periódico de limpeza.
+Os logs informam o escopo, os IDs dos comandos removidos e as falhas, sem credenciais.
+
 ## Ciclo de gravação e processamento
 
 Apenas uma gravação pode ficar ativa por servidor. `/record` exige proprietário conectado e

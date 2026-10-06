@@ -28,6 +28,7 @@ import {
   BotPermissionMonitor,
   createDiscordBotPermissionReader,
 } from "./discord/bot-permissions.js";
+import { installCommandRegistrationHandler } from "./discord/command-registration-handler.js";
 import { GuildDepartureHandler } from "./discord/guild-departure-handler.js";
 import { GuildMembershipVerifier } from "./discord/guild-membership-verifier.js";
 import { GuildOwnerVerifier } from "./discord/guild-owner-verifier.js";
@@ -36,7 +37,6 @@ import {
   installGuildOwnershipHandler,
 } from "./discord/guild-ownership-handler.js";
 import { installInteractionHandler } from "./discord/interaction-handler.js";
-import { registerCommands } from "./discord/register-commands.js";
 import { VoiceChannelDeletionVerifier } from "./discord/voice-channel-deletion-verifier.js";
 import { installVoiceStateHandler } from "./discord/voice-state-handler.js";
 import { readGpuServiceAvailability } from "./local-ai/gpu-service-availability.js";
@@ -305,6 +305,7 @@ installInteractionHandler(
 );
 installVoiceStateHandler(client, coordinator, logger);
 installGuildOwnershipHandler(client, coordinator, ownerApprovals, logger);
+installCommandRegistrationHandler(client, config, logger);
 client.on(Events.GuildDelete, (guild) => {
   void membershipVerifier
     .check(guild.id)
@@ -344,13 +345,6 @@ client.once(Events.ClientReady, async (readyClient) => {
   })().catch((error: unknown) => {
     logger.warn({ errorType: getErrorType(error) }, "Unable to inspect startup bot permissions");
   });
-  try {
-    await registerCommands(config);
-    logger.info({ registrationScope: "global" }, "Commands registered");
-  } catch (error) {
-    logger.error({ errorType: getErrorType(error) }, "Command registration failed");
-  }
-
   try {
     await artifactMaintenance.runOnce();
   } catch (error) {
