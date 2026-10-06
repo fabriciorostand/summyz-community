@@ -4,6 +4,7 @@ import type { MeetingHistorySummary } from "../analytics/meeting-history-summary
 import { calculateTalkTime, type ParticipantTalkTime } from "../analytics/talk-time.js";
 import type { RecordingManifest } from "../recording/manifest.js";
 import type { TranscriptionState } from "../transcription/transcription-state.js";
+import { getCostDetail } from "./postgres-analytics-costs.js";
 import { getDashboardAnalytics, getMeetingCostAnalytics } from "./postgres-analytics-dashboard.js";
 import { createMeetingHistoryDetail } from "./postgres-analytics-meeting-detail.js";
 import type { PostgresExecutor } from "./postgres-database.js";
@@ -31,7 +32,7 @@ export interface AnalyticsParticipant {
 export interface DashboardAnalytics {
   averageDurationMs: number;
   calls: { current: number; deltaPercentage: number | null; previous: number | null };
-  cost: CostAnalytics;
+  cost: DashboardCost;
   openTaskCount: number;
   period: DashboardPeriod;
   statusSeries: { bucketStart: string; completed: number; failed: number }[];
@@ -64,6 +65,45 @@ export interface CostAnalytics {
     provider: string;
   }[];
   confirmed: { amount: string; currency: string }[];
+}
+
+type CostPhase = CostAnalytics["breakdown"][number]["phase"];
+type ConfirmedAmount = CostAnalytics["confirmed"][number];
+
+/** Overview cost: the confirmed total and each stage, without providers or attempt counts. */
+export interface DashboardCost {
+  confirmed: ConfirmedAmount[];
+  /** Every stage in pipeline order; `executions` lists how it ran in the period, if at all. */
+  stages: { confirmed: ConfirmedAmount[]; executions: ("api" | "local")[]; phase: CostPhase }[];
+}
+
+/** Calendar dates in the browser's zone; both ends are inclusive. */
+export interface CostDetailOptions {
+  dateFrom: string;
+  dateTo: string;
+  timeZone: string;
+}
+
+export interface CostDetail {
+  attemptCounts: CostAttemptCounts;
+  confirmed: ConfirmedAmount[];
+  meetingCount: number;
+  models: {
+    attemptCounts: CostAttemptCounts;
+    chargedFailures: { confirmed: ConfirmedAmount[]; count: number };
+    confirmed: ConfirmedAmount[];
+    execution: "api" | "local";
+    model: string | null;
+    phase: CostPhase;
+    provider: string;
+  }[];
+  stages: { attemptCounts: CostAttemptCounts; confirmed: ConfirmedAmount[]; phase: CostPhase }[];
+  topMeetings: {
+    confirmed: ConfirmedAmount[];
+    meetingId: string;
+    startedAt: string;
+    voiceChannelName: string | null;
+  }[];
 }
 
 export interface DashboardAnalyticsOptions {
@@ -189,6 +229,10 @@ WHERE meeting_id = $1 AND guild_id = $2
     },
   ): Promise<DashboardAnalytics> {
     return getDashboardAnalytics(this.#database, guildId, options);
+  }
+
+  public async getCostDetail(guildId: string, options: CostDetailOptions): Promise<CostDetail> {
+    return getCostDetail(this.#database, identifierSchema.parse(guildId), options);
   }
 
   public async listMeetings(

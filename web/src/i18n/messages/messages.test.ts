@@ -57,6 +57,8 @@ describe("dictionaries", () => {
   it("use singular and plural where counts show up", () => {
     expect(ptBR.tasks.open(1)).toBe("1 aberta");
     expect(ptBR.tasks.open(3)).toBe("3 abertas");
+    expect(ptBR.costs.unresolvedCount(1)).toBe("1 pendente");
+    expect(ptBR.costs.unresolvedCount(2)).toBe("2 pendentes");
     expect(en.overview.failedCount(1)).toBe("1 failure");
     expect(en.saveBar.missingDetail("a", 2, 1)).toBe(
       "Since a are not installed yet, that server will not be able to record until the download finishes.",

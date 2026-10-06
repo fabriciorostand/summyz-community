@@ -34,6 +34,13 @@ const meetingListQuerySchema = z.object({
   state: z.enum(["completed", "failed", "in_progress"]).optional(),
 });
 
+const costDetailQuerySchema = z
+  .object({ dateFrom: z.iso.date(), dateTo: z.iso.date(), timeZone: timeZoneSchema })
+  .refine((query) => query.dateFrom <= query.dateTo, {
+    message: "dateFrom must not be after dateTo",
+    path: ["dateFrom"],
+  });
+
 const meetingHistoryFilters = (
   query: z.infer<typeof meetingListQuerySchema>,
   timeZone: string,
@@ -107,6 +114,12 @@ export function registerAnalyticsRoutes(
         applyParticipantProfile(speaker, profiles),
       ),
     };
+  });
+  app.get("/api/guilds/:guildId/costs", async (request) => {
+    const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);
+    const query = parseRequestInput(costDetailQuerySchema, request.query);
+    const detail = await requireAnalytics(dependencies).getCostDetail(guildId, query);
+    return { ...detail, ...query };
   });
   app.get("/api/guilds/:guildId/meetings", async (request) => {
     const { guildId } = await authorizeHistoricalGuild(request, dependencies, resolveGuildAccess);

@@ -84,23 +84,12 @@ describe("PostgresAnalyticsStore", () => {
           },
         ],
       },
+      { rows: [{ amount: "0.250000", currency: "USD" }] },
       {
         rows: [
-          { amount: "0.250000", attempt_count: 2, currency: "USD", financial_status: "confirmed" },
-          { amount: null, attempt_count: 2, currency: null, financial_status: "unattributed" },
-        ],
-      },
-      {
-        rows: [
-          {
-            amount: "0.250000",
-            attempt_count: 2,
-            currency: "USD",
-            execution: "api",
-            financial_status: "confirmed",
-            phase: "summary",
-            provider: "openrouter",
-          },
+          { amount: null, currency: null, execution: "local", phase: "refinement" },
+          { amount: "0.250000", currency: "USD", execution: "api", phase: "summary" },
+          { amount: null, currency: null, execution: "api", phase: "summary" },
         ],
       },
       {
@@ -132,17 +121,16 @@ describe("PostgresAnalyticsStore", () => {
       averageDurationMs: 120_000,
       calls: { current: 4, deltaPercentage: 33, previous: 3 },
       cost: {
-        attemptCounts: { confirmed: 2, notApplicable: 0, pending: 0, unattributed: 2 },
-        breakdown: [
+        confirmed: [{ amount: "0.250000", currency: "USD" }],
+        stages: [
+          { confirmed: [], executions: [], phase: "transcription" },
+          { confirmed: [], executions: ["local"], phase: "refinement" },
           {
-            attemptCounts: { confirmed: 2, notApplicable: 0, pending: 0, unattributed: 0 },
             confirmed: [{ amount: "0.250000", currency: "USD" }],
-            execution: "api",
+            executions: ["api"],
             phase: "summary",
-            provider: "openrouter",
           },
         ],
-        confirmed: [{ amount: "0.250000", currency: "USD" }],
       },
       openTaskCount: 2,
       period: "30d",
@@ -159,8 +147,10 @@ describe("PostgresAnalyticsStore", () => {
       totalDurationMs: 240_000,
     });
     expect(query.mock.calls[0]?.[0]).toContain("previous_calls");
-    expect(query.mock.calls[1]?.[0]).toContain("financial_status");
-    expect(query.mock.calls[2]?.[0]).toContain("phase");
+    expect(query.mock.calls[1]?.[0]).toContain("attempt.financial_status = 'confirmed'");
+    // The overview splits cost by stage only; providers stay on the cost detail page.
+    expect(query.mock.calls[2]?.[0]).toContain("attempt.phase");
+    expect(query.mock.calls[2]?.[0]).not.toContain("attempt.provider");
   });
 
   it("projeta somente o resumo público com o idioma fixado na reunião", async () => {
@@ -227,7 +217,29 @@ describe("PostgresAnalyticsStore", () => {
           { amount: null, attempt_count: 1, currency: null, financial_status: "pending" },
         ],
       })
-      .mockResolvedValueOnce({ rowCount: 0, rows: [] });
+      .mockResolvedValueOnce({
+        rowCount: 2,
+        rows: [
+          {
+            amount: "0.125",
+            attempt_count: 1,
+            currency: "USD",
+            execution: "api",
+            financial_status: "confirmed",
+            phase: "summary",
+            provider: "openrouter",
+          },
+          {
+            amount: null,
+            attempt_count: 1,
+            currency: null,
+            execution: "api",
+            financial_status: "pending",
+            phase: "summary",
+            provider: "openrouter",
+          },
+        ],
+      });
     const store = new PostgresAnalyticsStore({ query } satisfies PostgresExecutor);
 
     const meeting = await store.getMeeting("guild-1", "meeting-1");
@@ -252,6 +264,16 @@ describe("PostgresAnalyticsStore", () => {
       audioRetained: true,
       cost: {
         attemptCounts: { confirmed: 1, notApplicable: 0, pending: 1, unattributed: 0 },
+        // The call detail keeps the per-provider split the overview no longer asks for.
+        breakdown: [
+          {
+            attemptCounts: { confirmed: 1, notApplicable: 0, pending: 1, unattributed: 0 },
+            confirmed: [{ amount: "0.125", currency: "USD" }],
+            execution: "api",
+            phase: "summary",
+            provider: "openrouter",
+          },
+        ],
         confirmed: [{ amount: "0.125", currency: "USD" }],
       },
       discordUrl: "https://discord.com/channels/guild-1/thread-1/message-1",

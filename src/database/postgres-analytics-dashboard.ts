@@ -5,6 +5,7 @@ import type {
   CostAttemptCounts,
   DashboardAnalytics,
   DashboardAnalyticsOptions,
+  DashboardCost,
 } from "./postgres-analytics-store.js";
 import type { PostgresExecutor } from "./postgres-database.js";
 
@@ -42,7 +43,7 @@ export async function getDashboardAnalytics(
     validated.now ?? new Date().toISOString(),
     validated.timeZone,
   ] as const;
-  const [meetings, costTotals, costBreakdown, speakers, series, tasks] = await Promise.all([
+  const [meetings, costTotals, costStages, speakers, series, tasks] = await Promise.all([
     database.query(
       `${dashboardPeriodCte}
        SELECT
@@ -68,33 +69,31 @@ export async function getDashboardAnalytics(
     ),
     database.query(
       `${dashboardPeriodCte}
-       SELECT attempt.financial_status, attempt.currency,
-              CASE WHEN attempt.financial_status = 'confirmed' THEN sum(attempt.cost)::text END AS amount,
-              count(*)::int AS attempt_count
+       SELECT attempt.currency, sum(attempt.cost)::text AS amount
        FROM provider_cost_attempts attempt
        JOIN meetings meeting ON meeting.meeting_id = attempt.meeting_id
        CROSS JOIN bounds
        WHERE attempt.guild_id = $1 AND meeting.pipeline_status IN ('completed', 'failed')
          AND meeting.started_at >= bounds.current_from AND meeting.started_at < bounds.current_to
-       GROUP BY attempt.financial_status, attempt.currency
-       ORDER BY attempt.financial_status, attempt.currency`,
+         AND attempt.financial_status = 'confirmed'
+       GROUP BY attempt.currency
+       ORDER BY attempt.currency`,
       values,
     ),
+    // Unconfirmed attempts come back with a null currency and amount: they only show the stage ran.
     database.query(
       `${dashboardPeriodCte}
-       SELECT attempt.phase, attempt.provider, attempt.execution, attempt.financial_status,
-              attempt.currency,
-              CASE WHEN attempt.financial_status = 'confirmed' THEN sum(attempt.cost)::text END AS amount,
-              count(*)::int AS attempt_count
+       SELECT attempt.phase, attempt.execution,
+              CASE WHEN attempt.financial_status = 'confirmed' THEN attempt.currency END AS currency,
+              sum(attempt.cost) FILTER (WHERE attempt.financial_status = 'confirmed')::text AS amount
        FROM provider_cost_attempts attempt
        JOIN meetings meeting ON meeting.meeting_id = attempt.meeting_id
        CROSS JOIN bounds
        WHERE attempt.guild_id = $1 AND meeting.pipeline_status IN ('completed', 'failed')
          AND meeting.started_at >= bounds.current_from AND meeting.started_at < bounds.current_to
-       GROUP BY attempt.phase, attempt.provider, attempt.execution,
-                attempt.financial_status, attempt.currency
-       ORDER BY attempt.phase, attempt.provider, attempt.execution,
-                attempt.financial_status, attempt.currency`,
+       GROUP BY attempt.phase, attempt.execution,
+                CASE WHEN attempt.financial_status = 'confirmed' THEN attempt.currency END
+       ORDER BY attempt.phase, attempt.execution`,
       values,
     ),
     database.query(
@@ -165,7 +164,7 @@ export async function getDashboardAnalytics(
           : Math.round(((meetingRow.total_calls - previous) / previous) * 100),
       previous,
     },
-    cost: mapCostAnalytics(costTotals.rows, costBreakdown.rows),
+    cost: mapDashboardCost(costTotals.rows, costStages.rows),
     openTaskCount: z.coerce
       .number()
       .int()
@@ -237,13 +236,46 @@ export async function getMeetingCostAnalytics(
   return mapCostAnalytics(totals.rows, breakdown.rows);
 }
 
+const phases = ["transcription", "refinement", "summary"] as const;
+const confirmedTotalRowSchema = z.object({ amount: z.string(), currency: z.string().length(3) });
+const dashboardStageRowSchema = z.object({
+  amount: z.string().nullable(),
+  currency: z.string().length(3).nullable(),
+  execution: z.enum(["api", "local"]),
+  phase: z.enum(phases),
+});
+
+function mapDashboardCost(
+  totalRows: readonly Record<string, unknown>[],
+  stageRows: readonly Record<string, unknown>[],
+): DashboardCost {
+  const stages = phases.map((phase): DashboardCost["stages"][number] => ({
+    confirmed: [],
+    executions: [],
+    phase,
+  }));
+  for (const input of stageRows) {
+    const row = dashboardStageRowSchema.parse(input);
+    const stage = stages[phases.indexOf(row.phase)];
+    if (stage === undefined) continue;
+    if (!stage.executions.includes(row.execution)) stage.executions.push(row.execution);
+    if (row.amount !== null && row.currency !== null) {
+      stage.confirmed.push({ amount: row.amount, currency: row.currency });
+    }
+  }
+  return {
+    confirmed: totalRows.map((row) => confirmedTotalRowSchema.parse(row)),
+    stages,
+  };
+}
+
 const costFinancialStatusSchema = z.enum([
   "confirmed",
   "pending",
   "unattributed",
   "not_applicable",
 ]);
-const costRowSchema = z.object({
+export const costRowSchema = z.object({
   amount: z.string().nullable(),
   attempt_count: z.coerce.number().int().nonnegative(),
   currency: z.string().length(3).nullable(),
@@ -255,11 +287,11 @@ const costBreakdownRowSchema = costRowSchema.extend({
   provider: z.string().min(1),
 });
 
-function emptyAttemptCounts(): CostAttemptCounts {
+export function emptyAttemptCounts(): CostAttemptCounts {
   return { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 };
 }
 
-function addAttemptCount(
+export function addAttemptCount(
   counts: CostAttemptCounts,
   status: z.infer<typeof costFinancialStatusSchema>,
   count: number,
@@ -330,7 +362,7 @@ function findOrCreateCostBreakdown(
   return created;
 }
 
-function addConfirmedCost(confirmed: ConfirmedCost[], row: CostRow): void {
+export function addConfirmedCost(confirmed: ConfirmedCost[], row: CostRow): void {
   if (row.financial_status !== "confirmed") return;
   if (row.amount === null) return;
   if (row.currency === null) return;

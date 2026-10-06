@@ -14,6 +14,7 @@ vi.mock("./lib/api", async () => {
     ApiError: actual.ApiError,
     api: {
       getAccessStatus: vi.fn(),
+      getCostDetail: vi.fn(),
       getDashboard: vi.fn(),
       getDiscordConnection: vi.fn(),
       getSettings: vi.fn(),
@@ -106,6 +107,13 @@ describe("a screen that fails to load", () => {
   it("still opens the other screens", async () => {
     renderApp("/settings");
     expect(await screen.findByRole("heading", { name: "Preferências" })).toBeInTheDocument();
+  });
+
+  it("opens the cost detail at its own path, outside the sidebar", async () => {
+    vi.mocked(api.getCostDetail).mockReturnValue(new Promise(() => undefined));
+    renderApp("/costs");
+    expect(await screen.findByRole("heading", { level: 1, name: "Custos" })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Custos" })).toBeNull();
   });
 
   it("opens the Bot tab at its own path", async () => {

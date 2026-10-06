@@ -150,7 +150,8 @@ usa as preferências de data, hora e fuso enviadas pelo navegador; timestamps pe
 Totais de reuniões contam pipelines concluídos. Rankings de fala começam em gravações de manifesto
 v3: intervalos por palavra são somados, sobreposições da mesma pessoa são unidas e o arredondamento
 inteiro distribui a participação para totalizar 100%. Pessoas silenciosas permanecem com 0%.
-O dashboard também mostra reunião atual, custos confirmados, tentativas não resolvidas e tarefas abertas.
+O dashboard também mostra reunião atual, custos confirmados por etapa do processamento e tarefas
+abertas; tentativas não resolvidas e a divisão por provedor aparecem apenas na página de custos.
 
 Tarefas são persistidas junto do conteúdo retido e preservam responsável e prazo explicitamente
 ditos. Metadados normalizados válidos permitem ordenar por vencimento e calcular atraso sem mudar
@@ -180,6 +181,12 @@ O pipeline pode continuar em execução, e tentativas em segundo plano podem aum
 As respostas são efêmeras e sempre limitadas ao servidor atual do Discord. Os limites de data usam
 `SUMMARY_TIME_ZONE`; relatórios de custo preservam os valores financeiros exatos. Os totais da visão
 geral do dashboard usam arredondamento de apresentação; os valores armazenados não mudam.
+
+O link "Detalhar" do card de custo da visão geral abre a página de custos do dashboard. Ela segue o
+mesmo critério de `/recording-cost period`, mas usa o fuso horário do navegador e abre no mês
+corrente. Mostra o custo de cada etapa, a divisão por provedor e modelo com requisições e falhas
+cobradas, e as cinco reuniões mais caras do intervalo. Valores por modelo e por reunião são exatos;
+o total e as etapas são arredondados para leitura.
 
 
 ## Retenção e backups

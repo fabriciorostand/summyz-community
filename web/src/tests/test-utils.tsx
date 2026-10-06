@@ -59,24 +59,16 @@ export function aDashboard(overrides: Partial<DashboardAnalytics> = {}): Dashboa
     averageDurationMs: 54 * 60_000,
     calls: { current: 42, deltaPercentage: 16, previous: 36 },
     cost: {
-      attemptCounts: { confirmed: 40, notApplicable: 0, pending: 2, unattributed: 0 },
-      breakdown: [
-        {
-          attemptCounts: { confirmed: 40, notApplicable: 0, pending: 0, unattributed: 0 },
-          confirmed: [{ amount: "7.21", currency: "USD" }],
-          execution: "api",
-          phase: "transcription",
-          provider: "openrouter",
-        },
-        {
-          attemptCounts: { confirmed: 0, notApplicable: 4, pending: 0, unattributed: 0 },
-          confirmed: [],
-          execution: "local",
-          phase: "summary",
-          provider: "faster-whisper",
-        },
-      ],
       confirmed: [{ amount: "12.48", currency: "USD" }],
+      stages: [
+        {
+          confirmed: [{ amount: "7.21", currency: "USD" }],
+          executions: ["api"],
+          phase: "transcription",
+        },
+        { confirmed: [], executions: [], phase: "refinement" },
+        { confirmed: [], executions: ["local"], phase: "summary" },
+      ],
     },
     liveMeeting: null,
     openTaskCount: 7,

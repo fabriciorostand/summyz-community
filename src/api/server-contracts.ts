@@ -5,6 +5,8 @@ import { aiProfileInputSchema, calculateProfileType } from "../ai-profile.js";
 import { installationPasswordSchema } from "../auth/installation-password.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type {
+  CostDetail,
+  CostDetailOptions,
   DashboardAnalytics,
   DashboardAnalyticsOptions,
   MeetingHistoryDetail,
@@ -152,6 +154,7 @@ export interface GuildMemberDirectoryItem {
 }
 
 export interface ApiAnalyticsStore {
+  getCostDetail(guildId: string, options: CostDetailOptions): Promise<CostDetail>;
   getGuildCallCount(guildId: string): Promise<number>;
   getDashboard(guildId: string, options: DashboardAnalyticsOptions): Promise<DashboardAnalytics>;
   getMeeting(guildId: string, meetingId: string): Promise<MeetingHistoryDetail | undefined>;

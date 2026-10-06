@@ -57,6 +57,10 @@ export const routes: RouteObject[] = [
                 ...screen(async () => (await import("./pages/call-detail-page")).CallDetailPage),
               },
               {
+                path: "costs",
+                ...screen(async () => (await import("./pages/costs-page")).CostsPage),
+              },
+              {
                 path: "tasks",
                 ...screen(async () => (await import("./pages/tasks-page")).TasksPage),
               },
