@@ -923,7 +923,7 @@ describe("Community dashboard API", () => {
     await localApp.close();
   });
 
-  it("returns the fixed English command reference with stable group identifiers", async () => {
+  it("returns the command reference in English and pt-BR with stable group identifiers", async () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
       discordApplicationId: null,
@@ -939,18 +939,27 @@ describe("Community dashboard API", () => {
       {
         commands: [
           {
-            description: "Starts recording the voice channel you are in",
+            description: {
+              en: "Starts recording the voice channel you are in",
+              "pt-BR": "Inicia a gravação do canal de voz em que você está",
+            },
             name: "/record",
           },
           {
-            description: "Stops recording the voice channel you are in",
+            description: {
+              en: "Stops recording the voice channel you are in",
+              "pt-BR": "Encerra a gravação do canal de voz em que você está",
+            },
             name: "/stop",
           },
         ],
         id: "recording",
-        label: "Recording",
+        label: { en: "Recording", "pt-BR": "Gravação" },
       },
-      expect.objectContaining({ label: "Administrative shortcuts" }),
+      expect.objectContaining({
+        id: "administrative",
+        label: { en: "Administrative shortcuts", "pt-BR": "Atalhos administrativos" },
+      }),
     ]);
     await app.close();
   });
@@ -982,7 +991,7 @@ describe("Community dashboard API", () => {
 
     expect(rejected.statusCode).toBe(401);
     expect(accepted.statusCode).toBe(200);
-    expect(accepted.json()[0]).toMatchObject({ id: "recording", label: "Recording" });
+    expect(accepted.json()[0]).toMatchObject({ id: "recording" });
     await app.close();
   });
 

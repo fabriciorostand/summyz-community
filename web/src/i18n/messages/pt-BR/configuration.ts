@@ -207,21 +207,6 @@ export const configurationMessages = {
     title: "Instalação",
   },
   commands: {
-    descriptions: {
-      "/record": "Inicia a gravação do canal de voz em que você está",
-      "/recording-role add": "Autoriza um cargo a iniciar e encerrar gravações",
-      "/recording-role list": "Lista os cargos autorizados neste servidor",
-      "/recording-role remove": "Remove a autorização de um cargo",
-      "/recording-summary-forum clear":
-        "Remove o fórum e bloqueia novas gravações até outra configuração",
-      "/recording-summary-forum set": "Define o fórum de resumos e transcrições",
-      "/recording-summary-forum show": "Mostra o fórum configurado neste servidor",
-      "/stop": "Encerra a gravação do canal de voz em que você está",
-    } as Readonly<Record<string, string>>,
-    groups: {
-      administrative: "Atalhos administrativos",
-      recording: "Gravação",
-    } as Readonly<Record<string, string>>,
     loading: "Carregando comandos…",
     title: "Comandos",
     unavailableBody: "Não foi possível carregar a referência de comandos do bot. Tente novamente.",

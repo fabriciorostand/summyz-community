@@ -64,9 +64,17 @@ beforeEach(() => {
   vi.mocked(api.listTasks).mockResolvedValue([]);
   vi.mocked(api.listCommands).mockResolvedValue([
     {
-      commands: [{ description: "Starts recording the voice channel you are in", name: "/record" }],
+      commands: [
+        {
+          description: {
+            en: "Starts recording the voice channel you are in",
+            "pt-BR": "Inicia a gravação do canal de voz em que você está",
+          },
+          name: "/record",
+        },
+      ],
       id: "recording",
-      label: "Recording",
+      label: { en: "Recording", "pt-BR": "Gravação" },
     },
   ]);
 });

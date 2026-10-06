@@ -4,7 +4,7 @@ import { createCommandReference } from "../src/discord/command-catalog.js";
 import { createCommandDefinitions } from "../src/discord/commands.js";
 
 describe("comandos do bot", () => {
-  const commandDefinitions = createCommandDefinitions("pt-BR");
+  const commandDefinitions = createCommandDefinitions();
 
   it("expõe os comandos de gravação e configuração", () => {
     expect(commandDefinitions.map((command) => command.toJSON().name)).toEqual([
@@ -46,16 +46,25 @@ describe("comandos do bot", () => {
     });
   });
 
-  it("traduz todas as descrições para o idioma configurado", () => {
-    const english = createCommandDefinitions("en").map((command) => command.toJSON());
-    const portuguese = createCommandDefinitions("pt-BR").map((command) => command.toJSON());
+  it("registra descrições em inglês com tradução pt-BR em comandos, subcomandos e opções", () => {
+    const missing: string[] = [];
+    const visit = (node: DescribedNode, path: string): void => {
+      const portuguese = node.description_localizations?.["pt-BR"];
+      if (portuguese === undefined || portuguese === null || portuguese.length === 0) {
+        missing.push(path);
+      }
+      for (const option of node.options ?? []) visit(option, `${path} ${option.name}`);
+    };
+    for (const command of commandDefinitions) {
+      const definition = command.toJSON();
+      visit(definition, `/${definition.name}`);
+    }
 
-    expect(JSON.stringify(english)).toContain("Starts recording the voice channel you are in");
-    expect(JSON.stringify(english)).toContain("Forum that will receive the posts");
-    expect(JSON.stringify(english)).not.toContain("gravação");
-    expect(JSON.stringify(portuguese)).toContain(
-      "Inicia a gravação do canal de voz em que você está",
-    );
+    expect(missing).toEqual([]);
+    expect(commandDefinitions[0]?.toJSON()).toMatchObject({
+      description: "Starts recording the voice channel you are in",
+      description_localizations: { "pt-BR": "Inicia a gravação do canal de voz em que você está" },
+    });
   });
 
   it("mantém a referência do dashboard alinhada aos comandos registrados", () => {
@@ -73,22 +82,45 @@ describe("comandos do bot", () => {
     expect(referencePaths.toSorted()).toEqual(registeredPaths.toSorted());
   });
 
-  it("returns fixed English descriptions with stable identifiers", () => {
-    const english = createCommandReference();
+  it("describes every reference group and command in English and pt-BR", () => {
+    const reference = createCommandReference();
 
-    expect(english[0]).toMatchObject({
+    expect(reference[0]).toEqual({
       commands: [
         {
-          description: "Starts recording the voice channel you are in",
+          description: {
+            en: "Starts recording the voice channel you are in",
+            "pt-BR": "Inicia a gravação do canal de voz em que você está",
+          },
           name: "/record",
         },
         {
-          description: "Stops recording the voice channel you are in",
+          description: {
+            en: "Stops recording the voice channel you are in",
+            "pt-BR": "Encerra a gravação do canal de voz em que você está",
+          },
           name: "/stop",
         },
       ],
-      label: "Recording",
+      id: "recording",
+      label: { en: "Recording", "pt-BR": "Gravação" },
     });
-    expect(english.map((group) => group.id)).toEqual(["recording", "administrative"]);
+    expect(reference.map((group) => group.id)).toEqual(["recording", "administrative"]);
+    expect(reference[1]?.label).toEqual({
+      en: "Administrative shortcuts",
+      "pt-BR": "Atalhos administrativos",
+    });
+    expect(reference[1]?.commands).toContainEqual({
+      description: {
+        en: "Confirms the server forum, AI profile, and recording permissions after an ownership change",
+        "pt-BR": "Confirma o fórum, o perfil de IA e as permissões após troca de dono",
+      },
+      name: "/recording-activate",
+    });
   });
 });
+
+interface DescribedNode {
+  description_localizations?: Partial<Record<string, string | null>> | null | undefined;
+  options?: readonly (DescribedNode & { name: string })[] | undefined;
+}

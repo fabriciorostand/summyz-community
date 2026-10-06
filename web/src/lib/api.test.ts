@@ -27,11 +27,16 @@ describe("dashboard API client", () => {
     const reference = [
       {
         commands: [
-          { description: "Starts recording the voice channel you are in", name: "/record" },
-          { description: "Stops recording the voice channel you are in", name: "/stop" },
+          {
+            description: {
+              en: "Starts recording the voice channel you are in",
+              "pt-BR": "Inicia a gravação do canal de voz em que você está",
+            },
+            name: "/record",
+          },
         ],
         id: "recording",
-        label: "Recording",
+        label: { en: "Recording", "pt-BR": "Gravação" },
       },
     ];
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(Response.json(reference));
@@ -52,7 +57,27 @@ describe("dashboard API client", () => {
       "fetch",
       vi
         .fn<typeof fetch>()
-        .mockResolvedValue(Response.json([{ commands: [], id: "recording", label: "Recording" }])),
+        .mockResolvedValue(
+          Response.json([
+            { commands: [], id: "recording", label: { en: "Recording", "pt-BR": "Gravação" } },
+          ]),
+        ),
+    );
+    await expect(api.listCommands()).rejects.toThrow();
+  });
+
+  it("rejects a command reference that lacks a dashboard language", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json([
+          {
+            commands: [{ description: { en: "Starts recording" }, name: "/record" }],
+            id: "recording",
+            label: { en: "Recording", "pt-BR": "Gravação" },
+          },
+        ]),
+      ),
     );
     await expect(api.listCommands()).rejects.toThrow();
   });

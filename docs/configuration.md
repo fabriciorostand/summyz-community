@@ -140,6 +140,10 @@ to English. Interface language, theme, and date/time formats are browser prefere
 filters use the browser's accepted IANA time zone, with UTC as fallback. They do not change the
 language of bot messages or meeting processing.
 
+Slash command names are always in English. Their descriptions follow each member's Discord client
+language: Portuguese (Brazil) shows the Portuguese text and any other language shows English,
+regardless of the server's bot message language.
+
 The server's bot language controls recording notifications and publication date formatting. The
 profile's `transcription.language` and summary `language` use the supported BCP 47 catalog and default
 to `auto`. Explicit transcription language guides the provider; `auto` detects speech language and

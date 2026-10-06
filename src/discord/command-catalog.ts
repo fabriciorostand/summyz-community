@@ -1,6 +1,6 @@
-export type CommandLanguage = "en" | "pt-BR";
+type CommandLanguage = "en" | "pt-BR";
 
-type LocalizedText = Readonly<Record<CommandLanguage, string>>;
+export type LocalizedText = Readonly<Record<CommandLanguage, string>>;
 
 interface CatalogEntry {
   readonly description: LocalizedText;
@@ -152,14 +152,14 @@ export const commandCatalog = {
 
 function rootReference(entry: CatalogEntry) {
   return {
-    description: entry.description.en,
+    description: entry.description,
     name: `/${entry.name}`,
   };
 }
 
 function subcommandReference(command: CatalogEntry, subcommand: CatalogEntry) {
   return {
-    description: subcommand.description.en,
+    description: subcommand.description,
     name: `/${command.name} ${subcommand.name}`,
   };
 }
@@ -177,7 +177,7 @@ export function createCommandReference() {
     {
       commands: [rootReference(record), rootReference(stop)],
       id: "recording",
-      label: "Recording",
+      label: localized("Recording", "Gravação"),
     },
     {
       commands: [
@@ -192,7 +192,7 @@ export function createCommandReference() {
         rootReference(recordingActivate),
       ],
       id: "administrative",
-      label: "Administrative shortcuts",
+      label: localized("Administrative shortcuts", "Atalhos administrativos"),
     },
   ];
 }

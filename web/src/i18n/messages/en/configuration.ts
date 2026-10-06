@@ -207,12 +207,6 @@ export const configurationMessages: typeof portuguese = {
     title: "Installation",
   },
   commands: {
-    // The API already describes the commands in English.
-    descriptions: {},
-    groups: {
-      administrative: "Administrative shortcuts",
-      recording: "Recording",
-    },
     loading: "Loading commands…",
     title: "Commands",
     unavailableBody: "Unable to load the bot's command reference. Try again.",

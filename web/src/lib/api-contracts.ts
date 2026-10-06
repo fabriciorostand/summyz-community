@@ -402,13 +402,15 @@ export const dashboardTaskSchema = z.object({
 });
 
 /** Slash-command reference the bot registers, grouped and localized by the backend. */
+/** Text the bot registers in each dashboard language. */
+const commandTextSchema = z.object({ en: z.string(), "pt-BR": z.string() });
+
 export const commandReferenceSchema = z
   .array(
     z.object({
-      commands: z.array(z.object({ description: z.string(), name: z.string() })).min(1),
-      /** Stable group key the dashboard translates; the label is the API's English fallback. */
+      commands: z.array(z.object({ description: commandTextSchema, name: z.string() })).min(1),
       id: z.string(),
-      label: z.string(),
+      label: commandTextSchema,
     }),
   )
   .min(1);
