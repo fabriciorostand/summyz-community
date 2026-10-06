@@ -1,3 +1,5 @@
+import { relative } from "node:path";
+
 import type { Diagnostic, SecurityFinding } from "./quality-gate.js";
 
 type JsonRecord = Record<string, unknown>;
@@ -10,6 +12,22 @@ export interface CoverageAggregate {
 }
 
 const EXPECTED_COVERAGE_REPORT_COUNT = 3;
+
+/** Artifacts the gate publishes itself: the aggregate report and the main baseline. */
+const GATE_ARTIFACT_PREFIX = "ci-quality-gate";
+
+/**
+ * Keeps the reports of the jobs the gate analyzes. A rerun also downloads the gate's own artifacts
+ * from the earlier attempt, and the job reports bundled inside them would be counted twice.
+ */
+export const jobReportFiles = (
+  files: readonly string[],
+  reportsDirectory: string,
+): readonly string[] =>
+  files.filter((file) => {
+    const [artifact = ""] = relative(reportsDirectory, file).split(/[\\/]/u);
+    return !artifact.startsWith(GATE_ARTIFACT_PREFIX);
+  });
 
 export interface TrivyReportOptions {
   readonly sourcePath?: string;
