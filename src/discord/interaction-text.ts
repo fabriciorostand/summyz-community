@@ -133,7 +133,7 @@ const texts = {
     recordingRecoveryPending:
       "A previous recording is suspended while server ownership verification is unavailable. A new recording can start after it resumes or is finalized.",
     recordingStarted: (voiceChannelName, userMention, meetingId) =>
-      "🔴 Recording started in **" +
+      "Recording started in **" +
       voiceChannelName +
       "** by " +
       userMention +
@@ -221,7 +221,7 @@ const texts = {
     recordingRecoveryPending:
       "Uma gravação anterior está suspensa enquanto a verificação da posse do servidor está indisponível. Uma nova gravação poderá começar após a retomada ou finalização da anterior.",
     recordingStarted: (voiceChannelName, userMention, meetingId) =>
-      "🔴 Gravação iniciada em **" +
+      "Gravação iniciada em **" +
       voiceChannelName +
       "** por " +
       userMention +

@@ -3,6 +3,21 @@ import { describe, expect, it } from "vitest";
 import { getInteractionText } from "../src/discord/interaction-text.js";
 
 describe("textos das interações do Discord", () => {
+  it.each([
+    [
+      "pt-BR",
+      "Gravação iniciada em **Lobby** por <@user-1>. O áudio dos participantes será gravado. ID: `meeting-1`",
+    ],
+    [
+      "en",
+      "Recording started in **Lobby** by <@user-1>. Participant audio will be recorded. ID: `meeting-1`",
+    ],
+  ] as const)("announces recording without an emoji in %s", (language, expected) => {
+    expect(getInteractionText(language).recordingStarted("Lobby", "<@user-1>", "meeting-1")).toBe(
+      expected,
+    );
+  });
+
   it("fornece todas as mensagens dinâmicas em inglês", () => {
     const text = getInteractionText("en");
     const messages = [

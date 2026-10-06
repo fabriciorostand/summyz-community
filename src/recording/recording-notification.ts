@@ -65,7 +65,7 @@ export function createRecordingStopNotification(
     return createEnglishNotification(manifest, request);
   }
   if (request.reason === "command") {
-    return `⏹️ Gravação encerrada por <@${request.stoppedByUserId}>. Os segmentos de áudio foram preservados.`;
+    return `Gravação encerrada por <@${request.stoppedByUserId}>`;
   }
   if (request.reason === "channel_empty") {
     const channelDescription =
@@ -73,9 +73,10 @@ export function createRecordingStopNotification(
         ? "do canal de voz"
         : `de **${escapeMarkdown(manifest.voiceChannelName)}**`;
     return (
-      `⏹️ Todos os participantes saíram ${channelDescription}. ` +
+      `Todos os participantes saíram ${channelDescription}. ` +
       "A gravação foi encerrada automaticamente. " +
-      "Os segmentos de áudio foram preservados e serão processados."
+      "O áudio foi preservado e será processado" +
+      (manifest.voiceChannelName === undefined ? "." : "")
     );
   }
   if (request.reason === "shutdown") {
@@ -92,11 +93,7 @@ function createEnglishNotification(
   request: RecordingStopRequest,
 ): string | undefined {
   if (request.reason === "command") {
-    return (
-      "⏹️ Recording stopped by <@" +
-      request.stoppedByUserId +
-      ">. The audio segments were preserved."
-    );
+    return `Recording stopped by <@${request.stoppedByUserId}>`;
   }
   if (request.reason === "channel_empty") {
     const channelDescription =
@@ -104,11 +101,12 @@ function createEnglishNotification(
         ? "the voice channel"
         : `**${escapeMarkdown(manifest.voiceChannelName)}**`;
     return (
-      "⏹️ All participants left " +
+      "All participants left " +
       channelDescription +
       ". " +
       "The recording was stopped automatically. " +
-      "The audio segments were preserved and will be processed."
+      "The audio was preserved and will be processed" +
+      (manifest.voiceChannelName === undefined ? "." : "")
     );
   }
   if (request.reason === "shutdown") {
