@@ -25,7 +25,7 @@ describe("notificações terminais da gravação", () => {
         { reason: "command", stoppedByUserId: "user-1" },
         "pt-BR",
       ),
-    ).toBe("⏹️ Gravação encerrada por <@user-1>. Os segmentos de áudio foram preservados.");
+    ).toBe("Gravação encerrada por <@user-1>");
   });
 
   it("informa o canal quando todos os participantes saem", () => {
@@ -36,8 +36,8 @@ describe("notificações terminais da gravação", () => {
         "pt-BR",
       ),
     ).toBe(
-      "⏹️ Todos os participantes saíram de **Lobby**. A gravação foi encerrada automaticamente. " +
-        "Os segmentos de áudio foram preservados e serão processados.",
+      "Todos os participantes saíram de **Lobby**. A gravação foi encerrada automaticamente. " +
+        "O áudio foi preservado e será processado",
     );
   });
 
@@ -53,8 +53,8 @@ describe("notificações terminais da gravação", () => {
 
   it("usa uma mensagem genérica quando o nome do canal não está disponível", () => {
     expect(createRecordingStopNotification({}, { reason: "channel_empty" }, "pt-BR")).toBe(
-      "⏹️ Todos os participantes saíram do canal de voz. A gravação foi encerrada automaticamente. " +
-        "Os segmentos de áudio foram preservados e serão processados.",
+      "Todos os participantes saíram do canal de voz. A gravação foi encerrada automaticamente. " +
+        "O áudio foi preservado e será processado.",
     );
   });
 
@@ -87,14 +87,21 @@ describe("notificações terminais da gravação", () => {
         { reason: "command", stoppedByUserId: "user-1" },
         "en",
       ),
-    ).toBe("⏹️ Recording stopped by <@user-1>. The audio segments were preserved.");
+    ).toBe("Recording stopped by <@user-1>");
     expect(
       createRecordingStopNotification(
         { voiceChannelName: "Lobby" },
         { reason: "channel_empty" },
         "en",
       ),
-    ).toContain("All participants left **Lobby**");
+    ).toBe(
+      "All participants left **Lobby**. The recording was stopped automatically. " +
+        "The audio was preserved and will be processed",
+    );
+    expect(createRecordingStopNotification({}, { reason: "channel_empty" }, "en")).toBe(
+      "All participants left the voice channel. The recording was stopped automatically. " +
+        "The audio was preserved and will be processed.",
+    );
     expect(
       createRecordingStopNotification({ voiceChannelName: "Lobby" }, { reason: "shutdown" }, "en"),
     ).toContain("Summyz was shut down during the voice call");
