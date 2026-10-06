@@ -7,12 +7,9 @@ import { TopBar } from "../layout/top-bar";
 import { api, type CommandReference } from "../lib/api";
 import { Screen } from "./screen";
 
-/**
- * The bot registers these commands and the API describes them in English. The dashboard
- * translates what it knows and keeps the English text for anything newer than its dictionary.
- */
+/** The API describes the commands the bot registers in every dashboard language. */
 export function CommandsPage() {
-  const { t } = useI18n();
+  const { language, t } = useI18n();
   const [groups, setGroups] = useState<CommandReference>();
   const [loadError, setLoadError] = useState(false);
   const [reloadToken, setReloadToken] = useState(0);
@@ -51,7 +48,7 @@ export function CommandsPage() {
         ) : (
           groups.map((group) => (
             <div key={group.id}>
-              <RailLabel>{t.commands.groups[group.id] ?? group.label}</RailLabel>
+              <RailLabel>{group.label[language]}</RailLabel>
               <div className="overflow-hidden rounded-xl border border-line bg-surface">
                 {group.commands.map(({ description, name }) => (
                   <div
@@ -59,9 +56,7 @@ export function CommandsPage() {
                     key={name}
                   >
                     <code className="font-mono text-[12.5px] text-accent">{name}</code>
-                    <span className="text-[12.5px] text-ink-muted">
-                      {t.commands.descriptions[name] ?? description}
-                    </span>
+                    <span className="text-[12.5px] text-ink-muted">{description[language]}</span>
                   </div>
                 ))}
               </div>

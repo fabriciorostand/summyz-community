@@ -101,8 +101,6 @@ describe("OpenRouterSummaryProvider", () => {
   it("registra custo, modelo efetivo e generation id antes de concluir a tentativa", async () => {
     const attempts: CostAttempt[] = [];
     const store: CostLedgerStore = {
-      getMeeting: async () => undefined,
-      listMeetings: async () => [],
       saveAttempt: vi.fn(async (attempt) => {
         const index = attempts.findIndex((item) => item.attemptId === attempt.attemptId);
         if (index === -1) attempts.push(attempt);

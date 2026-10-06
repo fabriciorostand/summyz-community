@@ -11,7 +11,7 @@ import { TopBar } from "../layout/top-bar";
 import { api, type MeetingHistoryDetail, type MeetingHistorySummary } from "../lib/api";
 import { downloadTextFile, meetingFileName } from "../lib/download";
 import { formatDuration, pipelineStatus } from "../lib/format";
-import { parseTranscript, transcriptStats } from "../lib/transcript";
+import { parseTranscript } from "../lib/transcript";
 import { Screen } from "./screen";
 
 export function CallDetailPage() {
@@ -336,9 +336,8 @@ function SummaryList({
 }
 
 function TranscriptCard({ transcript }: { transcript: string | null }) {
-  const { format, t } = useI18n();
+  const { t } = useI18n();
   const turns = useMemo(() => parseTranscript(transcript ?? ""), [transcript]);
-  const stats = transcriptStats(turns);
   if (transcript === null) {
     return (
       <Card>
@@ -350,15 +349,7 @@ function TranscriptCard({ transcript }: { transcript: string | null }) {
     );
   }
   return (
-    <Disclosure
-      badge={
-        <span className="label-mono shrink-0 text-ink-dim">
-          {t.callDetail.transcriptStats(format.number(stats.turns), format.number(stats.words))}
-        </span>
-      }
-      icon={<FileText className="size-4" />}
-      title={t.callDetail.fullTranscript}
-    >
+    <Disclosure icon={<FileText className="size-4" />} title={t.callDetail.fullTranscript}>
       {turns.length === 0 ? (
         <pre className="m-0 font-mono text-[12px] leading-relaxed whitespace-pre-wrap text-ink-secondary">
           {transcript}

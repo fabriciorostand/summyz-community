@@ -160,7 +160,6 @@ export const meetingsMessages = {
     summaryLanguage: "Idioma do resumo",
     title: "Detalhes da call",
     transcript: "Transcrição",
-    transcriptStats: (turns: string, words: string) => `${turns} falas · ${words} palavras`,
     unavailableBody: "Não foi possível carregar os detalhes desta reunião.",
     unavailableTitle: "Call indisponível",
     yes: "sim",

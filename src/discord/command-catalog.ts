@@ -1,6 +1,6 @@
-export type CommandLanguage = "en" | "pt-BR";
+type CommandLanguage = "en" | "pt-BR";
 
-type LocalizedText = Readonly<Record<CommandLanguage, string>>;
+export type LocalizedText = Readonly<Record<CommandLanguage, string>>;
 
 interface CatalogEntry {
   readonly description: LocalizedText;
@@ -49,51 +49,6 @@ export const commandCatalog = {
       "Inicia a gravação do canal de voz em que você está",
     ),
     name: "record",
-  },
-  recordingCost: {
-    description: localized(
-      "Shows confirmed AI processing costs",
-      "Mostra os custos confirmados do processamento por IA",
-    ),
-    name: "recording-cost",
-    subcommands: {
-      meeting: {
-        description: localized(
-          "Shows costs for a completed meeting",
-          "Mostra os custos de uma reunião concluída",
-        ),
-        name: "meeting",
-        options: {
-          id: {
-            description: localized("Meeting ID", "ID da reunião"),
-            name: "id",
-          },
-        },
-      },
-      period: {
-        description: localized(
-          "Shows costs for meetings started in a period",
-          "Mostra os custos das reuniões iniciadas em um período",
-        ),
-        name: "period",
-        options: {
-          from: {
-            description: localized(
-              "First meeting date (YYYY-MM-DD)",
-              "Primeira data de reunião (AAAA-MM-DD)",
-            ),
-            name: "from",
-          },
-          to: {
-            description: localized(
-              "Last meeting date (YYYY-MM-DD)",
-              "Última data de reunião (AAAA-MM-DD)",
-            ),
-            name: "to",
-          },
-        },
-      },
-    },
   },
   recordingRole: {
     description: localized(
@@ -197,14 +152,14 @@ export const commandCatalog = {
 
 function rootReference(entry: CatalogEntry) {
   return {
-    description: entry.description.en,
+    description: entry.description,
     name: `/${entry.name}`,
   };
 }
 
 function subcommandReference(command: CatalogEntry, subcommand: CatalogEntry) {
   return {
-    description: subcommand.description.en,
+    description: subcommand.description,
     name: `/${command.name} ${subcommand.name}`,
   };
 }
@@ -213,7 +168,6 @@ export function createCommandReference() {
   const {
     record,
     recordingActivate,
-    recordingCost,
     recordingProfile,
     recordingRole,
     recordingSummaryForum,
@@ -223,7 +177,7 @@ export function createCommandReference() {
     {
       commands: [rootReference(record), rootReference(stop)],
       id: "recording",
-      label: "Recording",
+      label: localized("Recording", "Gravação"),
     },
     {
       commands: [
@@ -238,15 +192,7 @@ export function createCommandReference() {
         rootReference(recordingActivate),
       ],
       id: "administrative",
-      label: "Administrative shortcuts",
-    },
-    {
-      commands: [
-        subcommandReference(recordingCost, recordingCost.subcommands.meeting),
-        subcommandReference(recordingCost, recordingCost.subcommands.period),
-      ],
-      id: "cost",
-      label: "Cost — server owner only",
+      label: localized("Administrative shortcuts", "Atalhos administrativos"),
     },
   ];
 }

@@ -9,36 +9,47 @@ import { CommandsPage } from "./commands-page";
 
 vi.mock("../lib/api", () => ({ api: { listCommands: vi.fn() } }));
 
-/** The API always answers in English and names each group with a stable id. */
+/** The API describes every group and command in each language the bot supports. */
 const reference: CommandReference = [
   {
     commands: [
-      { description: "Starts recording the voice channel you are in", name: "/record" },
-      { description: "Stops recording the voice channel you are in", name: "/stop" },
+      {
+        description: {
+          en: "Starts recording the voice channel you are in",
+          "pt-BR": "Inicia a gravação do canal de voz em que você está",
+        },
+        name: "/record",
+      },
+      {
+        description: {
+          en: "Stops recording the voice channel you are in",
+          "pt-BR": "Encerra a gravação do canal de voz em que você está",
+        },
+        name: "/stop",
+      },
     ],
     id: "recording",
-    label: "Recording",
+    label: { en: "Recording", "pt-BR": "Gravação" },
   },
   {
     commands: [
       {
-        description: "Sets the summary and transcript forum",
+        description: {
+          en: "Sets the summary and transcript forum",
+          "pt-BR": "Define o fórum de resumos e transcrições",
+        },
         name: "/recording-summary-forum set",
       },
-      { description: "Allows a role to start and stop recordings", name: "/recording-role add" },
-    ],
-    id: "administrative",
-    label: "Administrative shortcuts",
-  },
-  {
-    commands: [
       {
-        description: "Shows costs for meetings started in a period",
-        name: "/recording-cost period",
+        description: {
+          en: "Confirms the server forum, AI profile, and recording permissions after an ownership change",
+          "pt-BR": "Confirma o fórum, o perfil de IA e as permissões após troca de dono",
+        },
+        name: "/recording-activate",
       },
     ],
-    id: "cost",
-    label: "Cost — server owner only",
+    id: "administrative",
+    label: { en: "Administrative shortcuts", "pt-BR": "Atalhos administrativos" },
   },
 ];
 
@@ -56,7 +67,6 @@ describe("CommandsPage", () => {
     expect(screen.getByRole("banner")).not.toHaveTextContent("Registrados pelo bot no Discord");
     expect(await screen.findByText("Gravação")).toBeInTheDocument();
     expect(screen.getByText("Atalhos administrativos")).toBeInTheDocument();
-    expect(screen.getByText("Custo — só para o dono do servidor")).toBeInTheDocument();
   });
 
   it("lists every command the API returns with a translated description", async () => {
@@ -66,24 +76,19 @@ describe("CommandsPage", () => {
       screen.getByText("Inicia a gravação do canal de voz em que você está"),
     ).toBeInTheDocument();
     expect(screen.getByText("/recording-summary-forum set")).toBeInTheDocument();
-    expect(screen.getByText("/recording-cost period")).toBeInTheDocument();
     expect(screen.queryByText("/record start")).toBeNull();
   });
 
-  it("keeps the English text of commands and groups the dashboard does not know yet", async () => {
-    vi.mocked(api.listCommands).mockResolvedValue([
-      {
-        commands: [{ description: "Exports the meeting audio", name: "/recording-audio" }],
-        id: "audio",
-        label: "Audio",
-      },
-    ]);
+  it("translates every command the API returns, including the newest ones", async () => {
     renderScreen(<CommandsPage />);
-    expect(await screen.findByText("Exports the meeting audio")).toBeInTheDocument();
-    expect(screen.getByText("Audio")).toBeInTheDocument();
+    expect(await screen.findByText("/recording-activate")).toBeInTheDocument();
+    expect(
+      screen.getByText("Confirma o fórum, o perfil de IA e as permissões após troca de dono"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/after an ownership change/)).toBeNull();
   });
 
-  it("shows the API text as it is when the dashboard is in English", async () => {
+  it("shows the English text when the dashboard is in English", async () => {
     setLanguage("en");
     renderScreen(<CommandsPage />);
     expect(

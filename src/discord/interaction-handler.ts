@@ -11,7 +11,6 @@ import type { Logger } from "pino";
 import { type AiProfileCompatibilityStatus, isAiProfileComplete } from "../ai-profile.js";
 import { canRecord } from "../authorization.js";
 import type { AppConfig } from "../config.js";
-import { CostReportError } from "../cost/cost-report.js";
 import type { AiProfileStore } from "../database/postgres-ai-profile-store.js";
 import type { GuildOwnerApprovalStore } from "../database/postgres-guild-owner-approval-store.js";
 import type { GuildConfigurationStore } from "../guild-config-store.js";
@@ -36,7 +35,6 @@ interface CommandDependencies {
     | ((context: RecordingPermissionContext) => Promise<void>)
     | undefined;
   readonly coordinator: RecordingCoordinator;
-  readonly costReport?: CostReportReader;
   readonly guildConfigStore: GuildConfigurationStore;
   readonly isOpenRouterConfigured: () => boolean | Promise<boolean>;
   readonly logger: Logger;
@@ -64,14 +62,6 @@ const dispatchCommand = async (
       return handleRecordingSummaryForum(
         interaction,
         dependencies.guildConfigStore,
-        text,
-        dependencies.guildOwnerId,
-      );
-    case "recording-cost":
-      return handleRecordingCost(
-        interaction,
-        dependencies.coordinator,
-        dependencies.costReport,
         text,
         dependencies.guildOwnerId,
       );
@@ -121,7 +111,6 @@ export function installInteractionHandler(
   coordinator: RecordingCoordinator,
   logger: Logger,
   language: AppConfig["botLanguage"],
-  costReport: CostReportReader | undefined,
   aiProfileStore: AiProfileStore | undefined,
   resolveAiProfileCompatibility:
     | ((guildId: string) => Promise<readonly AiProfileCompatibilityStatus[]>)
@@ -167,7 +156,6 @@ export function installInteractionHandler(
           ...(aiProfileStore === undefined ? {} : { aiProfileStore }),
           checkRecordingPermissions,
           coordinator,
-          ...(costReport === undefined ? {} : { costReport }),
           guildConfigStore,
           isOpenRouterConfigured,
           logger,
@@ -208,54 +196,6 @@ const validateActiveAiProfile = async (
   }
   return true;
 };
-
-export interface CostReportReader {
-  meeting(guildId: string, meetingId: string): Promise<string>;
-  period(guildId: string, from: string, to: string): Promise<string>;
-}
-
-async function handleRecordingCost(
-  interaction: ChatInputCommandInteraction,
-  coordinator: RecordingCoordinator,
-  report: CostReportReader | undefined,
-  text: InteractionText,
-  guildOwnerId: string | null,
-): Promise<void> {
-  const context = await resolveGuildContext(interaction, text, guildOwnerId);
-  if (context === undefined) return;
-  if (!context.isGuildOwner) {
-    await interaction.reply(createEphemeralReply(text.cannotViewCosts));
-    return;
-  }
-  if (report === undefined) throw new Error("The cost report service is unavailable");
-  const subcommand = interaction.options.getSubcommand(true);
-  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
-  try {
-    if (subcommand === "meeting") {
-      const meetingId = interaction.options.getString("id", true);
-      if (coordinator.get(context.guildId)?.meetingId === meetingId) {
-        await interaction.editReply(text.costMeetingInProgress);
-        return;
-      }
-      await interaction.editReply(await report.meeting(context.guildId, meetingId));
-      return;
-    }
-    const from = interaction.options.getString("from", true);
-    const to = interaction.options.getString("to", true);
-    await interaction.editReply(await report.period(context.guildId, from, to));
-  } catch (error) {
-    const message = costReportErrorMessage(error, text);
-    if (message !== undefined) return void (await interaction.editReply(message));
-    throw error;
-  }
-}
-
-function costReportErrorMessage(error: unknown, text: InteractionText): string | undefined {
-  if (!(error instanceof CostReportError)) return undefined;
-  if (error.code === "meeting_in_progress") return text.costMeetingInProgress;
-  if (error.code === "invalid_period") return text.costInvalidPeriod;
-  return text.costMeetingNotFound;
-}
 
 async function handleRecord(
   interaction: ChatInputCommandInteraction,

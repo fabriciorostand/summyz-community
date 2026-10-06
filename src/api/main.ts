@@ -7,6 +7,8 @@ import { Argon2InstallationPasswordHasher } from "../auth/argon2-installation-pa
 import { DashboardSessionService } from "../auth/dashboard-session.js";
 import { InstallationAccessRecoveryService } from "../auth/installation-access-recovery.js";
 import { InstallationPasswordService } from "../auth/installation-password.js";
+import { CostReconciler } from "../cost/cost-reconciler.js";
+import { PostgresCostLedgerStore } from "../cost/postgres-cost-ledger-store.js";
 import { PostgresAiProfileStore } from "../database/postgres-ai-profile-store.js";
 import { PostgresAnalyticsStore } from "../database/postgres-analytics-store.js";
 import { PostgresDashboardSessionStore } from "../database/postgres-dashboard-session-store.js";
@@ -99,6 +101,14 @@ const models = {
   catalog,
   management: new ModelManagement(database, catalog, downloads),
 };
+const costLedger = new PostgresCostLedgerStore(database);
+const costReconciliation = {
+  reconcile: async (guildId: string) => {
+    const apiKey = await settings.getSecret("openrouter_api_key");
+    if (apiKey === undefined) return;
+    await new CostReconciler({ apiKey, logger, store: costLedger }).reconcile(guildId);
+  },
+};
 const app = await createApiServer(
   {
     accessMode: config.accessMode,
@@ -107,6 +117,7 @@ const app = await createApiServer(
     analytics: new PostgresAnalyticsStore(database),
     aiProfiles: new PostgresAiProfileStore(database),
     auth,
+    costReconciliation,
     discordConnection,
     guildConfig: new PostgresGuildConfigStore(database),
     guildDirectory,

@@ -5,11 +5,7 @@ import type { RecordingManifest } from "../recording/manifest.js";
 import {
   type CostAttempt,
   type CostLedgerStore,
-  type CostMeetingRange,
-  type CostMeetingRecord,
-  type CostMeetingWithAttempts,
   costAttemptSchema,
-  costMeetingRecordSchema,
   toCostMeetingRecord,
 } from "./cost-ledger.js";
 
@@ -68,39 +64,6 @@ ON CONFLICT (attempt_id) DO UPDATE SET
     );
   }
 
-  public async getMeeting(
-    guildId: string,
-    meetingId: string,
-  ): Promise<CostMeetingWithAttempts | undefined> {
-    const result = await this.#database.query(
-      `${selectMeetingCosts}
-WHERE m.guild_id = $1
-  AND m.meeting_id = $2
-ORDER BY a.started_at, a.attempt_id`,
-      [identifierSchema.parse(guildId), identifierSchema.parse(meetingId)],
-    );
-    return groupRows(result.rows)[0];
-  }
-
-  public async listMeetings(
-    guildId: string,
-    range: CostMeetingRange,
-  ): Promise<CostMeetingWithAttempts[]> {
-    const result = await this.#database.query(
-      `${selectMeetingCosts}
-WHERE m.guild_id = $1
-  AND m.started_at >= $2
-  AND m.started_at < $3
-ORDER BY m.started_at, a.started_at, a.attempt_id`,
-      [
-        identifierSchema.parse(guildId),
-        z.iso.datetime().parse(range.startedAtOrAfter),
-        z.iso.datetime().parse(range.endedBefore),
-      ],
-    );
-    return groupRows(result.rows);
-  }
-
   public async listReconciliationCandidates(guildId?: string): Promise<CostAttempt[]> {
     const result = await this.#database.query(
       `
@@ -131,53 +94,6 @@ ORDER BY started_at
     );
     return result.rows.map(parseAttempt);
   }
-}
-
-const selectMeetingCosts = `
-SELECT
-  m.meeting_id,
-  m.guild_id,
-  m.started_at,
-  m.completed_at,
-  a.attempt_id,
-  a.phase,
-  a.execution,
-  a.provider,
-  a.model,
-  a.started_at AS attempt_started_at,
-  a.ended_at,
-  a.outcome,
-  a.financial_status,
-  a.cost::text AS cost,
-  a.currency,
-  a.generation_id,
-  a.confirmation_source
-FROM meetings m
-LEFT JOIN provider_cost_attempts a ON a.meeting_id = m.meeting_id AND a.guild_id = m.guild_id`;
-
-function groupRows(rows: readonly Record<string, unknown>[]): CostMeetingWithAttempts[] {
-  const meetings = new Map<string, CostMeetingWithAttempts>();
-  for (const row of rows) {
-    const meeting = parseMeeting(row);
-    let grouped = meetings.get(meeting.meetingId);
-    if (grouped === undefined) {
-      grouped = { attempts: [], meeting };
-      meetings.set(meeting.meetingId, grouped);
-    }
-    if (row.attempt_id !== null && row.attempt_id !== undefined) {
-      grouped.attempts.push(parseAttempt(row));
-    }
-  }
-  return [...meetings.values()];
-}
-
-function parseMeeting(row: Record<string, unknown>): CostMeetingRecord {
-  return costMeetingRecordSchema.parse({
-    completedAt: toIsoOrNull(row.completed_at),
-    guildId: row.guild_id,
-    meetingId: row.meeting_id,
-    startedAt: toIso(row.started_at),
-  });
 }
 
 function parseAttempt(row: Record<string, unknown>): CostAttempt {

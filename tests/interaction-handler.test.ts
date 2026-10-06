@@ -9,7 +9,6 @@ import {
 import { describe, expect, it, vi } from "vitest";
 import type { AiProfileCompatibilityStatus } from "../src/ai-profile.js";
 import { aiProfileSchema, createInitialAiProfile } from "../src/ai-profile.js";
-import { CostReportError } from "../src/cost/cost-report.js";
 import { installInteractionHandler } from "../src/discord/interaction-handler.js";
 import { MultilingualCheckpointRequiredError } from "../src/local-ai/local-model-manager.js";
 import { createLogger } from "../src/logger.js";
@@ -71,10 +70,6 @@ async function createHarness(options: InteractionOptions = {}) {
     start,
     stop,
   } as unknown as RecordingCoordinator;
-  const costReport = {
-    meeting: vi.fn(async () => "RELATÓRIO DA REUNIÃO"),
-    period: vi.fn(async () => "RELATÓRIO DO PERÍODO"),
-  };
   const profileType = options.openRouterProfile === true ? "external" : "local";
   const initialProfile = createInitialAiProfile(profileType, "pt-BR");
   const profile =
@@ -155,7 +150,6 @@ async function createHarness(options: InteractionOptions = {}) {
     coordinator,
     createLogger("silent"),
     options.botLanguage ?? "pt-BR",
-    costReport,
     options.aiProfileStoreAvailable === false ? undefined : aiProfileStore,
     options.compatibilityCheckAvailable === false
       ? undefined
@@ -237,7 +231,6 @@ async function createHarness(options: InteractionOptions = {}) {
     throw new Error("O handler de interações não foi instalado");
   }
   return {
-    costReport,
     connectedAccount,
     aiProfileStore,
     deferReply,
@@ -421,51 +414,17 @@ describe("fluxo de comandos do Discord", () => {
       expect.objectContaining({ content: expect.stringMatching(/novo dono|confirme/i) }),
     );
   });
-  it("permite somente o dono do servidor consultar custos por reunião", async () => {
-    const denied = await createHarness({
+  it("trata o antigo comando de custos como desconhecido", async () => {
+    const costs = await createHarness({
+      administrator: true,
       commandName: "recording-cost",
+      guildOwner: true,
       strings: { id: "meeting-1" },
       subcommand: "meeting",
     });
-    await denied.listener(denied.interaction);
-    expect(denied.reply).toHaveBeenCalledWith(
-      expect.objectContaining({ content: expect.stringMatching(/dono do servidor/i) }),
-    );
-    expect(denied.costReport.meeting).not.toHaveBeenCalled();
-
-    const allowed = await createHarness({
-      administrator: true,
-      commandName: "recording-cost",
-      strings: { id: "meeting-1" },
-      subcommand: "meeting",
-    });
-    await allowed.listener(allowed.interaction);
-    expect(allowed.deferReply).toHaveBeenCalledWith({ flags: MessageFlags.Ephemeral });
-    expect(allowed.costReport.meeting).toHaveBeenCalledWith("guild-1", "meeting-1");
-    expect(allowed.editReply).toHaveBeenCalledWith("RELATÓRIO DA REUNIÃO");
-  });
-
-  it("consulta custos por período e informa reunião em andamento de forma amigável", async () => {
-    const period = await createHarness({
-      administrator: true,
-      commandName: "recording-cost",
-      strings: { from: "2026-08-01", to: "2026-08-31" },
-      subcommand: "period",
-    });
-    await period.listener(period.interaction);
-    expect(period.costReport.period).toHaveBeenCalledWith("guild-1", "2026-08-01", "2026-08-31");
-
-    const active = await createHarness({
-      administrator: true,
-      commandName: "recording-cost",
-      strings: { id: "meeting-1" },
-      subcommand: "meeting",
-    });
-    active.costReport.meeting.mockRejectedValueOnce(new CostReportError("meeting_in_progress"));
-    await active.listener(active.interaction);
-    expect(active.editReply).toHaveBeenCalledWith(
-      expect.stringMatching(/reunião terminar.*custos/i),
-    );
+    await costs.listener(costs.interaction);
+    expect(costs.reply).not.toHaveBeenCalled();
+    expect(costs.deferReply).not.toHaveBeenCalled();
   });
 
   it("responde em inglês quando esse é o idioma configurado", async () => {
@@ -1137,20 +1096,6 @@ describe("fluxo de comandos do Discord", () => {
     expect(roles.reply).toHaveBeenCalledWith(
       expect.objectContaining({ content: "Você não pode configurar os cargos de gravação." }),
     );
-
-    const costs = await createHarness({
-      administrator: true,
-      commandName: "recording-cost",
-      guildOwner: false,
-      subcommand: "meeting",
-    });
-    await costs.listener(costs.interaction);
-    expect(costs.reply).toHaveBeenCalledWith(
-      expect.objectContaining({
-        content: "Somente o dono do servidor pode consultar custos de gravações.",
-      }),
-    );
-    expect(costs.costReport.meeting).not.toHaveBeenCalled();
   });
 
   it("não inicia gravação enquanto o perfil ativo estiver incompleto", async () => {

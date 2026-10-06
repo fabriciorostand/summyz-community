@@ -182,8 +182,8 @@ export function aMeetingDetail(
     },
     timeZone: "America/Sao_Paulo",
     transcript:
-      "[00:00:04 – 00:00:19] PixelPaladin: Build está verde na main.\n" +
-      "[00:00:19 – 00:00:41] RespawnRita: O co-op dessincroniza no nível 3.\n",
+      "[00:00:04.120 – 00:00:19.870] PixelPaladin: Build está verde na main.\n" +
+      "[00:00:19.870 – 00:00:41.005] RespawnRita: O co-op dessincroniza no nível 3.\n",
     ...overrides,
   };
 }

@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTranscript, transcriptStats } from "./transcript";
+import { parseTranscript } from "./transcript";
 
+/** The pipeline writes millisecond timestamps (see assembleTranscriptFromEntries). */
 const sample = [
-  "[00:00:04 – 00:00:19] PixelPaladin: Build está verde na main.",
-  "[00:00:19 – 00:00:41] RespawnRita: O co-op dessincroniza no nível 3.",
+  "[00:00:04.120 – 00:00:19.870] PixelPaladin: Build está verde na main.",
+  "[00:00:19.870 – 00:00:41.005] RespawnRita: O co-op dessincroniza no nível 3.",
 ].join("\n");
 
 describe("parseTranscript", () => {
@@ -21,6 +22,16 @@ describe("parseTranscript", () => {
         text: "O co-op dessincroniza no nível 3.",
       },
     ]);
+  });
+
+  it("shows the start time without milliseconds", () => {
+    const turns = parseTranscript("[01:02:03.999 – 01:02:04.000] Ana: Fechado.");
+    expect(turns[0]?.startedAt).toBe("01:02:03");
+  });
+
+  it("still reads timestamps written without milliseconds", () => {
+    const turns = parseTranscript("[00:00:04 – 00:00:19] Ana: Fechado.");
+    expect(turns).toEqual([{ speaker: "Ana", startedAt: "00:00:04", text: "Fechado." }]);
   });
 
   it("accepts a plain hyphen between the timestamps", () => {
@@ -46,15 +57,5 @@ describe("parseTranscript", () => {
 
   it("returns no turns when no line matches the expected shape", () => {
     expect(parseTranscript("texto solto sem cabeçalho")).toEqual([]);
-  });
-});
-
-describe("transcriptStats", () => {
-  it("counts turns and words", () => {
-    expect(transcriptStats(parseTranscript(sample))).toEqual({ turns: 2, words: 11 });
-  });
-
-  it("counts nothing for an empty list", () => {
-    expect(transcriptStats([])).toEqual({ turns: 0, words: 0 });
   });
 });

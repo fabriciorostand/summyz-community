@@ -10,8 +10,6 @@ import { OpenRouterTranscriptionProvider } from "../src/transcription/openrouter
 function createRecorder(phase: CostPhase) {
   const attempts: CostAttempt[] = [];
   const store: CostLedgerStore = {
-    getMeeting: async () => undefined,
-    listMeetings: async () => [],
     saveAttempt: vi.fn(async (attempt) => {
       const index = attempts.findIndex((item) => item.attemptId === attempt.attemptId);
       if (index === -1) attempts.push(attempt);

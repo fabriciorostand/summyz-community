@@ -242,6 +242,52 @@ describe("Community dashboard API", () => {
     });
     await app.close();
   });
+  it("reconciles the guild's pending provider costs before reading the cost detail", async () => {
+    const dependencies = createDependencies("local");
+    const analytics = analyticsDependencies();
+    const reconcile = vi.fn(async (_guildId: string) => undefined);
+    dependencies.analytics = analytics;
+    dependencies.costReconciliation = { reconcile };
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/costs?timeZone=UTC&dateFrom=2026-09-01&dateTo=2026-09-30",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(reconcile).toHaveBeenCalledWith("guild-1");
+    expect(reconcile.mock.invocationCallOrder[0]).toBeLessThan(
+      vi.mocked(analytics.getCostDetail).mock.invocationCallOrder[0] ?? 0,
+    );
+    await app.close();
+  });
+  it("still serves the cost detail when reconciliation fails and logs only the error type", async () => {
+    const dependencies = createDependencies("local");
+    const analytics = analyticsDependencies();
+    const warn = vi.spyOn(dependencies.logger, "warn");
+    dependencies.analytics = analytics;
+    dependencies.costReconciliation = {
+      reconcile: vi.fn(async () => {
+        throw new Error("Bearer sk-or-secret was rejected");
+      }),
+    };
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/guilds/guild-1/costs?timeZone=UTC&dateFrom=2026-09-01&dateTo=2026-09-30",
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(analytics.getCostDetail).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledWith(
+      { errorType: "Error", guildId: "guild-1" },
+      "Unable to reconcile provider costs before the cost detail",
+    );
+    expect(JSON.stringify(warn.mock.calls)).not.toContain("sk-or-secret");
+    await app.close();
+  });
   it.each([
     "timeZone=UTC&dateTo=2026-09-30",
     "timeZone=UTC&dateFrom=2026-09-30&dateTo=2026-09-01",
@@ -877,7 +923,7 @@ describe("Community dashboard API", () => {
     await localApp.close();
   });
 
-  it("returns the fixed English command reference with stable group identifiers", async () => {
+  it("returns the command reference in English and pt-BR with stable group identifiers", async () => {
     const dependencies = createDependencies("local");
     vi.mocked(dependencies.settings.getSettings).mockResolvedValue({
       discordApplicationId: null,
@@ -893,19 +939,27 @@ describe("Community dashboard API", () => {
       {
         commands: [
           {
-            description: "Starts recording the voice channel you are in",
+            description: {
+              en: "Starts recording the voice channel you are in",
+              "pt-BR": "Inicia a gravação do canal de voz em que você está",
+            },
             name: "/record",
           },
           {
-            description: "Stops recording the voice channel you are in",
+            description: {
+              en: "Stops recording the voice channel you are in",
+              "pt-BR": "Encerra a gravação do canal de voz em que você está",
+            },
             name: "/stop",
           },
         ],
         id: "recording",
-        label: "Recording",
+        label: { en: "Recording", "pt-BR": "Gravação" },
       },
-      expect.objectContaining({ label: "Administrative shortcuts" }),
-      expect.objectContaining({ label: "Cost — server owner only" }),
+      expect.objectContaining({
+        id: "administrative",
+        label: { en: "Administrative shortcuts", "pt-BR": "Atalhos administrativos" },
+      }),
     ]);
     await app.close();
   });
@@ -937,7 +991,7 @@ describe("Community dashboard API", () => {
 
     expect(rejected.statusCode).toBe(401);
     expect(accepted.statusCode).toBe(200);
-    expect(accepted.json()[0]).toMatchObject({ id: "recording", label: "Recording" });
+    expect(accepted.json()[0]).toMatchObject({ id: "recording" });
     await app.close();
   });
 

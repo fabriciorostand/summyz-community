@@ -173,18 +173,16 @@ expõem essa condição e não apresentam o subtotal confirmado como necessariam
 Chamadas locais ao Ollama e faster-whisper preservam o modelo efetivo com o campo de custo externo
 como `null`, pois o custo computacional não faz parte desta etapa.
 
-Somente o dono do servidor pode consultar custos com `/recording-cost meeting` ou agregá-los pela
-data de início das reuniões com `/recording-cost period`. Esses comandos incluem reuniões cuja
-gravação encerrou (`completed_at` preenchido); gravações ainda ativas ficam fora do relatório.
-O pipeline pode continuar em execução, e tentativas em segundo plano podem aumentar o total.
+Os totais da visão geral do dashboard usam arredondamento de apresentação; os valores armazenados
+não mudam.
 
-As respostas são efêmeras e sempre limitadas ao servidor atual do Discord. Os limites de data usam
-`SUMMARY_TIME_ZONE`; relatórios de custo preservam os valores financeiros exatos. Os totais da visão
-geral do dashboard usam arredondamento de apresentação; os valores armazenados não mudam.
-
-O link "Detalhar" do card de custo da visão geral abre a página de custos do dashboard. Ela segue o
-mesmo critério de `/recording-cost period`, mas usa o fuso horário do navegador e abre no mês
-corrente. Mostra o custo de cada etapa, a divisão por provedor e modelo com requisições e falhas
+O link "Detalhar" do card de custo da visão geral abre a página de custos do dashboard. Ela inclui
+reuniões cuja gravação encerrou (`completed_at` preenchido) e cuja data de início está no
+intervalo; gravações ainda ativas ficam de fora. O pipeline pode continuar em execução, e
+tentativas em segundo plano podem aumentar o total. A página usa o fuso horário do navegador e abre
+no mês corrente. Antes de carregá-la, o Summyz consulta de novo o OpenRouter sobre as tentativas
+pendentes do servidor; se essa consulta falhar, elas continuam pendentes e a página é exibida
+mesmo assim. Ela mostra o custo de cada etapa, a divisão por provedor e modelo com requisições e falhas
 cobradas, e as cinco reuniões mais caras do intervalo. Valores por modelo e por reunião são exatos;
 o total e as etapas são arredondados para leitura.
 

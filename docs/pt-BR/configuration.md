@@ -142,6 +142,10 @@ Idioma da interface, tema e formatos de data/hora são preferências do navegado
 usam seu fuso IANA aceito, com UTC como fallback. Essas escolhas não alteram mensagens do bot ou
 processamento das reuniões.
 
+Os nomes dos comandos de barra ficam sempre em inglês. As descrições seguem o idioma do aplicativo
+do Discord de cada membro: português (Brasil) mostra o texto em português e os demais idiomas
+mostram inglês, independentemente do idioma das mensagens do bot no servidor.
+
 O idioma do bot por servidor controla avisos de gravação e formatação de datas nas publicações.
 `transcription.language` e `language` do resumo usam o catálogo BCP 47 suportado e têm `auto` como
 padrão. Um idioma explícito de transcrição orienta o provedor; `auto` detecta o idioma falado e

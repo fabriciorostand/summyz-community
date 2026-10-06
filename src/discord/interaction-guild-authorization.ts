@@ -81,7 +81,6 @@ function isKnownCommand(name: string): boolean {
     "stop",
     "recording-role",
     "recording-summary-forum",
-    "recording-cost",
     "recording-profile",
     "recording-activate",
   ].includes(name);

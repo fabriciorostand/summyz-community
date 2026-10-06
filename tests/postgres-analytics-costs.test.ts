@@ -173,7 +173,7 @@ describe("PostgresAnalyticsStore cost detail", () => {
       ],
     });
     for (const [text, values] of query.mock.calls) {
-      // Same rule as /recording-cost period: meetings that started in the range and stopped recording.
+      // Meetings that started in the range and stopped recording.
       expect(text).toContain("meeting.completed_at IS NOT NULL");
       expect(values).toEqual(["guild-1", "2026-09-01", "2026-09-30", "America/Sao_Paulo"]);
     }

@@ -1,161 +1,145 @@
-import { ChannelType, PermissionFlagsBits, SlashCommandBuilder } from "discord.js";
+import {
+  ChannelType,
+  Locale,
+  PermissionFlagsBits,
+  type SharedNameAndDescription,
+  SlashCommandBuilder,
+} from "discord.js";
 
-import { type CommandLanguage, commandCatalog } from "./command-catalog.js";
+import { commandCatalog, type LocalizedText } from "./command-catalog.js";
 
-export function createCommandDefinitions(language: CommandLanguage) {
+/** English is the default; Discord shows the pt-BR text to members whose client uses it. */
+function describe<T extends SharedNameAndDescription>(builder: T, text: LocalizedText): T {
+  return builder
+    .setDescription(text.en)
+    .setDescriptionLocalizations({ [Locale.PortugueseBR]: text["pt-BR"] });
+}
+
+export function createCommandDefinitions() {
   const {
     record,
     recordingActivate,
-    recordingCost,
     recordingProfile,
     recordingRole,
     recordingSummaryForum,
     stop,
   } = commandCatalog;
-  const recordCommand = new SlashCommandBuilder()
-    .setName(record.name)
-    .setDescription(record.description[language])
-    .setDMPermission(false);
+  const recordCommand = describe(
+    new SlashCommandBuilder().setName(record.name),
+    record.description,
+  ).setDMPermission(false);
 
-  const stopCommand = new SlashCommandBuilder()
-    .setName(stop.name)
-    .setDescription(stop.description[language])
-    .setDMPermission(false);
+  const stopCommand = describe(
+    new SlashCommandBuilder().setName(stop.name),
+    stop.description,
+  ).setDMPermission(false);
 
-  const recordingRoleCommand = new SlashCommandBuilder()
-    .setName(recordingRole.name)
-    .setDescription(recordingRole.description[language])
+  const recordingRoleCommand = describe(
+    new SlashCommandBuilder().setName(recordingRole.name),
+    recordingRole.description,
+  )
     .setDefaultMemberPermissions(PermissionFlagsBits.ManageGuild)
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingRole.subcommands.add.name)
-        .setDescription(recordingRole.subcommands.add.description[language])
-        .addRoleOption((option) =>
-          option
-            .setName(recordingRole.subcommands.add.options.role.name)
-            .setDescription(recordingRole.subcommands.add.options.role.description[language])
-            .setRequired(true),
-        ),
+      describe(
+        subcommand.setName(recordingRole.subcommands.add.name),
+        recordingRole.subcommands.add.description,
+      ).addRoleOption((option) =>
+        describe(
+          option.setName(recordingRole.subcommands.add.options.role.name),
+          recordingRole.subcommands.add.options.role.description,
+        ).setRequired(true),
+      ),
     )
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingRole.subcommands.remove.name)
-        .setDescription(recordingRole.subcommands.remove.description[language])
-        .addRoleOption((option) =>
-          option
-            .setName(recordingRole.subcommands.remove.options.role.name)
-            .setDescription(recordingRole.subcommands.remove.options.role.description[language])
-            .setRequired(true),
-        ),
+      describe(
+        subcommand.setName(recordingRole.subcommands.remove.name),
+        recordingRole.subcommands.remove.description,
+      ).addRoleOption((option) =>
+        describe(
+          option.setName(recordingRole.subcommands.remove.options.role.name),
+          recordingRole.subcommands.remove.options.role.description,
+        ).setRequired(true),
+      ),
     )
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingRole.subcommands.list.name)
-        .setDescription(recordingRole.subcommands.list.description[language]),
+      describe(
+        subcommand.setName(recordingRole.subcommands.list.name),
+        recordingRole.subcommands.list.description,
+      ),
     );
 
-  const recordingSummaryForumCommand = new SlashCommandBuilder()
-    .setName(recordingSummaryForum.name)
-    .setDescription(recordingSummaryForum.description[language])
+  const recordingSummaryForumCommand = describe(
+    new SlashCommandBuilder().setName(recordingSummaryForum.name),
+    recordingSummaryForum.description,
+  )
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingSummaryForum.subcommands.set.name)
-        .setDescription(recordingSummaryForum.subcommands.set.description[language])
+      describe(
+        subcommand.setName(recordingSummaryForum.subcommands.set.name),
+        recordingSummaryForum.subcommands.set.description,
+      )
         .addChannelOption((option) =>
-          option
-            .setName(recordingSummaryForum.subcommands.set.options.forum.name)
-            .setDescription(
-              recordingSummaryForum.subcommands.set.options.forum.description[language],
-            )
+          describe(
+            option.setName(recordingSummaryForum.subcommands.set.options.forum.name),
+            recordingSummaryForum.subcommands.set.options.forum.description,
+          )
             .addChannelTypes(ChannelType.GuildForum)
             .setRequired(true),
         )
         .addStringOption((option) =>
-          option
-            .setName(recordingSummaryForum.subcommands.set.options.tag.name)
-            .setDescription(recordingSummaryForum.subcommands.set.options.tag.description[language])
-            .setRequired(false),
+          describe(
+            option.setName(recordingSummaryForum.subcommands.set.options.tag.name),
+            recordingSummaryForum.subcommands.set.options.tag.description,
+          ).setRequired(false),
         ),
     )
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingSummaryForum.subcommands.show.name)
-        .setDescription(recordingSummaryForum.subcommands.show.description[language]),
+      describe(
+        subcommand.setName(recordingSummaryForum.subcommands.show.name),
+        recordingSummaryForum.subcommands.show.description,
+      ),
     )
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingSummaryForum.subcommands.clear.name)
-        .setDescription(recordingSummaryForum.subcommands.clear.description[language]),
+      describe(
+        subcommand.setName(recordingSummaryForum.subcommands.clear.name),
+        recordingSummaryForum.subcommands.clear.description,
+      ),
     );
 
-  const recordingCostCommand = new SlashCommandBuilder()
-    .setName(recordingCost.name)
-    .setDescription(recordingCost.description[language])
-    .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+  const recordingProfileCommand = describe(
+    new SlashCommandBuilder().setName(recordingProfile.name),
+    recordingProfile.description,
+  )
     .setDMPermission(false)
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingCost.subcommands.meeting.name)
-        .setDescription(recordingCost.subcommands.meeting.description[language])
-        .addStringOption((option) =>
-          option
-            .setName(recordingCost.subcommands.meeting.options.id.name)
-            .setDescription(recordingCost.subcommands.meeting.options.id.description[language])
-            .setRequired(true),
-        ),
+      describe(
+        subcommand.setName(recordingProfile.subcommands.list.name),
+        recordingProfile.subcommands.list.description,
+      ),
     )
     .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingCost.subcommands.period.name)
-        .setDescription(recordingCost.subcommands.period.description[language])
-        .addStringOption((option) =>
-          option
-            .setName(recordingCost.subcommands.period.options.from.name)
-            .setDescription(recordingCost.subcommands.period.options.from.description[language])
-            .setRequired(true),
-        )
-        .addStringOption((option) =>
-          option
-            .setName(recordingCost.subcommands.period.options.to.name)
-            .setDescription(recordingCost.subcommands.period.options.to.description[language])
-            .setRequired(true),
-        ),
+      describe(
+        subcommand.setName(recordingProfile.subcommands.set.name),
+        recordingProfile.subcommands.set.description,
+      ).addStringOption((option) =>
+        describe(
+          option.setName(recordingProfile.subcommands.set.options.profile.name),
+          recordingProfile.subcommands.set.options.profile.description,
+        ).setRequired(true),
+      ),
     );
 
-  const recordingProfileCommand = new SlashCommandBuilder()
-    .setName(recordingProfile.name)
-    .setDescription(recordingProfile.description[language])
-    .setDMPermission(false)
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingProfile.subcommands.list.name)
-        .setDescription(recordingProfile.subcommands.list.description[language]),
-    )
-    .addSubcommand((subcommand) =>
-      subcommand
-        .setName(recordingProfile.subcommands.set.name)
-        .setDescription(recordingProfile.subcommands.set.description[language])
-        .addStringOption((option) =>
-          option
-            .setName(recordingProfile.subcommands.set.options.profile.name)
-            .setDescription(recordingProfile.subcommands.set.options.profile.description[language])
-            .setRequired(true),
-        ),
-    );
-
-  const recordingActivateCommand = new SlashCommandBuilder()
-    .setName(recordingActivate.name)
-    .setDescription(recordingActivate.description[language])
-    .setDMPermission(false);
+  const recordingActivateCommand = describe(
+    new SlashCommandBuilder().setName(recordingActivate.name),
+    recordingActivate.description,
+  ).setDMPermission(false);
 
   return [
     recordCommand,
     stopCommand,
     recordingRoleCommand,
     recordingSummaryForumCommand,
-    recordingCostCommand,
     recordingProfileCommand,
     recordingActivateCommand,
   ] as const;
