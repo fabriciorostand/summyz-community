@@ -218,6 +218,44 @@ const costAnalyticsSchema = z.object({
   ),
   confirmed: z.array(z.object({ amount: z.string(), currency: z.string().length(3) })),
 });
+const confirmedAmountsSchema = z.array(
+  z.object({ amount: z.string(), currency: z.string().length(3) }),
+);
+const costPhaseSchema = z.enum(["transcription", "refinement", "summary"]);
+export const costDetailSchema = z.object({
+  attemptCounts: costAttemptCountsSchema,
+  confirmed: confirmedAmountsSchema,
+  dateFrom: z.iso.date(),
+  dateTo: z.iso.date(),
+  meetingCount: z.number().int(),
+  models: z.array(
+    z.object({
+      attemptCounts: costAttemptCountsSchema,
+      chargedFailures: z.object({ confirmed: confirmedAmountsSchema, count: z.number().int() }),
+      confirmed: confirmedAmountsSchema,
+      execution: z.enum(["api", "local"]),
+      model: z.string().nullable(),
+      phase: costPhaseSchema,
+      provider: z.string(),
+    }),
+  ),
+  stages: z.array(
+    z.object({
+      attemptCounts: costAttemptCountsSchema,
+      confirmed: confirmedAmountsSchema,
+      phase: costPhaseSchema,
+    }),
+  ),
+  timeZone: z.string(),
+  topMeetings: z.array(
+    z.object({
+      confirmed: confirmedAmountsSchema,
+      meetingId: z.string(),
+      startedAt: z.iso.datetime(),
+      voiceChannelName: z.string().nullable(),
+    }),
+  ),
+});
 export const dashboardAnalyticsSchema = z.object({
   averageDurationMs: z.number().int(),
   liveMeeting: z
@@ -243,11 +281,19 @@ export const dashboardAnalyticsSchema = z.object({
       previous: z.number().int().nullable(),
     })
     .default({ current: 0, deltaPercentage: null, previous: null }),
-  cost: costAnalyticsSchema.default({
-    attemptCounts: { confirmed: 0, notApplicable: 0, pending: 0, unattributed: 0 },
-    breakdown: [],
-    confirmed: [],
-  }),
+  // Stage totals only: providers and attempt counts live on the cost detail page.
+  cost: z
+    .object({
+      confirmed: confirmedAmountsSchema,
+      stages: z.array(
+        z.object({
+          confirmed: confirmedAmountsSchema,
+          executions: z.array(z.enum(["api", "local"])),
+          phase: costPhaseSchema,
+        }),
+      ),
+    })
+    .default({ confirmed: [], stages: [] }),
   openTaskCount: z.number().int().default(0),
   period: z.enum(["30d", "90d", "all"]).default("30d"),
   statusSeries: z
@@ -379,6 +425,7 @@ export type GuildResources = z.infer<typeof resourcesSchema>;
 export type GuildMemberPage = z.infer<typeof guildMemberPageSchema>;
 export type HistoricalParticipantPage = z.infer<typeof historicalParticipantPageSchema>;
 export type InstallationHealth = z.infer<typeof installationHealthSchema>;
+export type CostDetail = z.infer<typeof costDetailSchema>;
 export type DashboardAnalytics = z.infer<typeof dashboardAnalyticsSchema>;
 export type MeetingHistoryPage = z.infer<typeof meetingHistoryPageSchema>;
 export type MeetingHistoryDetail = z.infer<typeof meetingHistoryDetailSchema>;

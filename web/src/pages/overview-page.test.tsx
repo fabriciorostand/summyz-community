@@ -51,13 +51,12 @@ describe("OverviewPage", () => {
         dashboard: {
           ...dashboard,
           cost: {
-            ...dashboard.cost,
-            breakdown: dashboard.cost.breakdown.map((entry) =>
-              entry.execution === "local"
-                ? entry
-                : { ...entry, confirmed: [{ amount: "0.004", currency: "USD" }] },
-            ),
             confirmed: [{ amount: "3.5", currency: "USD" }],
+            stages: dashboard.cost.stages.map((stage) =>
+              stage.phase === "transcription"
+                ? { ...stage, confirmed: [{ amount: "0.004", currency: "USD" }] }
+                : stage,
+            ),
           },
         },
       }),
@@ -72,80 +71,62 @@ describe("OverviewPage", () => {
     expect(screen.queryByText(/Fuso/)).not.toBeInTheDocument();
   });
 
-  it("flags the attempts that are still pending", async () => {
+  it("leaves pending and unattributed attempts to the cost detail page", async () => {
     renderScreen(<OverviewPage />);
-    expect(await screen.findByText("2 pendentes")).toBeInTheDocument();
+    await screen.findByText("USD 12,48");
+    expect(screen.queryByText(/pendente/)).toBeNull();
+    expect(screen.queryByText(/atribuída/)).toBeNull();
+    expect(screen.queryByText(/subtotal confirmado/)).toBeNull();
   });
 
-  it("breaks the cost down by phase and provider with a stacked bar", async () => {
+  it("breaks the cost down by stage only, in pipeline order", async () => {
     renderScreen(<OverviewPage />);
-    expect(await screen.findByText(/Transcrição/)).toBeInTheDocument();
-    expect(screen.getByText("USD 7,21")).toBeInTheDocument();
-    expect(screen.getByText("sem custo")).toBeInTheDocument();
+    const card = (await screen.findByRole("heading", { name: "Custo por etapa" })).closest(
+      "section",
+    ) as HTMLElement;
+    const rows = within(card).getAllByRole("listitem");
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "TranscriçãoUSD 7,21",
+      "Refinamento—",
+      "Resumosem custo",
+    ]);
+    expect(within(card).queryByText(/openrouter|faster-whisper|local/)).toBeNull();
     expect(
-      screen.getByRole("img", { name: "Distribuição do custo confirmado" }),
+      within(card).getByRole("img", { name: "Distribuição do custo confirmado" }),
     ).toBeInTheDocument();
   });
 
-  it("paints the third paid cost segment with the chart sky token", async () => {
+  it("keeps each stage on its own series colour, like the cost detail page", async () => {
+    const dashboard = aDashboard();
     const paid = (phase: "refinement" | "summary" | "transcription") => ({
-      attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 0 },
       confirmed: [{ amount: "1.00", currency: "USD" }],
-      execution: "api" as const,
+      executions: ["api" as const],
       phase,
-      provider: "openrouter",
     });
-    const dashboard = aDashboard();
     renderScreen(<OverviewPage />, {
       context: dashboardContext({
         dashboard: {
           ...dashboard,
           cost: {
             ...dashboard.cost,
-            breakdown: [paid("transcription"), paid("refinement"), paid("summary")],
-          },
-        },
-      }),
-    });
-    const bar = await screen.findByRole("img", { name: "Distribuição do custo confirmado" });
-    const segments = [...bar.children];
-    expect(segments.map((segment) => segment.className)).toEqual([
-      "bg-action",
-      "bg-accent",
-      "bg-chart-sky",
-    ]);
-  });
-
-  it("labels refinement costs as Refinamento", async () => {
-    const dashboard = aDashboard();
-    renderScreen(<OverviewPage />, {
-      context: dashboardContext({
-        dashboard: {
-          ...dashboard,
-          cost: {
-            ...dashboard.cost,
-            breakdown: [
-              ...dashboard.cost.breakdown,
-              {
-                attemptCounts: { confirmed: 1, notApplicable: 0, pending: 0, unattributed: 0 },
-                confirmed: [{ amount: "1.25", currency: "USD" }],
-                execution: "api",
-                phase: "refinement",
-                provider: "openrouter",
-              },
+            stages: [
+              paid("transcription"),
+              { confirmed: [], executions: ["local"], phase: "refinement" },
+              paid("summary"),
             ],
           },
         },
       }),
     });
-    expect(await screen.findByText("Refinamento")).toBeInTheDocument();
+    const bar = await screen.findByRole("img", { name: "Distribuição do custo confirmado" });
+    const segments = [...bar.children] as HTMLElement[];
+    expect(segments.map((segment) => segment.className)).toEqual(["bg-series-1", "bg-series-3"]);
+    expect(segments.map((segment) => segment.style.width)).toEqual(["50%", "50%"]);
   });
 
-  it("keeps the cost detail link inert until that screen exists", async () => {
+  it("opens the cost detail from the cost card", async () => {
     renderScreen(<OverviewPage />);
-    const detail = await screen.findByText("Detalhar");
-    expect(detail).toHaveAttribute("aria-disabled", "true");
-    expect(detail.closest("a")).toBeNull();
+    expect(await screen.findByRole("link", { name: "Detalhar" })).toHaveAttribute("href", "/costs");
   });
 
   it("labels the speaker panel in Portuguese", async () => {
@@ -319,29 +300,21 @@ describe("OverviewPage", () => {
 });
 
 describe("OverviewPage cost warnings", () => {
-  it("warns when attempts were not attributed", async () => {
+  it("says when no cost was registered", async () => {
     const dashboard = aDashboard();
     renderScreen(<OverviewPage />, {
       context: dashboardContext({
         dashboard: {
           ...dashboard,
           cost: {
-            ...dashboard.cost,
-            attemptCounts: { ...dashboard.cost.attemptCounts, unattributed: 2 },
+            confirmed: [],
+            stages: dashboard.cost.stages.map((stage) => ({
+              ...stage,
+              confirmed: [],
+              executions: [],
+            })),
           },
         },
-      }),
-    });
-    expect(
-      await screen.findByText(/2 tentativas não foram atribuídas automaticamente/),
-    ).toBeInTheDocument();
-  });
-
-  it("says when no cost was registered", async () => {
-    const dashboard = aDashboard();
-    renderScreen(<OverviewPage />, {
-      context: dashboardContext({
-        dashboard: { ...dashboard, cost: { ...dashboard.cost, breakdown: [] } },
       }),
     });
     expect(await screen.findByText("Nenhum custo registrado no período.")).toBeInTheDocument();

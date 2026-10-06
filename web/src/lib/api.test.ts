@@ -331,12 +331,16 @@ describe("dashboard API client", () => {
       .listMeetings("guild-1", { dateFrom: "2026-09-01", page: 2 }, "Europe/Lisbon")
       .catch(() => undefined);
     await api.getMeeting("guild-1", "meeting-1", "Europe/Lisbon").catch(() => undefined);
+    await api
+      .getCostDetail("guild-1", { dateFrom: "2026-10-01", dateTo: "2026-10-05" }, "Europe/Lisbon")
+      .catch(() => undefined);
 
     expect(fetchMock.mock.calls.map(([path]) => path)).toEqual([
       "/api/guilds/guild-1/dashboard?timeZone=Europe%2FLisbon",
       "/api/guilds/guild-1/dashboard?period=90d&timeZone=UTC",
       "/api/guilds/guild-1/meetings?page=2&timeZone=Europe%2FLisbon&dateFrom=2026-09-01",
       "/api/guilds/guild-1/meetings/meeting-1?timeZone=Europe%2FLisbon",
+      "/api/guilds/guild-1/costs?dateFrom=2026-10-01&dateTo=2026-10-05&timeZone=Europe%2FLisbon",
     ]);
   });
 

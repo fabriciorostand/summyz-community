@@ -1,4 +1,4 @@
-import { ArrowUpRight, Mic2, TriangleAlert } from "lucide-react";
+import { ArrowUpRight, Mic2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
@@ -15,7 +15,9 @@ import {
   type DashboardTask,
   type MeetingHistoryPage,
 } from "../lib/api";
+import { confirmedAmount } from "../lib/costs";
 import { formatDuration, formatElapsed, percentageOf, pipelineStatus } from "../lib/format";
+import { stageColor } from "../lib/series";
 import { groupByOwner } from "../lib/task-groups";
 import { Screen } from "./screen";
 
@@ -206,7 +208,6 @@ function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
     1,
     ...dashboard.statusSeries.map((bucket) => bucket.completed + bucket.failed),
   );
-  const pending = dashboard.cost.attemptCounts.pending + dashboard.cost.attemptCounts.unattributed;
   return (
     <Card>
       <div className="flex flex-wrap items-start justify-between gap-4">
@@ -221,11 +222,7 @@ function MetricsCard({ dashboard }: { dashboard: DashboardAnalytics }) {
             note={t.overview.averageDuration(formatDuration(dashboard.averageDurationMs))}
             value={format.number(dashboard.totalDurationMs / 3_600_000, 1)}
           />
-          <Metric
-            label={t.overview.cost}
-            note={pending > 0 ? t.overview.pending(pending) : undefined}
-            value={format.roundedCost(dashboard.cost.confirmed)}
-          />
+          <Metric label={t.overview.cost} value={format.roundedCost(dashboard.cost.confirmed)} />
         </div>
         <div className="flex gap-3">
           <LegendItem className="bg-action" label={t.overview.completed} />
@@ -346,36 +343,20 @@ function TopSpeakersCard({ dashboard }: { dashboard: DashboardAnalytics }) {
   );
 }
 
-const costSegmentColors = ["bg-action", "bg-accent", "bg-chart-sky", "bg-ok", "bg-warn"] as const;
-
-type CostEntry = DashboardAnalytics["cost"]["breakdown"][number];
-
-/** Sum of an entry's confirmed amounts; the stacked bar only needs proportions. */
-function confirmedAmount(entry: CostEntry): number {
-  return entry.confirmed.reduce((sum, item) => {
-    const amount = Number(item.amount);
-    return Number.isFinite(amount) ? sum + amount : sum;
-  }, 0);
-}
-
-function segmentColor(index: number): string {
-  return costSegmentColors[index % costSegmentColors.length] ?? "bg-action";
-}
-
 function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
   const { format, t } = useI18n();
-  const unattributed = dashboard.cost.attemptCounts.unattributed;
-  const paid = dashboard.cost.breakdown.filter((entry) => entry.execution !== "local");
-  const total = paid.reduce((sum, entry) => sum + confirmedAmount(entry), 0);
+  const { stages } = dashboard.cost;
+  const total = stages.reduce((sum, stage) => sum + confirmedAmount(stage.confirmed), 0);
+  const paid = stages.filter((stage) => confirmedAmount(stage.confirmed) > 0);
   return (
     <Card>
       <div className="mb-4 flex items-center justify-between">
         <h2 className="m-0 text-[15px] font-semibold tracking-tight text-ink">
-          {t.overview.costByProvider}
+          {t.overview.costByStage}
         </h2>
-        <InlineLink>{t.overview.details}</InlineLink>
+        <InlineLink to="/costs">{t.overview.details}</InlineLink>
       </div>
-      {dashboard.cost.breakdown.length === 0 ? (
+      {stages.every((stage) => stage.executions.length === 0) ? (
         <p className="m-0 text-[12.5px] text-ink-muted">{t.overview.noCost}</p>
       ) : (
         <>
@@ -385,55 +366,40 @@ function CostCard({ dashboard }: { dashboard: DashboardAnalytics }) {
               className="mb-4 flex h-[9px] overflow-hidden rounded-[5px]"
               role="img"
             >
-              {paid.map((entry, index) => (
+              {paid.map((stage) => (
                 <div
-                  className={segmentColor(index)}
-                  key={`${entry.phase}:${entry.provider}`}
-                  style={{ width: `${String((confirmedAmount(entry) / total) * 100)}%` }}
+                  className={stageColor(stage.phase)}
+                  key={stage.phase}
+                  style={{ width: `${String((confirmedAmount(stage.confirmed) / total) * 100)}%` }}
                 />
               ))}
             </div>
           )}
-          <div className="flex flex-col gap-2.5">
-            {dashboard.cost.breakdown.map((entry) => (
-              <div
-                className="flex items-center gap-2.5"
-                key={`${entry.phase}:${entry.provider}:${entry.execution}`}
-              >
-                <span
-                  className={`size-2 shrink-0 rounded-sm ${
-                    entry.execution === "local"
-                      ? "bg-surface-inset"
-                      : segmentColor(paid.indexOf(entry))
-                  }`}
-                />
+          <ul className="m-0 flex list-none flex-col gap-2.5 p-0">
+            {stages.map((stage) => (
+              <li className="flex items-center gap-2.5" key={stage.phase}>
+                <span className={`size-2 shrink-0 rounded-sm ${stageColor(stage.phase)}`} />
                 <span className="min-w-0 flex-1 truncate text-[12.5px] text-ink">
-                  {entry.execution === "local" ? entry.provider : t.stages.titles[entry.phase]}
-                  <span className="text-ink-dim">
-                    {" "}
-                    · {entry.execution === "local" ? t.overview.local : entry.provider}
-                  </span>
+                  {t.stages.titles[stage.phase]}
                 </span>
                 <span className="shrink-0 font-mono text-[11.5px] text-ink-secondary">
-                  {entry.execution === "local"
-                    ? t.overview.noCharge
-                    : format.roundedCost(entry.confirmed)}
+                  {stageCost(stage)}
                 </span>
-              </div>
+              </li>
             ))}
-          </div>
+          </ul>
         </>
-      )}
-      {unattributed > 0 && (
-        <div className="mt-4 flex items-start gap-2 text-[11.5px] leading-relaxed text-warn">
-          <TriangleAlert className="mt-0.5 size-3.5 shrink-0" />
-          <span>
-            {t.overview.unattributed(unattributed)} {t.overview.incompleteSubtotal}
-          </span>
-        </div>
       )}
     </Card>
   );
+
+  /** Same reading as the cost detail page: "—" for a stage that never ran, no charge when local. */
+  function stageCost(stage: DashboardAnalytics["cost"]["stages"][number]): string {
+    if (stage.executions.length === 0) return "—";
+    return stage.executions.includes("api")
+      ? format.roundedCost(stage.confirmed)
+      : t.overview.noCharge;
+  }
 }
 
 function OpenTasksCard({ dashboard, guildId }: { dashboard: DashboardAnalytics; guildId: string }) {

@@ -42,8 +42,16 @@
   --color-fail: #e2607f;
   --color-fail-soft: #2a1720;
 
-  /* Third cost series, after action and accent: the blue glow of the logo. */
-  --color-chart-sky: #4a99fc;
+  /*
+   * Categorical chart series, used in this order and never cycled: anything past the fourth
+   * folds into series-other. The order was validated for colour-vision deficiency and 3:1
+   * contrast against each theme's surface.
+   */
+  --color-series-1: #8b7bff;
+  --color-series-2: #1e9eac;
+  --color-series-3: #d9692f;
+  --color-series-4: #c357b0;
+  --color-series-other: #4a5068;
 }
 
 :root[data-theme="light"] {
@@ -78,8 +86,11 @@
   --color-fail: #b8365a;
   --color-fail-soft: #fceff2;
 
-  /* Darkened from #4a99fc so the cost series keeps 3:1 against light surfaces. */
-  --color-chart-sky: #3080e0;
+  --color-series-1: #5a3fe0;
+  --color-series-2: #008c9e;
+  --color-series-3: #c4561c;
+  --color-series-4: #a8389a;
+  --color-series-other: #b4b7c6;
 }
 
 :root {

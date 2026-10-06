@@ -54,13 +54,16 @@ export function CallDetailPage() {
           </>
         }
         breadcrumb={
-          <Link
-            className="touch-target flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
-            to="/history"
-          >
-            <ArrowLeft className="size-3.5" />
-            {t.nav.calls}
-          </Link>
+          <>
+            <Link
+              className="touch-target flex items-center gap-1.5 text-[13px] text-ink-muted hover:text-ink"
+              to="/history"
+            >
+              <ArrowLeft className="size-3.5" />
+              {t.nav.calls}
+            </Link>
+            <span className="font-mono text-[11px] text-ink-dim">/</span>
+          </>
         }
         title={
           <span className="flex min-w-0 items-center gap-3">

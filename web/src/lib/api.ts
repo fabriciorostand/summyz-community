@@ -6,6 +6,7 @@ import {
   accessStatusSchema,
   botInstallationSchema,
   commandReferenceSchema,
+  costDetailSchema,
   dashboardAnalyticsSchema,
   dashboardSettingsSchema,
   dashboardTaskSchema,
@@ -35,6 +36,7 @@ export type {
   AccessStatus,
   BotInstallation,
   CommandReference,
+  CostDetail,
   DashboardAnalytics,
   DashboardSettings,
   DashboardTask,
@@ -162,6 +164,11 @@ export const api = {
   getAccessStatus: () => request("/api/access/status", accessStatusSchema),
   getBotInstallation: () => request("/api/installation/bot", botInstallationSchema),
   getDiscordConnection: () => request("/api/discord/connection", discordConnectionSchema),
+  getCostDetail: (guildId: string, range: { dateFrom: string; dateTo: string }, timeZone: string) =>
+    request(
+      `/api/guilds/${guildId}/costs?${new URLSearchParams({ ...range, timeZone })}`,
+      costDetailSchema,
+    ),
   getDashboard: (guildId: string, period: "30d" | "90d" | "all", timeZone: string) =>
     request(
       `/api/guilds/${guildId}/dashboard?${new URLSearchParams(

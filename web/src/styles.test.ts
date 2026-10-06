@@ -18,6 +18,25 @@ function utility(name: string): string {
 const darkTokens = styles.match(/@theme \{([^}]*)\}/)?.[1] ?? "";
 const lightTokens = styles.match(/:root\[data-theme="light"\] \{([^}]*)\}/)?.[1] ?? "";
 
+describe("chart series palette", () => {
+  // Validated for colour-vision deficiency and 3:1 contrast against each theme's surface, in this
+  // order; the action tokens stay out of charts because action and accent share a hue in light.
+  it.each([
+    ["series-1", "#8b7bff", "#5a3fe0"],
+    ["series-2", "#1e9eac", "#008c9e"],
+    ["series-3", "#d9692f", "#c4561c"],
+    ["series-4", "#c357b0", "#a8389a"],
+    ["series-other", "#4a5068", "#b4b7c6"],
+  ])("sets --color-%s to %s in dark and %s in light", (token, dark, light) => {
+    expect(darkTokens).toContain(`--color-${token}: ${dark};`);
+    expect(lightTokens).toContain(`--color-${token}: ${light};`);
+  });
+
+  it("keeps no single-purpose chart colour beside the series", () => {
+    expect(styles).not.toContain("--color-chart-");
+  });
+});
+
 describe("action palette", () => {
   // Violet-to-blue from the Summyz logo; the light theme uses a darker gradient, like the old
   // blurple mapping, and keeps action and accent on the same hue.
@@ -30,7 +49,6 @@ describe("action palette", () => {
     ["action-to", "#2a41fa", "#1f33d6"],
     ["action-hover-from", "#5c10c2", "#4a0ca0"],
     ["action-hover-to", "#1f33d6", "#1828b0"],
-    ["chart-sky", "#4a99fc", "#3080e0"],
   ])("sets --color-%s to %s in dark and %s in light", (token, dark, light) => {
     expect(darkTokens).toContain(`--color-${token}: ${dark};`);
     expect(lightTokens).toContain(`--color-${token}: ${light};`);

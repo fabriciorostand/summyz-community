@@ -10,6 +10,8 @@ import {
   useState,
 } from "react";
 
+import { Link } from "react-router-dom";
+
 import { useI18n } from "../i18n/store";
 import { initialsOf } from "../lib/format";
 import { Select } from "./select";
@@ -49,7 +51,7 @@ export function Label({ children }: { children: ReactNode }) {
   return <span className="label-mono text-ink-muted">{children}</span>;
 }
 
-const controlClass =
+export const controlClass =
   "w-full rounded-lg border border-line bg-surface-raised px-3 py-2 text-ink outline-none transition-colors placeholder:text-ink-dim focus:border-action disabled:cursor-not-allowed disabled:opacity-50";
 
 const fieldTextClass = "text-base pointer-fine:text-[13.5px]";
@@ -419,28 +421,15 @@ export function DiscordIcon({ className = "size-4" }: { className?: string }) {
   );
 }
 
-/** Reads like a link, behaves like one when there is somewhere to go and stays inert otherwise. */
-export function InlineLink({
-  children,
-  className = "",
-  href,
-}: {
-  children: ReactNode;
-  className?: string;
-  href?: string;
-}) {
-  const base = `inline-flex items-center gap-1 text-[12.5px] ${className}`;
-  if (href === undefined) {
-    return (
-      <span aria-disabled="true" className={`${base} cursor-default text-ink-dim`}>
-        {children}
-      </span>
-    );
-  }
+/** A text link to another dashboard screen, navigated inside the app. */
+export function InlineLink({ children, to }: { children: ReactNode; to: string }) {
   return (
-    <a className={`${base} text-accent hover:text-accent-hover`} href={href}>
+    <Link
+      className="inline-flex items-center gap-1 text-[12.5px] text-accent hover:text-accent-hover"
+      to={to}
+    >
       {children}
-    </a>
+    </Link>
   );
 }
 

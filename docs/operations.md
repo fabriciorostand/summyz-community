@@ -148,7 +148,8 @@ time, and time-zone preferences supplied by the browser; timestamps remain in UT
 Meeting totals count completed pipelines. Talk-time rankings start with manifest v3 recordings:
 word intervals are summed, same-speaker overlaps are merged, and integer rounding distributes
 participation to total 100%. Silent attendees remain visible at 0%. The dashboard also shows
-the current meeting, confirmed costs, unresolved attempts, and open tasks.
+the current meeting, confirmed costs by processing stage, and open tasks; unresolved attempts
+and the provider breakdown are shown only on the cost page.
 
 Tasks are persisted with retained meeting content and preserve the explicitly stated assignee and
 deadline. Valid normalized deadline metadata supports due-date ordering and overdue calculation
@@ -178,6 +179,12 @@ and background attempts can increase the total.
 Results are ephemeral and always scoped to the current Discord server. Date boundaries use
 `SUMMARY_TIME_ZONE`; cost reports preserve exact financial values. Dashboard overview totals use
 rounded display values; stored amounts are unchanged.
+
+The "Details" link on the overview cost card opens the dashboard cost page. It applies the same
+rule as `/recording-cost period`, but uses the browser time zone and opens on the current month.
+It shows the cost of each stage, the split by provider and model with requests and charged
+failures, and the five most expensive meetings in the range. Per-model and per-meeting values are
+exact; the total and the stages are rounded for reading.
 
 
 ## Retention and backups

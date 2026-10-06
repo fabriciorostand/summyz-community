@@ -37,6 +37,13 @@ afterEach(() => {
 });
 
 describe("CallDetailPage", () => {
+  it("returns to the history from the header, separated from the title by a slash", async () => {
+    renderDetail();
+    const back = await screen.findByRole("link", { name: "Calls" });
+    expect(back).toHaveAttribute("href", "/history");
+    expect(back.nextElementSibling).toHaveTextContent(/^\/$/);
+  });
+
   it("shows the channel name and status in the header", async () => {
     renderDetail();
     expect(await screen.findByRole("heading", { name: /Launch Week Sync/ })).toBeInTheDocument();

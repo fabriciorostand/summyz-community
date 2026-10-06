@@ -215,6 +215,52 @@ describe("Community dashboard API", () => {
     expect(dependencies.settings.getSettings).not.toHaveBeenCalled();
     await app.close();
   });
+  it("reads the cost detail for an inclusive calendar range in the browser zone", async () => {
+    const dependencies = createDependencies("local");
+    const analytics = analyticsDependencies();
+    dependencies.analytics = analytics;
+    const app = await createApiServer(dependencies);
+    const query = new URLSearchParams({
+      dateFrom: "2026-09-01",
+      dateTo: "2026-09-30",
+      timeZone: "Europe/Lisbon",
+    });
+
+    const response = await app.inject({ method: "GET", url: `/api/guilds/guild-1/costs?${query}` });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      dateFrom: "2026-09-01",
+      dateTo: "2026-09-30",
+      meetingCount: 0,
+      timeZone: "Europe/Lisbon",
+    });
+    expect(analytics.getCostDetail).toHaveBeenCalledWith("guild-1", {
+      dateFrom: "2026-09-01",
+      dateTo: "2026-09-30",
+      timeZone: "Europe/Lisbon",
+    });
+    await app.close();
+  });
+  it.each([
+    "timeZone=UTC&dateTo=2026-09-30",
+    "timeZone=UTC&dateFrom=2026-09-30&dateTo=2026-09-01",
+    "timeZone=Mars%2FOlympus&dateFrom=2026-09-01&dateTo=2026-09-30",
+  ])("rejects the cost query %s before analytics access", async (search) => {
+    const dependencies = createDependencies("local");
+    const analytics = analyticsDependencies();
+    dependencies.analytics = analytics;
+    const app = await createApiServer(dependencies);
+
+    const response = await app.inject({
+      method: "GET",
+      url: `/api/guilds/guild-1/costs?${search}`,
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(analytics.getCostDetail).not.toHaveBeenCalled();
+    await app.close();
+  });
   it("exports the requested date and clock while preserving summary language and spoken deadlines", async () => {
     const dependencies = createDependencies("local");
     dependencies.analytics = analyticsDependencies();
@@ -448,6 +494,9 @@ describe("Community dashboard API", () => {
     const sensitiveDetail = "private stored transcript";
     dependencies.logger = { ...dependencies.logger, error };
     dependencies.analytics = {
+      getCostDetail: vi.fn(async () => {
+        throw new Error("unused");
+      }),
       getDashboard: vi.fn(async () => {
         throw new Error("unused");
       }),
@@ -1460,13 +1509,23 @@ function analyticsDependencies(): NonNullable<ApiServerDependencies["analytics"]
       async () => ({
         averageDurationMs: 0,
         calls: { current: 0, deltaPercentage: null, previous: null },
-        cost,
+        cost: { confirmed: [], stages: [] },
         openTaskCount: 0,
         period: "90d",
         statusSeries: [],
         topSpeakers: [],
         totalCalls: 0,
         totalDurationMs: 0,
+      }),
+    ),
+    getCostDetail: vi.fn<NonNullable<ApiServerDependencies["analytics"]>["getCostDetail"]>(
+      async () => ({
+        attemptCounts: cost.attemptCounts,
+        confirmed: [],
+        meetingCount: 0,
+        models: [],
+        stages: [],
+        topMeetings: [],
       }),
     ),
     getGuildCallCount: vi.fn(async () => 0),
