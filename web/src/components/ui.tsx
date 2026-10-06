@@ -90,6 +90,7 @@ function LabelledControl({
   children,
   className,
   controlId,
+  help,
   hint,
   hintId,
   label,
@@ -97,15 +98,27 @@ function LabelledControl({
   children: ReactNode;
   className: string;
   controlId: string;
+  help?: ReactNode;
   hint: string | undefined;
   hintId: string;
   label: string;
 }) {
+  const labelElement = (
+    <label htmlFor={controlId}>
+      <Label>{label}</Label>
+    </label>
+  );
   return (
     <div className={`flex flex-col gap-1.5 ${className}`}>
-      <label htmlFor={controlId}>
-        <Label>{label}</Label>
-      </label>
+      {/* The help stays outside the label, so a click on it is not forwarded to the control. */}
+      {help === undefined ? (
+        labelElement
+      ) : (
+        <div className="flex items-center gap-1.5">
+          {labelElement}
+          {help}
+        </div>
+      )}
       {children}
       {hint !== undefined && <Hint id={hintId}>{hint}</Hint>}
     </div>
@@ -113,12 +126,15 @@ function LabelledControl({
 }
 
 export function Field({
+  help,
   hint,
   label,
   className = "",
   trailing,
   ...props
 }: ComponentProps<"input"> & {
+  /** A help tip drawn beside the label. */
+  help?: ReactNode;
   hint?: string;
   label: string;
   /** Small controls drawn inside the box, at its right end. */
@@ -129,6 +145,7 @@ export function Field({
     <LabelledControl
       className={className}
       controlId={controlId}
+      help={help}
       hint={hint}
       hintId={hintId}
       label={label}
