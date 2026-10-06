@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { storedSecretMask } from "../components/secret-field";
 import { setLanguage } from "../i18n/store";
 import { ApiError, api, type DashboardSettings } from "../lib/api";
 import {
@@ -44,7 +45,8 @@ describe("BotPage", () => {
     renderScreen(<BotPage />);
     expect(screen.getByRole("heading", { level: 1, name: "Bot" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Discord application" })).toBeInTheDocument();
-    expect(screen.getByLabelText("Bot token")).toHaveAttribute("placeholder", "Configured");
+    expect(screen.getByLabelText("Bot token")).toHaveValue(storedSecretMask);
+    expect(screen.getByRole("button", { name: "About the Bot token field" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Edit bot token" })).toBeInTheDocument();
   });
 
@@ -102,8 +104,10 @@ describe("BotPage", () => {
     renderScreen(<BotPage />);
     const field = screen.getByLabelText("Token do bot");
     expect(field).toHaveAttribute("readonly");
-    expect(field).toHaveAttribute("placeholder", "Configurado");
+    expect(field).toHaveAttribute("type", "password");
+    expect(field).toHaveValue(storedSecretMask);
     expect(screen.getByRole("button", { name: "Editar token do bot" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Mostrar o valor digitado" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Substituir" })).toBeNull();
     expect(screen.queryByText(/revalida a aplicação/)).toBeNull();
   });
@@ -114,7 +118,8 @@ describe("BotPage", () => {
     const field = screen.getByLabelText("Token do bot");
     expect(field).not.toHaveAttribute("readonly");
     expect(field).toHaveFocus();
-    expect(field).toHaveAttribute("placeholder", "Configurado — digite para substituir");
+    expect(field).toHaveValue("");
+    expect(field).toHaveAttribute("placeholder", "Digite o novo valor para substituir");
     const warning = screen.getByText(/revalida a aplicação/);
     // The warning sits under the field it is about.
     expect(field.compareDocumentPosition(warning)).toBe(Node.DOCUMENT_POSITION_FOLLOWING);
@@ -122,9 +127,41 @@ describe("BotPage", () => {
     await userEvent.type(field, "new-token");
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     expect(field).toHaveAttribute("readonly");
-    expect(field).toHaveValue("");
+    expect(field).toHaveValue(storedSecretMask);
     expect(screen.queryByText(/revalida a aplicação/)).toBeNull();
     expect(api.replaceBotToken).not.toHaveBeenCalled();
+  });
+
+  it("shows the token being typed from the eye", async () => {
+    renderScreen(<BotPage />);
+    await userEvent.click(screen.getByRole("button", { name: "Editar token do bot" }));
+    const field = screen.getByLabelText("Token do bot");
+    await userEvent.type(field, "new-token");
+    await userEvent.click(screen.getByRole("button", { name: "Mostrar o valor digitado" }));
+    expect(field).toHaveAttribute("type", "text");
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(field).toHaveAttribute("type", "password");
+  });
+
+  it.each([
+    ["Application ID", /General Information/],
+    ["Token do bot", /Reset Token/],
+    ["Client Secret", /conta Discord do dono do servidor/],
+    ["URL de redirecionamento", /OAuth2 → Redirects/],
+  ])("explains %s from its help tip", async (field, explanation) => {
+    renderScreen(<BotPage />);
+    await userEvent.hover(
+      within(application()).getByRole("button", { name: `Sobre o campo ${field}` }),
+    );
+    expect(screen.getByRole("tooltip")).toHaveTextContent(explanation);
+  });
+
+  it("keeps the explanations inside the help tips instead of under the fields", () => {
+    renderScreen(<BotPage />);
+    expect(within(application()).getAllByRole("button", { name: /^Sobre o campo/ })).toHaveLength(
+      4,
+    );
+    expect(within(application()).queryByText(/OAuth2 → Redirects/)).toBeNull();
   });
 
   it("replaces the bot token through the dedicated route after confirmation", async () => {
@@ -141,7 +178,7 @@ describe("BotPage", () => {
     await userEvent.click(within(dialog).getByRole("button", { name: "Substituir token" }));
     await waitFor(() => expect(api.replaceBotToken).toHaveBeenCalledWith("new-token"));
     expect(await screen.findByText(/Token salvo/)).toBeInTheDocument();
-    expect(field).toHaveValue("");
+    expect(field).toHaveValue(storedSecretMask);
     expect(field).toHaveAttribute("readonly");
     expect(screen.queryByText(/revalida a aplicação/)).toBeNull();
   });
@@ -234,7 +271,7 @@ describe("BotPage", () => {
     await waitFor(() =>
       expect(api.updateSecret).toHaveBeenCalledWith("discord_client_secret", "client-secret"),
     );
-    await waitFor(() => expect(field).toHaveAttribute("placeholder", "Configurado"));
+    await waitFor(() => expect(field).toHaveValue(storedSecretMask));
     expect(field).toHaveAttribute("readonly");
     expect(
       within(application()).getByRole("button", { name: "Editar Client Secret" }),

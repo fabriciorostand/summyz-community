@@ -120,12 +120,22 @@ export const configurationMessages = {
       botToken: "Token do bot",
       copyApplicationId: "Copiar Application ID",
       editToken: "Editar token do bot",
+      help: {
+        about: (field: string) => `Sobre o campo ${field}`,
+        applicationId:
+          "Identifica a aplicação nas chamadas à API do Discord e no registro dos comandos. Fica em General Information no Developer Portal; o Summyz obtém o ID automaticamente a partir do token.",
+        botToken:
+          "Autoriza as chamadas do bot à API e carrega as permissões da aplicação, por isso é altamente sensível: nunca compartilhe nem guarde em repositório. O Discord só mostra o token uma vez; para gerar outro, use Reset Token na página Bot.",
+        clientSecret:
+          "Credencial OAuth2 da aplicação. Junto com o Client ID, troca o código de autorização pelo acesso à conta do usuário; o Summyz usa isso para conectar a conta Discord do dono do servidor. Fica em OAuth2 no Developer Portal e deve ser tratado como senha.",
+        redirectUri:
+          "Endereço para onde o Discord devolve a pessoa depois da autorização. Cadastre exatamente esta URL em OAuth2 → Redirects; o Discord recusa a conexão se ela não for idêntica à registrada.",
+      },
       oauth: {
         clientSecret: "Client Secret",
         clientSecretFailed: "Não foi possível salvar o Client Secret. Tente novamente.",
         copyRedirectUri: "Copiar URL de redirecionamento",
         editClientSecret: "Editar Client Secret",
-        redirectHint: "Cadastre exatamente esta URL em OAuth2 → Redirects no Developer Portal.",
         redirectUri: "URL de redirecionamento",
         removeClientSecret: "Remover Client Secret",
       },

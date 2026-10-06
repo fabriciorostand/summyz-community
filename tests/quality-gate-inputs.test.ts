@@ -1,8 +1,11 @@
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   aggregateDiffCoverage,
   aggregateRepositoryCoverage,
+  jobReportFiles,
   parseNpmAuditReport,
   parsePipAuditReport,
   parseSarifReport,
@@ -10,6 +13,36 @@ import {
 } from "../scripts/ci/quality-gate-inputs.js";
 
 describe("Quality Gate report inputs", () => {
+  it("ignores the gate's own artifacts that a rerun downloads beside the job reports", () => {
+    const reports = join("work", "artifacts", "reports");
+    const fromTests = join(
+      reports,
+      "ci-tests-coverage",
+      "web",
+      "coverage",
+      "coverage-summary.json",
+    );
+    const fromQuality = join(reports, "ci-quality", "quality", "biome.json");
+    const files = [
+      fromTests,
+      fromQuality,
+      join(
+        reports,
+        "ci-quality-gate",
+        "artifacts",
+        "reports",
+        "ci-tests-coverage",
+        "web",
+        "coverage",
+        "coverage-summary.json",
+      ),
+      join(reports, "ci-quality-gate", "ci-summary.md"),
+      join(reports, "ci-quality-gate-baseline", "quality-gate-baseline.json"),
+    ];
+
+    expect(jobReportFiles(files, reports)).toEqual([fromTests, fromQuality]);
+  });
+
   it("does not report perfect coverage when coverage evidence is missing", () => {
     expect(aggregateDiffCoverage([])).toEqual({
       available: false,

@@ -3,7 +3,7 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { api } from "../lib/api";
-import { SecretField } from "./secret-field";
+import { SecretField, storedSecretMask } from "./secret-field";
 
 vi.mock("../lib/api", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../lib/api")>()),
@@ -39,7 +39,10 @@ describe("SecretField", () => {
     renderField(true);
     const field = screen.getByLabelText("Chave OpenRouter");
     expect(field).toHaveAttribute("readonly");
-    expect(field).toHaveAttribute("placeholder", "Configurado");
+    expect(field).toHaveAttribute("type", "password");
+    expect(field).toHaveValue(storedSecretMask);
+    expect(field).not.toHaveAttribute("placeholder");
+    expect(screen.queryByRole("button", { name: "Mostrar o valor digitado" })).toBeNull();
     expect(screen.getByRole("button", { name: "Editar chave OpenRouter" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Atualizar" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Cancelar" })).toBeNull();
@@ -62,7 +65,8 @@ describe("SecretField", () => {
     const field = screen.getByLabelText("Chave OpenRouter");
     expect(field).not.toHaveAttribute("readonly");
     expect(field).toHaveFocus();
-    expect(field).toHaveAttribute("placeholder", "Configurado — digite para substituir");
+    expect(field).toHaveValue("");
+    expect(field).toHaveAttribute("placeholder", "Digite o novo valor para substituir");
     expect(screen.queryByRole("button", { name: "Editar chave OpenRouter" })).toBeNull();
     expect(screen.getByRole("button", { name: "Atualizar" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Cancelar" })).toBeEnabled();
@@ -81,7 +85,7 @@ describe("SecretField", () => {
     await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
     const field = screen.getByLabelText("Chave OpenRouter");
     expect(field).toHaveAttribute("readonly");
-    expect(field).toHaveValue("");
+    expect(field).toHaveValue(storedSecretMask);
     expect(api.updateSecret).not.toHaveBeenCalled();
   });
 
@@ -95,7 +99,7 @@ describe("SecretField", () => {
     );
     expect(onChange).toHaveBeenCalledWith(true);
     expect(screen.getByLabelText("Chave OpenRouter")).toHaveAttribute("readonly");
-    expect(screen.getByLabelText("Chave OpenRouter")).toHaveValue("");
+    expect(screen.getByLabelText("Chave OpenRouter")).toHaveValue(storedSecretMask);
   });
 
   it("stays open with the error when saving fails", async () => {
@@ -107,6 +111,46 @@ describe("SecretField", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Não foi possível salvar a chave.");
     expect(screen.getByLabelText("Chave OpenRouter")).not.toHaveAttribute("readonly");
     expect(screen.getByLabelText("Chave OpenRouter")).toHaveValue("sk-or-1");
+  });
+
+  it("shows and hides the typed value from the eye inside the field box", async () => {
+    renderField(false);
+    const field = screen.getByLabelText("Chave OpenRouter");
+    await userEvent.type(field, "sk-or-1");
+    const eye = screen.getByRole("button", { name: "Mostrar o valor digitado" });
+    expect(field.parentElement).toContainElement(eye);
+    expect(eye).toHaveAttribute("aria-pressed", "false");
+    expect(field).toHaveAttribute("type", "password");
+    await userEvent.click(eye);
+    expect(eye).toHaveAttribute("aria-pressed", "true");
+    expect(field).toHaveAttribute("type", "text");
+    expect(field).toHaveValue("sk-or-1");
+    await userEvent.click(eye);
+    expect(field).toHaveAttribute("type", "password");
+  });
+
+  it("hides the typed value again once the field locks", async () => {
+    renderField(true);
+    await userEvent.click(screen.getByRole("button", { name: "Editar chave OpenRouter" }));
+    await userEvent.type(screen.getByLabelText("Chave OpenRouter"), "sk-or-1");
+    await userEvent.click(screen.getByRole("button", { name: "Mostrar o valor digitado" }));
+    await userEvent.click(screen.getByRole("button", { name: "Cancelar" }));
+    expect(screen.getByLabelText("Chave OpenRouter")).toHaveAttribute("type", "password");
+    expect(screen.queryByRole("button", { name: "Mostrar o valor digitado" })).toBeNull();
+    await userEvent.click(screen.getByRole("button", { name: "Editar chave OpenRouter" }));
+    expect(screen.getByLabelText("Chave OpenRouter")).toHaveAttribute("type", "password");
+    expect(screen.getByRole("button", { name: "Mostrar o valor digitado" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+  });
+
+  it("never sends the mask of a stored secret as its value", async () => {
+    renderField(true);
+    await userEvent.click(screen.getByRole("button", { name: "Editar chave OpenRouter" }));
+    expect(screen.getByLabelText("Chave OpenRouter")).toHaveValue("");
+    expect(screen.getByRole("button", { name: "Atualizar" })).toBeDisabled();
+    expect(api.updateSecret).not.toHaveBeenCalled();
   });
 
   it("starts open when nothing is stored yet, with nothing to cancel or remove", () => {

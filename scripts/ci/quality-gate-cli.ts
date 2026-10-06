@@ -14,6 +14,7 @@ import {
 import {
   aggregateDiffCoverage,
   aggregateRepositoryCoverage,
+  jobReportFiles,
   parseNpmAuditReport,
   parsePipAuditReport,
   parseSarifReport,
@@ -179,7 +180,7 @@ const main = async (): Promise<void> => {
     outputArgument = "ci-summary.md",
   ] = process.argv.slice(2);
   const reportsDirectory = resolve(reportsArgument);
-  const files = await listFiles(reportsDirectory);
+  const files = jobReportFiles(await listFiles(reportsDirectory), reportsDirectory);
   const baseline = await loadBaseline(resolve(baselineArgument));
 
   const coverageReports = await allJson(

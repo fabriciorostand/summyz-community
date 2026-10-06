@@ -64,9 +64,9 @@ export const commonMessages: typeof portuguese = {
     tasks: "Tasks",
   },
   secretField: {
-    configured: "Configured",
-    configuredReplace: "Configured — type to replace",
     notConfigured: "Not configured yet",
+    reveal: "Show the typed value",
+    typeToReplace: "Type a new value to replace it",
     update: "Update",
   },
   ownerAccount: {

@@ -1,9 +1,15 @@
-import { Pencil, Trash2 } from "lucide-react";
+import { Eye, EyeOff, Pencil, Trash2 } from "lucide-react";
 import { type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
 import { useI18n } from "../i18n/store";
 import { api, type InstallationSecret } from "../lib/api";
 import { Button, Field, FormError } from "./ui";
+
+/**
+ * What a locked field holds in place of a stored secret, which the server never sends back. The
+ * field stays a read-only password input while it shows, so it only ever renders as dots.
+ */
+export const storedSecretMask = "storedsecretmask";
 
 /** An icon action drawn inside a field box, such as the pencil or the trash. */
 function FieldIconButton({
@@ -11,15 +17,19 @@ function FieldIconButton({
   disabled = false,
   label,
   onClick,
+  pressed,
 }: {
   children: ReactNode;
   disabled?: boolean;
   label: string;
   onClick: () => void;
+  /** Set for a toggle, such as the eye. */
+  pressed?: boolean;
 }) {
   return (
     <button
       aria-label={label}
+      aria-pressed={pressed}
       className="touch-target grid size-6 place-items-center rounded text-ink-dim transition-colors enabled:hover:bg-surface-inset enabled:hover:text-ink disabled:cursor-not-allowed disabled:opacity-40"
       disabled={disabled}
       onClick={onClick}
@@ -40,22 +50,59 @@ export function EditSecretButton({ label, onClick }: { label: string; onClick: (
   );
 }
 
+/** The eye inside an open secret field; it shows or hides what is being typed. */
+export function RevealSecretButton({
+  onToggle,
+  revealed,
+}: {
+  onToggle: () => void;
+  revealed: boolean;
+}) {
+  const { t } = useI18n();
+  return (
+    <FieldIconButton label={t.secretField.reveal} onClick={onToggle} pressed={revealed}>
+      {revealed ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
+    </FieldIconButton>
+  );
+}
+
 /**
  * A stored secret is never sent back, so its field stays read-only until the pencil opens it.
- * Returns whether the field is open and moves the focus into it when the pencil does.
+ * Returns whether the field is open, moves the focus into it when the pencil does, and holds the
+ * eye's state, which every lock or unlock hides again.
  */
 export function useSecretEditing(configured: boolean): {
   editing: boolean;
+  inputProps: { readOnly: boolean; type: "password" | "text"; value?: string };
   inputRef: RefObject<HTMLInputElement | null>;
   locked: boolean;
+  revealed: boolean;
   setEditing: (editing: boolean) => void;
+  toggleRevealed: () => void;
 } {
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditingState] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   useEffect(() => {
     if (editing) inputRef.current?.focus();
   }, [editing]);
-  return { editing, inputRef, locked: configured && !editing, setEditing };
+  const locked = configured && !editing;
+  function setEditing(next: boolean) {
+    setEditingState(next);
+    setRevealed(false);
+  }
+  return {
+    editing,
+    // A locked field is always a password input, so the mask can never be revealed.
+    inputProps: locked
+      ? { readOnly: true, type: "password", value: storedSecretMask }
+      : { readOnly: false, type: revealed ? "text" : "password" },
+    inputRef,
+    locked,
+    revealed,
+    setEditing,
+    toggleRevealed: () => setRevealed((current) => !current),
+  };
 }
 
 /**
@@ -92,21 +139,22 @@ export function SecretEditActions({
   );
 }
 
-/** Placeholder for a write-only field: locked, open over a stored value, or still empty. */
-export function useSecretPlaceholder(configured: boolean, locked: boolean): string {
+/** Placeholder for an open write-only field; a locked one shows the mask instead. */
+export function useSecretPlaceholder(configured: boolean, locked: boolean): string | undefined {
   const { secretField } = useI18n().t;
-  if (locked) return secretField.configured;
-  return configured ? secretField.configuredReplace : secretField.notConfigured;
+  if (locked) return undefined;
+  return configured ? secretField.typeToReplace : secretField.notConfigured;
 }
 
 /**
- * Write-only field for an installation secret: the value never comes back from the server, so
- * the placeholder only says whether one is stored. An empty secret starts open for typing.
+ * Write-only field for an installation secret: the value never comes back from the server, so a
+ * stored one shows as dots. An empty secret starts open for typing.
  */
 export function SecretField({
   configured,
   editLabel,
   failedMessage,
+  help,
   label,
   name,
   onChange,
@@ -115,13 +163,16 @@ export function SecretField({
   configured: boolean;
   editLabel: string;
   failedMessage: string;
+  /** A help tip drawn beside the label. */
+  help?: ReactNode;
   label: string;
   name: InstallationSecret;
   onChange: (configured: boolean) => void;
   removeLabel: string;
 }) {
   const { t } = useI18n();
-  const { editing, inputRef, locked, setEditing } = useSecretEditing(configured);
+  const { editing, inputProps, inputRef, locked, revealed, setEditing, toggleRevealed } =
+    useSecretEditing(configured);
   const placeholder = useSecretPlaceholder(configured, locked);
   const [value, setValue] = useState("");
   const [busy, setBusy] = useState(false);
@@ -155,14 +206,20 @@ export function SecretField({
         <Field
           autoComplete="off"
           className="min-w-48 flex-1"
+          help={help}
           label={label}
           onChange={(event) => setValue(event.currentTarget.value)}
           placeholder={placeholder}
-          readOnly={locked}
           ref={inputRef}
+          value={value}
+          {...inputProps}
           trailing={
             <>
-              {locked && <EditSecretButton label={editLabel} onClick={() => setEditing(true)} />}
+              {locked ? (
+                <EditSecretButton label={editLabel} onClick={() => setEditing(true)} />
+              ) : (
+                <RevealSecretButton onToggle={toggleRevealed} revealed={revealed} />
+              )}
               <FieldIconButton
                 disabled={busy || !configured}
                 label={removeLabel}
@@ -172,8 +229,6 @@ export function SecretField({
               </FieldIconButton>
             </>
           }
-          type="password"
-          value={value}
         />
         {!locked && (
           <SecretEditActions

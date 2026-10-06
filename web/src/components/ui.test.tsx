@@ -89,6 +89,15 @@ describe("Field", () => {
     render(<Field label="E-mail" />);
     expect(screen.getByLabelText("E-mail")).toBeInTheDocument();
   });
+
+  it("draws the help beside the label, outside it so the label keeps its name", () => {
+    render(<Field help={<button type="button">?</button>} label="Token" />);
+    const help = screen.getByRole("button", { name: "?" });
+    const label = screen.getByText("Token").closest("label");
+    expect(label).not.toContainElement(help);
+    expect(label?.parentElement).toContainElement(help);
+    expect(screen.getByLabelText("Token")).toBeInTheDocument();
+  });
 });
 
 describe("SelectField", () => {

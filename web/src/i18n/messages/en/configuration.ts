@@ -120,12 +120,22 @@ export const configurationMessages: typeof portuguese = {
       botToken: "Bot token",
       copyApplicationId: "Copy Application ID",
       editToken: "Edit bot token",
+      help: {
+        about: (field: string) => `About the ${field} field`,
+        applicationId:
+          "Identifies the application in Discord API calls and when registering commands. It is under General Information in the Developer Portal; Summyz reads the ID from the token automatically.",
+        botToken:
+          "Authorizes the bot's API calls and carries the application's permissions, so it is highly sensitive: never share it or keep it in a repository. Discord shows the token only once; to get another one, use Reset Token on the Bot page.",
+        clientSecret:
+          "The application's OAuth2 credential. Together with the Client ID, it exchanges the authorization code for access to the user's account; Summyz uses it to connect the server owner's Discord account. It is under OAuth2 in the Developer Portal and should be treated like a password.",
+        redirectUri:
+          "Where Discord sends the person back after authorizing. Register exactly this URL under OAuth2 → Redirects; Discord refuses the connection when it does not match the registered one.",
+      },
       oauth: {
         clientSecret: "Client Secret",
         clientSecretFailed: "Unable to save the Client Secret. Try again.",
         copyRedirectUri: "Copy redirect URL",
         editClientSecret: "Edit Client Secret",
-        redirectHint: "Register exactly this URL under OAuth2 → Redirects in the Developer Portal.",
         redirectUri: "Redirect URL",
         removeClientSecret: "Remove Client Secret",
       },

@@ -63,9 +63,9 @@ export const commonMessages = {
     tasks: "Tarefas",
   },
   secretField: {
-    configured: "Configurado",
-    configuredReplace: "Configurado — digite para substituir",
     notConfigured: "Ainda não configurado",
+    reveal: "Mostrar o valor digitado",
+    typeToReplace: "Digite o novo valor para substituir",
     update: "Atualizar",
   },
   ownerAccount: {

@@ -1,10 +1,11 @@
 import { Check, TriangleAlert } from "lucide-react";
-import { useId, useState } from "react";
+import { type ReactNode, useId, useState } from "react";
 
 import { ConfirmDialog } from "../../components/confirm-dialog";
 import { CopyableValue } from "../../components/copyable-value";
 import {
   EditSecretButton,
+  RevealSecretButton,
   SecretEditActions,
   SecretField,
   useSecretEditing,
@@ -15,6 +16,7 @@ import {
   DiscordIcon,
   Field,
   FormError,
+  HelpTip,
   Label,
   Notice,
   SectionHeading,
@@ -31,6 +33,22 @@ type TokenOutcome =
   | "failed";
 
 const refusals = ["invalid_discord_bot_token", "active_recording", "pending_meetings"] as const;
+
+/** The "?" beside a field label, explaining what Discord says the field is for. */
+function FieldHelp({ children, field }: { children: string; field: string }) {
+  const { help } = useI18n().t.bot.application;
+  return <HelpTip label={help.about(field)}>{children}</HelpTip>;
+}
+
+/** A label above a read-only value, with its help tip beside it. */
+function LabelWithHelp({ children, help }: { children: string; help: ReactNode }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Label>{children}</Label>
+      {help}
+    </div>
+  );
+}
 
 function outcomeOfFailure(caught: unknown): TokenOutcome {
   const code = caught instanceof ApiError ? caught.code : undefined;
@@ -66,7 +84,11 @@ export function DiscordApplicationCard({
       />
       <div className="flex flex-col gap-3">
         <div className="flex flex-col gap-1.5">
-          <Label>Application ID</Label>
+          <LabelWithHelp
+            help={<FieldHelp field="Application ID">{messages.help.applicationId}</FieldHelp>}
+          >
+            Application ID
+          </LabelWithHelp>
           {applicationId === null ? (
             <span className="rounded-lg border border-line bg-surface-raised px-3 py-2 font-mono text-[12.5px] text-ink-dim">
               {t.secretField.notConfigured}
@@ -84,15 +106,23 @@ export function DiscordApplicationCard({
           configured={clientSecretConfigured}
           editLabel={messages.oauth.editClientSecret}
           failedMessage={messages.oauth.clientSecretFailed}
+          help={
+            <FieldHelp field={messages.oauth.clientSecret}>{messages.help.clientSecret}</FieldHelp>
+          }
           label={messages.oauth.clientSecret}
           name="discord_client_secret"
           onChange={onClientSecretChange}
           removeLabel={messages.oauth.removeClientSecret}
         />
         <div className="flex flex-col gap-1.5">
-          <Label>{messages.oauth.redirectUri}</Label>
+          <LabelWithHelp
+            help={
+              <FieldHelp field={messages.oauth.redirectUri}>{messages.help.redirectUri}</FieldHelp>
+            }
+          >
+            {messages.oauth.redirectUri}
+          </LabelWithHelp>
           <CopyableValue copyLabel={messages.oauth.copyRedirectUri} value={redirectUri} />
-          <span className="text-[11.5px] text-ink-muted">{messages.oauth.redirectHint}</span>
         </div>
       </div>
     </Card>
@@ -113,7 +143,8 @@ function BotTokenField({
   onReplaced: () => Promise<DashboardSettings | undefined>;
 }) {
   const messages = useI18n().t.bot.application;
-  const { editing, inputRef, locked, setEditing } = useSecretEditing(configured);
+  const { editing, inputProps, inputRef, locked, revealed, setEditing, toggleRevealed } =
+    useSecretEditing(configured);
   const placeholder = useSecretPlaceholder(configured, locked);
   const [token, setToken] = useState("");
   const [confirming, setConfirming] = useState(false);
@@ -152,14 +183,16 @@ function BotTokenField({
         <Field
           autoComplete="off"
           className="min-w-48 flex-1"
+          help={<FieldHelp field={messages.botToken}>{messages.help.botToken}</FieldHelp>}
           label={messages.botToken}
           onChange={(event) => {
             setToken(event.currentTarget.value);
             setOutcome(undefined);
           }}
           placeholder={placeholder}
-          readOnly={locked}
           ref={inputRef}
+          value={token}
+          {...inputProps}
           trailing={
             locked ? (
               <EditSecretButton
@@ -169,10 +202,10 @@ function BotTokenField({
                   setEditing(true);
                 }}
               />
-            ) : undefined
+            ) : (
+              <RevealSecretButton onToggle={toggleRevealed} revealed={revealed} />
+            )
           }
-          type="password"
-          value={token}
         />
         {!locked && (
           <SecretEditActions

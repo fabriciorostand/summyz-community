@@ -1,6 +1,7 @@
 import { screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { storedSecretMask } from "../components/secret-field";
 import { setLanguage } from "../i18n/store";
 import { ApiError, api, type DashboardSettings, type InstallationHealth } from "../lib/api";
 import {
@@ -71,7 +72,7 @@ describe("InstallationPage", () => {
       context: dashboardContext({ settings: aSettings({ accessMode: "public" }) }),
     });
     expect(screen.getByRole("heading", { level: 1, name: "Installation" })).toBeInTheDocument();
-    expect(screen.getByLabelText("OpenRouter key")).toHaveAttribute("placeholder", "Configured");
+    expect(screen.getByLabelText("OpenRouter key")).toHaveValue(storedSecretMask);
     expect(screen.getByRole("button", { name: "Edit OpenRouter key" })).toBeInTheDocument();
     expect(screen.getByRole("region", { name: "Dashboard access" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Change password" })).toBeInTheDocument();
@@ -89,6 +90,7 @@ describe("InstallationPage", () => {
     expect(within(access).queryByText(/Definido pelo script usado/)).not.toBeInTheDocument();
     expect(within(access).queryByText(/Para publicar: defina o domínio/)).not.toBeInTheDocument();
     expect(screen.queryByText(/O backend descobre o ID/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Sobre o campo/ })).toBeNull();
   });
 
   it("leaves the Discord application and owner account to their own screen", () => {
@@ -126,9 +128,8 @@ describe("InstallationPage", () => {
     await waitFor(() =>
       expect(api.updateSecret).toHaveBeenCalledWith("openrouter_api_key", "sk-or-1"),
     );
-    await waitFor(() => expect(field).toHaveAttribute("placeholder", "Configurado"));
+    await waitFor(() => expect(field).toHaveValue(storedSecretMask));
     expect(field).toHaveAttribute("readonly");
-    expect(field).toHaveValue("");
     await userEvent.click(screen.getByRole("button", { name: "Remover chave OpenRouter" }));
     await waitFor(() => expect(api.removeSecret).toHaveBeenCalledWith("openrouter_api_key"));
     await waitFor(() => expect(field).toHaveAttribute("placeholder", "Ainda não configurado"));
@@ -154,10 +155,7 @@ describe("InstallationPage", () => {
       serverSettings,
     });
     await waitFor(() =>
-      expect(screen.getByLabelText("Chave OpenRouter")).toHaveAttribute(
-        "placeholder",
-        "Configurado",
-      ),
+      expect(screen.getByLabelText("Chave OpenRouter")).toHaveValue(storedSecretMask),
     );
     expect(serverSettings).toHaveBeenCalledTimes(1);
   });
@@ -177,7 +175,7 @@ describe("InstallationPage", () => {
     expect(field).toHaveAttribute("placeholder", "Ainda não configurado");
     await userEvent.type(field, "sk-or-1");
     await userEvent.click(within(providers).getByRole("button", { name: "Atualizar" }));
-    await waitFor(() => expect(field).toHaveAttribute("placeholder", "Configurado"));
+    await waitFor(() => expect(field).toHaveValue(storedSecretMask));
     await waitFor(() => expect(serverSettings).toHaveBeenCalledTimes(2));
     expect(screen.queryByRole("alert")).toBeNull();
     expect(screen.getByRole("button", { name: "Remover chave OpenRouter" })).toBeEnabled();
