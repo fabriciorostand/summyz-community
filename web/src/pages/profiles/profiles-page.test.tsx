@@ -213,7 +213,13 @@ async function chooseProfile(name: string) {
 async function editName(text: string, { replace = false } = {}) {
   await userEvent.click(await screen.findByRole("button", { name: "Editar nome do perfil" }));
   const name = screen.getByLabelText("Nome do perfil");
-  if (replace) await userEvent.clear(name);
+  if (replace) {
+    // A whole new name is pasted: typing it re-renders the page on every key, which is slow
+    // enough under coverage to time the test out.
+    await userEvent.clear(name);
+    await userEvent.paste(text);
+    return;
+  }
   await userEvent.type(name, text);
 }
 
