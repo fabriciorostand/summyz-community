@@ -159,7 +159,6 @@ export const meetingsMessages: typeof portuguese = {
     summaryLanguage: "Summary language",
     title: "Call details",
     transcript: "Transcript",
-    transcriptStats: (turns: string, words: string) => `${turns} turns · ${words} words`,
     unavailableBody: "Unable to load the details of this meeting.",
     unavailableTitle: "Call unavailable",
     yes: "yes",

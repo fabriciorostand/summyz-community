@@ -30,14 +30,3 @@ export function parseTranscript(transcript: string): TranscriptTurn[] {
   }
   return turns;
 }
-
-export function transcriptStats(turns: readonly TranscriptTurn[]): {
-  turns: number;
-  words: number;
-} {
-  const words = turns.reduce(
-    (total, turn) => total + turn.text.split(/\s+/u).filter((word) => word.length > 0).length,
-    0,
-  );
-  return { turns: turns.length, words };
-}

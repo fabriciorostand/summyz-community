@@ -68,11 +68,11 @@ describe("CallDetailPage", () => {
     expect(screen.getByText("O co-op dessincroniza no nível 3.")).toBeInTheDocument();
   });
 
-  it("counts the turns and words of the transcript", async () => {
+  it("titles the transcript disclosure without turn and word counts", async () => {
     renderDetail();
     expect(
       await screen.findByRole("button", { name: /Transcrição completa/ }),
-    ).toHaveAccessibleName(expect.stringContaining("2 falas · 11 palavras"));
+    ).toHaveAccessibleName("Transcrição completa");
   });
 
   it("falls back to raw text when the transcript has no headers", async () => {

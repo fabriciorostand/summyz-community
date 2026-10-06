@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parseTranscript, transcriptStats } from "./transcript";
+import { parseTranscript } from "./transcript";
 
 const sample = [
   "[00:00:04 – 00:00:19] PixelPaladin: Build está verde na main.",
@@ -46,15 +46,5 @@ describe("parseTranscript", () => {
 
   it("returns no turns when no line matches the expected shape", () => {
     expect(parseTranscript("texto solto sem cabeçalho")).toEqual([]);
-  });
-});
-
-describe("transcriptStats", () => {
-  it("counts turns and words", () => {
-    expect(transcriptStats(parseTranscript(sample))).toEqual({ turns: 2, words: 11 });
-  });
-
-  it("counts nothing for an empty list", () => {
-    expect(transcriptStats([])).toEqual({ turns: 0, words: 0 });
   });
 });
