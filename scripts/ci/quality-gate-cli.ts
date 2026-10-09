@@ -2,6 +2,7 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { z } from "zod";
+import { cognitiveReportSchema } from "./cognitive-complexity.js";
 import { loadMainComparison, loadMainComparisonFiles } from "./main-comparison.js";
 import {
   type Diagnostic,
@@ -33,6 +34,7 @@ const duplicateLocationSchema = z.object({
   start: z.number().int().positive(),
 });
 const sourceQualitySchema = z.object({
+  cognitiveComplexity: cognitiveReportSchema.optional().catch(undefined),
   changedOversizedModuleCount: z.number().int().nonnegative(),
   complexityFindings: z.array(
     z.object({
@@ -220,6 +222,9 @@ const main = async (): Promise<void> => {
   const security = await parseSecurityReports(files);
 
   const metrics: GateMetrics = {
+    ...(source.cognitiveComplexity
+      ? { newCognitiveComplexity: source.cognitiveComplexity.newCode }
+      : {}),
     ...(baseline
       ? {
           baseSecurityFingerprints: baseline.securityFingerprints,

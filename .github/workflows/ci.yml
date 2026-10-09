@@ -125,12 +125,15 @@ jobs:
           lizard -l typescript -l python -C 10 -i -1 \
             -x "*test*" -x "*spec*" --xml -o artifacts/reports/quality/lizard.xml \
             src web/src services/faster-whisper
+          ./node_modules/.bin/tsx scripts/ci/collect-cognitive-complexity-cli.ts || echo "Cognitive metrics unavailable."
           ./node_modules/.bin/tsx scripts/ci/source-quality-cli.ts \
             artifacts/reports/quality/source.diff \
             artifacts/reports/quality/jscpd/jscpd-report.json \
             artifacts/reports/quality/lizard.csv \
             artifacts/reports/quality/lizard.xml \
-            artifacts/reports/quality/source-quality.json
+            artifacts/reports/quality/source-quality.json \
+            artifacts/reports/quality/biome-cognitive.sarif \
+            artifacts/reports/quality/complexipy-cognitive.sarif
 
       - name: Enforce quality checks
         if: always()
@@ -946,10 +949,13 @@ jobs:
             --csv -o artifacts/reports/quality/lizard.csv src web/src services/faster-whisper
           lizard -l typescript -l python -C 10 -i -1 -x "*test*" -x "*spec*" \
             --xml -o artifacts/reports/quality/lizard.xml src web/src services/faster-whisper
+          ../node_modules/.bin/tsx ../scripts/ci/collect-cognitive-complexity-cli.ts || echo "Cognitive metrics unavailable."
           ../node_modules/.bin/tsx ../scripts/ci/source-quality-cli.ts \
             artifacts/reports/quality/source.diff artifacts/reports/quality/jscpd/jscpd-report.json \
             artifacts/reports/quality/lizard.csv artifacts/reports/quality/lizard.xml \
-            artifacts/reports/quality/source-quality.json
+            artifacts/reports/quality/source-quality.json \
+            artifacts/reports/quality/biome-cognitive.sarif \
+            artifacts/reports/quality/complexipy-cognitive.sarif
 
       - name: Set up Buildx for main measurements
         id: main_buildx

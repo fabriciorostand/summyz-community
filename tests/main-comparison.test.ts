@@ -13,6 +13,10 @@ const reports = () => ({
   "quality/ruff.sarif": sarif,
   "quality/complexipy.sarif": sarif,
   "quality/source-quality.json": {
+    cognitiveComplexity: {
+      repository: { maximum: 12, exact: true },
+      newCode: { maximum: 0, exact: true },
+    },
     modules: [{ sloc: 501 }, { sloc: 12 }],
     repositoryDuplication: 1.25,
     repositoryMaxComplexity: 7,
@@ -29,6 +33,19 @@ const reports = () => ({
 });
 
 describe("live main comparison", () => {
+  it("keeps the available main maximum without requiring new-code measurement metadata", () => {
+    const input = {
+      ...reports(),
+      "quality/source-quality.json": {
+        ...reports()["quality/source-quality.json"],
+        cognitiveComplexity: { repository: { maximum: 15, exact: true } },
+      },
+    };
+    expect(analyzeMainReports(sha, {}, input).cognitiveComplexity).toEqual({
+      maximum: 15,
+      exact: true,
+    });
+  });
   it("computes metrics from the captured main rather than a historical baseline", () => {
     expect(analyzeMainReports(sha, {}, reports())).toMatchObject({
       commitSha: sha,
@@ -38,7 +55,7 @@ describe("live main comparison", () => {
       coverage: 90,
       duplication: 1.25,
       cyclomaticComplexity: 7,
-      cognitiveComplexity: 0,
+      cognitiveComplexity: { maximum: 12, exact: true },
       oversizedModuleCount: 1,
       moduleCount: 2,
     });
@@ -63,7 +80,7 @@ describe("live main comparison", () => {
     const result = analyzeMainReports(sha, {}, partial);
     expect(result).toMatchObject({ state: "failed", duplication: 1.25, cyclomaticComplexity: 7 });
     expect(result.issueCount).toBeUndefined();
-    expect(result.cognitiveComplexity).toBe(0);
+    expect(result.cognitiveComplexity).toEqual({ maximum: 12, exact: true });
     expect(result.coverage).toBeUndefined();
     expect(result.securityCount).toBeUndefined();
     expect(JSON.stringify(result)).not.toContain("must-never-appear");
@@ -104,28 +121,60 @@ describe("live main comparison", () => {
   it("reads cognitive complexity without requiring the unrelated Ruff report", () => {
     const input: Record<string, unknown> = reports();
     delete input["quality/ruff.sarif"];
-    input["quality/complexipy.sarif"] = {
-      runs: [
-        {
-          results: [
-            {
-              ruleId: "CC001",
-              message: { text: "Function has a cognitive complexity of 21." },
-            },
-          ],
-        },
-      ],
+    input["quality/source-quality.json"] = {
+      ...reports()["quality/source-quality.json"],
+      cognitiveComplexity: {
+        repository: { maximum: 21, exact: true },
+        newCode: { maximum: 0, exact: true },
+      },
     };
     const result = analyzeMainReports(sha, {}, input);
     expect(result.issueCount).toBeUndefined();
-    expect(result.cognitiveComplexity).toBe(21);
+    expect(result.cognitiveComplexity).toEqual({ maximum: 21, exact: true });
   });
 
   it("does not invent cognitive measurements when a cognitive scanner is missing", () => {
     const input: Record<string, unknown> = reports();
-    delete input["quality/biome.sarif"];
+    input["quality/source-quality.json"] = {
+      ...reports()["quality/source-quality.json"],
+      cognitiveComplexity: undefined,
+    };
     expect(analyzeMainReports(sha, {}, input).cognitiveComplexity).toBeUndefined();
     expect(analyzeMainReports(sha, {}, {}).moduleCount).toBeUndefined();
+  });
+
+  it("retains the upper bound and rejects invalid cognitive measurements", () => {
+    const source = reports()["quality/source-quality.json"];
+    const input = {
+      ...reports(),
+      "quality/source-quality.json": {
+        ...source,
+        cognitiveComplexity: {
+          repository: { maximum: 1, exact: false },
+          newCode: { maximum: 0, exact: true },
+        },
+      },
+    };
+    expect(analyzeMainReports(sha, {}, input).cognitiveComplexity).toEqual({
+      maximum: 1,
+      exact: false,
+    });
+    expect(
+      analyzeMainReports(
+        sha,
+        {},
+        {
+          ...input,
+          "quality/source-quality.json": {
+            ...source,
+            cognitiveComplexity: {
+              repository: { maximum: 12, exact: false },
+              newCode: { maximum: 0, exact: true },
+            },
+          },
+        },
+      ).cognitiveComplexity,
+    ).toBeUndefined();
   });
 
   it("reports unavailable or skipped step metadata without exposing arbitrary values", () => {

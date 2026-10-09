@@ -5,6 +5,16 @@ import { describe, expect, it } from "vitest";
 const root = new URL("../", import.meta.url);
 
 describe("continuous integration contract", () => {
+  it("collects cognitive presentation metrics independently for both PR and captured main", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    expect(
+      workflow.match(/tsx (?:\.\.\/)?scripts\/ci\/collect-cognitive-complexity-cli\.ts/gu),
+    ).toHaveLength(2);
+    expect(workflow.match(/biome-cognitive\.sarif/gu)).toHaveLength(2);
+    expect(workflow.match(/complexipy-cognitive\.sarif/gu)).toHaveLength(2);
+    expect(workflow.match(/collect-cognitive-complexity-cli\.ts \|\| echo/gu)).toHaveLength(2);
+    expect(workflow.match(/--max-complexity-allowed 15/gu)).toHaveLength(2);
+  });
   it("captures live main during each analysis attempt and keeps comparison failures informational", async () => {
     const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const analysis = workflow.slice(

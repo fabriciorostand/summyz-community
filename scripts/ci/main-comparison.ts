@@ -2,9 +2,9 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { z } from "zod";
+import { type CognitiveMeasurement, cognitiveMeasurementSchema } from "./cognitive-complexity.js";
 
 import {
-  cognitiveComplexities,
   DEFAULT_GATE_CONFIG,
   isActionableSecurityFinding,
   securityFindingFingerprint,
@@ -26,7 +26,7 @@ export interface MainComparison {
   readonly coverage?: number;
   readonly duplication?: number;
   readonly cyclomaticComplexity?: number;
-  readonly cognitiveComplexity?: number;
+  readonly cognitiveComplexity?: CognitiveMeasurement;
   readonly oversizedModuleCount?: number;
   readonly moduleCount?: number;
 }
@@ -141,9 +141,6 @@ const qualityMetrics = (
   );
   return {
     ...(parsed.every((report) => report !== undefined) ? { issueCount: issues.length } : {}),
-    ...(parsed[0] !== undefined && parsed[2] !== undefined
-      ? { cognitiveComplexity: Math.max(0, ...cognitiveComplexities(issues)) }
-      : {}),
   };
 };
 
@@ -197,7 +194,14 @@ const sourceMetrics = (
   );
   const complexity = validatedReport(source, "repositoryMaxComplexity", count, failures);
   const modules = validatedReport(source, "modules", moduleSizesSchema, failures);
+  const cognitive = validatedReport(
+    source,
+    "cognitiveComplexity",
+    z.object({ repository: cognitiveMeasurementSchema }),
+    failures,
+  );
   return {
+    ...(cognitive ? { cognitiveComplexity: cognitive.repository } : {}),
     ...(duplication !== undefined ? { duplication } : {}),
     ...(complexity !== undefined ? { cyclomaticComplexity: complexity } : {}),
     ...(modules !== undefined

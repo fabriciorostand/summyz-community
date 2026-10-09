@@ -10,6 +10,10 @@ import { describe, expect, it } from "vitest";
 const run = promisify(execFile);
 const cli = new URL("../scripts/ci/quality-gate-cli.ts", import.meta.url);
 const source = {
+  cognitiveComplexity: {
+    repository: { maximum: 15, exact: true },
+    newCode: { maximum: 7, exact: true },
+  },
   changedOversizedModuleCount: 0,
   complexityFindings: [],
   duplicateGroups: [],
@@ -21,6 +25,18 @@ const source = {
   repositoryMaxComplexity: 4,
 };
 const fixtureReports = (serverCovered: number): Readonly<Record<string, unknown>> => ({
+  "quality/biome-cognitive.sarif": {
+    runs: [
+      {
+        results: [
+          {
+            ruleId: "lint/complexity/noExcessiveCognitiveComplexity",
+            message: { text: "Excessive complexity of 7 detected (max: 1)." },
+          },
+        ],
+      },
+    ],
+  },
   "quality/biome.sarif": { runs: [{ results: [] }] },
   "quality/ruff.sarif": { runs: [{ results: [] }] },
   "quality/complexipy.sarif": { runs: [{ results: [] }] },
@@ -111,6 +127,12 @@ describe("quality gate CLI comparison integration", () => {
       expect(first.markdown).toContain(">82.31%</a>");
       expect(first.markdown).toContain(">+7.69 pp</a>");
       expect(first.markdown).toContain("Main analysis failed");
+      const cognitiveRow = first.markdown
+        .split("\n")
+        .find((line) => line.startsWith("| Cognitive complexity |"));
+      expect(cognitiveRow).toContain("&nbsp;7</a>");
+      expect(cognitiveRow).toContain(">15</a>");
+      expect(cognitiveRow).toContain(">-8</a>");
       expect(first.stdout + first.stderr + first.markdown).not.toContain(
         "must-never-log-this-credential",
       );
@@ -127,6 +149,23 @@ describe("quality gate CLI comparison integration", () => {
       expect(push.result).toEqual(first.result);
       expect(push.markdown).toContain(">90.00%</a>");
       expect(push.markdown).toContain(">0.00 pp</a>");
+
+      await writeReports(join(directory, "reports"), {
+        ...fixtureReports(90),
+        "quality/source-quality.json": {
+          ...source,
+          cognitiveComplexity: {
+            repository: { maximum: -1, exact: true },
+            newCode: "must-never-log-this-credential",
+          },
+        },
+      });
+      const malformedMeasurement = await runGate(directory, "c".repeat(40));
+      expect(malformedMeasurement.result).toEqual(first.result);
+      expect(malformedMeasurement.markdown).toContain("&nbsp;-</a>");
+      expect(
+        malformedMeasurement.stdout + malformedMeasurement.stderr + malformedMeasurement.markdown,
+      ).not.toContain("must-never-log-this-credential");
     } finally {
       await rm(directory, { recursive: true, force: true });
     }

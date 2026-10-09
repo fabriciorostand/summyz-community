@@ -171,9 +171,9 @@ nem permissão de escrita. Analysis reúne resultados e guarda o baseline de mai
 Em PRs, `Quality Gate / Analysis` consulta o SHA atual de `main` no início da análise de comparação
 e executa novamente os testes de cobertura, as análises de qualidade e os scans de vulnerabilidades
 desse commit. As colunas `Main` e `Δ from main` usam essa referência, sem depender de execuções
-anteriores do CI de main. Todas as métricas de uma comparação pertencem ao mesmo SHA, mostrado no
-relatório. Uma nova execução ou reexecução de Analysis consulta main novamente; reexecutar somente
-`Quality Gate` reutiliza o relatório já calculado. Mudanças em main durante a análise entram na
+anteriores do CI de main. Todas as métricas de uma comparação pertencem ao mesmo SHA, preservado no
+artefato `main-comparison.json`. Uma nova execução ou reexecução de Analysis consulta main novamente;
+reexecutar somente `Quality Gate` reutiliza o relatório já calculado. Mudanças em main durante a análise entram na
 próxima execução de Analysis.
 
 Falhas na análise de main são informativas: métricas completas disponíveis continuam visíveis;
@@ -181,6 +181,19 @@ métricas ausentes ou inválidas e seus deltas aparecem como `-`, com a condiç�
 Essa comparação não altera as regras de aprovação nem a classificação de `New code`, que continua
 usando o diff e o baseline histórico conforme a métrica. Em pushes, `Main` apresenta as métricas do
 próprio commit analisado. Os relatórios da comparação são preservados junto ao artefato do gate.
+
+`Δ from main` subtrai o valor de `Main` do valor apresentado em `New code` em cada linha. Percentuais
+usam pontos percentuais; módulos usam a quantidade acima do limite. Isso compara os recortes das
+duas colunas, não a variação das métricas do repositório inteiro após aplicar o PR. A convenção de
+cobertura de `New code` continua sendo 100% quando não há linhas novas medidas.
+
+A complexidade cognitiva do comentário usa uma coleta separada de Biome e complexipy com limite 1,
+sem transformar esses resultados em issues ou alterar o limite 15 dos checks de aprovação. O máximo
+de `New code` considera funções novas ou alteradas pelo diff, inclusive mudanças dentro do corpo e
+funções TSX. Valores acima de 1 são exatos; quando a coleta só permite afirmar que o máximo está
+entre 0 e 1, a coluna mostra `≤ 1` e o delta mostra a faixa possível `[mínimo, máximo]`. Um conjunto
+sem funções apresenta 0 exato. Ausência de evidência completa aparece como `-`. Análises de main
+bem-sucedidas não adicionam uma linha de status ao comentário; falhas continuam indicadas.
 
 Security conta vulnerabilidades únicas HIGH/CRITICAL com correção disponível como bloqueantes.
 Severidades menores e achados sem correção publicada continuam nos detalhes e artefatos. Checks

@@ -5,6 +5,7 @@ import {
   type GateMetrics,
   renderQualityGateMarkdown,
   type SecurityFinding,
+  securityFindingFingerprint,
 } from "../scripts/ci/quality-gate.js";
 
 const metrics = (securityFindings: readonly SecurityFinding[]): GateMetrics => ({
@@ -14,6 +15,7 @@ const metrics = (securityFindings: readonly SecurityFinding[]): GateMetrics => (
   newCoverageAvailable: true,
   newDuplication: 0,
   newMaxComplexity: 4,
+  newCognitiveComplexity: { maximum: 0, exact: true },
   newComplexityViolations: 0,
   newIssues: [],
   repositoryCoverage: 92,
@@ -279,7 +281,7 @@ describe("Quality Gate", () => {
         coverage: 88,
         duplication: 1.4,
         cyclomaticComplexity: 7,
-        cognitiveComplexity: 18,
+        cognitiveComplexity: { maximum: 18, exact: true },
         oversizedModuleCount: 2,
         moduleCount: 100,
       },
@@ -290,8 +292,8 @@ describe("Quality Gate", () => {
     expect(row("Issues")).toContain(">2</a>");
     expect(row("Issues")).toContain(">-2</a>");
     expect(row("Coverage")).toContain(">88.00%</a>");
-    expect(row("Coverage")).toContain(">+4.00 pp</a>");
-    expect(row("Duplication")).toContain(">-1.00 pp</a>");
+    expect(row("Coverage")).toContain(">+2.00 pp</a>");
+    expect(row("Duplication")).toContain(">-1.40 pp</a>");
     expect(row("Cyclomatic complexity")).toContain(">-3</a>");
     expect(row("Cognitive complexity")).toContain(">-18</a>");
     expect(row("Modules over 500 SLOC")).toContain(">2 of 100</a>");
@@ -314,5 +316,123 @@ describe("Quality Gate", () => {
     for (const row of rows) expect(row).toContain(">-</a> | <a");
     expect(markdown).toContain("Main analysis unavailable");
     expect(markdown).not.toContain("Main in PR");
+  });
+
+  it("omits the successful main analysis notice while retaining its metrics", () => {
+    const markdown = renderQualityGateMarkdown(evaluateQualityGate(metrics([])), {
+      commitSha: "b".repeat(40),
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      repository: "example/summyz",
+      mainComparison: {
+        commitSha: "a".repeat(40),
+        state: "success",
+        failures: [],
+        coverage: 88,
+      },
+    });
+    expect(markdown).not.toContain("Main analysis success");
+    expect(markdown).not.toContain(`/commit/${"a".repeat(40)}`);
+    expect(markdown).toContain(">88.00%</a>");
+    expect(markdown).toContain(">+2.00 pp</a>");
+  });
+
+  it("subtracts main from displayed new-code metrics even when repository metrics differ", () => {
+    const existingSecurity: SecurityFinding = {
+      fixedVersions: ["2.0.0"],
+      id: "CVE-EXISTING",
+      line: 1,
+      message: "Upgrade dependency.",
+      packageName: "dependency",
+      path: "package-lock.json",
+      severity: "HIGH",
+      tool: "npm-audit",
+    };
+    const result = evaluateQualityGate({
+      ...metrics([existingSecurity]),
+      baseSecurityFingerprints: [securityFindingFingerprint(existingSecurity)],
+      modules: [{ changed: false, path: "src/existing.ts", sloc: 501 }],
+      repositoryIssues: [
+        {
+          line: 1,
+          message: "Excessive complexity of 18 detected (max: 15).",
+          path: "src/existing.ts",
+          rule: "lint/complexity/noExcessiveCognitiveComplexity",
+          tool: "biome",
+        },
+      ],
+      repositoryMaxComplexity: 9,
+    });
+    const failures = [...result.failures];
+    const markdown = renderQualityGateMarkdown(result, {
+      commitSha: "b".repeat(40),
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      repository: "example/summyz",
+      mainComparison: {
+        state: "success",
+        failures: [],
+        issueCount: 1,
+        securityCount: 1,
+        coverage: 92,
+        duplication: 0.4,
+        cyclomaticComplexity: 9,
+        cognitiveComplexity: { maximum: 18, exact: true },
+        oversizedModuleCount: 1,
+        moduleCount: 1,
+      },
+    });
+    const expected = {
+      Issues: "-1",
+      Security: "-1",
+      Coverage: "-2.00 pp",
+      Duplication: "-0.40 pp",
+      "Cyclomatic complexity": "-5",
+      "Cognitive complexity": "-18",
+      "Modules over 500 SLOC": "-1",
+    };
+    for (const [name, value] of Object.entries(expected)) {
+      const row = markdown.split("\n").find((line) => line.startsWith(`| ${name} |`));
+      expect(row).toContain(`>${value}</a>`);
+    }
+    expect(result.failures).toEqual(failures);
+    expect(result.passed).toBe(false);
+  });
+
+  it.each([
+    [{ maximum: 1, exact: false }, { maximum: 15, exact: true }, "[-15, -14]"],
+    [{ maximum: 5, exact: true }, { maximum: 1, exact: false }, "[+4, +5]"],
+    [{ maximum: 1, exact: false }, { maximum: 1, exact: false }, "[-1, +1]"],
+    [{ maximum: 0, exact: true }, { maximum: 15, exact: true }, "-15"],
+  ])("renders cognitive maxima and the possible delta interval", (newCode, main, expected) => {
+    const result = evaluateQualityGate({ ...metrics([]), newCognitiveComplexity: newCode });
+    const markdown = renderQualityGateMarkdown(result, {
+      commitSha: "b".repeat(40),
+      repository: "example/summyz",
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      mainComparison: { state: "success", failures: [], cognitiveComplexity: main },
+    });
+    const row = markdown.split("\n").find((line) => line.startsWith("| Cognitive complexity |"));
+    expect(row).toContain(`>${expected}</a>`);
+    if (!newCode.exact || !main.exact) expect(row).toContain("≤ 1");
+    expect(result.passed).toBe(true);
+  });
+
+  it("shows unavailable cognitive metrics without inventing zero or changing approval", () => {
+    const { newCognitiveComplexity: _measurement, ...values } = metrics([]);
+    const result = evaluateQualityGate(values);
+    const markdown = renderQualityGateMarkdown(result, {
+      commitSha: "b".repeat(40),
+      repository: "example/summyz",
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      mainComparison: {
+        state: "success",
+        failures: [],
+        cognitiveComplexity: { maximum: 15, exact: true },
+      },
+    });
+    const row = markdown.split("\n").find((line) => line.startsWith("| Cognitive complexity |"));
+    expect(row).toContain("&nbsp;-</a>");
+    expect(row).toContain(">-</a>");
+    expect(row).not.toContain("&nbsp;0</a>");
+    expect(result.passed).toBe(true);
   });
 });

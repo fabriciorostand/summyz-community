@@ -7,6 +7,28 @@ import {
 } from "../scripts/ci/source-quality.js";
 
 describe("source quality analysis", () => {
+  it("adds independent cognitive measurements without adding quality violations", () => {
+    const result = analyzeSourceQuality({
+      rootPath: "/repo",
+      changedLines: new Map([["src/example.ts", new Set([2])]]),
+      sourceFiles: [
+        {
+          path: "src/example.ts",
+          language: "typescript",
+          content: "export function choose() {\n return 1;\n}",
+        },
+      ],
+      jscpdReport: JSON.stringify({ duplicates: [], statistics: { total: { percentage: 0 } } }),
+      lizardCsv: "",
+      lizardXml: '<measure type="File"></measure>',
+      cognitiveReports: { biome: { runs: [{ results: [] }] }, python: { runs: [{ results: [] }] } },
+    });
+    expect(result.cognitiveComplexity).toEqual({
+      repository: { maximum: 1, exact: false },
+      newCode: { maximum: 1, exact: false },
+    });
+    expect(result.newComplexityViolations).toBe(0);
+  });
   it("parses added lines from a repository-relative unified diff", () => {
     const changed = parseChangedLines(
       [
