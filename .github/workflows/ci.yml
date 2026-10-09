@@ -125,12 +125,15 @@ jobs:
           lizard -l typescript -l python -C 10 -i -1 \
             -x "*test*" -x "*spec*" --xml -o artifacts/reports/quality/lizard.xml \
             src web/src services/faster-whisper
+          ./node_modules/.bin/tsx scripts/ci/collect-cognitive-complexity-cli.ts || echo "Cognitive metrics unavailable."
           ./node_modules/.bin/tsx scripts/ci/source-quality-cli.ts \
             artifacts/reports/quality/source.diff \
             artifacts/reports/quality/jscpd/jscpd-report.json \
             artifacts/reports/quality/lizard.csv \
             artifacts/reports/quality/lizard.xml \
-            artifacts/reports/quality/source-quality.json
+            artifacts/reports/quality/source-quality.json \
+            artifacts/reports/quality/biome-cognitive.sarif \
+            artifacts/reports/quality/complexipy-cognitive.sarif
 
       - name: Enforce quality checks
         if: always()
@@ -862,6 +865,303 @@ jobs:
           npm install --global "npm@${NPM_VERSION}"
           npm ci
 
+      - name: Capture current main
+        id: main_reference
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const { data } = await github.rest.git.getRef({
+              ...context.repo,
+              ref: "heads/main",
+            });
+            if (!/^[a-f0-9]{40}$/.test(data.object.sha)) {
+              throw new Error("Current main returned an invalid commit SHA.");
+            }
+            core.setOutput("sha", data.object.sha);
+
+      - name: Check out captured main
+        id: main_checkout
+        if: github.event_name == 'pull_request' && steps.main_reference.outcome == 'success'
+        continue-on-error: true
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ steps.main_reference.outputs.sha }}
+          path: main-source
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Prepare main reports
+        id: main_reports
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        run: |
+          mkdir -p main-source/artifacts/reports/{quality,security,runtime,python}
+          chmod 0777 main-source/artifacts/reports main-source/artifacts/reports/python
+
+      - name: Set up Python for main analysis
+        id: main_python
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - name: Install verified main analysis tools
+        id: main_tools
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        run: python -m pip install --require-hashes --requirement main-source/requirements/ci.lock
+
+      - name: Collect main quality diagnostics
+        id: main_quality
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: main-source
+        shell: bash
+        run: |
+          status=0
+          ../node_modules/.bin/biome ci . --reporter=sarif \
+            --reporter-file=artifacts/reports/quality/biome.sarif || status=1
+          ruff check services/faster-whisper --output-format sarif \
+            --output-file artifacts/reports/quality/ruff.sarif || status=1
+          complexipy services/faster-whisper --exclude "test_*.py" \
+            --cache-dir .cache/complexipy --max-complexity-allowed 15 \
+            --output-format sarif --output artifacts/reports/quality/complexipy.sarif \
+            --quiet || status=1
+          exit "${status}"
+
+      - name: Collect main source metrics
+        id: main_source
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: main-source
+        shell: bash
+        run: |
+          git diff --output=artifacts/reports/quality/source.diff HEAD HEAD -- src web/src services/faster-whisper
+          ../node_modules/.bin/jscpd --min-lines 5 --min-tokens 50 --threshold 3 --exit-code 0 \
+            --reporters json --output artifacts/reports/quality/jscpd --format typescript,tsx,python \
+            --skip-comments --ignore "**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*.d.ts" \
+            --absolute src web/src services/faster-whisper
+          lizard -l typescript -l python -C 10 -i -1 -x "*test*" -x "*spec*" \
+            --csv -o artifacts/reports/quality/lizard.csv src web/src services/faster-whisper
+          lizard -l typescript -l python -C 10 -i -1 -x "*test*" -x "*spec*" \
+            --xml -o artifacts/reports/quality/lizard.xml src web/src services/faster-whisper
+          ../node_modules/.bin/tsx ../scripts/ci/collect-cognitive-complexity-cli.ts || echo "Cognitive metrics unavailable."
+          ../node_modules/.bin/tsx ../scripts/ci/source-quality-cli.ts \
+            artifacts/reports/quality/source.diff artifacts/reports/quality/jscpd/jscpd-report.json \
+            artifacts/reports/quality/lizard.csv artifacts/reports/quality/lizard.xml \
+            artifacts/reports/quality/source-quality.json \
+            artifacts/reports/quality/biome-cognitive.sarif \
+            artifacts/reports/quality/complexipy-cognitive.sarif
+
+      - name: Set up Buildx for main measurements
+        id: main_buildx
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+
+      - name: Build main Node.js test environment
+        id: main_node_image
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: main-source
+          file: main-source/docker/Dockerfile
+          target: test
+          load: true
+          tags: summyz-main-tests:ci
+          cache-from: type=gha,scope=summyz-node-tests
+
+      - name: Start isolated main test database
+        id: main_database
+        if: github.event_name == 'pull_request' && steps.main_node_image.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          docker run --detach --name summyz-main-postgres --publish 127.0.0.1:5432:5432 \
+            --env POSTGRES_DB=summyz_ci --env POSTGRES_USER=summyz_ci --env POSTGRES_PASSWORD=ci-only-password \
+            --health-cmd "pg_isready -U summyz_ci -d summyz_ci" --health-interval 2s --health-retries 30 \
+            postgres:18.4-alpine@sha256:9a8afca54e7861fd90fab5fdf4c42477a6b1cb7d293595148e674e0a3181de15
+          echo "started=true" >> "${GITHUB_OUTPUT}"
+          for _ in $(seq 1 60); do
+            if [[ "$(docker inspect --format '{{.State.Health.Status}}' summyz-main-postgres)" == "healthy" ]]; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Main test database did not become healthy."
+          exit 1
+
+      - name: Measure main server coverage
+        id: main_server_tests
+        if: github.event_name == 'pull_request' && steps.main_database.outcome == 'success'
+        continue-on-error: true
+        run: >-
+          docker run --rm --network host
+          --env POSTGRES_TEST_URL=postgresql://summyz_ci:ci-only-password@127.0.0.1:5432/summyz_ci
+          --volume "${{ github.workspace }}/main-source/artifacts/reports:/app/artifacts/reports"
+          summyz-main-tests:ci npm run test:coverage:ci
+
+      - name: Measure main dashboard coverage
+        id: main_web_tests
+        if: github.event_name == 'pull_request' && steps.main_node_image.outcome == 'success'
+        continue-on-error: true
+        run: >-
+          docker run --rm
+          --volume "${{ github.workspace }}/main-source/artifacts/reports:/app/artifacts/reports"
+          summyz-main-tests:ci npm run test:web:coverage
+
+      - name: Stop isolated main test database
+        id: main_database_cleanup
+        if: always() && steps.main_database.outputs.started == 'true'
+        continue-on-error: true
+        run: docker rm --force summyz-main-postgres
+
+      - name: Build main Python test environment
+        id: main_python_image
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: main-source
+          file: main-source/services/faster-whisper/Dockerfile
+          target: test
+          load: true
+          tags: summyz-main-python-tests:ci
+          cache-from: type=gha,scope=summyz-python-tests
+
+      - name: Measure main Python coverage
+        id: main_python_tests
+        if: github.event_name == 'pull_request' && steps.main_python_image.outcome == 'success'
+        continue-on-error: true
+        run: |
+          docker run --rm \
+            --volume "${{ github.workspace }}/main-source/artifacts/reports:/workspace/artifacts/reports" \
+            summyz-main-python-tests:ci python -m pytest services/faster-whisper \
+            --cov=services/faster-whisper --cov-branch --cov-fail-under=85 \
+            --cov-report=json:artifacts/reports/python/coverage.json
+
+      - name: Audit main Node.js dependencies
+        id: main_npm_audit
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: main-source
+        shell: bash
+        run: |
+          status=0
+          npm audit --package-lock-only --omit=optional --json > artifacts/reports/security/npm-audit.json || status=$?
+          test "${status}" -le 1
+          node -e 'const report=require("./artifacts/reports/security/npm-audit.json"); if(report.error) process.exit(1)'
+
+      - name: Audit main Python dependencies
+        id: main_pip_audit
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        working-directory: main-source
+        shell: bash
+        run: |
+          status=0
+          pip-audit --strict --requirement services/faster-whisper/requirements.lock \
+            --format json --output artifacts/reports/security/pip-audit.json || status=$?
+          test "${status}" -le 1
+
+      - name: Scan main filesystem vulnerabilities
+        id: main_filesystem_scan
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: main-source
+          scanners: vuln
+          ignore-unfixed: false
+          format: json
+          output: main-source/artifacts/reports/security/trivy-filesystem.json
+          exit-code: "0"
+          version: v0.74.0
+
+      - name: Build main bot image
+        id: main_bot_image
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: main-source
+          file: main-source/docker/Dockerfile
+          target: bot-runtime
+          load: true
+          tags: summyz-main-bot:ci
+          cache-from: type=gha,scope=summyz-runtime
+
+      - name: Scan main bot image
+        id: main_bot_scan
+        if: github.event_name == 'pull_request' && steps.main_bot_image.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: summyz-main-bot:ci
+          ignore-unfixed: false
+          format: json
+          output: main-source/artifacts/reports/runtime/trivy-bot.json
+          exit-code: "0"
+          version: v0.74.0
+
+      - name: Build main dashboard image
+        id: main_dashboard_image
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: main-source
+          file: main-source/docker/Dockerfile
+          target: dashboard-runtime
+          load: true
+          tags: summyz-main-dashboard:ci
+          cache-from: type=gha,scope=summyz-runtime
+
+      - name: Scan main dashboard image
+        id: main_dashboard_scan
+        if: github.event_name == 'pull_request' && steps.main_dashboard_image.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: summyz-main-dashboard:ci
+          ignore-unfixed: false
+          format: json
+          output: main-source/artifacts/reports/runtime/trivy-dashboard.json
+          exit-code: "0"
+          version: v0.74.0
+
+      - name: Build main transcription image
+        id: main_transcription_image
+        if: github.event_name == 'pull_request' && steps.main_checkout.outcome == 'success'
+        continue-on-error: true
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: main-source
+          file: main-source/services/faster-whisper/Dockerfile
+          target: cpu
+          load: true
+          tags: summyz-main-transcription:ci
+          cache-from: type=gha,scope=summyz-python-runtime
+
+      - name: Scan main transcription image
+        id: main_transcription_scan
+        if: github.event_name == 'pull_request' && steps.main_transcription_image.outcome == 'success'
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: summyz-main-transcription:ci
+          ignore-unfixed: false
+          format: json
+          output: main-source/artifacts/reports/runtime/trivy-faster-whisper.json
+          exit-code: "0"
+          version: v0.74.0
+
       - name: Analyze the Quality Gate
         shell: bash
         env:
@@ -872,6 +1172,34 @@ jobs:
           RUNTIME_RESULT: ${{ needs.runtime.result }}
           SECURITY_RESULT: ${{ needs.security.result }}
           TESTS_RESULT: ${{ needs.tests.result }}
+          MAIN_SHA: ${{ steps.main_reference.outputs.sha }}
+          MAIN_STEPS: >-
+            {
+              "main_reference": {"outcome": "${{ steps.main_reference.outcome }}"},
+              "main_checkout": {"outcome": "${{ steps.main_checkout.outcome }}"},
+              "main_reports": {"outcome": "${{ steps.main_reports.outcome }}"},
+              "main_python": {"outcome": "${{ steps.main_python.outcome }}"},
+              "main_tools": {"outcome": "${{ steps.main_tools.outcome }}"},
+              "main_quality": {"outcome": "${{ steps.main_quality.outcome }}"},
+              "main_source": {"outcome": "${{ steps.main_source.outcome }}"},
+              "main_buildx": {"outcome": "${{ steps.main_buildx.outcome }}"},
+              "main_node_image": {"outcome": "${{ steps.main_node_image.outcome }}"},
+              "main_database": {"outcome": "${{ steps.main_database.outcome }}"},
+              "main_server_tests": {"outcome": "${{ steps.main_server_tests.outcome }}"},
+              "main_web_tests": {"outcome": "${{ steps.main_web_tests.outcome }}"},
+              "main_database_cleanup": {"outcome": "${{ steps.main_database_cleanup.outcome }}"},
+              "main_python_image": {"outcome": "${{ steps.main_python_image.outcome }}"},
+              "main_python_tests": {"outcome": "${{ steps.main_python_tests.outcome }}"},
+              "main_npm_audit": {"outcome": "${{ steps.main_npm_audit.outcome }}"},
+              "main_pip_audit": {"outcome": "${{ steps.main_pip_audit.outcome }}"},
+              "main_filesystem_scan": {"outcome": "${{ steps.main_filesystem_scan.outcome }}"},
+              "main_bot_image": {"outcome": "${{ steps.main_bot_image.outcome }}"},
+              "main_bot_scan": {"outcome": "${{ steps.main_bot_scan.outcome }}"},
+              "main_dashboard_image": {"outcome": "${{ steps.main_dashboard_image.outcome }}"},
+              "main_dashboard_scan": {"outcome": "${{ steps.main_dashboard_scan.outcome }}"},
+              "main_transcription_image": {"outcome": "${{ steps.main_transcription_image.outcome }}"},
+              "main_transcription_scan": {"outcome": "${{ steps.main_transcription_scan.outcome }}"}
+            }
         run: |
           ./node_modules/.bin/tsx scripts/ci/quality-gate-cli.ts artifacts/reports baseline ci-summary.md
           cat ci-summary.md >> "${GITHUB_STEP_SUMMARY}"
@@ -884,6 +1212,8 @@ jobs:
           path: |
             ci-summary.md
             quality-gate-result.json
+            main-comparison.json
+            main-source/artifacts/reports
             artifacts/reports
           if-no-files-found: warn
 

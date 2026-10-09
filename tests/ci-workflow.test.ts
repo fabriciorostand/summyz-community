@@ -5,6 +5,69 @@ import { describe, expect, it } from "vitest";
 const root = new URL("../", import.meta.url);
 
 describe("continuous integration contract", () => {
+  it("collects cognitive presentation metrics independently for both PR and captured main", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    expect(
+      workflow.match(/tsx (?:\.\.\/)?scripts\/ci\/collect-cognitive-complexity-cli\.ts/gu),
+    ).toHaveLength(2);
+    expect(workflow.match(/biome-cognitive\.sarif/gu)).toHaveLength(2);
+    expect(workflow.match(/complexipy-cognitive\.sarif/gu)).toHaveLength(2);
+    expect(workflow.match(/collect-cognitive-complexity-cli\.ts \|\| echo/gu)).toHaveLength(2);
+    expect(workflow.match(/--max-complexity-allowed 15/gu)).toHaveLength(2);
+  });
+  it("captures live main during each analysis attempt and keeps comparison failures informational", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const analysis = workflow.slice(
+      workflow.indexOf("\n  quality-gate-analysis:"),
+      workflow.indexOf("\n  quality-gate:"),
+    );
+    const capture = analysis.slice(
+      analysis.indexOf("- name: Capture current main"),
+      analysis.indexOf("- name: Check out captured main"),
+    );
+    expect(capture).toContain('ref: "heads/main"');
+    expect(capture).toContain("github.rest.git.getRef");
+    expect(capture).toContain("continue-on-error: true");
+    expect(capture).not.toContain("pull_request.base.sha");
+    expect(capture).not.toContain("run_attempt");
+    expect(analysis).toContain(`ref: \${{ steps.main_reference.outputs.sha }}`);
+    expect(analysis).toContain(`MAIN_SHA: \${{ steps.main_reference.outputs.sha }}`);
+    expect(analysis).toContain("MAIN_STEPS: >-");
+    expect(analysis).not.toContain("toJSON(steps)");
+    expect(analysis).toContain("main-source/artifacts/reports");
+    const gate = workflow.slice(workflow.indexOf("\n  quality-gate:"));
+    expect(gate).not.toContain("main_reference");
+  });
+
+  it("transports only main outcomes even when Docker metadata exceeds the Linux environment limit", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const projection = /MAIN_STEPS: >-\n([\s\S]*?)\n {8}run:/u.exec(workflow)?.[1];
+    expect(projection).toBeDefined();
+    if (projection === undefined) throw new Error("Main outcome projection is missing.");
+    const steps: Record<string, { outcome: string; outputs: Record<string, string> }> = {
+      main_node_image: { outcome: "success", outputs: { metadata: "x".repeat(256 * 1024) } },
+      main_server_tests: { outcome: "failure", outputs: { token: "must-never-appear" } },
+    };
+    const payload = projection.replace(
+      /\$\{\{ steps\.([a-z_]+)\.outcome \}\}/gu,
+      (_expression: string, id: string) => steps[id]?.outcome ?? "success",
+    );
+    const parsed: unknown = JSON.parse(payload);
+    expect(Buffer.byteLength(JSON.stringify(steps))).toBeGreaterThan(128 * 1024);
+    expect(Buffer.byteLength(payload)).toBeLessThan(8 * 1024);
+    expect(payload).not.toContain("metadata");
+    expect(payload).not.toContain("must-never-appear");
+    expect(parsed).toMatchObject({
+      main_node_image: { outcome: "success" },
+      main_server_tests: { outcome: "failure" },
+    });
+    const analysis = workflow.slice(
+      workflow.indexOf("\n  quality-gate-analysis:"),
+      workflow.indexOf("\n  quality-gate:"),
+    );
+    const stepIds = [...analysis.matchAll(/^ {8}id: (main_[a-z_]+)$/gmu)].map((match) => match[1]);
+    for (const id of stepIds) expect(payload).toContain(`"${id}"`);
+  });
   it("scans the complete history with redacted output and the repository's finding-specific ignore file", async () => {
     const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
     const step = workflow.slice(
@@ -71,7 +134,7 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("--cov-fail-under=85");
     expect(implementation).toContain("SMOKE_WHISPER_REVISION:");
     expect(implementation).toContain("SMOKE_OLLAMA_DIGEST:");
-    expect(implementation.match(/version: v0\.74\.0/gu)).toHaveLength(5);
+    expect(implementation.match(/version: v0\.74\.0/gu)).toHaveLength(9);
   });
 
   it("pins every external action to a full commit SHA", async () => {
@@ -92,7 +155,7 @@ describe("continuous integration contract", () => {
     const patchedTrivyAction =
       "aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0";
 
-    expect(implementation.split(patchedTrivyAction)).toHaveLength(6);
+    expect(implementation.split(patchedTrivyAction)).toHaveLength(10);
     expect(implementation).not.toContain(
       "aquasecurity/trivy-action@b6643a29fecd7f34b3597bc6acb0a98b03d33ff8",
     );
@@ -211,7 +274,7 @@ describe("continuous integration contract", () => {
     expect(implementation).toContain("complexipy services/faster-whisper");
     expect(implementation).toContain("--cache-dir .cache/complexipy");
     expect(implementation).toContain('--exclude "test_*.py"');
-    expect(implementation.match(/-x "\*test\*" -x "\*spec\*"/gu)).toHaveLength(2);
+    expect(implementation.match(/-x "\*test\*" -x "\*spec\*"/gu)).toHaveLength(4);
     expect(webCiConfig).toContain('"src/tests/test-utils.tsx"');
     expect(webCiConfig).not.toContain('"src/test-utils.tsx"');
   });

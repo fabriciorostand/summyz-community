@@ -2,6 +2,8 @@ import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 
 import { z } from "zod";
+import { cognitiveReportSchema } from "./cognitive-complexity.js";
+import { loadMainComparison, loadMainComparisonFiles } from "./main-comparison.js";
 import {
   type Diagnostic,
   diagnosticFingerprint,
@@ -32,6 +34,7 @@ const duplicateLocationSchema = z.object({
   start: z.number().int().positive(),
 });
 const sourceQualitySchema = z.object({
+  cognitiveComplexity: cognitiveReportSchema.optional().catch(undefined),
   changedOversizedModuleCount: z.number().int().nonnegative(),
   complexityFindings: z.array(
     z.object({
@@ -219,13 +222,11 @@ const main = async (): Promise<void> => {
   const security = await parseSecurityReports(files);
 
   const metrics: GateMetrics = {
+    ...(source.cognitiveComplexity
+      ? { newCognitiveComplexity: source.cognitiveComplexity.newCode }
+      : {}),
     ...(baseline
       ? {
-          baseOversizedModuleCount: baseline.oversizedModuleCount,
-          baseRepositoryCoverage: baseline.repositoryCoverage,
-          baseRepositoryDuplication: baseline.repositoryDuplication,
-          baseRepositoryIssueCount: baseline.repositoryIssueFingerprints.length,
-          baseRepositorySecurityCount: baseline.repositorySecurityCount,
           baseSecurityFingerprints: baseline.securityFingerprints,
         }
       : {}),
@@ -254,14 +255,28 @@ const main = async (): Promise<void> => {
     securityIssues: security.issues,
   };
   const result = evaluateQualityGate(metrics);
+  const mainComparison =
+    process.env.GITHUB_EVENT_NAME === "push"
+      ? await loadMainComparisonFiles(files, requiredEnvironment("GITHUB_SHA"), "{}")
+      : await loadMainComparison(
+          resolve("main-source/artifacts/reports"),
+          process.env.MAIN_SHA,
+          process.env.MAIN_STEPS ?? "{}",
+        );
   const markdown = renderQualityGateMarkdown(result, {
     commitSha: requiredEnvironment("GITHUB_SHA"),
     detailsUrl: requiredEnvironment("DETAILS_URL"),
     repository: requiredEnvironment("GITHUB_REPOSITORY"),
+    mainComparison,
   });
   const outputPath = resolve(outputArgument);
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, markdown, "utf8");
+  await writeFile(
+    resolve(dirname(outputPath), "main-comparison.json"),
+    `${JSON.stringify(mainComparison, null, 2)}\n`,
+    "utf8",
+  );
   await writeFile(
     resolve(dirname(outputPath), "quality-gate-result.json"),
     `${JSON.stringify({ failures: result.failures, passed: result.passed }, null, 2)}\n`,

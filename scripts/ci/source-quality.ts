@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { analyzeCognitiveComplexity, type cognitiveReportSchema } from "./cognitive-complexity.js";
 
 import type {
   ComplexityFinding,
@@ -14,6 +15,7 @@ export interface SourceFile {
 }
 
 export interface SourceQualityInput {
+  readonly cognitiveReports?: { readonly biome: unknown; readonly python: unknown };
   readonly changedLines: ReadonlyMap<string, ReadonlySet<number>>;
   readonly jscpdReport: string;
   readonly lizardCsv: string;
@@ -23,6 +25,7 @@ export interface SourceQualityInput {
 }
 
 export interface SourceQualityResult {
+  readonly cognitiveComplexity?: z.infer<typeof cognitiveReportSchema>;
   readonly changedOversizedModuleCount: number;
   readonly complexityFindings: readonly ComplexityFinding[];
   readonly duplicateGroups: readonly DuplicateGroup[];
@@ -302,7 +305,17 @@ export const analyzeSourceQuality = (input: SourceQualityInput): SourceQualityRe
     }))
     .sort((left, right) => left.path.localeCompare(right.path));
 
+  const cognitiveComplexity = input.cognitiveReports
+    ? analyzeCognitiveComplexity({
+        ...input,
+        biomeReport: input.cognitiveReports.biome,
+        pythonReport: input.cognitiveReports.python,
+        pythonFunctions: complexity.filter((finding) => finding.path.endsWith(".py")),
+      })
+    : undefined;
+
   return {
+    ...(cognitiveComplexity ? { cognitiveComplexity } : {}),
     changedOversizedModuleCount: modules.filter((module) => module.changed && module.sloc > 500)
       .length,
     complexityFindings: complexity.map(({ end: _end, ...finding }) => finding),
