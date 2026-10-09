@@ -20,8 +20,6 @@
   <img src="https://img.shields.io/badge/license-source--available-6E40C9" alt="Source-available license" />
 </p>
 
----
-
 ## How it works
 
 Summyz records each participant separately. After recording ends, it transcribes the audio while
@@ -77,8 +75,6 @@ Never commit `.env` or share tokens, the Client Secret, or the private setup URL
 - [Development and quality](./docs/development.md): environment, tests, migrations, and CI.
 - [Bot command reference](./docs/reference/bot-commands.md): syntax and access rules.
 - [Release checklist](./docs/release-checklist.md) and [security policy](./SECURITY.md).
-
-The English and [pt-BR](./docs/pt-BR/README.md) versions are maintained together.
 
 ## Contributing
 
