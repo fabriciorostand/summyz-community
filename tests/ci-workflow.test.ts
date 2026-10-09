@@ -22,10 +22,41 @@ describe("continuous integration contract", () => {
     expect(capture).not.toContain("run_attempt");
     expect(analysis).toContain(`ref: \${{ steps.main_reference.outputs.sha }}`);
     expect(analysis).toContain(`MAIN_SHA: \${{ steps.main_reference.outputs.sha }}`);
-    expect(analysis).toContain(`MAIN_STEPS: \${{ toJSON(steps) }}`);
+    expect(analysis).toContain("MAIN_STEPS: >-");
+    expect(analysis).not.toContain("toJSON(steps)");
     expect(analysis).toContain("main-source/artifacts/reports");
     const gate = workflow.slice(workflow.indexOf("\n  quality-gate:"));
     expect(gate).not.toContain("main_reference");
+  });
+
+  it("transports only main outcomes even when Docker metadata exceeds the Linux environment limit", async () => {
+    const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");
+    const projection = /MAIN_STEPS: >-\n([\s\S]*?)\n {8}run:/u.exec(workflow)?.[1];
+    expect(projection).toBeDefined();
+    if (projection === undefined) throw new Error("Main outcome projection is missing.");
+    const steps: Record<string, { outcome: string; outputs: Record<string, string> }> = {
+      main_node_image: { outcome: "success", outputs: { metadata: "x".repeat(256 * 1024) } },
+      main_server_tests: { outcome: "failure", outputs: { token: "must-never-appear" } },
+    };
+    const payload = projection.replace(
+      /\$\{\{ steps\.([a-z_]+)\.outcome \}\}/gu,
+      (_expression: string, id: string) => steps[id]?.outcome ?? "success",
+    );
+    const parsed: unknown = JSON.parse(payload);
+    expect(Buffer.byteLength(JSON.stringify(steps))).toBeGreaterThan(128 * 1024);
+    expect(Buffer.byteLength(payload)).toBeLessThan(8 * 1024);
+    expect(payload).not.toContain("metadata");
+    expect(payload).not.toContain("must-never-appear");
+    expect(parsed).toMatchObject({
+      main_node_image: { outcome: "success" },
+      main_server_tests: { outcome: "failure" },
+    });
+    const analysis = workflow.slice(
+      workflow.indexOf("\n  quality-gate-analysis:"),
+      workflow.indexOf("\n  quality-gate:"),
+    );
+    const stepIds = [...analysis.matchAll(/^ {8}id: (main_[a-z_]+)$/gmu)].map((match) => match[1]);
+    for (const id of stepIds) expect(payload).toContain(`"${id}"`);
   });
   it("scans the complete history with redacted output and the repository's finding-specific ignore file", async () => {
     const workflow = await readFile(new URL(".github/workflows/ci.yml", root), "utf8");

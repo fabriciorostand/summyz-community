@@ -1167,7 +1167,33 @@ jobs:
           SECURITY_RESULT: ${{ needs.security.result }}
           TESTS_RESULT: ${{ needs.tests.result }}
           MAIN_SHA: ${{ steps.main_reference.outputs.sha }}
-          MAIN_STEPS: ${{ toJSON(steps) }}
+          MAIN_STEPS: >-
+            {
+              "main_reference": {"outcome": "${{ steps.main_reference.outcome }}"},
+              "main_checkout": {"outcome": "${{ steps.main_checkout.outcome }}"},
+              "main_reports": {"outcome": "${{ steps.main_reports.outcome }}"},
+              "main_python": {"outcome": "${{ steps.main_python.outcome }}"},
+              "main_tools": {"outcome": "${{ steps.main_tools.outcome }}"},
+              "main_quality": {"outcome": "${{ steps.main_quality.outcome }}"},
+              "main_source": {"outcome": "${{ steps.main_source.outcome }}"},
+              "main_buildx": {"outcome": "${{ steps.main_buildx.outcome }}"},
+              "main_node_image": {"outcome": "${{ steps.main_node_image.outcome }}"},
+              "main_database": {"outcome": "${{ steps.main_database.outcome }}"},
+              "main_server_tests": {"outcome": "${{ steps.main_server_tests.outcome }}"},
+              "main_web_tests": {"outcome": "${{ steps.main_web_tests.outcome }}"},
+              "main_database_cleanup": {"outcome": "${{ steps.main_database_cleanup.outcome }}"},
+              "main_python_image": {"outcome": "${{ steps.main_python_image.outcome }}"},
+              "main_python_tests": {"outcome": "${{ steps.main_python_tests.outcome }}"},
+              "main_npm_audit": {"outcome": "${{ steps.main_npm_audit.outcome }}"},
+              "main_pip_audit": {"outcome": "${{ steps.main_pip_audit.outcome }}"},
+              "main_filesystem_scan": {"outcome": "${{ steps.main_filesystem_scan.outcome }}"},
+              "main_bot_image": {"outcome": "${{ steps.main_bot_image.outcome }}"},
+              "main_bot_scan": {"outcome": "${{ steps.main_bot_scan.outcome }}"},
+              "main_dashboard_image": {"outcome": "${{ steps.main_dashboard_image.outcome }}"},
+              "main_dashboard_scan": {"outcome": "${{ steps.main_dashboard_scan.outcome }}"},
+              "main_transcription_image": {"outcome": "${{ steps.main_transcription_image.outcome }}"},
+              "main_transcription_scan": {"outcome": "${{ steps.main_transcription_scan.outcome }}"}
+            }
         run: |
           ./node_modules/.bin/tsx scripts/ci/quality-gate-cli.ts artifacts/reports baseline ci-summary.md
           cat ci-summary.md >> "${GITHUB_STEP_SUMMARY}"
