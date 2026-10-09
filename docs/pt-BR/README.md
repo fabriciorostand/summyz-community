@@ -20,8 +20,6 @@
   <img src="https://img.shields.io/badge/licen%C3%A7a-source--available-6E40C9" alt="Licença source-available" />
 </p>
 
----
-
 ## Como funciona
 
 O Summyz grava cada participante separadamente. Depois do encerramento, transcreve os áudios
@@ -78,8 +76,6 @@ Nunca versione `.env` nem compartilhe tokens, Client Secret ou a URL privada de 
 - [Desenvolvimento e qualidade](./development.md): ambiente, testes, migrações e CI.
 - [Referência de comandos](./reference/bot-commands.md): sintaxe e regras de acesso.
 - [Checklist de release](./release-checklist.md) e [política de segurança](../../SECURITY.md).
-
-As versões [em inglês](../../README.md) e pt-BR são mantidas em paralelo.
 
 ## Contribuição
 
