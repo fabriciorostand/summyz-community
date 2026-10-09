@@ -168,6 +168,20 @@ de pelo menos 85%. Relatórios HTML, JUnit, JSON e SARIF são preservados como a
 recebem um comentário persistente em inglês; forks recebem checks, resumo e artefatos sem segredos
 nem permissão de escrita. Analysis reúne resultados e guarda o baseline de main após pushes.
 
+Em PRs, `Quality Gate / Analysis` consulta o SHA atual de `main` no início da análise de comparação
+e executa novamente os testes de cobertura, as análises de qualidade e os scans de vulnerabilidades
+desse commit. As colunas `Main` e `Δ from main` usam essa referência, sem depender de execuções
+anteriores do CI de main. Todas as métricas de uma comparação pertencem ao mesmo SHA, mostrado no
+relatório. Uma nova execução ou reexecução de Analysis consulta main novamente; reexecutar somente
+`Quality Gate` reutiliza o relatório já calculado. Mudanças em main durante a análise entram na
+próxima execução de Analysis.
+
+Falhas na análise de main são informativas: métricas completas disponíveis continuam visíveis;
+métricas ausentes ou inválidas e seus deltas aparecem como `-`, com a condição indicada no relatório.
+Essa comparação não altera as regras de aprovação nem a classificação de `New code`, que continua
+usando o diff e o baseline histórico conforme a métrica. Em pushes, `Main` apresenta as métricas do
+próprio commit analisado. Os relatórios da comparação são preservados junto ao artefato do gate.
+
 Security conta vulnerabilidades únicas HIGH/CRITICAL com correção disponível como bloqueantes.
 Severidades menores e achados sem correção publicada continuam nos detalhes e artefatos. Checks
 de segredos e configuração têm regras próprias de reprovação no workflow.

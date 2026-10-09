@@ -8,11 +8,6 @@ import {
 } from "../scripts/ci/quality-gate.js";
 
 const metrics = (securityFindings: readonly SecurityFinding[]): GateMetrics => ({
-  baseOversizedModuleCount: 0,
-  baseRepositoryCoverage: 91.25,
-  baseRepositoryDuplication: 0.5,
-  baseRepositoryIssueCount: 0,
-  baseRepositorySecurityCount: 0,
   changedOversizedModuleCount: 0,
   modules: [{ changed: false, path: "src/example.ts", sloc: 20 }],
   newCoverage: 90,
@@ -175,6 +170,7 @@ describe("Quality Gate", () => {
     expect(markdown).toContain("Cyclomatic complexity");
     expect(markdown).toContain("Cognitive complexity");
     expect(markdown).not.toContain("Maximum complexity");
+    expect(markdown).toContain("| Cognitive complexity |");
     expect(markdown).toContain("43");
   });
 
@@ -232,7 +228,7 @@ describe("Quality Gate", () => {
     expect(result.passed).toBe(true);
     expect(result.metrics.repositorySecurity).toEqual([]);
     expect(markdown).toContain("## ✅ Quality Gate passed");
-    expect(markdown).toContain("| Measure | New code | Main in PR | Δ from main | Rule |");
+    expect(markdown).toContain("| Measure | New code | Main | Δ from main | Rule |");
     expect(markdown).toContain("| Security |");
     expect(markdown).toContain(">HIGH/CRITICAL</a>");
     expect(markdown).toContain("<summary>Issue details</summary>");
@@ -266,5 +262,57 @@ describe("Quality Gate", () => {
 
     expect(markdown).toContain("&lt;script&gt;alert(1)&lt;/script&gt;");
     expect(markdown).not.toContain("<script>");
+  });
+
+  it("renders main metrics and numerical deltas without changing gate approval", () => {
+    const result = evaluateQualityGate(metrics([]));
+    const context = {
+      commitSha: "b".repeat(40),
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      repository: "example/summyz",
+      mainComparison: {
+        commitSha: "a".repeat(40),
+        state: "failed" as const,
+        failures: ["main_server_tests: failure"],
+        issueCount: 2,
+        securityCount: 1,
+        coverage: 88,
+        duplication: 1.4,
+        cyclomaticComplexity: 7,
+        cognitiveComplexity: 18,
+        oversizedModuleCount: 2,
+        moduleCount: 100,
+      },
+    };
+    const markdown = renderQualityGateMarkdown(result, context);
+    const row = (name: string) =>
+      markdown.split("\n").find((line) => line.startsWith(`| ${name} |`));
+    expect(row("Issues")).toContain(">2</a>");
+    expect(row("Issues")).toContain(">-2</a>");
+    expect(row("Coverage")).toContain(">88.00%</a>");
+    expect(row("Coverage")).toContain(">+4.00 pp</a>");
+    expect(row("Duplication")).toContain(">-1.00 pp</a>");
+    expect(row("Cyclomatic complexity")).toContain(">-3</a>");
+    expect(row("Cognitive complexity")).toContain(">-18</a>");
+    expect(row("Modules over 500 SLOC")).toContain(">2 of 100</a>");
+    expect(markdown).toContain("Main analysis failed");
+    expect(markdown).toContain("a".repeat(40));
+    expect(result.passed).toBe(true);
+    expect(result.failures).toEqual([]);
+  });
+
+  it("shows hyphens for unavailable main metrics and their deltas", () => {
+    const markdown = renderQualityGateMarkdown(evaluateQualityGate(metrics([])), {
+      commitSha: "b".repeat(40),
+      detailsUrl: "https://github.com/example/summyz/actions/runs/1",
+      repository: "example/summyz",
+    });
+    const rows = markdown
+      .split("\n")
+      .filter((line) => line.startsWith("| "))
+      .slice(1);
+    for (const row of rows) expect(row).toContain(">-</a> | <a");
+    expect(markdown).toContain("Main analysis unavailable");
+    expect(markdown).not.toContain("Main in PR");
   });
 });

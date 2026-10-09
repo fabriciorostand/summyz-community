@@ -1,3 +1,5 @@
+import type { MainComparison } from "./main-comparison.js";
+
 export const QUALITY_GATE_MARKER = "<!-- summyz-community-quality-gate -->";
 
 export interface GateConfig {
@@ -54,11 +56,6 @@ export interface ComplexityFinding {
 }
 
 export interface GateMetrics {
-  readonly baseOversizedModuleCount?: number;
-  readonly baseRepositoryCoverage?: number;
-  readonly baseRepositoryDuplication?: number;
-  readonly baseRepositoryIssueCount?: number;
-  readonly baseRepositorySecurityCount?: number;
   readonly baseSecurityFingerprints?: readonly string[];
   readonly changedOversizedModuleCount: number;
   readonly complexityFindings?: readonly ComplexityFinding[];
@@ -96,6 +93,7 @@ export interface MarkdownContext {
   readonly commitSha: string;
   readonly detailsUrl: string;
   readonly repository: string;
+  readonly mainComparison?: MainComparison;
 }
 
 export const DEFAULT_GATE_CONFIG: GateConfig = {
@@ -270,14 +268,14 @@ const linkedMetric = (statusIcon: string, value: string, detailsUrl: string): st
   detailsLink(`${statusIcon}&nbsp;${escapeHtml(value)}`, detailsUrl);
 
 const delta = (current: number, base: number | undefined, suffix = ""): string => {
-  if (base === undefined) return "—";
+  if (base === undefined) return "-";
   const difference = current - base;
   const sign = difference > 0 ? "+" : "";
   return `${sign}${difference.toFixed(2)}${suffix}`;
 };
 
 const integerDelta = (current: number, base: number | undefined): string => {
-  if (base === undefined) return "—";
+  if (base === undefined) return "-";
   const difference = current - base;
   return `${difference > 0 ? "+" : ""}${difference}`;
 };
@@ -388,6 +386,22 @@ const appendComplexityDetails = (
   lines.push("", "</details>");
 };
 
+const mainValue = (value: number | undefined, suffix = ""): string =>
+  value === undefined ? "-" : `${suffix === "%" ? value.toFixed(2) : value}${suffix}`;
+
+const appendMainDetails = (lines: string[], context: MarkdownContext): void => {
+  const comparison = context.mainComparison;
+  const state = comparison?.state ?? "unavailable";
+  const reference = comparison?.commitSha
+    ? ` ([${comparison.commitSha}](https://github.com/${context.repository}/commit/${comparison.commitSha}))`
+    : "";
+  lines.push("", `Main analysis ${state}${reference}.`);
+  if (!comparison || comparison.failures.length === 0) return;
+  lines.push("", "<details>", "<summary>Main analysis conditions</summary>", "");
+  lines.push(...comparison.failures.map((failure) => `- ${escapeHtml(failure)}`));
+  lines.push("", "</details>");
+};
+
 export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownContext): string => {
   const { config, metrics } = result;
   const oversized = metrics.modules.filter((module) => module.sloc > config.moduleSlocMaximum);
@@ -395,6 +409,7 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
   const reportSecurityFindings = uniqueSecurityFindings(metrics.securityFindings);
   const newCognitive = cognitiveComplexities(metrics.newIssues);
   const repositoryCognitive = cognitiveComplexities(metrics.repositoryIssues);
+  const main = context.mainComparison;
 
   const rows: readonly (readonly string[])[] = [
     [
@@ -404,9 +419,9 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
         String(metrics.newIssues.length),
         context.detailsUrl,
       ),
-      detailsLink(String(metrics.repositoryIssues.length), context.detailsUrl),
+      detailsLink(mainValue(main?.issueCount), context.detailsUrl),
       detailsLink(
-        integerDelta(metrics.repositoryIssues.length, metrics.baseRepositoryIssueCount),
+        integerDelta(metrics.repositoryIssues.length, main?.issueCount),
         context.detailsUrl,
       ),
       detailsLink("—", context.detailsUrl),
@@ -418,9 +433,9 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
         String(metrics.newSecurity.length),
         context.detailsUrl,
       ),
-      detailsLink(String(metrics.repositorySecurity.length), context.detailsUrl),
+      detailsLink(mainValue(main?.securityCount), context.detailsUrl),
       detailsLink(
-        integerDelta(metrics.repositorySecurity.length, metrics.baseRepositorySecurityCount),
+        integerDelta(metrics.repositorySecurity.length, main?.securityCount),
         context.detailsUrl,
       ),
       detailsLink("HIGH/CRITICAL", context.detailsUrl),
@@ -435,14 +450,11 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
         coverageValue(metrics.newCoverageAvailable, metrics.newCoverage),
         context.detailsUrl,
       ),
-      detailsLink(
-        coverageValue(metrics.repositoryCoverageAvailable, metrics.repositoryCoverage),
-        context.detailsUrl,
-      ),
+      detailsLink(mainValue(main?.coverage, "%"), context.detailsUrl),
       detailsLink(
         metrics.repositoryCoverageAvailable
-          ? delta(metrics.repositoryCoverage, metrics.baseRepositoryCoverage, " pp")
-          : "—",
+          ? delta(metrics.repositoryCoverage, main?.coverage, " pp")
+          : "-",
         context.detailsUrl,
       ),
       detailsLink(`≥ ${config.coverageMinimum}%`, context.detailsUrl),
@@ -454,9 +466,9 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
         `${metrics.newDuplication.toFixed(2)}%`,
         context.detailsUrl,
       ),
-      detailsLink(`${metrics.repositoryDuplication.toFixed(2)}%`, context.detailsUrl),
+      detailsLink(mainValue(main?.duplication, "%"), context.detailsUrl),
       detailsLink(
-        delta(metrics.repositoryDuplication, metrics.baseRepositoryDuplication, " pp"),
+        delta(metrics.repositoryDuplication, main?.duplication, " pp"),
         context.detailsUrl,
       ),
       detailsLink(`≤ ${config.duplicationMaximum}%`, context.detailsUrl),
@@ -468,8 +480,11 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
         String(metrics.newMaxComplexity),
         context.detailsUrl,
       ),
-      detailsLink(String(metrics.repositoryMaxComplexity), context.detailsUrl),
-      detailsLink(`${metrics.newComplexityViolations} new violations`, context.detailsUrl),
+      detailsLink(mainValue(main?.cyclomaticComplexity), context.detailsUrl),
+      detailsLink(
+        integerDelta(metrics.repositoryMaxComplexity, main?.cyclomaticComplexity),
+        context.detailsUrl,
+      ),
       detailsLink(`≤ ${config.complexityMaximum}`, context.detailsUrl),
     ],
     [
@@ -479,8 +494,11 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
         String(highest(newCognitive)),
         context.detailsUrl,
       ),
-      detailsLink(String(highest(repositoryCognitive)), context.detailsUrl),
-      detailsLink(`${newCognitive.length} new violations`, context.detailsUrl),
+      detailsLink(mainValue(main?.cognitiveComplexity), context.detailsUrl),
+      detailsLink(
+        integerDelta(highest(repositoryCognitive), main?.cognitiveComplexity),
+        context.detailsUrl,
+      ),
       detailsLink(`≤ ${config.cognitiveComplexityMaximum}`, context.detailsUrl),
     ],
     [
@@ -490,11 +508,13 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
         `${changedOversized.length} new`,
         context.detailsUrl,
       ),
-      detailsLink(`${oversized.length} of ${metrics.modules.length}`, context.detailsUrl),
       detailsLink(
-        integerDelta(oversized.length, metrics.baseOversizedModuleCount),
+        main?.oversizedModuleCount === undefined || main.moduleCount === undefined
+          ? "-"
+          : `${main.oversizedModuleCount} of ${main.moduleCount}`,
         context.detailsUrl,
       ),
+      detailsLink(integerDelta(oversized.length, main?.oversizedModuleCount), context.detailsUrl),
       detailsLink(`≤ ${config.moduleSlocMaximum} SLOC`, context.detailsUrl),
     ],
   ];
@@ -503,13 +523,14 @@ export const renderQualityGateMarkdown = (result: GateResult, context: MarkdownC
     QUALITY_GATE_MARKER,
     `## ${result.passed ? "✅ Quality Gate passed" : "❌ Quality Gate failed"}`,
     "",
-    "| Measure | New code | Main in PR | Δ from main | Rule |",
+    "| Measure | New code | Main | Δ from main | Rule |",
     "|---|---:|---:|---:|---:|",
     ...rows.map((row) => `| ${row.join(" | ")} |`),
     "",
     `[View analysis details](${escapeHtml(context.detailsUrl)})`,
   ];
 
+  appendMainDetails(lines, context);
   appendFailureDetails(lines, result.failures);
   appendIssueDetails(lines, metrics, context, reportSecurityFindings);
   appendDuplicateDetails(lines, metrics.duplicateGroups ?? [], context);
