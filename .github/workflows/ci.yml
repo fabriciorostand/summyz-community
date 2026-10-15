@@ -973,6 +973,7 @@ jobs:
           file: main-source/docker/Dockerfile
           target: test
           load: true
+          push: false
           tags: summyz-main-tests:ci
           cache-from: type=gha,scope=summyz-node-tests
 
@@ -1031,6 +1032,7 @@ jobs:
           file: main-source/services/faster-whisper/Dockerfile
           target: test
           load: true
+          push: false
           tags: summyz-main-python-tests:ci
           cache-from: type=gha,scope=summyz-python-tests
 
@@ -1094,6 +1096,7 @@ jobs:
           file: main-source/docker/Dockerfile
           target: bot-runtime
           load: true
+          push: false
           tags: summyz-main-bot:ci
           cache-from: type=gha,scope=summyz-runtime
 
@@ -1120,6 +1123,7 @@ jobs:
           file: main-source/docker/Dockerfile
           target: dashboard-runtime
           load: true
+          push: false
           tags: summyz-main-dashboard:ci
           cache-from: type=gha,scope=summyz-runtime
 
@@ -1146,6 +1150,7 @@ jobs:
           file: main-source/services/faster-whisper/Dockerfile
           target: cpu
           load: true
+          push: false
           tags: summyz-main-transcription:ci
           cache-from: type=gha,scope=summyz-python-runtime
 
