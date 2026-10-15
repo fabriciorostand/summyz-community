@@ -1,0 +1,2 @@
+#!/usr/bin/env sh
+node --experimental-strip-types scripts/check-commit-message.ts "$1"

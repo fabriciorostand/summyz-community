@@ -15,6 +15,8 @@ Portuguese: [docs/pt-BR/CONTRIBUTING.md](./docs/pt-BR/CONTRIBUTING.md)
 4. Run `npm run check`.
 5. Describe the motivation, behavior, risks, and validation in the pull request.
 
+The local commit hook blocks known agent email addresses in co-authorship trailers.
+
 Do not include secrets, credentials, personal meeting content, raw audio, private
 transcripts, confidential information, or material You are not authorized to disclose.
 Identify all third-party code or assets and their licenses.
