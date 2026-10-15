@@ -35,7 +35,7 @@ RUN sed -i \
       "s|http://deb.debian.org/debian-security|http://snapshot.debian.org/archive/debian-security/${DEBIAN_SNAPSHOT}|g; s|http://deb.debian.org/debian|http://snapshot.debian.org/archive/debian/${DEBIAN_SNAPSHOT}|g" \
       /etc/apt/sources.list.d/debian.sources && \
     apt-get -o Acquire::Check-Valid-Until=false update && \
-    apt-get install --yes --no-install-recommends libopus0 python3 python-is-python3 && \
+    apt-get install --yes --no-install-recommends git libopus0 python3 python-is-python3 && \
     rm -rf /var/lib/apt/lists/*
 COPY --from=ffmpeg-builder /opt/ffmpeg /opt/ffmpeg
 ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \

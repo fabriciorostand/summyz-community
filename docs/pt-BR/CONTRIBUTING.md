@@ -15,6 +15,9 @@ Texto principal em inglês: [CONTRIBUTING.md](../../CONTRIBUTING.md)
 4. Execute `npm run check`.
 5. Descreva motivação, comportamento, riscos e validação no pull request.
 
+O hook local de commits bloqueia e-mails conhecidos de agentes em trailers de
+coautoria.
+
 Não inclua segredos, credenciais, conteúdo pessoal de reuniões, áudio bruto,
 transcrições privadas, informações confidenciais ou material que Você não esteja
 autorizado a divulgar. Identifique todo código ou ativo de terceiros e sua licença.
