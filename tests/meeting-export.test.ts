@@ -7,6 +7,59 @@ import {
 import type { MeetingHistoryDetail } from "../src/database/postgres-analytics-store.js";
 
 describe("meeting text export", () => {
+  it("exports contextual assignees and interpreted dates while omitting missing metadata", () => {
+    const meeting = completedMeeting();
+    if (meeting.summary?.status !== "completed") throw new Error("Expected a completed summary");
+    const content = createMeetingTextExport(
+      {
+        ...meeting,
+        summary: {
+          ...meeting.summary,
+          tasks: [
+            {
+              text: "Implementar",
+              ownerNames: ["Bruno"],
+              deadlineText: "quarta",
+              deadlineDate: "2026-09-09",
+            },
+            { text: "Revisar juntos", ownerNames: ["Carla", "Diego"] },
+            { text: "Testar", ownerNames: [], deadlineText: "quinta" },
+            { text: "Investigar", ownerNames: [] },
+          ],
+        },
+      },
+      { dateFormat: "DD/MM/YYYY", timeFormat: "24h", timeZone: "UTC" },
+    );
+
+    expect(content).toContain("- Implementar\n  Responsável: Bruno\n  Prazo: quarta (09/09)");
+    expect(content).toContain("- Revisar juntos\n  Responsáveis: Carla e Diego");
+    expect(content).toContain("- Testar\n  Prazo: quinta\n- Investigar\n");
+  });
+
+  it("uses generated plural labels and English defaults for shared assignees", () => {
+    const meeting = completedMeeting();
+    if (meeting.summary?.status !== "completed" || meeting.summary.labels === undefined) {
+      throw new Error("Expected summary labels");
+    }
+    for (const labels of [undefined, { ...meeting.summary.labels, assignees: "Owners" }]) {
+      const content = createMeetingTextExport(
+        {
+          ...meeting,
+          summary: {
+            ...meeting.summary,
+            labels,
+            language: "en",
+            tasks: [{ text: "Review", ownerNames: ["Carla", "Diego"] }],
+          },
+        },
+        { dateFormat: "YYYY-MM-DD", timeFormat: "24h", timeZone: "UTC" },
+      );
+      expect(content).toContain(
+        `- Review\n  ${labels === undefined ? "Assignees" : "Owners"}: Carla and Diego`,
+      );
+    }
+  });
+
   it("uses English metadata while preserving generated section labels for other languages", () => {
     const meeting = completedMeeting();
     if (meeting.summary?.status !== "completed" || meeting.summary.labels === undefined) {

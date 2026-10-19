@@ -1,3 +1,4 @@
+import { taskOwners } from "../../../src/summary/task-presentation.js";
 import type { DashboardTask } from "./api";
 
 export interface OwnerGroup {
@@ -12,21 +13,29 @@ export interface OwnerGroup {
 /** Identifies the owner by Discord user when known, falling back to the extracted name. */
 function startGroup(task: DashboardTask, noOwner: string, language: string): OwnerGroup {
   if (task.ownerNames !== undefined && task.ownerNames.length !== 1) {
-    const owners = [...task.ownerNames].sort((left, right) => left.localeCompare(right));
-    return {
-      avatarUrl: null,
-      key: owners.length === 0 ? noOwner : `owners:${JSON.stringify(owners)}`,
-      name: owners.length === 0 ? noOwner : new Intl.ListFormat(language).format(owners),
-      openCount: 0,
-      overdueCount: 0,
-      tasks: [],
-    };
+    return startSharedGroup(task.ownerNames, noOwner, language);
   }
-  const name = task.ownerDisplayName ?? task.ownerNames?.[0] ?? task.ownerName ?? noOwner;
+  const name = task.ownerDisplayName ?? taskOwners(task)[0] ?? noOwner;
   return {
     avatarUrl: task.ownerAvatarUrl,
     key: task.ownerUserId ?? name,
     name,
+    openCount: 0,
+    overdueCount: 0,
+    tasks: [],
+  };
+}
+
+function startSharedGroup(
+  ownerNames: readonly string[],
+  noOwner: string,
+  language: string,
+): OwnerGroup {
+  const owners = [...ownerNames].sort((left, right) => left.localeCompare(right));
+  return {
+    avatarUrl: null,
+    key: owners.length === 0 ? noOwner : `owners:${JSON.stringify(owners)}`,
+    name: owners.length === 0 ? noOwner : new Intl.ListFormat(language).format(owners),
     openCount: 0,
     overdueCount: 0,
     tasks: [],

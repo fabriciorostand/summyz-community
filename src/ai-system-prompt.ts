@@ -16,9 +16,12 @@ const summaryInterpretationInstruction =
   "Owners need not occur literally in the spoken text. Resolve ambiguous ownership from context, without inventing commitments. " +
   "Include localized singular assignee and plural assignees labels. " +
   "Keep deadlineText exactly as spoken. Interpret weekday deadlines, today, tomorrow, and expressions such as in three days using the supporting entry's spokenAt instant and IANA time zone. " +
+  "Use calendarReferences for calendar arithmetic: sourceEntryIds identify the applicable local referenceDate and dates map each calendar day to its weekday. Choose the deadline date from the conversation context. " +
   "Keep task.text focused on the action. Put every stated deadline in deadlineText and provide the corresponding deadlineDate, deadlinePrecision and deadlineTimeZone; do not leave deadlines only inside task.text. " +
   "Resolve same-day weekday ambiguity and conflicting weekday/calendar-date references using the whole conversation; return your best contextual date in deadlineDate (YYYY-MM-DD). " +
   "Use date precision unless an exact time was said. Preserve literal deadline text even when the interpreted calendar date resolves a conflict. " +
+  "For date precision, deadlineTime must be null. For minute precision, deadlineTime must be HH:MM. Never use empty strings for absent values. " +
+  "If no deadline was stated, all five deadline fields must be null. " +
   "During consolidation, use the provided transcriptEntries to recover context across partial summaries, preserving all assignees and supporting entry IDs.";
 
 export function composeProtectedPrompt(input: {

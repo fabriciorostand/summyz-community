@@ -8,6 +8,7 @@ import {
   parseOllamaVariants,
   readPublicLibrary,
 } from "../../src/models/ollama-library.js";
+import { verifySummaryAssignments } from "./summary-assignments.js";
 
 const fasterWhisperUrl = process.env.FASTER_WHISPER_SMOKE_URL ?? "http://faster-whisper:8000";
 const fasterWhisperManagementUrl = process.env.FASTER_WHISPER_MANAGEMENT_URL ?? fasterWhisperUrl;
@@ -16,10 +17,10 @@ const ollamaManagementUrl = process.env.OLLAMA_MANAGEMENT_URL ?? ollamaUrl;
 const whisperModel = process.env.SMOKE_WHISPER_MODEL ?? "tiny";
 const whisperRevision =
   process.env.SMOKE_WHISPER_REVISION ?? "d90ca5fe260221311c53c58e660288d3deb8d356";
-const ollamaModel = process.env.SMOKE_OLLAMA_MODEL ?? "qwen3:1.7b";
+const ollamaModel = process.env.SMOKE_OLLAMA_MODEL ?? "qwen3:4b";
 const ollamaDigest =
   process.env.SMOKE_OLLAMA_DIGEST ??
-  "sha256:8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7";
+  "sha256:359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7";
 const localAiDevice = process.env.SMOKE_LOCAL_AI_DEVICE === "gpu" ? "gpu" : "cpu";
 const expectedWhisperDevice = localAiDevice === "gpu" ? "cuda" : "cpu";
 
@@ -28,7 +29,7 @@ describe("serviços locais de IA", () => {
     const families = parseOllamaFamilies(await readPublicLibrary(""));
     expect(families.some((item) => item.family === "qwen3")).toBe(true);
     const variants = parseOllamaVariants(await readPublicLibrary("/qwen3/tags"), "qwen3");
-    expect(variants.some((item) => item.model === "qwen3:1.7b" && (item.sizeBytes ?? 0) > 0)).toBe(
+    expect(variants.some((item) => item.model === "qwen3:4b" && (item.sizeBytes ?? 0) > 0)).toBe(
       true,
     );
     const catalog = await fetch(`${fasterWhisperUrl}/models/catalog`);
@@ -114,7 +115,7 @@ describe("serviços locais de IA", () => {
     ).toMatchObject({ text: expect.any(String), words: expect.any(Array) });
   });
 
-  it("baixa e valida saída estruturada do Ollama", async () => {
+  it("baixa o modelo e valida saída estruturada, atribuições e prazos do Ollama", async () => {
     const transfer = new ProviderModelTransfer((url, init) =>
       fetch(String(url).replace("http://ollama:11434", ollamaManagementUrl), init),
     );
@@ -152,6 +153,7 @@ describe("serviços locais de IA", () => {
         baseUrl: ollamaUrl,
         device: localAiDevice,
         input: {},
+        generation: { temperature: 0, seed: 0, think: false },
         instruction: 'Return {"ok": true}.',
         jsonSchema: {
           additionalProperties: false,
@@ -172,6 +174,11 @@ describe("serviços locais de IA", () => {
       .parse(await processes.json())
       .models.find((model) => model.model === ollamaModel);
     expect(active).toBeDefined();
+    await verifySummaryAssignments({
+      baseUrl: ollamaUrl,
+      model: ollamaModel,
+      device: localAiDevice,
+    });
   });
 });
 

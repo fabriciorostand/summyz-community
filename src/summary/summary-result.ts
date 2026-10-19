@@ -95,7 +95,20 @@ export const summaryDraftSchema = z.object({
 export type SummaryDraft = z.infer<typeof summaryDraftSchema>;
 export const generatedSummaryDraftSchema = summaryDraftSchema.extend({
   labels: artifactLabelsSchema.omit({ fullTranscript: true }),
-  tasks: z.array(groundedTaskSchema.safeExtend({ ownerNames: z.array(z.string().trim().min(1)) })),
+  tasks: z.array(
+    z.preprocess(
+      (input) => {
+        const task = z.record(z.string(), z.unknown()).safeParse(input);
+        if (!task.success) return input;
+        return Object.fromEntries(
+          Object.entries(task.data).filter(
+            ([key, value]) => value !== null || !Object.hasOwn(normalizedDeadlineShape, key),
+          ),
+        );
+      },
+      groundedTaskSchema.safeExtend({ ownerNames: z.array(z.string().trim().min(1)) }),
+    ),
+  ),
 });
 
 export const publicSummarySchema = z.object({

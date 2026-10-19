@@ -1,9 +1,10 @@
 import type { Logger } from "pino";
 import { z } from "zod";
-
 import { composeProtectedPrompt } from "../ai-system-prompt.js";
 import { getOpenRouterGenerationId, readOpenRouterResponse } from "../cost/openrouter-response.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
+import { createSummaryInput } from "./summary-input.js";
+import { generatedSummaryDraftJsonSchema } from "./summary-json-schema.js";
 import {
   IncompatibleSummaryResponseError,
   type SummaryProvider,
@@ -12,7 +13,6 @@ import {
   SummaryRequestError,
 } from "./summary-provider.js";
 import {
-  artifactLabelsJsonSchema,
   generatedSummaryDraftSchema,
   type SummaryDraft,
   type SummaryTranscriptEntry,
@@ -36,59 +36,6 @@ const responseSchema = z.object({
     )
     .min(1),
 });
-
-const meetingSummaryJsonSchema = {
-  additionalProperties: false,
-  properties: {
-    decisions: {
-      items: { $ref: "#/$defs/groundedItem" },
-      type: "array",
-    },
-    discussedTopics: { items: { minLength: 1, type: "string" }, type: "array" },
-    executiveSummary: { minLength: 1, type: "string" },
-    labels: artifactLabelsJsonSchema,
-    observations: { items: { minLength: 1, type: "string" }, type: "array" },
-    tasks: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          deadlineDate: { format: "date", type: "string" },
-          deadlinePrecision: { enum: ["date", "minute"], type: "string" },
-          deadlineText: { minLength: 1, type: "string" },
-          deadlineTime: { pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", type: "string" },
-          deadlineTimeZone: { minLength: 1, type: "string" },
-          ownerNames: { items: { minLength: 1, type: "string" }, type: "array" },
-          sourceEntryIds: {
-            items: { minLength: 1, type: "string" },
-            minItems: 1,
-            type: "array",
-          },
-          text: { minLength: 1, type: "string" },
-        },
-        required: ["ownerNames", "sourceEntryIds", "text"],
-        type: "object",
-      },
-      type: "array",
-    },
-  },
-  required: ["decisions", "discussedTopics", "executiveSummary", "labels", "observations", "tasks"],
-  type: "object",
-  $defs: {
-    groundedItem: {
-      additionalProperties: false,
-      properties: {
-        sourceEntryIds: {
-          items: { minLength: 1, type: "string" },
-          minItems: 1,
-          type: "array",
-        },
-        text: { minLength: 1, type: "string" },
-      },
-      required: ["sourceEntryIds", "text"],
-      type: "object",
-    },
-  },
-} as const;
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 type Sleep = (milliseconds: number) => Promise<void>;
@@ -150,7 +97,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
     entries: readonly SummaryTranscriptEntry[],
   ): Promise<SummaryProviderResult> {
     return this.#generate(
-      { transcriptEntries: entries },
+      createSummaryInput(entries),
       this.#extractionPrompt === undefined
         ? createExtractionInstruction(this.#language)
         : this.#extractionPrompt,
@@ -162,7 +109,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
     entries: readonly SummaryTranscriptEntry[] = [],
   ): Promise<SummaryProviderResult> {
     return this.#generate(
-      { partialSummaries: summaries, transcriptEntries: entries },
+      createSummaryInput(entries, summaries),
       this.#consolidationPrompt === undefined
         ? createConsolidationInstruction(this.#language)
         : this.#consolidationPrompt,
@@ -241,7 +188,7 @@ export class OpenRouterSummaryProvider implements SummaryProvider {
           response_format: {
             json_schema: {
               name: "meeting_summary",
-              schema: meetingSummaryJsonSchema,
+              schema: generatedSummaryDraftJsonSchema,
               strict: true,
             },
             type: "json_schema",

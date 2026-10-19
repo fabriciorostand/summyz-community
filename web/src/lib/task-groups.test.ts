@@ -5,6 +5,21 @@ import { dashboardTaskSchema, meetingHistoryDetailSchema } from "./api-contracts
 import { groupByOwner } from "./task-groups";
 
 describe("groupByOwner", () => {
+  it("uses the contextual name when a single assignee has no Discord identity", () => {
+    const [group] = groupByOwner(
+      [
+        aTask({
+          ownerNames: ["Fornecedor"],
+          ownerName: null,
+          ownerDisplayName: null,
+          ownerUserId: null,
+        }),
+      ],
+      "Sem responsável",
+    );
+    expect(group).toMatchObject({ name: "Fornecedor", key: "Fornecedor", openCount: 1 });
+  });
+
   it("preserves all assignees at both API boundaries", () => {
     expect(dashboardTaskSchema.parse(aTask({ ownerNames: ["Bruno", "Carla"] })).ownerNames).toEqual(
       ["Bruno", "Carla"],

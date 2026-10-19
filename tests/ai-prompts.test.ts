@@ -17,6 +17,8 @@ describe("profile prompt ownership", () => {
     expect(prompt).toContain("same-day");
     expect(prompt).toContain("conflicting");
     expect(prompt).toContain("today, tomorrow");
+    expect(prompt).toContain("deadlineTime must be null");
+    expect(prompt).toContain("all five deadline fields must be null");
     expect(createDefaultAiPrompts("pt-BR").summaryExtraction).not.toContain(
       "Owners and deadlines must reproduce exactly",
     );

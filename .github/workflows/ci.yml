@@ -594,7 +594,7 @@ jobs:
           path: |
             .cache/ci/ollama/models
             .cache/ci/faster-whisper/managed
-          key: local-ai-d90ca5fe260221311c53c58e660288d3deb8d356-8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7
+          key: local-ai-d90ca5fe260221311c53c58e660288d3deb8d356-359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7
 
       - name: Prepare local-model cache permissions
         if: steps.changes.outputs.local-ai == 'true'
@@ -633,8 +633,8 @@ jobs:
           CI_OLLAMA_CACHE: ${{ github.workspace }}/.cache/ci/ollama
           CI_WHISPER_CACHE: ${{ github.workspace }}/.cache/ci/faster-whisper
           POSTGRES_PASSWORD: ci-only-password
-          SMOKE_OLLAMA_DIGEST: sha256:8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7
-          SMOKE_OLLAMA_MODEL: qwen3:1.7b
+          SMOKE_OLLAMA_DIGEST: sha256:359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7
+          SMOKE_OLLAMA_MODEL: qwen3:4b
           SMOKE_WHISPER_MODEL: tiny
           SMOKE_WHISPER_REVISION: d90ca5fe260221311c53c58e660288d3deb8d356
         run: |

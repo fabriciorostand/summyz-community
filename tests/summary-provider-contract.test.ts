@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { OllamaSummaryProvider } from "../src/summary/ollama-summary-provider.js";
 import { OpenRouterSummaryProvider } from "../src/summary/openrouter-summary-provider.js";
+import { generatedSummaryDraftSchema } from "../src/summary/summary-result.js";
 
 const summary = {
   decisions: [],
@@ -36,10 +37,58 @@ const entries = [
   },
 ];
 
+it("accepts explicit null deadline fields from the model without persisting invented metadata", () => {
+  const parsed = generatedSummaryDraftSchema.parse({
+    ...summary,
+    tasks: [
+      {
+        ...summary.tasks[0],
+        deadlineDate: null,
+        deadlinePrecision: null,
+        deadlineText: null,
+        deadlineTime: null,
+        deadlineTimeZone: null,
+      },
+    ],
+  });
+  expect(parsed.tasks).toEqual(summary.tasks);
+});
+
+it("preserves normalized dates while discarding an absent time", () => {
+  const task = {
+    ...summary.tasks[0],
+    deadlineDate: "2026-10-19",
+    deadlinePrecision: "date",
+    deadlineText: "amanhã",
+    deadlineTime: null,
+    deadlineTimeZone: "America/Sao_Paulo",
+  };
+  const parsed = generatedSummaryDraftSchema.parse({ ...summary, tasks: [task] });
+  const { deadlineTime: _absentTime, ...expected } = task;
+  expect(parsed.tasks).toEqual([expected]);
+});
+
+it.each([
+  null,
+  "task",
+  { ...summary.tasks[0], ownerNames: null },
+  {
+    ...summary.tasks[0],
+    deadlineDate: "2026-10-19",
+    deadlineText: null,
+  },
+])("rejects invalid tasks and incomplete deadlines without repairing evidence", (task) => {
+  expect(generatedSummaryDraftSchema.safeParse({ ...summary, tasks: [task] }).success).toBe(false);
+});
+
 describe.each(["openrouter", "ollama"] as const)(
   "contrato de atribuições de %s",
   (providerName) => {
     it("usa o novo contrato na extração e leva a conversa completa à consolidação", async () => {
+      const datedEntries = entries.map((entry) => ({
+        ...entry,
+        spokenAt: { instant: "2026-10-18T17:41:46.000Z", timeZone: "America/Sao_Paulo" },
+      }));
       const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
         Response.json({
           choices: [{ message: { content: JSON.stringify(summary) } }],
@@ -59,20 +108,70 @@ describe.each(["openrouter", "ollama"] as const)(
               retryBaseMs: 1,
               retryMaxMs: 1,
             });
-      expect((await provider.summarize(entries)).summary.tasks).toEqual(summary.tasks);
-      expect((await provider.consolidate([summary], entries)).summary.tasks).toEqual(summary.tasks);
+      expect((await provider.summarize(datedEntries)).summary.tasks).toEqual(summary.tasks);
+      expect((await provider.consolidate([summary], datedEntries)).summary.tasks).toEqual(
+        summary.tasks,
+      );
       const requestSchema = z.object({ messages: z.array(z.object({ content: z.string() })) });
       const extraction = requestSchema.parse(JSON.parse(String(fetch.mock.calls[0]?.[1].body)));
       const consolidation = requestSchema.parse(JSON.parse(String(fetch.mock.calls[1]?.[1].body)));
-      expect(JSON.parse(consolidation.messages[1]?.content ?? "null")).toEqual({
+      const consolidationInput: unknown = JSON.parse(consolidation.messages[1]?.content ?? "null");
+      expect(consolidationInput).toMatchObject({
         partialSummaries: [summary],
-        transcriptEntries: entries,
+        transcriptEntries: datedEntries,
+        calendarReferences: [
+          {
+            referenceDate: "2026-10-18",
+            timeZone: "America/Sao_Paulo",
+            sourceEntryIds: ["carla", "diego"],
+            dates: expect.arrayContaining([{ date: "2026-10-21", weekday: "Wednesday" }]),
+          },
+        ],
       });
+      const calendarInputSchema = z.object({ calendarReferences: z.array(z.unknown()) });
+      expect(
+        calendarInputSchema.parse(JSON.parse(extraction.messages[1]?.content ?? "null")),
+      ).toEqual(calendarInputSchema.parse(consolidationInput));
       expect(extraction.messages[0]?.content).toContain("first-person commitments");
+      if (providerName === "ollama") {
+        expect(extraction.messages[0]?.content).toContain('"deadlineTimeZone"');
+        expect(extraction.messages[0]?.content).toContain('"required"');
+      }
       expect(consolidation.messages[0]?.content).toContain("provided transcriptEntries");
       expect(String(fetch.mock.calls[0]?.[1].body)).toContain('"ownerNames"');
       for (const call of fetch.mock.calls) {
         expect(String(call[1].body)).not.toContain('"fullTranscript"');
+        const request = z
+          .object({
+            format: z.unknown().optional(),
+            response_format: z
+              .object({ json_schema: z.object({ schema: z.unknown() }) })
+              .optional(),
+          })
+          .parse(JSON.parse(String(call[1].body)));
+        const wireSchema = z
+          .object({
+            properties: z.object({
+              tasks: z.object({
+                items: z.object({
+                  required: z.array(z.string()),
+                  properties: z.record(z.string(), z.unknown()),
+                }),
+              }),
+            }),
+          })
+          .parse(request.format ?? request.response_format?.json_schema.schema);
+        const taskSchema = wireSchema.properties.tasks.items;
+        for (const field of [
+          "deadlineDate",
+          "deadlinePrecision",
+          "deadlineText",
+          "deadlineTime",
+          "deadlineTimeZone",
+        ]) {
+          expect(taskSchema.required).toContain(field);
+          expect(taskSchema.properties[field]).toMatchObject({ type: ["string", "null"] });
+        }
       }
     });
   },
