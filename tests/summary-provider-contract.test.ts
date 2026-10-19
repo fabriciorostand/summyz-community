@@ -84,6 +84,67 @@ it.each([
 describe.each(["openrouter", "ollama"] as const)(
   "contrato de atribuições de %s",
   (providerName) => {
+    it.each([
+      ["pt-BR", undefined],
+      ["en", undefined],
+      ["auto", undefined],
+      ["pt-BR", "List owners and deadlines in executiveSummary."],
+      ["pt-BR", null],
+    ] as const)(
+      "keeps executive style editable with language %s and prompt %s",
+      async (language, prompt) => {
+        const fetch = vi.fn(async (_url: string, _init: RequestInit) =>
+          Response.json({
+            choices: [{ message: { content: JSON.stringify(summary) } }],
+            message: { content: JSON.stringify(summary) },
+          }),
+        );
+        const options = {
+          fetch,
+          language,
+          model: "model",
+          timeoutMs: 1000,
+          ...(prompt === undefined
+            ? {}
+            : { extractionPrompt: prompt, consolidationPrompt: prompt }),
+        };
+        const provider =
+          providerName === "ollama"
+            ? new OllamaSummaryProvider(options)
+            : new OpenRouterSummaryProvider({
+                ...options,
+                apiKey: "test-secret",
+                maxAttempts: 1,
+                retryBaseMs: 1,
+                retryMaxMs: 1,
+              });
+        expect((await provider.summarize(entries)).summary).toEqual(summary);
+        expect((await provider.consolidate([summary], entries)).summary).toEqual(summary);
+        for (const call of fetch.mock.calls) {
+          const request = z
+            .object({ messages: z.array(z.object({ content: z.string() })).min(1) })
+            .parse(JSON.parse(String(call[1].body)));
+          const instruction = request.messages[0]?.content;
+          if (prompt === undefined) {
+            expect(instruction).toContain("For executiveSummary only");
+            expect(instruction).toContain("one short paragraph");
+            expect(instruction).toContain("length proportional to the conversation");
+            expect(instruction).toContain(
+              "instead of listing individual assignments and deadlines",
+            );
+            expect(instruction).toContain("names and dates only when essential");
+          } else {
+            expect(instruction).not.toContain("For executiveSummary only");
+            if (prompt === null) expect(instruction).not.toContain("<editable-profile-prompt>");
+            else expect(instruction).toContain(prompt);
+          }
+          expect(instruction).toContain("Return every identified assignee in ownerNames");
+          expect(instruction).toContain("Keep deadlineText exactly as spoken");
+          expect(instruction).not.toContain("test-secret");
+        }
+      },
+    );
+
     it("usa o novo contrato na extração e leva a conversa completa à consolidação", async () => {
       const datedEntries = entries.map((entry) => ({
         ...entry,
