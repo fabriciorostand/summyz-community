@@ -8,7 +8,6 @@ import {
   parseOllamaVariants,
   readPublicLibrary,
 } from "../../src/models/ollama-library.js";
-import { verifySummaryAssignments } from "./summary-assignments.js";
 
 const fasterWhisperUrl = process.env.FASTER_WHISPER_SMOKE_URL ?? "http://faster-whisper:8000";
 const fasterWhisperManagementUrl = process.env.FASTER_WHISPER_MANAGEMENT_URL ?? fasterWhisperUrl;
@@ -115,7 +114,7 @@ describe("serviços locais de IA", () => {
     ).toMatchObject({ text: expect.any(String), words: expect.any(Array) });
   });
 
-  it("baixa o modelo e valida saída estruturada, atribuições e prazos do Ollama", async () => {
+  it("baixa o modelo e valida saída estruturada do Ollama", async () => {
     const transfer = new ProviderModelTransfer((url, init) =>
       fetch(String(url).replace("http://ollama:11434", ollamaManagementUrl), init),
     );
@@ -174,11 +173,6 @@ describe("serviços locais de IA", () => {
       .parse(await processes.json())
       .models.find((model) => model.model === ollamaModel);
     expect(active).toBeDefined();
-    await verifySummaryAssignments({
-      baseUrl: ollamaUrl,
-      model: ollamaModel,
-      device: localAiDevice,
-    });
   });
 });
 

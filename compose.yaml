@@ -125,6 +125,21 @@ services:
       ollama:
         condition: service_healthy
 
+  summary-evaluation:
+    profiles: ["evaluation"]
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+      target: test
+    command: ["npm", "run", "eval:summary", "--", "--help"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    volumes:
+      - ./artifacts/evaluations:/app/artifacts/evaluations
+
   benchmark:
     profiles: ["benchmark"]
     build:
