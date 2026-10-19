@@ -1,6 +1,7 @@
 import { Eye, SquareCheckBig } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { formatTaskDeadline } from "../../../src/summary/task-presentation.js";
 
 import { EmptyState, ErrorState, LoadingPanel } from "../components/states";
 import { Avatar, Badge, Card, Notice } from "../components/ui";
@@ -22,7 +23,7 @@ function withCompletion(
 
 export function TasksPage() {
   const { controls, guilds, reloadDashboard } = useDashboard();
-  const { t } = useI18n();
+  const { t, language } = useI18n();
   const guildId = guilds.selectedGuildId;
   const [tasks, setTasks] = useState<DashboardTask[]>();
   const [loadError, setLoadError] = useState(false);
@@ -68,7 +69,7 @@ export function TasksPage() {
 
   // Completing tasks needs the connected owner and the bot; history-only servers are read only.
   const readOnly = guilds.selectedGuild?.installed === false;
-  const groups = tasks === undefined ? undefined : groupByOwner(tasks, t.tasks.noOwner);
+  const groups = tasks === undefined ? undefined : groupByOwner(tasks, t.tasks.noOwner, language);
   const visibleGroups = groups?.filter((group) => ownerFilter === "" || group.key === ownerFilter);
   const openCount = tasks?.filter((task) => task.completedAt === null).length ?? 0;
 
@@ -289,7 +290,8 @@ function TaskRow({
             task.overdue && !completed ? "text-fail" : "text-ink-dim"
           }`}
         >
-          {format.deadline(task) ?? t.tasks.noDeadline}
+          {(task.ownerNames === undefined ? format.deadline(task) : formatTaskDeadline(task)) ??
+            t.tasks.noDeadline}
         </span>
       </div>
     </div>

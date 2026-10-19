@@ -98,6 +98,49 @@ Perfil ativo, provedores e modelos efetivos, idiomas,
 prompts, VAD, parâmetros de geração e retenção ficam fixados no manifesto quando `/record` começa.
 Edições posteriores valem para novas reuniões e não alteram silenciosamente a recuperação.
 
+## Roteamento e restrição de provedores no OpenRouter
+
+Um mesmo modelo pode ser atendido por diferentes provedores no OpenRouter, com diferenças no
+formato e nos recursos da resposta. Para alguns modelos, recomendamos restringir o roteamento a
+provedores validados para a etapa. Escolher o modelo no perfil do Summyz não fixa o provedor que
+executará a requisição.
+
+Na transcrição, por exemplo, uma rota pode retornar texto e timestamps de segmentos sem o campo
+`words`, causando `missing_timestamps`. Nesse caso, receber texto não basta para concluir a etapa.
+
+Configure a restrição na chave usada pelo Summyz, por meio de um
+[guardrail do OpenRouter](https://openrouter.ai/docs/guides/features/guardrails):
+
+1. Confira os modelos usados nas etapas externas de todos os perfis e os provedores compatíveis
+   com os requisitos de cada etapa.
+2. No workspace do OpenRouter, abra **Guardrails** e escolha **New Guardrail**. Em
+   **Model & Provider Access**, use **Only Allow...** para definir os modelos e provedores permitidos.
+3. Salve e associe o guardrail à chave em **API Keys**. Criar o guardrail sem associá-lo não aplica
+   a restrição. É possível usar a chave existente.
+4. Confira os modelos e provedores elegíveis na prévia do OpenRouter e confirme a associação à
+   chave configurada nas credenciais do dashboard do Summyz.
+
+A chave OpenRouter é única para toda a instalação: a restrição vale para transcrição, refinamento
+e resumo de todos os perfis que a utilizam. As listas do guardrail são globais à chave e não
+definem regras por etapa nem pares fixos de modelo e provedor. Inclua os provedores necessários
+às demais etapas e confira se eles também atendem algum modelo que precisa de restrição. Ao
+adicionar modelos ou provedores, revise as rotas permitidas para cada modelo.
+
+### Recomendações para transcrição
+
+A tabela reúne as combinações validadas para as quais há recomendação de restringir o provedor.
+Outros modelos também podem precisar dessa configuração, conforme as respostas das rotas disponíveis.
+
+| Modelo | Provedor recomendado | Motivo |
+| --- | --- | --- |
+| `openai/whisper-large-v3` | DeepInfra (`deepinfra`) | Validado com pausas longas; outra rota do mesmo modelo retornou respostas sem `words` |
+
+O endpoint de transcrição do OpenRouter
+[não aplica `provider.order`, `provider.only` nem `provider.ignore`](https://openrouter.ai/docs/guides/overview/multimodal/stt#request-parameters).
+O campo `providerOptions` do perfil envia opções específicas do provedor e não substitui o guardrail.
+Restringir os provedores reduz a exposição a respostas incompatíveis; o Summyz continua validando
+as respostas e aplicando as políticas de falha e retry.
+
 ## Catálogos e modelos locais
 
 Catálogos OpenRouter são filtrados pela capacidade da etapa: transcrição exige entrada de áudio e
@@ -275,8 +318,9 @@ Na fase de transcrição, cada perfil define:
 - `language`: `auto` para detectar o idioma falado ou uma tag BCP 47 explícita para orientar a
   transcrição;
 - `temperature`: temperatura da transcrição;
-- timestamps por palavra são obrigatórios; uma API externa incompatível encerra a transcrição sem
-  aproximação por segmento ou pela duração inteira do lote;
+- uma resposta externa com texto, mas sem o campo `words`, falha com `missing_timestamps`,
+  mesmo que contenha timestamps de segmentos; consulte a
+  [orientação sobre roteamento e restrição de provedores](#roteamento-e-restrição-de-provedores-no-openrouter);
 - `interSpeechSilenceMs`: silêncio WAV inserido somente entre intervalos reais de voz do lote;
   padrão `0` ms;
 - `mergeMaxGapMs`: intervalo máximo para consolidar falas da mesma pessoa neste perfil;
@@ -334,11 +378,15 @@ pois a transcrição original continua disponível.
 O resumo usa saída estruturada validada. Transcrições maiores que o limite configurado são divididas
 somente entre falas, resumidas por blocos e consolidadas. O Summyz mantém internamente as referências
 às falas que sustentam decisões e tarefas, mas não publica essas evidências. Uma decisão ou tarefa
-sem referência válida é removida. Responsável e prazo só são preservados quando aparecem exatamente
-na fala referenciada; tarefas explícitas podem permanecer sem esses campos.
+sem referência válida é removida. O modelo identifica responsáveis pelo contexto, inclusive
+compromissos em primeira pessoa, e usa os nomes de exibição dos participantes; para terceiros,
+mantém o nome citado. Uma tarefa pode ter vários responsáveis. O backend não exige que esses nomes
+apareçam literalmente na fala. O prazo continua exigindo correspondência literal com a fala citada.
 
 Pedidos vagos, como “alguém precisa decidir a ferramenta”, não são promovidos a decisão ou tarefa:
-eles aparecem em **Pendências e observações**. O Discord preserva o texto original do prazo.
-O resultado estruturado também pode manter uma data ou prazo com precisão de minuto validado e seu
-fuso da reunião para organizar tarefas no dashboard; esses metadados nunca substituem o texto
-literal no post.
+eles aparecem em **Pendências e observações**. Nas novas calls, Discord e dashboard mostram o texto
+original do prazo acompanhado da data interpretada, como `Até quarta! (21/10)`. A IA resolve dias da
+semana, hoje, amanhã e intervalos relativos pelo contexto, usando o instante da fala e o fuso da
+reunião. Isso inclui referências conflitantes e prazos mencionados no próprio dia da semana.
+O backend valida o formato da data, a completude dos campos e o fuso; não substitui a interpretação
+da IA. Horário só é normalizado quando foi mencionado. Registros históricos não são reprocessados.

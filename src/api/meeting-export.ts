@@ -1,6 +1,8 @@
 import type { MeetingHistorySummary } from "../analytics/meeting-history-summary.js";
 import type { MeetingHistoryDetail } from "../database/postgres-analytics-store.js";
 import { formatClockDuration } from "../duration-format.js";
+import type { PublicSummaryTask } from "../summary/summary-result.js";
+import { formatTaskDeadline, formatTaskOwners, taskOwners } from "../summary/task-presentation.js";
 import {
   type ExportPresentation,
   exportPresentationSchema,
@@ -80,6 +82,12 @@ function formatTasks(summary: Extract<MeetingHistorySummary, { status: "complete
   if (summary.tasks.length === 0) return ["-"];
   const labels = summary.labels ?? fallbackLabels(summary.language);
   return summary.tasks.map((task) => {
+    if (task.ownerNames !== undefined) {
+      return formatAssignedTask(task, summary.language, {
+        ...fallbackLabels(summary.language),
+        ...labels,
+      });
+    }
     const metadata = [
       task.ownerName === undefined ? undefined : `${labels.assignee}: ${task.ownerName}`,
       task.deadlineText === undefined ? undefined : `${labels.deadline}: ${task.deadlineText}`,
@@ -88,11 +96,28 @@ function formatTasks(summary: Extract<MeetingHistorySummary, { status: "complete
   });
 }
 
+function formatAssignedTask(
+  task: PublicSummaryTask,
+  language: string,
+  labels: { assignee: string; assignees?: string | undefined; deadline: string },
+): string {
+  const owners = taskOwners(task);
+  const deadline = formatTaskDeadline(task);
+  const ownerLabel =
+    owners.length > 1 ? (labels.assignees ?? fallbackLabels(language).assignees) : labels.assignee;
+  const metadata = [
+    owners.length === 0 ? undefined : `${ownerLabel}: ${formatTaskOwners(task, language)}`,
+    deadline === undefined ? undefined : `${labels.deadline}: ${deadline}`,
+  ].filter((value): value is string => value !== undefined);
+  return `- ${task.text}${metadata.map((value) => `\n  ${value}`).join("")}`;
+}
+
 function fallbackLabels(language: string) {
   const portuguese = language.toLowerCase().startsWith("pt");
   return portuguese
     ? {
         assignee: "Responsável",
+        assignees: "Responsáveis",
         deadline: "Prazo",
         decisions: "Decisões",
         discussedTopics: "Tópicos discutidos",
@@ -105,6 +130,7 @@ function fallbackLabels(language: string) {
       }
     : {
         assignee: "Assignee",
+        assignees: "Assignees",
         deadline: "Deadline",
         decisions: "Decisions",
         discussedTopics: "Discussed topics",

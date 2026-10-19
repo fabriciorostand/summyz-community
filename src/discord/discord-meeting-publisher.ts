@@ -292,7 +292,8 @@ export class DiscordMeetingPublisher implements MeetingPublisher {
     await this.#requirePublicationAccess(manifest);
     const transcriptMessage = await thread.send({
       allowedMentions: { parse: [] },
-      content: text.fullTranscript,
+      // Keep the blank line when Discord trims leading whitespace from messages.
+      content: `\u200b\n${text.fullTranscript}`,
       enforceNonce: true,
       files: [transcriptPath],
       nonce: createNonce(manifest.meetingId, "transcript"),

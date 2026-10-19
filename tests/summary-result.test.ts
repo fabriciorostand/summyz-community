@@ -76,7 +76,7 @@ describe("resultado estruturado do resumo", () => {
     expect(result.tasks.map((task) => task.text)).not.toContain("Publicar o relatório.");
   });
 
-  it("preserva responsável e prazo somente quando aparecem exatamente na fala de origem", () => {
+  it("preserva o responsável escolhido pelo modelo e exige prazo literal na fala de origem", () => {
     const result = validateGroundedSummary(createDraft(), transcript);
 
     expect(result.tasks[0]).toMatchObject({
@@ -87,6 +87,7 @@ describe("resultado estruturado do resumo", () => {
       ownerName: "Bruno",
     });
     expect(result.tasks[1]).toEqual({
+      ownerName: "Carlos",
       sourceEntryIds: ["entry-1"],
       text: "Revisar o orçamento.",
     });
@@ -109,7 +110,7 @@ describe("resultado estruturado do resumo", () => {
           ownerName: "Bruno",
           text: "Enviar o orçamento.",
         },
-        { text: "Revisar o orçamento." },
+        { text: "Revisar o orçamento.", ownerName: "Carlos" },
       ],
     });
     expect(JSON.stringify(publicSummary)).not.toContain("entry-");

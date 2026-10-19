@@ -202,6 +202,12 @@ describe("publicação da reunião em fórum do Discord", () => {
     expect(sent).toContain("Open issues and notes");
     expect(sent).toContain("Full voice call transcript");
     expect(sent).not.toContain("Pendências e observações");
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        content: "\u200b\n📎 Full voice call transcript:",
+        files: [context.transcriptPath],
+      }),
+    );
   });
 
   it("usa os rótulos do idioma efetivo do artefato, independentemente do botLanguage", async () => {
@@ -258,6 +264,12 @@ describe("publicação da reunião em fórum do Discord", () => {
     );
     expect(JSON.stringify(send.mock.calls)).toContain("Temas tratados");
     expect(JSON.stringify(send.mock.calls)).not.toContain("Tópicos discutidos");
+    expect(send).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        content: "\u200b\n📎 Transcrição completa da call:",
+        files: [context.transcriptPath],
+      }),
+    );
   });
 
   it("publica somente a transcrição e avisa falhas em inglês", async () => {
@@ -374,7 +386,10 @@ describe("publicação da reunião em fórum do Discord", () => {
     expect(JSON.stringify(send.mock.calls)).toContain("Tarefas");
     expect(JSON.stringify(send.mock.calls)).toContain("Pendências e observações");
     expect(send).toHaveBeenLastCalledWith(
-      expect.objectContaining({ files: [context.transcriptPath] }),
+      expect.objectContaining({
+        content: "\u200b\n📎 Transcrição completa da call:",
+        files: [context.transcriptPath],
+      }),
     );
   });
 

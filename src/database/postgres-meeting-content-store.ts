@@ -54,17 +54,17 @@ ON CONFLICT (meeting_id) DO UPDATE SET
 RETURNING meeting_id
 )
 INSERT INTO meeting_tasks (
-  task_id, meeting_id, guild_id, task_index, task_text, owner_name, owner_user_id,
+  task_id, meeting_id, guild_id, task_index, task_text, owner_name, owner_user_id, owner_names,
   deadline_text, deadline_date, deadline_time, deadline_time_zone, deadline_precision
 )
 SELECT task.task_id::uuid, saved_content.meeting_id, meeting.guild_id, task.task_index,
-       task.task_text, task.owner_name, owner.user_id, task.deadline_text,
+       task.task_text, task.owner_name, owner.user_id, task.owner_names, task.deadline_text,
        task.deadline_date::date, task.deadline_time::time, task.deadline_time_zone,
        task.deadline_precision
 FROM saved_content
 JOIN meetings meeting ON meeting.meeting_id = saved_content.meeting_id
 CROSS JOIN jsonb_to_recordset($7::jsonb) AS task(
-  task_id text, task_index integer, task_text text, owner_name text, deadline_text text,
+  task_id text, task_index integer, task_text text, owner_name text, owner_names text[], deadline_text text,
   deadline_date text, deadline_time text, deadline_time_zone text, deadline_precision text
 )
 LEFT JOIN LATERAL (
@@ -112,7 +112,13 @@ function extractTasks(summary: unknown): Record<string, unknown>[] {
     deadline_text: nullWhenUndefined(task.deadlineText),
     deadline_time: nullWhenUndefined(task.deadlineTime),
     deadline_time_zone: nullWhenUndefined(task.deadlineTimeZone),
-    owner_name: nullWhenUndefined(task.ownerName),
+    owner_name:
+      task.ownerNames === undefined
+        ? nullWhenUndefined(task.ownerName)
+        : task.ownerNames.length === 1
+          ? task.ownerNames[0]
+          : null,
+    owner_names: nullWhenUndefined(task.ownerNames),
     task_id: randomUUID(),
     task_index: taskIndex,
     task_text: task.text,

@@ -17,6 +17,7 @@ const taskRowSchema = z.object({
   owner_display_name: z.string().nullable(),
   overdue: z.boolean(),
   owner_name: z.string().nullable(),
+  owner_names: z.array(z.string().min(1)).nullish(),
   owner_user_id: z.string().nullable(),
   task_id: taskIdSchema,
   task_text: z.string().min(1),
@@ -36,6 +37,7 @@ export interface DashboardTask {
   ownerDisplayName: string | null;
   overdue: boolean;
   ownerName: string | null;
+  ownerNames?: string[];
   ownerUserId: string | null;
   taskId: string;
   text: string;
@@ -54,7 +56,7 @@ export class PostgresTaskStore {
     filters: { completed?: boolean; meetingId?: string } = {},
   ): Promise<DashboardTask[]> {
     const result = await this.#database.query(
-      `SELECT task.task_id, task.meeting_id, task.task_text, task.owner_name, task.owner_user_id,
+      `SELECT task.task_id, task.meeting_id, task.task_text, task.owner_name, task.owner_user_id, task.owner_names,
               task.deadline_text, task.deadline_date, task.deadline_time,
               task.deadline_time_zone, task.deadline_precision, task.completed_at,
               task.completed_by_user_id,
@@ -133,6 +135,7 @@ function mapTaskRow(input: unknown): DashboardTask {
     ownerDisplayName: row.owner_display_name,
     overdue: row.overdue,
     ownerName: row.owner_name,
+    ...(row.owner_names == null ? {} : { ownerNames: row.owner_names }),
     ownerUserId: row.owner_user_id,
     taskId: row.task_id,
     text: row.task_text,

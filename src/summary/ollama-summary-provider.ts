@@ -30,7 +30,7 @@ const jsonSchema = {
           deadlineText: { minLength: 1, type: "string" },
           deadlineTime: { pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", type: "string" },
           deadlineTimeZone: { minLength: 1, type: "string" },
-          ownerName: { minLength: 1, type: "string" },
+          ownerNames: { items: { minLength: 1, type: "string" }, type: "array" },
           sourceEntryIds: {
             items: { minLength: 1, type: "string" },
             minItems: 1,
@@ -38,7 +38,7 @@ const jsonSchema = {
           },
           text: { minLength: 1, type: "string" },
         },
-        required: ["sourceEntryIds", "text"],
+        required: ["ownerNames", "sourceEntryIds", "text"],
         type: "object",
       },
       type: "array",
@@ -101,9 +101,12 @@ export class OllamaSummaryProvider implements SummaryProvider {
     );
   }
 
-  public async consolidate(summaries: readonly SummaryDraft[]): Promise<SummaryProviderResult> {
+  public async consolidate(
+    summaries: readonly SummaryDraft[],
+    entries: readonly SummaryTranscriptEntry[] = [],
+  ): Promise<SummaryProviderResult> {
     return this.#generate(
-      { partialSummaries: summaries },
+      { partialSummaries: summaries, transcriptEntries: entries },
       this.#options.consolidationPrompt === undefined
         ? consolidationInstruction(this.#options.language)
         : this.#options.consolidationPrompt,

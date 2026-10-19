@@ -7,6 +7,38 @@ import {
 } from "../src/discord/discord-meeting-presentation.js";
 
 describe("Discord meeting presentation", () => {
+  it.each([
+    ["pt-BR", "📎 Transcrição completa da call:"],
+    ["en", "📎 Full voice call transcript:"],
+  ] as const)(
+    "keeps the fixed transcript notice in %s despite generated labels",
+    (language, notice) => {
+      const text = resolvePublicationText(language, {
+        decisions: [],
+        discussedTopics: [],
+        executiveSummary: "El equipo decidió.",
+        labels: {
+          assignee: "Responsable",
+          deadline: "Plazo",
+          decisions: "Decisiones",
+          discussedTopics: "Temas tratados",
+          executiveSummary: "Resumen ejecutivo",
+          fullTranscript: "Transcripción completa",
+          meetingId: "ID de la reunión",
+          observations: "Observaciones",
+          summary: "Resumen",
+          tasks: "Tareas",
+          transcript: "Transcripción",
+        },
+        observations: [],
+        tasks: [],
+      });
+
+      expect(text.fullTranscript).toBe(notice);
+      expect(text.executiveSummary).toBe("Resumen ejecutivo");
+    },
+  );
+
   it("formats the localized post title and summary sections", () => {
     const text = resolvePublicationText("en");
 

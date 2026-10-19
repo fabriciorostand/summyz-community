@@ -27,7 +27,7 @@ const pendingStatuses = [
 describe.skipIf(connectionString === undefined)(
   "contrato real de atualização do PostgreSQL",
   () => {
-    it.each([9, 14, 15, 17, 18, 19])(
+    it.each([9, 14, 15, 17, 18, 19, 21])(
       "preserva calls, jobs, custos e catálogo de áudio ao atualizar da versão %i",
       async (baseline) => {
         const adminPool = new Pool({
@@ -50,7 +50,7 @@ CREATE TABLE schema_migrations (
               migration.version,
             ]);
           }
-          if (baseline >= 19) {
+          if (baseline === 19) {
             await scopedDatabase.query(
               `INSERT INTO local_hardware_snapshot (snapshot_id, snapshot, detected_at)
 VALUES ('host', '{}'::jsonb, now())`,
@@ -145,7 +145,47 @@ INSERT INTO provider_cost_attempts (
           (SELECT jsonb_agg(jsonb_build_array(meeting_id, manifest, pipeline_status) ORDER BY meeting_id) FROM meetings) AS meetings,
           (SELECT jsonb_agg(jsonb_build_array(job_id, status, attempt_count, meeting_id) ORDER BY job_id) FROM processing_jobs) AS jobs,
           (SELECT jsonb_agg(to_jsonb(attempt) ORDER BY attempt_id) FROM provider_cost_attempts attempt) AS costs,
-          (SELECT jsonb_agg(to_jsonb(segment) ORDER BY segment_id) FROM meeting_audio_segments segment) AS audio`;
+          (SELECT jsonb_agg(to_jsonb(segment) ORDER BY segment_id) FROM meeting_audio_segments segment) AS audio,
+          (SELECT jsonb_agg(to_jsonb(content) ORDER BY meeting_id) FROM meeting_contents content) AS contents
+          ${baseline >= 12 ? ", (SELECT jsonb_agg(to_jsonb(task) - 'owner_names' ORDER BY task_id) FROM meeting_tasks task) AS tasks" : ""}`;
+          await scopedDatabase.query(
+            `INSERT INTO meeting_contents (meeting_id, raw_transcript, transcript, summary, publication, meeting_manifest)
+             SELECT meeting_id, 'texto bruto', 'texto revisado', $2::jsonb, '{}'::jsonb, manifest
+             FROM meetings WHERE meeting_id = $1`,
+            [
+              transcribingMeetingId,
+              JSON.stringify({
+                schemaVersion: 1,
+                meetingId: transcribingMeetingId,
+                status: "completed",
+                attempts: 1,
+                startedAt: "2026-09-03T20:10:00.000Z",
+                updatedAt: "2026-09-03T20:11:00.000Z",
+                completedAt: "2026-09-03T20:11:00.000Z",
+                effectiveLanguage: "pt-BR",
+                languageValidation: {
+                  attempts: 1,
+                  detectedLanguage: "pt",
+                  requestedLanguage: "pt-BR",
+                  status: "confirmed",
+                },
+                summary: {
+                  decisions: [],
+                  discussedTopics: [],
+                  executiveSummary: "Resumo preservado",
+                  observations: [],
+                  tasks: [{ text: "Tarefa preservada", ownerName: "Ana" }],
+                },
+              }),
+            ],
+          );
+          if (baseline >= 12) {
+            await scopedDatabase.query(
+              `INSERT INTO meeting_tasks (task_id, meeting_id, guild_id, task_index, task_text, owner_name)
+               VALUES ($1, $2, 'guild-upgrade-contract', 0, 'Tarefa preservada', 'Ana')`,
+              [randomUUID(), transcribingMeetingId],
+            );
+          }
           const beforeUpgrade = await scopedDatabase.query(snapshotSql);
           await scopedDatabase.initialize();
           expect((await scopedDatabase.query(snapshotSql)).rows).toEqual(beforeUpgrade.rows);

@@ -36,6 +36,33 @@ const entries: SummaryTranscriptEntry[] = [
 ];
 
 describe("MeetingSummaryGenerator", () => {
+  it("propaga falhas inesperadas dos adaptadores tanto na extração quanto na consolidação", async () => {
+    const failure = new Error("Unexpected adapter failure");
+    const extractionFailure: SummaryProvider = {
+      summarize: async () => {
+        throw failure;
+      },
+      consolidate: async () => ({ attempts: 1, summary: draft() }),
+    };
+    await expect(
+      new MeetingSummaryGenerator({
+        provider: extractionFailure,
+        maxChunkCharacters: 10000,
+      }).generate(entries),
+    ).rejects.toBe(failure);
+    const consolidationFailure: SummaryProvider = {
+      summarize: async () => ({ attempts: 1, summary: draft() }),
+      consolidate: async () => {
+        throw failure;
+      },
+    };
+    await expect(
+      new MeetingSummaryGenerator({
+        provider: consolidationFailure,
+        maxChunkCharacters: 1,
+      }).generate(entries),
+    ).rejects.toBe(failure);
+  });
   it("rejeita limite inválido e ainda resume uma transcrição vazia", async () => {
     const summarize = vi.fn(async () => ({ attempts: 1, summary: draft() }));
     const provider: SummaryProvider = {
@@ -106,6 +133,7 @@ describe("MeetingSummaryGenerator", () => {
     expect(summarize).toHaveBeenNthCalledWith(1, [entries[0]]);
     expect(summarize).toHaveBeenNthCalledWith(2, [entries[1]]);
     expect(consolidate).toHaveBeenCalledOnce();
+    expect(consolidate).toHaveBeenCalledWith(expect.any(Array), entries);
   });
 
   it("aplica novamente a validação de origem depois da consolidação", async () => {
@@ -132,7 +160,7 @@ describe("MeetingSummaryGenerator", () => {
 
     expect(result.summary.decisions).toEqual([]);
     expect(result.summary.tasks).toEqual([
-      { sourceEntryIds: ["entry-2"], text: "Enviar o documento." },
+      { ownerName: "Carlos", sourceEntryIds: ["entry-2"], text: "Enviar o documento." },
     ]);
   });
 

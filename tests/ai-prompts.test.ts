@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest";
 import { aiProfileSchema, createInitialAiProfile, resolveAiProfile } from "../src/ai-profile.js";
 import { createDefaultAiPrompts } from "../src/ai-prompts.js";
+import { composeProtectedPrompt } from "../src/ai-system-prompt.js";
 
 describe("profile prompt ownership", () => {
+  it("keeps contextual ownership and relative dates in the summary contract even with custom prompts", () => {
+    const prompt = composeProtectedPrompt({
+      phase: "summary",
+      phaseLanguage: "pt-BR",
+      editablePrompt: null,
+    });
+    expect(prompt).toContain("ownerNames");
+    expect(prompt).toContain("first-person commitments");
+    expect(prompt).toContain("speaker display name");
+    expect(prompt).toContain("non-participants");
+    expect(prompt).toContain("same-day");
+    expect(prompt).toContain("conflicting");
+    expect(prompt).toContain("today, tomorrow");
+    expect(createDefaultAiPrompts("pt-BR").summaryExtraction).not.toContain(
+      "Owners and deadlines must reproduce exactly",
+    );
+  });
   it("uses the setup language only for the initial name and stores English defaults", () => {
     const profile = createInitialAiProfile("external", "pt-BR");
     expect(profile.name).toBe("Perfil 1");
