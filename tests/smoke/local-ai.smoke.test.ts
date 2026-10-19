@@ -17,10 +17,10 @@ const ollamaManagementUrl = process.env.OLLAMA_MANAGEMENT_URL ?? ollamaUrl;
 const whisperModel = process.env.SMOKE_WHISPER_MODEL ?? "tiny";
 const whisperRevision =
   process.env.SMOKE_WHISPER_REVISION ?? "d90ca5fe260221311c53c58e660288d3deb8d356";
-const ollamaModel = process.env.SMOKE_OLLAMA_MODEL ?? "qwen3:4b";
+const ollamaModel = process.env.SMOKE_OLLAMA_MODEL ?? "qwen3:1.7b";
 const ollamaDigest =
   process.env.SMOKE_OLLAMA_DIGEST ??
-  "sha256:359d7dd4bcdab3d86b87d73ac27966f4dbb9f5efdfcc75d34a8764a09474fae7";
+  "sha256:8f68893c685c3ddff2aa3fffce2aa60a30bb2da65ca488b61fff134a4d1730e7";
 const localAiDevice = process.env.SMOKE_LOCAL_AI_DEVICE === "gpu" ? "gpu" : "cpu";
 const expectedWhisperDevice = localAiDevice === "gpu" ? "cuda" : "cpu";
 
@@ -29,7 +29,7 @@ describe("serviços locais de IA", () => {
     const families = parseOllamaFamilies(await readPublicLibrary(""));
     expect(families.some((item) => item.family === "qwen3")).toBe(true);
     const variants = parseOllamaVariants(await readPublicLibrary("/qwen3/tags"), "qwen3");
-    expect(variants.some((item) => item.model === "qwen3:4b" && (item.sizeBytes ?? 0) > 0)).toBe(
+    expect(variants.some((item) => item.model === "qwen3:1.7b" && (item.sizeBytes ?? 0) > 0)).toBe(
       true,
     );
     const catalog = await fetch(`${fasterWhisperUrl}/models/catalog`);

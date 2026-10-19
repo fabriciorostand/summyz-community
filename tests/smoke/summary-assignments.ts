@@ -10,8 +10,8 @@ export async function verifySummaryAssignments(options: {
   const provider = new OllamaSummaryProvider({
     ...options,
     language: "pt-BR",
-    timeoutMs: 300_000,
-    generation: { temperature: 0, seed: 0, think: false },
+    timeoutMs: 180_000,
+    generation: { temperature: 0, seed: 0 },
   });
   const entries = [
     {
