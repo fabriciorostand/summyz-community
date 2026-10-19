@@ -47,6 +47,20 @@ describe("presentPromptDefaults", () => {
     );
   });
 
+  it("shows the executive overview guidance in both editable summary defaults", () => {
+    const presented = presentPromptDefaults("pt-BR", "pt-BR", english);
+    for (const prompt of [presented?.summaryExtraction, presented?.summaryConsolidation]) {
+      expect(prompt?.shown).toContain("Somente em executiveSummary");
+      expect(prompt?.shown).toContain("um parágrafo curto");
+      expect(prompt?.shown).toContain("extensão proporcional à conversa");
+      expect(prompt?.shown).toContain("em vez de listar atribuições individuais e prazos");
+      expect(prompt?.shown).toContain("nomes e datas apenas quando essenciais");
+    }
+    expect(presented?.summaryExtraction.sent).toBe(english.summaryExtraction);
+    expect(presented?.summaryConsolidation.sent).toBe(english.summaryConsolidation);
+    expect(presented?.refinement.shown).not.toContain("executiveSummary");
+  });
+
   it("offers nothing to restore until the server defaults arrive", () => {
     expect(presentPromptDefaults("pt-BR", "auto", undefined)).toBeUndefined();
   });

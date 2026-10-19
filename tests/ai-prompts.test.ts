@@ -4,6 +4,53 @@ import { createDefaultAiPrompts } from "../src/ai-prompts.js";
 import { composeProtectedPrompt } from "../src/ai-system-prompt.js";
 
 describe("profile prompt ownership", () => {
+  it.each(["local", "external"] as const)(
+    "applies the executive overview style only to default summary prompts in %s profiles",
+    (kind) => {
+      const initial = createInitialAiProfile(kind, "pt-BR");
+      const profile = aiProfileSchema.parse({
+        ...initial,
+        transcription: { ...initial.transcription, model: "audio" },
+        refinement: { ...initial.refinement, model: "review" },
+        summary: { ...initial.summary, model: "summary" },
+      });
+      const defaults = resolveAiProfile(profile);
+      for (const prompt of [
+        defaults.summary.extractionPrompt,
+        defaults.summary.consolidationPrompt,
+      ]) {
+        expect(prompt).toContain("For executiveSummary only");
+        expect(prompt).toContain("one short paragraph");
+        expect(prompt).toContain("length proportional to the conversation");
+        expect(prompt).toContain("instead of listing individual assignments and deadlines");
+        expect(prompt).toContain("names and dates only when essential");
+      }
+
+      const custom = "Include each owner and deadline in executiveSummary.";
+      const customized = resolveAiProfile(
+        aiProfileSchema.parse({
+          ...profile,
+          promptModes: {
+            ...profile.promptModes,
+            summaryExtraction: "custom",
+            summaryConsolidation: "custom",
+          },
+          summary: { ...profile.summary, extractionPrompt: custom, consolidationPrompt: null },
+        }),
+      );
+      expect(customized.summary.extractionPrompt).toBe(custom);
+      expect(customized.summary.consolidationPrompt).toBeNull();
+      expect(
+        composeProtectedPrompt({
+          editablePrompt: custom,
+          phase: "summary",
+          phaseLanguage: "pt-BR",
+        }),
+      ).not.toContain("For executiveSummary only");
+      expect(defaults.refinement.prompt).not.toContain("executiveSummary");
+    },
+  );
+
   it("keeps contextual ownership and relative dates in the summary contract even with custom prompts", () => {
     const prompt = composeProtectedPrompt({
       phase: "summary",

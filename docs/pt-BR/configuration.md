@@ -211,6 +211,13 @@ Cada prompt usa explicitamente o modo `default` ou `custom`. Mudar o idioma efet
 os padrões e preserva literalmente os textos customizados. Restaurar o padrão envia o modo, em vez
 de reconhecer padrões por comparação de texto. Os prompts efetivos permanecem fixados na reunião.
 
+Nos prompts padrão de extração e consolidação, o Resumo Executivo apresenta uma visão geral do
+assunto da reunião e do que foi discutido em um parágrafo curto, com extensão proporcional à
+conversa. Discussões sobre cronograma e responsabilidades são resumidas de forma geral; nomes e
+datas aparecem somente quando essenciais para entender o assunto. Essa orientação se aplica apenas
+ao Resumo Executivo e pode ser alterada nos prompts personalizados. As regras de tópicos, decisões,
+tarefas e observações permanecem as mesmas. Resumos já gerados não são reescritos automaticamente.
+
 ## Escolhas de retenção
 
 Servidores novos retêm conteúdo por padrão e não retêm áudio. Configure cada política separadamente
