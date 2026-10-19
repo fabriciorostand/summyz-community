@@ -1,6 +1,7 @@
 import { ArrowUpRight, Mic2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
+import { formatTaskDeadline } from "../../../src/summary/task-presentation.js";
 
 import { Tabs } from "../components/disclosure";
 import { ErrorState, LoadingPanel, NoServerState, secondaryLinkClass } from "../components/states";
@@ -424,7 +425,7 @@ function OpenTasksCard({ dashboard, guildId }: { dashboard: DashboardAnalytics; 
 }
 
 function TaskPreview({ guildId }: { guildId: string }) {
-  const { format, t } = useI18n();
+  const { format, t, language } = useI18n();
   const [tasks, setTasks] = useState<DashboardTask[]>();
   useEffect(() => {
     let active = true;
@@ -441,7 +442,7 @@ function TaskPreview({ guildId }: { guildId: string }) {
     };
   }, [guildId]);
   if (tasks === undefined) return <LoadingPanel label={t.overview.loadingTasks} />;
-  const groups = groupByOwner(tasks, t.tasks.noOwner).slice(0, 3);
+  const groups = groupByOwner(tasks, t.tasks.noOwner, language).slice(0, 3);
   return (
     <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
       {groups.map((group) => (
@@ -455,7 +456,10 @@ function TaskPreview({ guildId }: { guildId: string }) {
           </div>
           <div className="flex flex-col gap-2">
             {group.tasks.slice(0, 3).map((task) => {
-              const deadline = format.deadline(task);
+              const deadline =
+                task.ownerNames === undefined
+                  ? format.deadline(task)
+                  : (formatTaskDeadline(task) ?? null);
               return (
                 <div className="flex items-start gap-2" key={task.taskId}>
                   <span

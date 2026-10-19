@@ -67,6 +67,27 @@ const content = {
 };
 
 describe("PostgresMeetingContentStore", () => {
+  it("persiste todos os responsáveis de uma tarefa compartilhada sem duplicá-la", async () => {
+    const { database, query } = createDatabase();
+    await new PostgresMeetingContentStore(database).persist({
+      ...content,
+      summary: {
+        ...completedSummary,
+        summary: {
+          ...completedSummary.summary,
+          tasks: [{ text: "Revisar juntos", ownerNames: ["Carla", "Diego"] }],
+        },
+      },
+    });
+    expect(JSON.parse(String(query.mock.calls[0]?.[1]?.[6]))).toEqual([
+      expect.objectContaining({
+        owner_names: ["Carla", "Diego"],
+        owner_name: null,
+        task_text: "Revisar juntos",
+      }),
+    ]);
+    expect(query.mock.calls[0]?.[0]).toContain("owner_names");
+  });
   it("persiste transcrições e resumo quando a opção está ativada", async () => {
     const { database, query } = createDatabase();
     const store = new PostgresMeetingContentStore(database);

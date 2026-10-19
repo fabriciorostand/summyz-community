@@ -35,16 +35,19 @@ const groundedTaskSchema = groundedItemSchema
   .extend({
     ...normalizedDeadlineShape,
     ownerName: z.string().trim().min(1).optional(),
+    ownerNames: z.array(z.string().trim().min(1)).optional(),
   })
   .superRefine(validateNormalizedDeadline);
 
 export const artifactLabelsSchema = z.object({
   assignee: z.string().trim().min(1),
+  assignees: z.string().trim().min(1).optional(),
   deadline: z.string().trim().min(1),
   decisions: z.string().trim().min(1),
   discussedTopics: z.string().trim().min(1),
   executiveSummary: z.string().trim().min(1),
-  fullTranscript: z.string().trim().min(1),
+  // Accept stored labels from older summaries; new summaries use the fixed Discord notice.
+  fullTranscript: z.string().trim().min(1).optional(),
   meetingId: z.string().trim().min(1),
   observations: z.string().trim().min(1),
   summary: z.string().trim().min(1),
@@ -55,11 +58,11 @@ export const artifactLabelsJsonSchema = {
   additionalProperties: false,
   properties: {
     assignee: { minLength: 1, type: "string" },
+    assignees: { minLength: 1, type: "string" },
     deadline: { minLength: 1, type: "string" },
     decisions: { minLength: 1, type: "string" },
     discussedTopics: { minLength: 1, type: "string" },
     executiveSummary: { minLength: 1, type: "string" },
-    fullTranscript: { minLength: 1, type: "string" },
     meetingId: { minLength: 1, type: "string" },
     observations: { minLength: 1, type: "string" },
     summary: { minLength: 1, type: "string" },
@@ -72,7 +75,6 @@ export const artifactLabelsJsonSchema = {
     "decisions",
     "discussedTopics",
     "executiveSummary",
-    "fullTranscript",
     "meetingId",
     "observations",
     "summary",
@@ -92,7 +94,21 @@ export const summaryDraftSchema = z.object({
 });
 export type SummaryDraft = z.infer<typeof summaryDraftSchema>;
 export const generatedSummaryDraftSchema = summaryDraftSchema.extend({
-  labels: artifactLabelsSchema,
+  labels: artifactLabelsSchema.omit({ fullTranscript: true }),
+  tasks: z.array(
+    z.preprocess(
+      (input) => {
+        const task = z.record(z.string(), z.unknown()).safeParse(input);
+        if (!task.success) return input;
+        return Object.fromEntries(
+          Object.entries(task.data).filter(
+            ([key, value]) => value !== null || !Object.hasOwn(normalizedDeadlineShape, key),
+          ),
+        );
+      },
+      groundedTaskSchema.safeExtend({ ownerNames: z.array(z.string().trim().min(1)) }),
+    ),
+  ),
 });
 
 export const publicSummarySchema = z.object({
@@ -106,6 +122,7 @@ export const publicSummarySchema = z.object({
       .object({
         ...normalizedDeadlineShape,
         ownerName: z.string().trim().min(1).optional(),
+        ownerNames: z.array(z.string().trim().min(1)).optional(),
         text: z.string().trim().min(1),
       })
       .superRefine(validateNormalizedDeadline),
@@ -145,9 +162,8 @@ function groundTask(
               : {}),
           }
         : {}),
-      ...(task.ownerName !== undefined && sourceText.includes(task.ownerName)
-        ? { ownerName: task.ownerName }
-        : {}),
+      ...(task.ownerName === undefined ? {} : { ownerName: task.ownerName }),
+      ...(task.ownerNames === undefined ? {} : { ownerNames: [...new Set(task.ownerNames)] }),
       sourceEntryIds,
       text: task.text,
     },
@@ -196,6 +212,7 @@ export function createPublicSummary(summary: SummaryDraft): PublicSummary {
       ...(task.deadlineTime === undefined ? {} : { deadlineTime: task.deadlineTime }),
       ...(task.deadlineTimeZone === undefined ? {} : { deadlineTimeZone: task.deadlineTimeZone }),
       ...(task.ownerName === undefined ? {} : { ownerName: task.ownerName }),
+      ...(task.ownerNames === undefined ? {} : { ownerNames: [...task.ownerNames] }),
       text: task.text,
     })),
   });

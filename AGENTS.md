@@ -100,6 +100,12 @@ Messages sent to Discord must not reveal stack traces, internal paths, or secret
 - Applied migrations are immutable. The database records a SHA-256 checksum and startup must fail
   closed when the checked-in SQL differs from the recorded checksum.
 
+## Cleanup
+
+- Before finishing any task, remove only the temporary items created by that task. Never delete
+  anything you did not create or cannot attribute to the task. When in doubt, list the items for the
+  owner.
+
 ## Git
 
 ### Branches

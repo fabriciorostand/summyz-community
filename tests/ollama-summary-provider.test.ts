@@ -13,7 +13,6 @@ const validSummary = {
     decisions: "Decisions",
     discussedTopics: "Discussed topics",
     executiveSummary: "Executive summary",
-    fullTranscript: "Full transcript",
     meetingId: "Meeting ID",
     observations: "Observations",
     summary: "Summary",

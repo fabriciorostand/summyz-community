@@ -1,9 +1,12 @@
 import type { AppConfig } from "../config.js";
 import type { PublicationState } from "../summary/publication-state.js";
-import type { PublicSummary } from "../summary/summary-result.js";
+import type { PublicSummary, PublicSummaryTask } from "../summary/summary-result.js";
+import { formatTaskDeadline, formatTaskOwners, taskOwners } from "../summary/task-presentation.js";
 
 export interface PublicationText {
   assignee: string;
+  assignees?: string;
+  language?: string;
   auditReason: string;
   deadline: string;
   decisions: string;
@@ -23,6 +26,7 @@ export interface PublicationText {
 export const publicationTexts = {
   en: {
     assignee: "Assignee",
+    assignees: "Assignees",
     auditReason: "Publishing result for meeting",
     deadline: "Deadline",
     decisions: "Decisions",
@@ -42,6 +46,7 @@ export const publicationTexts = {
   },
   "pt-BR": {
     assignee: "Responsável",
+    assignees: "Responsáveis",
     auditReason: "Publicação do resultado da reunião",
     deadline: "Prazo",
     decisions: "Decisões",
@@ -66,15 +71,16 @@ export const resolvePublicationText = (
   summary?: PublicSummary,
 ): PublicationText => ({
   ...publicationTexts[language],
+  language,
   ...(summary?.labels === undefined
     ? {}
     : {
         assignee: summary.labels.assignee,
+        assignees: summary.labels.assignees ?? publicationTexts[language].assignees,
         deadline: summary.labels.deadline,
         decisions: summary.labels.decisions,
         discussedTopics: summary.labels.discussedTopics,
         executiveSummary: summary.labels.executiveSummary,
-        fullTranscript: summary.labels.fullTranscript,
         meetingId: summary.labels.meetingId,
         openIssues: summary.labels.observations,
         summary: summary.labels.summary,
@@ -125,19 +131,35 @@ export function formatSummary(
   appendList(sections, text.decisions, summary.decisions);
   if (summary.tasks.length > 0) {
     sections.push(
-      `## ${text.tasks}\n${summary.tasks
+      `## ${text.tasks}\n\n${summary.tasks
         .map((task) => {
+          if (task.ownerNames !== undefined) {
+            return formatAssignedTask(task, text);
+          }
           const details = [
             task.ownerName === undefined ? undefined : `${text.assignee}: ${task.ownerName}`,
             task.deadlineText === undefined ? undefined : `${text.deadline}: ${task.deadlineText}`,
           ].filter((item): item is string => item !== undefined);
           return `- ${task.text}${details.length === 0 ? "" : `\n  ${details.join(" · ")}`}`;
         })
-        .join("\n")}`,
+        .join("\n\n")}`,
     );
   }
   appendList(sections, text.openIssues, summary.observations);
   return sections.flatMap((section) => splitDiscordContent(section, 1_900));
+}
+
+function formatAssignedTask(task: PublicSummaryTask, text: PublicationText): string {
+  const owners = taskOwners(task);
+  const deadline = formatTaskDeadline(task);
+  const ownerLabel = owners.length > 1 ? (text.assignees ?? text.assignee) : text.assignee;
+  const details = [
+    owners.length === 0
+      ? undefined
+      : `**${ownerLabel}:** ${formatTaskOwners(task, text.language ?? "en")}`,
+    deadline === undefined ? undefined : `**${text.deadline}:** ${deadline}`,
+  ].filter((item): item is string => item !== undefined);
+  return [`- ${task.text}`, ...details.map((detail) => `  ${detail}`)].join("\n\n");
 }
 
 function appendList(sections: string[], title: string, items: readonly string[]): void {

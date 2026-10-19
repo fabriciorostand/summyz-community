@@ -114,7 +114,7 @@ describe("serviços locais de IA", () => {
     ).toMatchObject({ text: expect.any(String), words: expect.any(Array) });
   });
 
-  it("baixa e valida saída estruturada do Ollama", async () => {
+  it("baixa o modelo e valida saída estruturada do Ollama", async () => {
     const transfer = new ProviderModelTransfer((url, init) =>
       fetch(String(url).replace("http://ollama:11434", ollamaManagementUrl), init),
     );
@@ -152,6 +152,7 @@ describe("serviços locais de IA", () => {
         baseUrl: ollamaUrl,
         device: localAiDevice,
         input: {},
+        generation: { temperature: 0, seed: 0, think: false },
         instruction: 'Return {"ok": true}.',
         jsonSchema: {
           additionalProperties: false,

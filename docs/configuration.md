@@ -98,6 +98,49 @@ The active profile, effective providers and models,
 languages, prompts, VAD, generation parameters, and retention choices are pinned in the manifest
 when `/record` starts. Later edits apply to new meetings and do not silently change recovery.
 
+## OpenRouter routing and provider restrictions
+
+The same model can be served by different providers on OpenRouter, with differences in response
+format and supported features. For some models, we recommend restricting routing to providers
+validated for the stage. Selecting a model in a Summyz profile does not pin the provider that
+will execute the request.
+
+For transcription, for example, a route may return text and segment timestamps without the
+`words` field, causing `missing_timestamps`. Receiving text alone is not enough to complete the stage.
+
+Configure restrictions on the key used by Summyz through an
+[OpenRouter guardrail](https://openrouter.ai/docs/guides/features/guardrails):
+
+1. Review the models used by external stages across all profiles and the providers compatible
+   with each stage's requirements.
+2. In the OpenRouter workspace, open **Guardrails** and choose **New Guardrail**. Under
+   **Model & Provider Access**, use **Only Allow...** to define the allowed models and providers.
+3. Save and assign the guardrail to the key under **API Keys**. Creating a guardrail without
+   assigning it does not enforce the restriction. You can use the existing key.
+4. Review eligible models and providers in the OpenRouter preview and confirm the assignment to
+   the key configured in the Summyz dashboard credentials.
+
+The OpenRouter key is shared across the installation: restrictions apply to transcription,
+refinement, and summary across all profiles that use it. Guardrail lists apply to the entire key
+and do not define rules per stage or fixed model-provider pairs. Include the providers needed by
+other stages and check whether they also serve any model that requires restrictions. Whenever
+you add models or providers, review the allowed routes for each model.
+
+### Transcription recommendations
+
+The table lists validated combinations for which we recommend restricting the provider.
+Other models may also need this configuration, depending on the responses from available routes.
+
+| Model | Recommended provider | Reason |
+| --- | --- | --- |
+| `openai/whisper-large-v3` | DeepInfra (`deepinfra`) | Validated with long pauses; another route for the same model returned responses without `words` |
+
+The OpenRouter transcription endpoint
+[does not apply `provider.order`, `provider.only`, or `provider.ignore`](https://openrouter.ai/docs/guides/overview/multimodal/stt#request-parameters).
+The profile's `providerOptions` field sends provider-specific options and does not replace the guardrail.
+Restricting providers reduces exposure to incompatible responses; Summyz continues to validate
+responses and apply its failure and retry policies.
+
 ## Catalogs and local models
 
 OpenRouter catalogs are filtered by stage capability: transcription needs audio input and
@@ -266,8 +309,9 @@ The transcription phase of each profile defines:
 - `provider` and `model`, both required for a complete profile;
 - `language`: `auto` to detect speech language or an explicit BCP 47 tag to guide transcription;
 - `temperature`: transcription temperature;
-- word timestamps are mandatory; an incompatible external API response fails transcription instead
-  of approximating from segments or the complete batch duration;
+- an external response with text but no `words` field fails with `missing_timestamps`, even if
+  it includes segment timestamps; see the
+  [routing and provider restriction guidance](#openrouter-routing-and-provider-restrictions);
 - `interSpeechSilenceMs`: WAV silence inserted only between actual speech intervals in the batch;
   default `0` ms;
 - `mergeMaxGapMs`: maximum gap for consolidating utterances from the same person in this profile;

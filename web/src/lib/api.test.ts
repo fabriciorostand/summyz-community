@@ -165,6 +165,36 @@ describe("dashboard API client", () => {
     expect(parsed).not.toHaveProperty("translation");
   });
 
+  it.each([undefined, "📎 Transcrição completa da call:"])(
+    "accepts completed summaries with or without a legacy transcript notice (%s)",
+    (fullTranscript) => {
+      const detail = meetingHistoryDetailSchema.parse({
+        ...meetingDetailPayload(),
+        summary: {
+          ...completedSummaryPayload(),
+          labels: {
+            assignee: "Responsável",
+            deadline: "Prazo",
+            decisions: "Decisões",
+            discussedTopics: "Tópicos discutidos",
+            executiveSummary: "Resumo executivo",
+            ...(fullTranscript === undefined ? {} : { fullTranscript }),
+            meetingId: "ID da reunião",
+            observations: "Observações",
+            summary: "Resumo",
+            tasks: "Tarefas",
+            transcript: "Transcrição",
+          },
+        },
+      });
+
+      expect(detail.summary).toMatchObject({
+        status: "completed",
+        labels: { tasks: "Tarefas" },
+      });
+    },
+  );
+
   it("keeps the language warning of a completed summary", () => {
     const detail = meetingHistoryDetailSchema.parse({
       ...meetingDetailPayload(),

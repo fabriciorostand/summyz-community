@@ -1,3 +1,4 @@
+import { taskOwners } from "../../../src/summary/task-presentation.js";
 import type { DashboardTask } from "./api";
 
 export interface OwnerGroup {
@@ -10,12 +11,31 @@ export interface OwnerGroup {
 }
 
 /** Identifies the owner by Discord user when known, falling back to the extracted name. */
-function startGroup(task: DashboardTask, noOwner: string): OwnerGroup {
-  const name = task.ownerDisplayName ?? task.ownerName ?? noOwner;
+function startGroup(task: DashboardTask, noOwner: string, language: string): OwnerGroup {
+  if (task.ownerNames !== undefined && task.ownerNames.length !== 1) {
+    return startSharedGroup(task.ownerNames, noOwner, language);
+  }
+  const name = task.ownerDisplayName ?? taskOwners(task)[0] ?? noOwner;
   return {
     avatarUrl: task.ownerAvatarUrl,
     key: task.ownerUserId ?? name,
     name,
+    openCount: 0,
+    overdueCount: 0,
+    tasks: [],
+  };
+}
+
+function startSharedGroup(
+  ownerNames: readonly string[],
+  noOwner: string,
+  language: string,
+): OwnerGroup {
+  const owners = [...ownerNames].sort((left, right) => left.localeCompare(right));
+  return {
+    avatarUrl: null,
+    key: owners.length === 0 ? noOwner : `owners:${JSON.stringify(owners)}`,
+    name: owners.length === 0 ? noOwner : new Intl.ListFormat(language).format(owners),
     openCount: 0,
     overdueCount: 0,
     tasks: [],
@@ -30,10 +50,14 @@ function addTask(group: OwnerGroup, task: DashboardTask): void {
 }
 
 /** Groups tasks by owner, busiest owner first, the way both task views present them. */
-export function groupByOwner(tasks: readonly DashboardTask[], noOwner: string): OwnerGroup[] {
+export function groupByOwner(
+  tasks: readonly DashboardTask[],
+  noOwner: string,
+  language = "pt-BR",
+): OwnerGroup[] {
   const groups = new Map<string, OwnerGroup>();
   for (const task of tasks) {
-    const started = startGroup(task, noOwner);
+    const started = startGroup(task, noOwner, language);
     const group = groups.get(started.key) ?? started;
     addTask(group, task);
     groups.set(group.key, group);

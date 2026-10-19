@@ -44,7 +44,7 @@ function successResponse(): Response {
               tasks: [
                 {
                   deadlineText: "até sexta-feira",
-                  ownerName: "Bruno",
+                  ownerNames: ["Bruno"],
                   sourceEntryIds: ["segment-a:000000"],
                   text: "Enviar o orçamento.",
                 },

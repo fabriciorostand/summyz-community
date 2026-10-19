@@ -124,6 +124,67 @@ Ela executa inferência local real, baixa modelos pequenos e pode demorar na pri
 Escolha os overlays apropriados ao testar aceleração explicitamente. A inferência CI usa CPU;
 construir o pacote CUDA não valida uma GPU física.
 
+O CI obrigatório mantém `qwen3:1.7b` para validar download, execução do provedor e JSON
+estruturado. Os testes rápidos verificam contratos, responsáveis, prazos e apresentação com
+entradas determinísticas. Esses testes não comprovam a qualidade da interpretação do modelo.
+
+### Avaliação semântica sob demanda
+
+`eval:summary` executa o gerador real de resumos com um perfil explicitamente escolhido. A
+suíte usa transcrições sintéticas versionadas em `scripts/evaluation/summary-cases.ts`, sem
+áudios ou dados de calls. Não cria calls no Dashboard nem publica no Discord. O banco é aberto
+em uma transação somente leitura para obter o perfil e, quando necessário, a credencial
+configurada do OpenRouter; a conexão é encerrada antes da inferência. Não executa migrations.
+
+Com a instalação e os serviços do provedor já disponíveis, liste os identificadores dos perfis:
+
+```sh
+docker compose --profile evaluation run --rm --build summary-evaluation npm run eval:summary -- --list-profiles
+```
+
+Escolha o identificador exibido e execute a suíte. Substitua `ID_DO_PERFIL` pelo valor real:
+
+```sh
+docker compose --profile evaluation run --rm --build summary-evaluation npm run eval:summary -- --profile-id ID_DO_PERFIL --runs 3
+```
+
+O modelo, os prompts de extração/consolidação, o idioma, os parâmetros de geração e o limite
+de fragmentação vêm do perfil. Para perfis locais com dispositivo `auto`, acrescente
+`--device cpu` ou `--device gpu`; um dispositivo fixado no perfil não pode ser substituído.
+Use os overlays da instalação ao executar em GPU. A suíte não instala modelos nem inicia os
+serviços de IA. Perfis externos fazem chamadas ao provedor configurado e podem gerar custos;
+essas execuções não entram no histórico de custos de uma call.
+
+Para investigar um cenário, acrescente `--case contextual-assignments`; a opção pode ser
+repetida. `--help` lista os casos e as opções. Fora do Docker, a mesma entrada é
+`npm run eval:summary -- --profile-id ID_DO_PERFIL`, desde que o banco e o provedor estejam
+acessíveis pelos endereços da instalação. As transcrições sintéticas são em pt-BR; quando o
+idioma do perfil e da transcrição são `auto`, esse é o idioma usado na avaliação.
+
+Os casos incluem compromissos em primeira pessoa, confirmação em outra fala, múltiplos
+responsáveis, pessoa ausente da call, tarefa sem responsável, ausência de compromisso,
+dias da semana, hoje, amanhã e daqui a três dias. A comparação usa evidências para associar
+as tarefas e verifica omissões, tarefas extras, o conjunto completo de responsáveis e datas.
+Não exige correspondência literal do texto das ações. A equivalência semântica dessas ações
+continua exigindo revisão humana: citar uma evidência correta não comprova que a ação foi
+descrita corretamente. Não há um segundo modelo julgando os resultados.
+
+Os relatórios JSON e Markdown ficam em `artifacts/evaluations/`, com entradas, resultados
+esperados, saída efetiva, divergências, configuração do alvo e hash dos prompts efetivos.
+Cada repetição é preservada, inclusive falhas; não há repetição até obter aprovação. A
+consistência compara quantidade, responsáveis e datas, sem comparar literalmente a redação.
+Os retries de transporte continuam seguindo a configuração normal do provedor. Erros de
+geração/contrato são registrados como `error`, sem gravar mensagens brutas que possam conter
+credenciais. O comando retorna `0` para verificações automáticas aprovadas, `1` para falha e
+`2` para revisão pendente. Referências ambíguas têm variantes aceitas explicitamente e continuam
+pendentes de revisão mesmo quando o modelo escolhe uma delas.
+
+Execute e revise essa avaliação ao alterar prompts, modelos ou extração, e antes de releases
+que afetem a interpretação. Ela é manual e não aumenta o tempo obrigatório de cada PR.
+Uma aprovação automática não substitui a revisão do conteúdo dos relatórios.
+
+### Benchmark de transcrição
+
 O benchmark usa áudio retido e `transcript.raw.txt` como referência e informa WER, CER, tempo e
 fator de tempo real sem conteúdo da reunião. Por padrão, monta `./data` do host somente para
 leitura, em vez do volume nomeado do bot. Forneça uma montagem somente leitura do diretório retido

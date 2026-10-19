@@ -29,6 +29,10 @@ describe("presentPromptDefaults", () => {
     expect(presented?.summaryConsolidation.shown).toMatch(
       /^Você consolida resumos parciais de uma reunião no idioma predominante da reunião\./,
     );
+    expect(presented?.summaryExtraction.shown).toContain("compromissos em primeira pessoa");
+    expect(presented?.summaryExtraction.shown).not.toContain(
+      "Responsável e prazo devem reproduzir exatamente",
+    );
   });
 
   it("names the summary language in the Portuguese reading", () => {

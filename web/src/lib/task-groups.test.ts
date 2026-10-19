@@ -1,9 +1,70 @@
 import { describe, expect, it } from "vitest";
 
-import { aTask } from "../tests/test-utils";
+import { aMeetingDetail, aTask } from "../tests/test-utils";
+import { dashboardTaskSchema, meetingHistoryDetailSchema } from "./api-contracts";
 import { groupByOwner } from "./task-groups";
 
 describe("groupByOwner", () => {
+  it("uses the contextual name when a single assignee has no Discord identity", () => {
+    const [group] = groupByOwner(
+      [
+        aTask({
+          ownerNames: ["Fornecedor"],
+          ownerName: null,
+          ownerDisplayName: null,
+          ownerUserId: null,
+        }),
+      ],
+      "Sem responsável",
+    );
+    expect(group).toMatchObject({ name: "Fornecedor", key: "Fornecedor", openCount: 1 });
+  });
+
+  it("preserves all assignees at both API boundaries", () => {
+    expect(dashboardTaskSchema.parse(aTask({ ownerNames: ["Bruno", "Carla"] })).ownerNames).toEqual(
+      ["Bruno", "Carla"],
+    );
+    const meeting = aMeetingDetail();
+    if (meeting.summary?.status !== "completed") throw new Error("Expected a completed summary");
+    const parsed = meetingHistoryDetailSchema.parse({
+      ...meeting,
+      summary: { ...meeting.summary, tasks: [{ text: "Revisar", ownerNames: ["Bruno", "Carla"] }] },
+    });
+    expect(parsed.summary).toMatchObject({ tasks: [{ ownerNames: ["Bruno", "Carla"] }] });
+  });
+  it("keeps shared tasks in a separate group regardless of the assignee order", () => {
+    const groups = groupByOwner(
+      [
+        aTask({
+          ownerNames: ["Bruno", "Carla"],
+          ownerName: null,
+          ownerUserId: null,
+          taskId: "shared-1",
+        }),
+        aTask({
+          ownerNames: ["Carla", "Bruno"],
+          ownerName: null,
+          ownerUserId: null,
+          taskId: "shared-2",
+        }),
+        aTask({
+          ownerNames: ["Bruno"],
+          ownerName: "Bruno",
+          ownerDisplayName: "Bruno",
+          ownerUserId: "bruno",
+          taskId: "solo",
+        }),
+      ],
+      "Sem responsável",
+    );
+    expect(groups.map((group) => [group.name, group.tasks.length])).toEqual([
+      ["Bruno e Carla", 2],
+      ["Bruno", 1],
+    ]);
+    expect(groups[0]?.avatarUrl).toBeNull();
+    expect(groups.flatMap((group) => group.tasks)).toHaveLength(3);
+  });
+
   it("groups by Discord user, falling back to the extracted name", () => {
     const groups = groupByOwner(
       [

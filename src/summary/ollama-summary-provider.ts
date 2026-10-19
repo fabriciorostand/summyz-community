@@ -1,67 +1,18 @@
 import { composeProtectedPrompt } from "../ai-system-prompt.js";
 import type { ProviderCostRecorder } from "../cost/provider-cost-recorder.js";
 import { requestOllamaStructured } from "../local-ai/ollama-client.js";
+import { createSummaryInput } from "./summary-input.js";
+import { generatedSummaryDraftJsonSchema } from "./summary-json-schema.js";
 import {
   type SummaryProvider,
   SummaryProviderFailureError,
   type SummaryProviderResult,
 } from "./summary-provider.js";
 import {
-  artifactLabelsJsonSchema,
   generatedSummaryDraftSchema,
   type SummaryDraft,
   type SummaryTranscriptEntry,
 } from "./summary-result.js";
-
-const jsonSchema = {
-  additionalProperties: false,
-  properties: {
-    decisions: { items: { $ref: "#/$defs/groundedItem" }, type: "array" },
-    discussedTopics: { items: { minLength: 1, type: "string" }, type: "array" },
-    executiveSummary: { minLength: 1, type: "string" },
-    labels: artifactLabelsJsonSchema,
-    observations: { items: { minLength: 1, type: "string" }, type: "array" },
-    tasks: {
-      items: {
-        additionalProperties: false,
-        properties: {
-          deadlineDate: { format: "date", type: "string" },
-          deadlinePrecision: { enum: ["date", "minute"], type: "string" },
-          deadlineText: { minLength: 1, type: "string" },
-          deadlineTime: { pattern: "^(?:[01]\\d|2[0-3]):[0-5]\\d$", type: "string" },
-          deadlineTimeZone: { minLength: 1, type: "string" },
-          ownerName: { minLength: 1, type: "string" },
-          sourceEntryIds: {
-            items: { minLength: 1, type: "string" },
-            minItems: 1,
-            type: "array",
-          },
-          text: { minLength: 1, type: "string" },
-        },
-        required: ["sourceEntryIds", "text"],
-        type: "object",
-      },
-      type: "array",
-    },
-  },
-  required: ["decisions", "discussedTopics", "executiveSummary", "labels", "observations", "tasks"],
-  type: "object",
-  $defs: {
-    groundedItem: {
-      additionalProperties: false,
-      properties: {
-        sourceEntryIds: {
-          items: { minLength: 1, type: "string" },
-          minItems: 1,
-          type: "array",
-        },
-        text: { minLength: 1, type: "string" },
-      },
-      required: ["sourceEntryIds", "text"],
-      type: "object",
-    },
-  },
-} as const;
 
 type Fetch = (url: string, init: RequestInit) => Promise<Response>;
 
@@ -94,16 +45,19 @@ export class OllamaSummaryProvider implements SummaryProvider {
     entries: readonly SummaryTranscriptEntry[],
   ): Promise<SummaryProviderResult> {
     return this.#generate(
-      { transcriptEntries: entries },
+      createSummaryInput(entries),
       this.#options.extractionPrompt === undefined
         ? extractionInstruction(this.#options.language)
         : this.#options.extractionPrompt,
     );
   }
 
-  public async consolidate(summaries: readonly SummaryDraft[]): Promise<SummaryProviderResult> {
+  public async consolidate(
+    summaries: readonly SummaryDraft[],
+    entries: readonly SummaryTranscriptEntry[] = [],
+  ): Promise<SummaryProviderResult> {
     return this.#generate(
-      { partialSummaries: summaries },
+      createSummaryInput(entries, summaries),
       this.#options.consolidationPrompt === undefined
         ? consolidationInstruction(this.#options.language)
         : this.#options.consolidationPrompt,
@@ -120,12 +74,16 @@ export class OllamaSummaryProvider implements SummaryProvider {
         ...(this.#options.generation === undefined ? {} : { generation: this.#options.generation }),
         ...(this.#options.device === undefined ? {} : { device: this.#options.device }),
         input,
-        instruction: composeProtectedPrompt({
-          editablePrompt: instruction,
-          phase: "summary",
-          phaseLanguage: this.#options.language,
-        }),
-        jsonSchema,
+        instruction: [
+          composeProtectedPrompt({
+            editablePrompt: instruction,
+            phase: "summary",
+            phaseLanguage: this.#options.language,
+          }),
+          "Required JSON output schema:",
+          JSON.stringify(generatedSummaryDraftJsonSchema),
+        ].join("\n\n"),
+        jsonSchema: generatedSummaryDraftJsonSchema,
         model: this.#options.model,
         ...(this.#options.onIncompatibleModel === undefined
           ? {}

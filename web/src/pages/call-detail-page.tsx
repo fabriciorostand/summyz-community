@@ -1,6 +1,7 @@
 import { ArrowLeft, Check, Copy, Download, ExternalLink, FileText, Info } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { formatTaskDeadline, formatTaskOwners } from "../../../src/summary/task-presentation.js";
 
 import { Disclosure } from "../components/disclosure";
 import { ErrorState, LoadingPanel } from "../components/states";
@@ -275,15 +276,15 @@ function SummaryCard({ summary }: { summary: MeetingHistorySummary | null }) {
                 className="flex items-start gap-2.5 rounded-lg border border-line bg-surface-raised px-3 py-2.5"
                 key={`${String(index)}:${task.text}`}
               >
-                <Avatar name={task.ownerName ?? "?"} size={22} />
+                <Avatar name={formatTaskOwners(task, summary.language) || "?"} size={22} />
                 <div className="min-w-0 flex-1">
                   <div className="text-[12.5px] text-ink">{task.text}</div>
                   <div className="label-mono mt-1 text-ink-dim">
                     {[
-                      task.ownerName,
+                      formatTaskOwners(task, summary.language) || undefined,
                       task.deadlineText === undefined
                         ? undefined
-                        : `${labels.deadline} ${task.deadlineText}`,
+                        : `${labels.deadline} ${formatTaskDeadline(task)}`,
                     ]
                       .filter((part): part is string => part !== undefined)
                       .join(" · ")}

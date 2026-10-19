@@ -37,6 +37,29 @@ afterEach(() => {
 });
 
 describe("CallDetailPage", () => {
+  it("shows every assignee and the interpreted calendar date beside the literal deadline", async () => {
+    const detail = aMeetingDetail();
+    if (detail.summary?.status !== "completed") throw new Error("fixture must be completed");
+    getMeeting.mockResolvedValue({
+      ...detail,
+      summary: {
+        ...detail.summary,
+        tasks: [
+          {
+            text: "Revisar juntos",
+            ownerNames: ["Carla", "Diego"],
+            deadlineText: "amanhã",
+            deadlineDate: "2026-10-20",
+            deadlinePrecision: "date",
+            deadlineTimeZone: "America/Sao_Paulo",
+          },
+        ],
+      },
+    });
+    renderDetail();
+    expect(await screen.findByText(/Carla e Diego/)).toBeInTheDocument();
+    expect(screen.getByText(/amanhã \(20\/10\)/)).toBeInTheDocument();
+  });
   it("returns to the history from the header, separated from the title by a slash", async () => {
     renderDetail();
     const back = await screen.findByRole("link", { name: "Calls" });

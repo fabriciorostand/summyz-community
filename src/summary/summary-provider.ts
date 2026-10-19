@@ -6,7 +6,10 @@ export interface SummaryProviderResult {
 }
 
 export interface SummaryProvider {
-  consolidate(summaries: readonly SummaryDraft[]): Promise<SummaryProviderResult>;
+  consolidate(
+    summaries: readonly SummaryDraft[],
+    entries?: readonly SummaryTranscriptEntry[],
+  ): Promise<SummaryProviderResult>;
   summarize(entries: readonly SummaryTranscriptEntry[]): Promise<SummaryProviderResult>;
 }
 

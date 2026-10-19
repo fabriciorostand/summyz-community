@@ -24,6 +24,7 @@
     "dev:api:local": "tsx --env-file=.env src/api/main.ts --access-mode local",
     "dev:api:public": "tsx --env-file=.env src/api/main.ts --access-mode public",
     "dev:web": "npm run dev --workspace web",
+    "eval:summary": "node --env-file-if-exists=.env --import tsx scripts/evaluate-summary.ts",
     "format": "biome format --write .",
     "format:check": "biome format .",
     "lint": "biome lint .",

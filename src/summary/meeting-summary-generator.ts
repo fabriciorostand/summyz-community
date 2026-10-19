@@ -63,7 +63,7 @@ export class MeetingSummaryGenerator {
 
     let consolidated: SummaryProviderResult;
     try {
-      consolidated = await this.#provider.consolidate(partials);
+      consolidated = await this.#provider.consolidate(partials, entries);
     } catch (error) {
       if (error instanceof SummaryProviderFailureError) {
         throw new SummaryProviderFailureError(attempts + error.attempts, error);

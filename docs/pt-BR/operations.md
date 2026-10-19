@@ -172,10 +172,13 @@ inteiro distribui a participação para totalizar 100%. Pessoas silenciosas perm
 O dashboard também mostra reunião atual, custos confirmados por etapa do processamento e tarefas
 abertas; tentativas não resolvidas e a divisão por provedor aparecem apenas na página de custos.
 
-Tarefas são persistidas junto do conteúdo retido e preservam responsável e prazo explicitamente
-ditos. Metadados normalizados válidos permitem ordenar por vencimento e calcular atraso sem mudar
-o texto literal do fórum. Tarefas podem ser
-concluídas ou reabertas; a transcrição preservada e o resumo publicado não são reescritos.
+Tarefas são persistidas junto do conteúdo retido. A IA identifica responsáveis pelo contexto e pode
+atribuir uma tarefa a várias pessoas. No dashboard, cada combinação de responsáveis forma um grupo
+separado, como “Bruno e Carla”; a tarefa mantém uma única conclusão compartilhada.
+Nas novas calls, prazos relativos preservam o texto literal e acrescentam a data interpretada em
+`DD/MM` no Discord e no dashboard. Metadados normalizados válidos permitem ordenar por vencimento e
+calcular atraso. Tarefas podem ser concluídas ou reabertas; a transcrição preservada e o resumo
+publicado não são reescritos. A atualização não reprocessa calls históricas.
 
 
 ## Medição de custos dos provedores
