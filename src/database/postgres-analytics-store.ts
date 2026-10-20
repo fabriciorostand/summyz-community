@@ -161,18 +161,6 @@ export class PostgresAnalyticsStore {
     this.#database = database;
   }
 
-  public async getGuildCallCount(guildId: string): Promise<number> {
-    const result = await this.#database.query(
-      "SELECT count(*)::int AS call_count FROM meetings WHERE guild_id = $1",
-      [identifierSchema.parse(guildId)],
-    );
-    return z.coerce
-      .number()
-      .int()
-      .nonnegative()
-      .parse(result.rows[0]?.call_count ?? 0);
-  }
-
   public async persistParticipation(
     manifest: RecordingManifest,
     transcription: TranscriptionState,
@@ -277,8 +265,10 @@ LIMIT $7 OFFSET $8
 `,
       meetingHistoryQueryValues(validatedGuildId, validated),
     );
-    const items = await Promise.all(
-      result.rows.map(async (row) => this.#mapMeetingRow(row, validatedGuildId)),
+    const meetingIds = result.rows.map((row) => identifierSchema.parse(row.meeting_id));
+    const participants = await this.#listParticipantsForMeetings(validatedGuildId, meetingIds);
+    const items = result.rows.map((row) =>
+      this.#mapMeetingRow(row, participants.get(identifierSchema.parse(row.meeting_id)) ?? []),
     );
     return {
       items,
@@ -315,7 +305,10 @@ LIMIT $7 OFFSET $8
     );
     const row = result.rows[0];
     if (row === undefined) return undefined;
-    const meeting = await this.#mapMeetingRow(row, validatedGuildId);
+    const meeting = this.#mapMeetingRow(
+      row,
+      await this.#listParticipants(validatedGuildId, validatedMeetingId),
+    );
     const cost = await this.#getMeetingCost(validatedGuildId, validatedMeetingId);
     return createMeetingHistoryDetail({ cost, guildId: validatedGuildId, meeting, row });
   }
@@ -334,7 +327,8 @@ LIMIT $7 OFFSET $8
       `UPDATE meeting_participants participant
        SET display_name = item.display_name
        FROM jsonb_to_recordset($2::jsonb) AS item(user_id text, display_name text)
-       WHERE participant.guild_id = $1 AND participant.user_id = item.user_id`,
+       WHERE participant.guild_id = $1 AND participant.user_id = item.user_id
+         AND participant.display_name IS DISTINCT FROM item.display_name`,
       [
         validatedGuildId,
         JSON.stringify(
@@ -359,7 +353,9 @@ LIMIT $7 OFFSET $8
        FROM jsonb_to_recordset($2::jsonb) AS item(
          user_id text, display_name text, avatar_url text
        )
-       WHERE participant.guild_id = $1 AND participant.user_id = item.user_id`,
+       WHERE participant.guild_id = $1 AND participant.user_id = item.user_id
+         AND (participant.display_name, participant.avatar_url)
+             IS DISTINCT FROM (item.display_name, item.avatar_url)`,
       [
         validatedGuildId,
         JSON.stringify(
@@ -373,7 +369,10 @@ LIMIT $7 OFFSET $8
     );
   }
 
-  async #mapMeetingRow(row: Record<string, unknown>, guildId: string): Promise<MeetingHistoryItem> {
+  #mapMeetingRow(
+    row: Record<string, unknown>,
+    participants: AnalyticsParticipant[],
+  ): MeetingHistoryItem {
     const parsed = z
       .object({
         completed_at: z.coerce.date().nullable(),
@@ -402,13 +401,32 @@ LIMIT $7 OFFSET $8
       durationMs: parsed.duration_ms === null ? null : Math.round(parsed.duration_ms),
       failureCode: parsed.failure_code,
       meetingId: parsed.meeting_id,
-      participants: await this.#listParticipants(guildId, parsed.meeting_id).then((participants) =>
-        participants.length === 0 ? null : participants,
-      ),
+      participants: participants.length === 0 ? null : participants,
       pipelineStatus: parsed.pipeline_status,
       startedAt: parsed.started_at.toISOString(),
       voiceChannelName: parsed.voice_channel_name,
     };
+  }
+
+  async #listParticipantsForMeetings(
+    guildId: string,
+    meetingIds: readonly string[],
+  ): Promise<Map<string, AnalyticsParticipant[]>> {
+    const grouped = new Map<string, AnalyticsParticipant[]>();
+    if (meetingIds.length === 0) return grouped;
+    const result = await this.#database.query(
+      `SELECT meeting_id, user_id, display_name, avatar_url, talk_time_ms, talk_percentage
+       FROM meeting_participants WHERE guild_id = $1 AND meeting_id = ANY($2::text[])
+       ORDER BY meeting_id, talk_percentage DESC, user_id`,
+      [guildId, meetingIds],
+    );
+    for (const row of result.rows) {
+      const meetingId = identifierSchema.parse(row.meeting_id);
+      const participants = grouped.get(meetingId) ?? [];
+      participants.push(mapParticipantRow(row));
+      grouped.set(meetingId, participants);
+    }
+    return grouped;
   }
 
   async #listParticipants(guildId: string, meetingId: string): Promise<AnalyticsParticipant[]> {
@@ -418,17 +436,19 @@ LIMIT $7 OFFSET $8
        ORDER BY talk_percentage DESC, user_id`,
       [guildId, meetingId],
     );
-    return result.rows.map((row) => {
-      const parsed = participantRowSchema.parse(row);
-      return {
-        avatarUrl: parsed.avatar_url ?? null,
-        displayName: parsed.display_name,
-        percentage: parsed.talk_percentage,
-        talkTimeMs: parsed.talk_time_ms,
-        userId: parsed.user_id,
-      };
-    });
+    return result.rows.map(mapParticipantRow);
   }
+}
+
+function mapParticipantRow(row: Record<string, unknown>): AnalyticsParticipant {
+  const parsed = participantRowSchema.parse(row);
+  return {
+    avatarUrl: parsed.avatar_url ?? null,
+    displayName: parsed.display_name,
+    percentage: parsed.talk_percentage,
+    talkTimeMs: parsed.talk_time_ms,
+    userId: parsed.user_id,
+  };
 }
 
 const meetingHistoryFiltersSchema = z.object({

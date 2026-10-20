@@ -112,10 +112,11 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
 
   public async getResources(guildId: string) {
     const validatedGuildId = z.string().min(1).max(128).parse(guildId);
+    const token = await this.#requireBotToken();
     const [rolesPayload, forums, memberResult] = await Promise.all([
-      this.#request(`/guilds/${validatedGuildId}/roles`),
-      this.getForums(validatedGuildId),
-      this.#listVisibleHumanMembers(validatedGuildId),
+      this.#request(`/guilds/${validatedGuildId}/roles`, token),
+      this.#getForums(validatedGuildId, token),
+      this.#listVisibleHumanMembers(validatedGuildId, token),
     ]);
     const counts = new Map<string, number>();
     if (memberResult.status === "available") {
@@ -144,7 +145,21 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
 
   public async getForums(guildId: string) {
     const validatedGuildId = z.string().min(1).max(128).parse(guildId);
-    const channelsPayload = await this.#request(`/guilds/${validatedGuildId}/channels`);
+    return this.#getForums(validatedGuildId, await this.#requireBotToken());
+  }
+
+  public async getForumsForGuilds(guildIds: readonly string[]) {
+    const ids = [...new Set(z.array(z.string().min(1).max(128)).parse(guildIds))];
+    if (ids.length === 0)
+      return new Map<string, Awaited<ReturnType<DiscordRestGuildDirectory["getForums"]>>>();
+    const token = await this.#requireBotToken();
+    return new Map(
+      await Promise.all(ids.map(async (id) => [id, await this.#getForums(id, token)] as const)),
+    );
+  }
+
+  async #getForums(guildId: string, token: string) {
+    const channelsPayload = await this.#request(`/guilds/${guildId}/channels`, token);
     return channelsSchema
       .parse(channelsPayload)
       .filter((channel) => channel.type === 15)
@@ -157,16 +172,16 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
 
   async #listVisibleHumanMembers(
     guildId: string,
+    suppliedToken?: string,
   ): Promise<
     { members: GuildMemberDirectoryItem[]; status: "available" } | { status: "unavailable" }
   > {
     const members: GuildMemberDirectoryItem[] = [];
+    const token = suppliedToken ?? (await this.#requireBotToken());
     let after: string | undefined;
     do {
       const parameters = new URLSearchParams({ limit: "1000" });
       if (after !== undefined) parameters.set("after", after);
-      const token = await this.#getBotToken();
-      if (token === undefined) throw new Error("Discord bot is not configured");
       const response = await this.#fetch(
         `https://discord.com/api/v10/guilds/${guildId}/members?${parameters}`,
         { headers: { authorization: `Bot ${token}` } },
@@ -219,13 +234,17 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     userIds: readonly string[],
   ): Promise<ReadonlyMap<string, GuildMemberDirectoryItem>> {
     const validatedGuildId = z.string().min(1).max(128).parse(guildId);
-    const validatedUserIds = z.array(z.string().min(1).max(128)).max(1_000).parse(userIds);
+    const validatedUserIds = [
+      ...new Set(z.array(z.string().min(1).max(128)).max(1_000).parse(userIds)),
+    ];
     const members = new Map<string, GuildMemberDirectoryItem>();
+    if (validatedUserIds.length === 0) return members;
+    const token = await this.#requireBotToken();
     for (let index = 0; index < validatedUserIds.length; index += 10) {
       const batch = validatedUserIds.slice(index, index + 10);
       await Promise.all(
         batch.map(async (userId) => {
-          const member = await this.#getMember(validatedGuildId, userId);
+          const member = await this.#getMember(validatedGuildId, userId, token);
           if (member === undefined) return;
           const item = toDirectoryItem(validatedGuildId, member)[0];
           if (item !== undefined) members.set(userId, item);
@@ -241,9 +260,11 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
   ): Promise<ReadonlyMap<string, string>> {
     const validatedGuildId = z.string().min(1).max(128).parse(guildId);
     const names = new Map<string, string>();
+    if (userIds.length === 0) return names;
+    const token = await this.#requireBotToken();
     await Promise.all(
       [...new Set(userIds)].map(async (userId) => {
-        const member = await this.#getMember(validatedGuildId, userId);
+        const member = await this.#getMember(validatedGuildId, userId, token);
         if (member !== undefined) names.set(userId, getMemberDisplayName(member));
       }),
     );
@@ -256,9 +277,11 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
   ): Promise<ReadonlyMap<string, { avatarUrl: string | null; displayName: string }>> {
     const validatedGuildId = z.string().min(1).max(128).parse(guildId);
     const profiles = new Map<string, { avatarUrl: string | null; displayName: string }>();
+    if (userIds.length === 0) return profiles;
+    const token = await this.#requireBotToken();
     await Promise.all(
       [...new Set(userIds)].map(async (userId) => {
-        const member = await this.#getMember(validatedGuildId, userId);
+        const member = await this.#getMember(validatedGuildId, userId, token);
         if (member === undefined) return;
         profiles.set(userId, {
           avatarUrl: createMemberAvatarUrl(validatedGuildId, member),
@@ -269,31 +292,40 @@ export class DiscordRestGuildDirectory implements GuildDirectory {
     return profiles;
   }
 
-  async #request(path: string): Promise<unknown> {
-    const response = await this.#requestResponse(path);
+  async #request(path: string, token?: string): Promise<unknown> {
+    const response = await this.#requestResponse(path, token);
     if (!response.ok) throw new Error("Discord bot API request failed");
     const payload: unknown = await response.json();
     return payload;
   }
 
-  async #tryRequest(path: string): Promise<unknown | undefined> {
-    const response = await this.#requestResponse(path);
+  async #tryRequest(path: string, token: string): Promise<unknown | undefined> {
+    const response = await this.#requestResponse(path, token);
     if (response.status === 404) return undefined;
     if (!response.ok) throw new Error("Discord bot API request failed");
     return response.json();
   }
 
-  async #requestResponse(path: string): Promise<Response> {
-    const token = await this.#getBotToken();
-    if (token === undefined) throw new Error("Discord bot is not configured");
+  async #requestResponse(path: string, suppliedToken?: string): Promise<Response> {
+    const token = suppliedToken ?? (await this.#requireBotToken());
     return this.#fetch(`https://discord.com/api/v10${path}`, {
       headers: { authorization: `Bot ${token}` },
     });
   }
 
-  async #getMember(guildId: string, userId: string): Promise<DiscordGuildMember | undefined> {
+  async #requireBotToken(): Promise<string> {
+    const token = await this.#getBotToken();
+    if (token === undefined) throw new Error("Discord bot is not configured");
+    return z.string().min(1).parse(token);
+  }
+
+  async #getMember(
+    guildId: string,
+    userId: string,
+    token: string,
+  ): Promise<DiscordGuildMember | undefined> {
     const validatedUserId = z.string().min(1).max(128).parse(userId);
-    const payload = await this.#tryRequest(`/guilds/${guildId}/members/${validatedUserId}`);
+    const payload = await this.#tryRequest(`/guilds/${guildId}/members/${validatedUserId}`, token);
     return payload === undefined ? undefined : memberSchema.parse(payload);
   }
 }

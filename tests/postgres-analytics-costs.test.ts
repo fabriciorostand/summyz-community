@@ -3,7 +3,19 @@ import { describe, expect, it, vi } from "vitest";
 import { PostgresAnalyticsStore } from "../src/database/postgres-analytics-store.js";
 import type { PostgresExecutor } from "../src/database/postgres-database.js";
 
-function storeWith(responses: { rows: Record<string, unknown>[] }[]) {
+function storeWith(groups: { rows: Record<string, unknown>[] }[]) {
+  const [totals, stages, models, meetings, meetingCount] = groups;
+  const responses = [
+    {
+      rows: [
+        ...(totals?.rows ?? []).map((row) => ({ ...row, cost_level: "total" })),
+        ...(stages?.rows ?? []).map((row) => ({ ...row, cost_level: "stage" })),
+        ...(models?.rows ?? []).map((row) => ({ ...row, cost_level: "model" })),
+      ],
+    },
+    meetings ?? { rows: [] },
+    meetingCount ?? { rows: [] },
+  ];
   const query = vi.fn(async (_text: string, _values?: readonly unknown[]) => ({
     rowCount: 1,
     ...(responses.shift() ?? { rows: [] }),
@@ -177,8 +189,9 @@ describe("PostgresAnalyticsStore cost detail", () => {
       expect(text).toContain("meeting.completed_at IS NOT NULL");
       expect(values).toEqual(["guild-1", "2026-09-01", "2026-09-30", "America/Sao_Paulo"]);
     }
-    expect(query.mock.calls[2]?.[0]).toContain("attempt.outcome = 'failure'");
-    expect(query.mock.calls[3]?.[0]).toContain("LIMIT 5");
+    expect(query).toHaveBeenCalledTimes(3);
+    expect(query.mock.calls[0]?.[0]).toContain("attempt.outcome = 'failure'");
+    expect(query.mock.calls[1]?.[0]).toContain("LIMIT 5");
   });
 
   it("returns every stage in pipeline order even without recorded attempts", async () => {

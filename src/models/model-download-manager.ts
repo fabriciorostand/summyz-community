@@ -16,8 +16,12 @@ export type ModelDownload = z.infer<typeof downloadSchema>;
 export type DownloadPatch = Partial<
   Pick<ModelDownload, "status" | "completedBytes" | "totalBytes" | "partialDigests" | "failureCode">
 >;
+export interface DownloadListOptions {
+  activeOnly?: boolean;
+  limit?: number;
+}
 export interface DownloadStore {
-  list(): Promise<ModelDownload[]>;
+  list(options?: DownloadListOptions): Promise<ModelDownload[]>;
   get(id: string): Promise<ModelDownload | undefined>;
   create(provider: ModelDownload["provider"], model: string): Promise<ModelDownload>;
   update(id: string, patch: DownloadPatch): Promise<void>;
@@ -71,7 +75,7 @@ export class ModelDownloadManager {
     if (this.#active !== undefined || this.#polling || this.#stopping) return;
     this.#polling = true;
     try {
-      const job = (await this.store.list()).find((candidate) =>
+      const job = (await this.store.list({ activeOnly: true, limit: 1 })).find((candidate) =>
         ["queued", "downloading", "cancelling"].includes(candidate.status),
       );
       if (job === undefined || this.#stopping) return;

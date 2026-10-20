@@ -84,12 +84,12 @@ describe("PostgresAnalyticsStore", () => {
           },
         ],
       },
-      { rows: [{ amount: "0.250000", currency: "USD" }] },
       {
         rows: [
-          { amount: null, currency: null, execution: "local", phase: "refinement" },
-          { amount: "0.250000", currency: "USD", execution: "api", phase: "summary" },
-          { amount: null, currency: null, execution: "api", phase: "summary" },
+          { is_total: 1, amount: "0.250000", currency: "USD" },
+          { is_total: 0, amount: null, currency: null, execution: "local", phase: "refinement" },
+          { is_total: 0, amount: "0.250000", currency: "USD", execution: "api", phase: "summary" },
+          { is_total: 0, amount: null, currency: null, execution: "api", phase: "summary" },
         ],
       },
       {
@@ -149,8 +149,9 @@ describe("PostgresAnalyticsStore", () => {
     expect(query.mock.calls[0]?.[0]).toContain("previous_calls");
     expect(query.mock.calls[1]?.[0]).toContain("attempt.financial_status = 'confirmed'");
     // The overview splits cost by stage only; providers stay on the cost detail page.
-    expect(query.mock.calls[2]?.[0]).toContain("attempt.phase");
-    expect(query.mock.calls[2]?.[0]).not.toContain("attempt.provider");
+    expect(query).toHaveBeenCalledTimes(5);
+    expect(query.mock.calls[1]?.[0]).toContain("attempt.phase");
+    expect(query.mock.calls[1]?.[0]).not.toContain("attempt.provider");
   });
 
   it("projeta somente o resumo público com o idioma fixado na reunião", async () => {
@@ -211,16 +212,24 @@ describe("PostgresAnalyticsStore", () => {
       })
       .mockResolvedValueOnce({ rowCount: 0, rows: [] })
       .mockResolvedValueOnce({
-        rowCount: 2,
-        rows: [
-          { amount: "0.125", attempt_count: 1, currency: "USD", financial_status: "confirmed" },
-          { amount: null, attempt_count: 1, currency: null, financial_status: "pending" },
-        ],
-      })
-      .mockResolvedValueOnce({
-        rowCount: 2,
+        rowCount: 4,
         rows: [
           {
+            is_total: 1,
+            amount: "0.125",
+            attempt_count: 1,
+            currency: "USD",
+            financial_status: "confirmed",
+          },
+          {
+            is_total: 1,
+            amount: null,
+            attempt_count: 1,
+            currency: null,
+            financial_status: "pending",
+          },
+          {
+            is_total: 0,
             amount: "0.125",
             attempt_count: 1,
             currency: "USD",
@@ -230,6 +239,7 @@ describe("PostgresAnalyticsStore", () => {
             provider: "openrouter",
           },
           {
+            is_total: 0,
             amount: null,
             attempt_count: 1,
             currency: null,

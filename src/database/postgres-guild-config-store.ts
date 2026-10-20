@@ -24,11 +24,62 @@ const guildSettingsSchema = z.object({
   persistMeetingContent: z.boolean(),
 });
 
+const guildSummaryRowSchema = z.object({
+  guild_id: identifierSchema,
+  summary_forum: summaryForumSchema.nullable(),
+  profile_id: z.string().nullable(),
+  profile_name: z.string().nullable(),
+  profile_type: z.enum(["local", "external", "hybrid"]).nullable(),
+});
+
+export interface GuildSummary {
+  activeProfile: {
+    name: string;
+    profileId: string;
+    profileType: "local" | "external" | "hybrid" | null;
+  } | null;
+  summaryForum: SummaryForumConfiguration | undefined;
+}
+
 export class PostgresGuildConfigStore implements GuildConfigurationStore {
   readonly #database: PostgresExecutor;
 
   public constructor(database: PostgresExecutor) {
     this.#database = database;
+  }
+
+  public async getGuildSummaries(
+    guildIds: readonly string[],
+  ): Promise<ReadonlyMap<string, GuildSummary>> {
+    const ids = z.array(identifierSchema).parse(guildIds);
+    if (ids.length === 0) return new Map();
+    const result = await this.#database.query(
+      `SELECT guild.guild_id, guild.summary_forum, profile.profile_id,
+              profile.name AS profile_name, profile.profile_type
+       FROM guild_configurations guild
+       LEFT JOIN ai_profiles profile ON profile.profile_id = guild.active_ai_profile_id
+       WHERE guild.guild_id = ANY($1::text[])`,
+      [ids],
+    );
+    return new Map(
+      result.rows.map((input) => {
+        const row = guildSummaryRowSchema.parse(input);
+        return [
+          row.guild_id,
+          {
+            activeProfile:
+              row.profile_id === null || row.profile_name === null
+                ? null
+                : {
+                    name: row.profile_name,
+                    profileId: row.profile_id,
+                    profileType: row.profile_type,
+                  },
+            summaryForum: row.summary_forum ?? undefined,
+          },
+        ];
+      }),
+    );
   }
 
   public async getRecordingPermissions(guildId: string): Promise<RecordingPermissions> {

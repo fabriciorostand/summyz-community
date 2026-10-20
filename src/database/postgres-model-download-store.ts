@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import {
+  type DownloadListOptions,
   type DownloadPatch,
   type DownloadStore,
   downloadSchema,
@@ -10,12 +11,21 @@ import type { PostgresExecutor } from "./postgres-database.js";
 
 export class PostgresModelDownloadStore implements DownloadStore {
   public constructor(private readonly database: PostgresExecutor) {}
-  public async list(): Promise<ModelDownload[]> {
+  public async list(options: DownloadListOptions = {}): Promise<ModelDownload[]> {
+    const validated = z
+      .object({
+        activeOnly: z.boolean().default(false),
+        limit: z.number().int().min(1).max(1000).default(1000),
+      })
+      .parse(options);
     const result = await this.database.query(
-      `SELECT * FROM model_downloads ORDER BY
+      `SELECT * FROM model_downloads
+       ${validated.activeOnly ? "WHERE status IN ('queued', 'downloading', 'cancelling')" : ""}
+       ORDER BY
         CASE status WHEN 'cancelling' THEN 0 WHEN 'downloading' THEN 1 WHEN 'queued' THEN 2 ELSE 3 END,
         CASE WHEN status IN ('queued', 'downloading', 'cancelling') THEN created_at END ASC,
-        created_at DESC LIMIT 1000`,
+        created_at DESC LIMIT $1`,
+      [validated.limit],
     );
     return result.rows.map(parseRow);
   }

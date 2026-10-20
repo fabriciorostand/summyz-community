@@ -16,7 +16,7 @@ export class ModelManagement {
     await this.catalog.requireSelection(phase, provider, model);
     return this.database.transaction(async (database) => {
       await lockModelLifecycle(database);
-      const active = (await this.downloads.store.list()).filter((job) =>
+      const active = (await this.downloads.store.list({ activeOnly: true })).filter((job) =>
         ["queued", "downloading", "cancelling"].includes(job.status),
       );
       if (
@@ -47,7 +47,7 @@ export class ModelManagement {
       );
       if (usage.rows[0]?.in_use !== false) throw new ModelOperationError("model_in_use");
       if (
-        (await this.downloads.store.list()).some(
+        (await this.downloads.store.list({ activeOnly: true })).some(
           (job) =>
             job.provider === provider &&
             job.model === model &&

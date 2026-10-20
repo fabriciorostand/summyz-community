@@ -58,7 +58,6 @@ export const guildSchema = z.object({
     })
     .nullable()
     .optional(),
-  callCount: z.number().int().nullable().optional(),
   iconUrl: z.url().nullable(),
   id: z.string(),
   installed: z.boolean(),

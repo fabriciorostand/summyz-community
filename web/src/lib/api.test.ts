@@ -499,7 +499,6 @@ describe("dashboard API client", () => {
   it("reads whether each server has the bot, belongs to the owner and how to install it", async () => {
     const guild = {
       activeProfile: null,
-      callCount: null,
       iconUrl: null,
       id: "guild-1",
       installed: false,

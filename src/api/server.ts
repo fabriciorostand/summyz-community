@@ -8,6 +8,7 @@ import Fastify from "fastify";
 import { z } from "zod";
 
 import { aiProfileSchema, isAiProfileComplete } from "../ai-profile.js";
+import type { GuildSummary } from "../database/postgres-guild-config-store.js";
 import { memberDirectoryPageQuerySchema } from "../directory-pagination.js";
 import { BOT_INSTALL_PERMISSIONS } from "../discord/bot-permissions.js";
 import { createCommandReference } from "../discord/command-catalog.js";
@@ -55,32 +56,30 @@ const loadGuildForums = async (dependencies: ApiServerDependencies, guildId: str
 const enrichInstalledGuild = async (
   guild: InstalledGuild & { installed: boolean },
   dependencies: ApiServerDependencies,
+  summary: GuildSummary | undefined,
+  suppliedForums?: Awaited<ReturnType<typeof loadGuildForums>>,
 ) => {
   if (!guild.installed) {
-    return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
+    return { ...guild, activeProfile: null, summaryForum: null };
   }
   if (dependencies.analytics === undefined) {
-    return { ...guild, activeProfile: null, callCount: null, summaryForum: null };
+    return { ...guild, activeProfile: null, summaryForum: null };
   }
-  const [activeProfile, callCount, summaryForumConfiguration, forums] = await Promise.all([
-    dependencies.aiProfiles.getActiveProfile(guild.id),
-    dependencies.analytics.getGuildCallCount(guild.id),
-    dependencies.guildConfig.getSummaryForum(guild.id),
-    loadGuildForums(dependencies, guild.id),
-  ]);
+  const activeProfile = summary?.activeProfile;
+  const summaryForumConfiguration = summary?.summaryForum;
+  const forums = suppliedForums ?? (await loadGuildForums(dependencies, guild.id));
   const forum = forums.find((item) => item.id === summaryForumConfiguration?.forumId);
   const tag = forum?.tags.find((item) => item.id === summaryForumConfiguration?.tagId);
   return {
     ...guild,
     activeProfile:
-      activeProfile === undefined
+      activeProfile == null
         ? null
         : {
             name: activeProfile.name,
             profileId: activeProfile.profileId,
             profileType: activeProfile.profileType,
           },
-    callCount,
     summaryForum:
       forum === undefined
         ? null
@@ -190,9 +189,21 @@ export async function createApiServer(
     );
     for (const guild of owned) guildsById.set(guild.id, { ...guild, owned: true });
     const { discordApplicationId } = await dependencies.settings.getSettings();
+    const installedIds = [...guildsById.values()]
+      .filter((guild) => guild.installed)
+      .map((guild) => guild.id);
+    const [summaries, forums] = await Promise.all([
+      dependencies.guildConfig.getGuildSummaries(installedIds),
+      dependencies.guildDirectory.getForumsForGuilds?.(installedIds),
+    ]);
     return Promise.all(
       [...guildsById.values()].map(async (guild) => {
-        const enriched = await enrichInstalledGuild(guild, dependencies);
+        const enriched = await enrichInstalledGuild(
+          guild,
+          dependencies,
+          summaries.get(guild.id),
+          forums?.get(guild.id),
+        );
         const installUrl =
           discordApplicationId === null
             ? null
@@ -392,20 +403,9 @@ export async function createApiServer(
       ),
       resolveGuildAccess(),
     ]);
-    const activeProfiles = await Promise.all(
-      guilds
-        .filter((guild) => guild.installed)
-        .map((guild) => dependencies.aiProfiles.getActiveProfile(guild.id)),
+    const activeProfileCounts = await dependencies.aiProfiles.listActiveProfileCounts(
+      guilds.filter((guild) => guild.installed).map((guild) => guild.id),
     );
-    const activeProfileCounts = new Map<string, number>();
-    for (const profile of activeProfiles) {
-      if (profile !== undefined) {
-        activeProfileCounts.set(
-          profile.profileId,
-          (activeProfileCounts.get(profile.profileId) ?? 0) + 1,
-        );
-      }
-    }
     return Promise.all(
       profiles.map(async (profile) => ({
         active: (activeProfileCounts.get(profile.profileId) ?? 0) > 0,
