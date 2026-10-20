@@ -13,6 +13,31 @@ import { createLogger } from "../src/logger.js";
 const localOrigin = { origin: "http://127.0.0.1:8787" };
 
 describe("Community dashboard API", () => {
+  it("batches server enrichment and removes the unused server call count", async () => {
+    const dependencies = createDependencies("local");
+    const guilds = [1, 2, 3].map((id) => ({
+      id: `guild-${id}`,
+      iconUrl: null,
+      name: `Guild ${id}`,
+    }));
+    vi.mocked(dependencies.discordConnection.listOwnedGuilds).mockResolvedValue(guilds);
+    vi.mocked(dependencies.guildDirectory.listInstalledGuilds).mockResolvedValue(guilds);
+    const app = await createApiServer(dependencies);
+    try {
+      const response = await app.inject("/api/guilds");
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toHaveLength(3);
+      expect(response.json()[0]).not.toHaveProperty("callCount");
+      expect(dependencies.guildConfig.getGuildSummaries).toHaveBeenCalledExactlyOnceWith(
+        guilds.map((guild) => guild.id),
+      );
+      expect(dependencies.aiProfiles.getActiveProfile).not.toHaveBeenCalled();
+      expect(dependencies.guildConfig.getSummaryForum).not.toHaveBeenCalled();
+    } finally {
+      await app.close();
+    }
+  });
+
   it.each(["local", "public"] as const)(
     "exposes the account avatar only with %s dashboard authorization",
     async (mode) => {
@@ -546,7 +571,6 @@ describe("Community dashboard API", () => {
       getDashboard: vi.fn(async () => {
         throw new Error("unused");
       }),
-      getGuildCallCount: vi.fn(async () => 0),
       getMeeting: vi.fn(async () => {
         z.object({
           languageValidation: z.string().refine(() => false, sensitiveDetail),
@@ -1057,13 +1081,17 @@ describe("Community dashboard API", () => {
 
   it("counts profile activations only in servers owned by the linked account", async () => {
     const dependencies = createDependencies("local");
-    vi.mocked(dependencies.aiProfiles.listActiveProfileCounts).mockResolvedValue(
-      new Map([["external-profile-1", 5]]),
+    vi.mocked(dependencies.aiProfiles.listActiveProfileCounts).mockImplementation(
+      async (guildIds) => new Map([["external-profile-1", guildIds?.length ?? 5]]),
     );
     const app = await createApiServer(dependencies);
 
     const profiles = (await app.inject({ method: "GET", url: "/api/profiles" })).json();
     expect(profiles[0].activeServerCount).toBe(1);
+    expect(dependencies.aiProfiles.listActiveProfileCounts).toHaveBeenCalledExactlyOnceWith([
+      "guild-1",
+    ]);
+    expect(dependencies.aiProfiles.getActiveProfile).not.toHaveBeenCalled();
     await app.close();
   });
 
@@ -1470,6 +1498,22 @@ function createDependencies(accessMode: "local" | "public"): ApiServerDependenci
       listOwnedGuilds: vi.fn(async () => [{ iconUrl: null, id: "guild-1", name: "Equipe" }]),
     },
     guildConfig: {
+      getGuildSummaries: vi.fn(
+        async (guildIds: readonly string[]) =>
+          new Map(
+            guildIds.map((id) => [
+              id,
+              {
+                activeProfile: {
+                  name: profile.name,
+                  profileId: profile.profileId,
+                  profileType: profile.profileType,
+                },
+                summaryForum: undefined,
+              },
+            ]),
+          ),
+      ),
       clearSummaryForum: vi.fn(async () => undefined),
       getGuildSettings: vi.fn(async () => ({
         botLanguage: "en" as const,
@@ -1582,7 +1626,6 @@ function analyticsDependencies(): NonNullable<ApiServerDependencies["analytics"]
         topMeetings: [],
       }),
     ),
-    getGuildCallCount: vi.fn(async () => 0),
     listMeetings: vi.fn(async () => ({ items: [], page: 1, pageSize: 20, total: 0 })),
     getMeeting: vi.fn<NonNullable<ApiServerDependencies["analytics"]>["getMeeting"]>(async () => ({
       aiProfile: null,

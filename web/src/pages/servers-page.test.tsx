@@ -82,7 +82,7 @@ describe("ServersPage", () => {
   });
 
   it("shows what is missing on a server without profile or forum", () => {
-    const guild = aGuild({ activeProfile: null, callCount: null, summaryForum: null });
+    const guild = aGuild({ activeProfile: null, summaryForum: null });
     renderScreen(<ServersPage />, {
       context: dashboardContext({ guilds: guildSelection({ guilds: [guild] }) }),
     });
@@ -162,7 +162,6 @@ describe("ServersPage", () => {
   it("offers to install the bot in an owned server that does not have it", () => {
     const guild = aGuild({
       activeProfile: null,
-      callCount: null,
       id: "g2",
       installed: false,
       installUrl: `${installUrl}&guild_id=g2`,
@@ -189,7 +188,6 @@ describe("ServersPage", () => {
     const setSelectedGuildId = vi.fn();
     const guild = aGuild({
       activeProfile: null,
-      callCount: null,
       id: "g3",
       installed: false,
       name: "Old Guild",

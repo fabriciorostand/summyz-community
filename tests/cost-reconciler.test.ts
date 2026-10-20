@@ -22,6 +22,62 @@ const pending: CostAttempt = {
 };
 
 describe("CostReconciler", () => {
+  it("skips reconciliation without a configured credential", async () => {
+    const listReconciliationCandidates = vi.fn(async () => []);
+    const reconciler = new CostReconciler({
+      apiKey: async () => undefined,
+      store: { listReconciliationCandidates, saveAttempt: async () => undefined },
+    });
+    await reconciler.reconcile("guild-1");
+    expect(listReconciliationCandidates).not.toHaveBeenCalled();
+  });
+  it("shares only concurrent work for the same guild and reads the current credential on the next run", async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const apiKey = vi.fn(async () => "first-fixture-key");
+    const request = vi.fn(async (_url: string, _init: RequestInit) => {
+      await gate;
+      return Response.json({ data: { id: "gen-1", model: "model", total_cost: 0.1 } });
+    });
+    const listReconciliationCandidates = vi.fn(async () => [pending]);
+    const saveAttempt = vi.fn(async () => undefined);
+    const reconciler = new CostReconciler({
+      apiKey,
+      fetch: request,
+      store: { listReconciliationCandidates, saveAttempt },
+    });
+    const first = reconciler.reconcile("guild-1");
+    const second = reconciler.reconcile("guild-1");
+    const otherGuild = reconciler.reconcile("guild-2");
+    await vi.waitFor(() => expect(request).toHaveBeenCalledTimes(2));
+    release?.();
+    await Promise.all([first, second, otherGuild]);
+    expect(listReconciliationCandidates).toHaveBeenCalledTimes(2);
+    expect(saveAttempt).toHaveBeenCalledTimes(2);
+    apiKey.mockResolvedValue("rotated-fixture-key");
+    await reconciler.reconcile("guild-1");
+    expect(apiKey).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls.at(-1)?.[1].headers).toEqual({
+      Authorization: "Bearer rotated-fixture-key",
+    });
+  });
+
+  it("releases a failed concurrent run so a later request can retry", async () => {
+    const listReconciliationCandidates = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("database unavailable"))
+      .mockResolvedValue([]);
+    const reconciler = new CostReconciler({
+      apiKey: "fixture",
+      store: { listReconciliationCandidates, saveAttempt: async () => undefined },
+    });
+    await expect(reconciler.reconcile("guild-1")).rejects.toThrow("database unavailable");
+    await expect(reconciler.reconcile("guild-1")).resolves.toBeUndefined();
+    expect(listReconciliationCandidates).toHaveBeenCalledTimes(2);
+  });
+
   it("confirma candidatos pendentes e completa o modelo efetivo", async () => {
     const saveAttempt = vi.fn(async () => undefined);
     const reconciler = new CostReconciler({

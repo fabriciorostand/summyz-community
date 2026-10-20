@@ -26,14 +26,15 @@ export interface CostReconciliationStore {
 }
 
 interface CostReconcilerOptions {
-  apiKey: string;
+  apiKey: string | (() => Promise<string | undefined>);
   fetch?: Fetch;
   logger?: Logger;
   store: CostReconciliationStore;
 }
 
 export class CostReconciler {
-  readonly #apiKey: string;
+  readonly #apiKey: CostReconcilerOptions["apiKey"];
+  readonly #active = new Map<string | undefined, Promise<void>>();
   readonly #fetch: Fetch;
   readonly #logger: Logger | undefined;
   readonly #store: CostReconciliationStore;
@@ -46,16 +47,32 @@ export class CostReconciler {
   }
 
   public async reconcile(guildId?: string): Promise<void> {
-    for (const attempt of await this.#store.listReconciliationCandidates(guildId)) {
-      await this.#reconcileAttempt(attempt);
+    const validatedGuildId =
+      guildId === undefined ? undefined : z.string().min(1).max(128).parse(guildId);
+    const existing = this.#active.get(validatedGuildId);
+    if (existing !== undefined) return existing;
+    const operation = this.#run(validatedGuildId);
+    this.#active.set(validatedGuildId, operation);
+    try {
+      await operation;
+    } finally {
+      if (this.#active.get(validatedGuildId) === operation) this.#active.delete(validatedGuildId);
     }
   }
 
-  async #reconcileAttempt(attempt: CostAttempt): Promise<void> {
+  async #run(guildId: string | undefined): Promise<void> {
+    const apiKey = typeof this.#apiKey === "string" ? this.#apiKey : await this.#apiKey();
+    if (apiKey === undefined) return;
+    for (const attempt of await this.#store.listReconciliationCandidates(guildId)) {
+      await this.#reconcileAttempt(attempt, apiKey);
+    }
+  }
+
+  async #reconcileAttempt(attempt: CostAttempt, apiKey: string): Promise<void> {
     const generationId = attempt.generationId;
     if (generationId === null) return;
     try {
-      const generation = await this.#fetchGeneration(generationId);
+      const generation = await this.#fetchGeneration(generationId, apiKey);
       if (generation === undefined) return;
       await this.#store.saveAttempt(reconcileCostAttempt(attempt, generation));
     } catch (error) {
@@ -71,10 +88,13 @@ export class CostReconciler {
     }
   }
 
-  async #fetchGeneration(generationId: string): Promise<ReconciledGeneration | undefined> {
+  async #fetchGeneration(
+    generationId: string,
+    apiKey: string,
+  ): Promise<ReconciledGeneration | undefined> {
     const response = await this.#fetch(
       `${OPENROUTER_GENERATION_URL}?id=${encodeURIComponent(generationId)}`,
-      { headers: { Authorization: `Bearer ${this.#apiKey}` }, method: "GET" },
+      { headers: { Authorization: `Bearer ${apiKey}` }, method: "GET" },
     );
     if (!response.ok) return undefined;
     const parsed = await readOpenRouterResponse(response, "total_cost");

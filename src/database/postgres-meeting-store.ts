@@ -257,7 +257,9 @@ async function persistParticipants(
      )
      ON CONFLICT (meeting_id, user_id) DO UPDATE SET
        display_name = EXCLUDED.display_name,
-       avatar_url = EXCLUDED.avatar_url`,
+       avatar_url = EXCLUDED.avatar_url
+     WHERE (meeting_participants.display_name, meeting_participants.avatar_url)
+       IS DISTINCT FROM (EXCLUDED.display_name, EXCLUDED.avatar_url)`,
     [
       manifest.meetingId,
       manifest.guildId,

@@ -20,7 +20,7 @@ export interface AiProfileStore {
   createProfile(profile: AiProfile): Promise<void>;
   deleteProfile(profileId: string): Promise<void>;
   getActiveProfile(guildId: string): Promise<AiProfile | undefined>;
-  listActiveProfileCounts(): Promise<ReadonlyMap<string, number>>;
+  listActiveProfileCounts(guildIds?: readonly string[]): Promise<ReadonlyMap<string, number>>;
   listActiveProfileIds(): Promise<Set<string>>;
   listProfiles(): Promise<AiProfile[]>;
   setActiveProfile(guildId: string, profileId: string): Promise<void>;
@@ -125,12 +125,19 @@ export class PostgresAiProfileStore implements AiProfileStore {
     );
   }
 
-  public async listActiveProfileCounts(): Promise<ReadonlyMap<string, number>> {
+  public async listActiveProfileCounts(
+    guildIds?: readonly string[],
+  ): Promise<ReadonlyMap<string, number>> {
+    const validatedIds =
+      guildIds === undefined ? undefined : z.array(identifierSchema).parse(guildIds);
+    if (validatedIds?.length === 0) return new Map();
     const result = await this.#database.query(
       `SELECT active_ai_profile_id AS profile_id, count(*)::int AS server_count
        FROM guild_configurations
        WHERE active_ai_profile_id IS NOT NULL
+         ${validatedIds === undefined ? "" : "AND guild_id = ANY($1::text[])"}
        GROUP BY active_ai_profile_id`,
+      validatedIds === undefined ? undefined : [validatedIds],
     );
     return new Map(
       z

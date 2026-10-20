@@ -42,7 +42,6 @@ export function aConnectedAccount(
 export function aGuild(overrides: Partial<Guild> = {}): Guild {
   return {
     activeProfile: { name: "Padrão OpenRouter", profileId: "p1", profileType: "external" },
-    callCount: 42,
     iconUrl: null,
     id: "g1",
     installed: true,

@@ -102,13 +102,11 @@ const models = {
   management: new ModelManagement(database, catalog, downloads),
 };
 const costLedger = new PostgresCostLedgerStore(database);
-const costReconciliation = {
-  reconcile: async (guildId: string) => {
-    const apiKey = await settings.getSecret("openrouter_api_key");
-    if (apiKey === undefined) return;
-    await new CostReconciler({ apiKey, logger, store: costLedger }).reconcile(guildId);
-  },
-};
+const costReconciliation = new CostReconciler({
+  apiKey: () => settings.getSecret("openrouter_api_key"),
+  logger,
+  store: costLedger,
+});
 const app = await createApiServer(
   {
     accessMode: config.accessMode,

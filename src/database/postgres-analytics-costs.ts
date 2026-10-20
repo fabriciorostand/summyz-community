@@ -62,34 +62,12 @@ export async function getCostDetail(
 ): Promise<CostDetail> {
   const validated = costDetailOptionsSchema.parse(options);
   const values = [guildId, validated.dateFrom, validated.dateTo, validated.timeZone] as const;
-  const [totals, stages, models, meetings, meetingCount] = await Promise.all([
+  const [aggregates, meetings, meetingCount] = await Promise.all([
     database.query(
       `${periodMeetingsCte}
-       SELECT attempt.financial_status, attempt.currency,
-              CASE WHEN attempt.financial_status = 'confirmed' THEN sum(attempt.cost)::text END AS amount,
-              count(*)::int AS attempt_count
-       FROM provider_cost_attempts attempt
-       JOIN period_meetings USING (meeting_id)
-       WHERE attempt.guild_id = $1
-       GROUP BY attempt.financial_status, attempt.currency
-       ORDER BY attempt.financial_status, attempt.currency`,
-      values,
-    ),
-    database.query(
-      `${periodMeetingsCte}
-       SELECT attempt.phase, attempt.financial_status, attempt.currency,
-              CASE WHEN attempt.financial_status = 'confirmed' THEN sum(attempt.cost)::text END AS amount,
-              count(*)::int AS attempt_count
-       FROM provider_cost_attempts attempt
-       JOIN period_meetings USING (meeting_id)
-       WHERE attempt.guild_id = $1
-       GROUP BY attempt.phase, attempt.financial_status, attempt.currency
-       ORDER BY ${phaseOrder}, attempt.financial_status, attempt.currency`,
-      values,
-    ),
-    database.query(
-      `${periodMeetingsCte}
-       SELECT attempt.phase, attempt.execution, attempt.provider, attempt.model,
+       SELECT CASE WHEN GROUPING(attempt.phase) = 1 THEN 'total'
+                   WHEN GROUPING(attempt.provider) = 1 THEN 'stage' ELSE 'model' END AS cost_level,
+              attempt.phase, attempt.execution, attempt.provider, attempt.model,
               attempt.financial_status, attempt.currency,
               CASE WHEN attempt.financial_status = 'confirmed' THEN sum(attempt.cost)::text END AS amount,
               count(*)::int AS attempt_count,
@@ -103,8 +81,11 @@ export async function getCostDetail(
        FROM provider_cost_attempts attempt
        JOIN period_meetings USING (meeting_id)
        WHERE attempt.guild_id = $1
-       GROUP BY attempt.phase, attempt.execution, attempt.provider, attempt.model,
-                attempt.financial_status, attempt.currency
+       GROUP BY GROUPING SETS (
+         (attempt.financial_status, attempt.currency),
+         (attempt.phase, attempt.financial_status, attempt.currency),
+         (attempt.phase, attempt.execution, attempt.provider, attempt.model, attempt.financial_status, attempt.currency)
+       )
        ORDER BY ${phaseOrder}, attempt.execution, attempt.provider, attempt.model NULLS LAST,
                 attempt.financial_status, attempt.currency`,
       values,
@@ -139,9 +120,15 @@ export async function getCostDetail(
     ),
   ]);
 
+  const groupedRows = z
+    .array(z.object({ cost_level: z.enum(["total", "stage", "model"]) }).passthrough())
+    .parse(aggregates.rows);
+  const totals = groupedRows.filter((row) => row.cost_level === "total");
+  const stages = groupedRows.filter((row) => row.cost_level === "stage");
+  const models = groupedRows.filter((row) => row.cost_level === "model");
   const attemptCounts = emptyAttemptCounts();
   const confirmed: CostDetail["confirmed"] = [];
-  for (const input of totals.rows) {
+  for (const input of totals) {
     const row = costRowSchema.parse(input);
     addAttemptCount(attemptCounts, row.financial_status, row.attempt_count);
     addConfirmedCost(confirmed, row);
@@ -154,8 +141,8 @@ export async function getCostDetail(
       .int()
       .nonnegative()
       .parse(meetingCount.rows[0]?.meeting_count ?? 0),
-    models: mapModels(models.rows),
-    stages: mapStages(stages.rows),
+    models: mapModels(models),
+    stages: mapStages(stages),
     topMeetings: mapTopMeetings(meetings.rows),
   };
 }

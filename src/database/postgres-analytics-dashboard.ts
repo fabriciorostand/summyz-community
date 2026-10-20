@@ -43,7 +43,7 @@ export async function getDashboardAnalytics(
     validated.now ?? new Date().toISOString(),
     validated.timeZone,
   ] as const;
-  const [meetings, costTotals, costStages, speakers, series, tasks] = await Promise.all([
+  const [meetings, costs, speakers, series, tasks] = await Promise.all([
     database.query(
       `${dashboardPeriodCte}
        SELECT
@@ -67,23 +67,10 @@ export async function getDashboardAnalytics(
        WHERE guild_id = $1`,
       values,
     ),
-    database.query(
-      `${dashboardPeriodCte}
-       SELECT attempt.currency, sum(attempt.cost)::text AS amount
-       FROM provider_cost_attempts attempt
-       JOIN meetings meeting ON meeting.meeting_id = attempt.meeting_id
-       CROSS JOIN bounds
-       WHERE attempt.guild_id = $1 AND meeting.pipeline_status IN ('completed', 'failed')
-         AND meeting.started_at >= bounds.current_from AND meeting.started_at < bounds.current_to
-         AND attempt.financial_status = 'confirmed'
-       GROUP BY attempt.currency
-       ORDER BY attempt.currency`,
-      values,
-    ),
     // Unconfirmed attempts come back with a null currency and amount: they only show the stage ran.
     database.query(
       `${dashboardPeriodCte}
-       SELECT attempt.phase, attempt.execution,
+       SELECT GROUPING(attempt.phase) AS is_total, attempt.phase, attempt.execution,
               CASE WHEN attempt.financial_status = 'confirmed' THEN attempt.currency END AS currency,
               sum(attempt.cost) FILTER (WHERE attempt.financial_status = 'confirmed')::text AS amount
        FROM provider_cost_attempts attempt
@@ -91,9 +78,12 @@ export async function getDashboardAnalytics(
        CROSS JOIN bounds
        WHERE attempt.guild_id = $1 AND meeting.pipeline_status IN ('completed', 'failed')
          AND meeting.started_at >= bounds.current_from AND meeting.started_at < bounds.current_to
-       GROUP BY attempt.phase, attempt.execution,
-                CASE WHEN attempt.financial_status = 'confirmed' THEN attempt.currency END
-       ORDER BY attempt.phase, attempt.execution`,
+       GROUP BY GROUPING SETS (
+         (CASE WHEN attempt.financial_status = 'confirmed' THEN attempt.currency END),
+         (attempt.phase, attempt.execution,
+          CASE WHEN attempt.financial_status = 'confirmed' THEN attempt.currency END)
+       )
+       ORDER BY attempt.phase, attempt.execution, currency`,
       values,
     ),
     database.query(
@@ -106,12 +96,15 @@ export async function getDashboardAnalytics(
            AND meeting.started_at >= bounds.current_from AND meeting.started_at < bounds.current_to
            AND meeting.talk_time_available = true
          GROUP BY participant.user_id
+         ORDER BY sum(participant.talk_time_ms) DESC, participant.user_id
+         LIMIT 5
        ), latest_names AS (
          SELECT DISTINCT ON (participant.user_id)
            participant.user_id, participant.display_name, participant.avatar_url
          FROM meeting_participants participant
          JOIN meetings meeting ON meeting.meeting_id = participant.meeting_id
          WHERE participant.guild_id = $1
+           AND participant.user_id IN (SELECT user_id FROM totals)
          ORDER BY participant.user_id, meeting.started_at DESC
        )
        SELECT totals.user_id, latest_names.display_name, latest_names.avatar_url,
@@ -145,6 +138,7 @@ export async function getDashboardAnalytics(
       values,
     ),
   ]);
+  const groupedCosts = groupedCostRowsSchema.parse(costs.rows);
   const meetingRow = z
     .object({
       average_duration_ms: z.coerce.number().nonnegative(),
@@ -164,7 +158,10 @@ export async function getDashboardAnalytics(
           : Math.round(((meetingRow.total_calls - previous) / previous) * 100),
       previous,
     },
-    cost: mapDashboardCost(costTotals.rows, costStages.rows),
+    cost: mapDashboardCost(
+      groupedCosts.filter((row) => row.is_total === 1 && row.amount !== null),
+      groupedCosts.filter((row) => row.is_total === 0),
+    ),
     openTaskCount: z.coerce
       .number()
       .int()
@@ -211,30 +208,29 @@ export async function getMeetingCostAnalytics(
   guildId: string,
   meetingId: string,
 ): Promise<CostAnalytics> {
-  const [totals, breakdown] = await Promise.all([
-    database.query(
-      `SELECT financial_status, currency,
+  const result = await database.query(
+    `SELECT GROUPING(phase) AS is_total, phase, provider, execution, financial_status, currency,
               CASE WHEN financial_status = 'confirmed' THEN sum(cost)::text END AS amount,
               count(*)::int AS attempt_count
        FROM provider_cost_attempts
        WHERE guild_id = $1 AND meeting_id = $2
-       GROUP BY financial_status, currency
-       ORDER BY financial_status, currency`,
-      [guildId, meetingId],
-    ),
-    database.query(
-      `SELECT phase, provider, execution, financial_status, currency,
-              CASE WHEN financial_status = 'confirmed' THEN sum(cost)::text END AS amount,
-              count(*)::int AS attempt_count
-       FROM provider_cost_attempts
-       WHERE guild_id = $1 AND meeting_id = $2
-       GROUP BY phase, provider, execution, financial_status, currency
+       GROUP BY GROUPING SETS (
+         (financial_status, currency),
+         (phase, provider, execution, financial_status, currency)
+       )
        ORDER BY phase, provider, execution, financial_status, currency`,
-      [guildId, meetingId],
-    ),
-  ]);
-  return mapCostAnalytics(totals.rows, breakdown.rows);
+    [guildId, meetingId],
+  );
+  const rows = groupedCostRowsSchema.parse(result.rows);
+  return mapCostAnalytics(
+    rows.filter((row) => row.is_total === 1),
+    rows.filter((row) => row.is_total === 0),
+  );
 }
+
+const groupedCostRowsSchema = z.array(
+  z.object({ is_total: z.union([z.literal(0), z.literal(1)]) }).passthrough(),
+);
 
 const phases = ["transcription", "refinement", "summary"] as const;
 const confirmedTotalRowSchema = z.object({ amount: z.string(), currency: z.string().length(3) });

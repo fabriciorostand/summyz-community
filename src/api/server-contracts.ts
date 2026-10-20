@@ -13,6 +13,7 @@ import type {
   MeetingHistoryFilters,
   MeetingHistoryPage,
 } from "../database/postgres-analytics-store.js";
+import type { PostgresGuildConfigStore } from "../database/postgres-guild-config-store.js";
 import type { PostgresGuildHistoryStore } from "../database/postgres-guild-history-store.js";
 import type { GuildOwnerApprovalStore } from "../database/postgres-guild-owner-approval-store.js";
 import type { InstallationHealthStatus } from "../database/postgres-installation-health-store.js";
@@ -106,6 +107,11 @@ export interface DiscordApplication {
 }
 
 export interface GuildDirectory {
+  getForumsForGuilds?(
+    guildIds: readonly string[],
+  ): Promise<
+    ReadonlyMap<string, { id: string; name: string; tags: { id: string; name: string }[] }[]>
+  >;
   inspectBotToken(token: string): Promise<DiscordApplication>;
   listInstalledGuilds(): Promise<InstalledDiscordGuild[]>;
   getMembersByIds(
@@ -155,7 +161,6 @@ export interface GuildMemberDirectoryItem {
 
 export interface ApiAnalyticsStore {
   getCostDetail(guildId: string, options: CostDetailOptions): Promise<CostDetail>;
-  getGuildCallCount(guildId: string): Promise<number>;
   getDashboard(guildId: string, options: DashboardAnalyticsOptions): Promise<DashboardAnalytics>;
   getMeeting(guildId: string, meetingId: string): Promise<MeetingHistoryDetail | undefined>;
   listMeetings(guildId: string, filters: MeetingHistoryFilters): Promise<MeetingHistoryPage>;
@@ -192,7 +197,7 @@ export interface ApiServerDependencies {
     | "getConnectionStatus"
     | "listOwnedGuilds"
   >;
-  guildConfig: GuildConfigurationStore;
+  guildConfig: GuildConfigurationStore & Pick<PostgresGuildConfigStore, "getGuildSummaries">;
   guildDirectory: GuildDirectory;
   guildHistory: Pick<PostgresGuildHistoryStore, "hasMeetings" | "list">;
   guildOwnerApprovals: GuildOwnerApprovalStore;
