@@ -391,8 +391,9 @@ mantém o nome citado. Uma tarefa pode ter vários responsáveis. O backend não
 apareçam literalmente na fala. O prazo continua exigindo correspondência literal com a fala citada.
 
 Pedidos vagos, como “alguém precisa decidir a ferramenta”, não são promovidos a decisão ou tarefa:
-eles aparecem em **Pendências e observações**. Nas novas calls, Discord e dashboard mostram o texto
-original do prazo acompanhado da data interpretada, como `Até quarta! (21/10)`. A IA resolve dias da
+eles aparecem em **Pendências e observações**. Nas novas calls, o dashboard mostra o texto original
+do prazo acompanhado da data interpretada, como `Até quarta! (21/10)`. O Discord mostra o mesmo
+texto sem a pontuação final e com inicial maiúscula, como `Até quarta (21/10)`. A IA resolve dias da
 semana, hoje, amanhã e intervalos relativos pelo contexto, usando o instante da fala e o fuso da
 reunião. Isso inclui referências conflitantes e prazos mencionados no próprio dia da semana.
 O backend valida o formato da data, a completude dos campos e o fuso; não substitui a interpretação

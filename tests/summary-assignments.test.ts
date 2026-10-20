@@ -88,7 +88,7 @@ describe("atribuições contextuais e apresentação das tarefas", () => {
     ]);
   });
 
-  it("mantém marcadores e separa responsável e prazo em parágrafos dentro de cada tarefa", () => {
+  it("aninha responsável e prazo como subitens e ordena as tarefas pelo prazo", () => {
     const summary = publicSummarySchema.parse({
       ...base,
       tasks: [
@@ -114,13 +114,18 @@ describe("atribuições contextuais e apresentação das tarefas", () => {
     });
     const text = formatSummary("meeting", summary, resolvePublicationText("pt-BR")).join("\n");
     expect(text).toContain(
-      "## Tarefas\n\n- Implementação\n\n  **Responsável:** Bruno\n\n  **Prazo:** Até quarta! (21/10)\n\n- Revisar o layout do PDF\n\n  **Responsável:** Carla\n\n- Fazer os testes de integração\n\n  **Prazo:** quinta (22/10)\n\n- Verificar melhorias\n\n  **Responsáveis:** Carla e Diego",
+      "## Tarefas\n\n- Implementação\n  - **Responsável:** Bruno\n  - **Prazo:** Até quarta (21/10)\n\n- Fazer os testes de integração\n  - **Prazo:** Quinta (22/10)\n\n- Revisar o layout do PDF\n  - **Responsável:** Carla\n\n- Verificar melhorias\n  - **Responsáveis:** Carla e Diego",
     );
   });
 
-  it.each(["hoje", "amanhã", "daqui a três dias", "segunda-feira, dia 22"])(
+  it.each([
+    ["hoje", "Hoje"],
+    ["amanhã", "Amanhã"],
+    ["daqui a três dias", "Daqui a três dias"],
+    ["segunda-feira, dia 22", "Segunda-feira, dia 22"],
+  ])(
     "exibe a data interpretada pela IA para %s sem substituir o prazo literal",
-    (deadlineText) => {
+    (deadlineText, presentedDeadline) => {
       const result = validateGroundedSummary(
         {
           ...base,
@@ -152,7 +157,7 @@ describe("atribuições contextuais e apresentação das tarefas", () => {
         createPublicSummary(result),
         resolvePublicationText("pt-BR"),
       ).join("\n");
-      expect(text).toContain(`**Prazo:** ${deadlineText} (22/10)`);
+      expect(text).toContain(`**Prazo:** ${presentedDeadline} (22/10)`);
     },
   );
 

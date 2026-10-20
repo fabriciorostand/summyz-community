@@ -373,6 +373,7 @@ fields.
 
 Vague requests such as “someone needs to choose the tool” are not promoted to decisions or tasks:
 they appear under **Open issues and notes** in English or **Pendências e observações** in Portuguese.
-Discord preserves the original deadline text. The structured result may also retain a validated
+Discord shows the original deadline text without trailing punctuation and with an initial capital
+letter. The structured result may also retain a validated
 date or minute deadline and its meeting time zone for dashboard scheduling; that metadata never
 replaces the literal text in the forum post.
