@@ -179,7 +179,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         discussedTopics: ["New workflow"],
         executiveSummary: "The team discussed the workflow.",
         observations: ["The tool still needs to be selected."],
-        tasks: [{ deadlineText: "by Friday", ownerName: "Bruno", text: "Send the file." }],
+        tasks: [{ deadlineText: "by Friday", ownerNames: ["Bruno"], text: "Send the file." }],
       },
       context.transcriptPath,
     );
@@ -197,8 +197,8 @@ describe("publicação da reunião em fórum do Discord", () => {
     expect(sent).toContain("Discussed topics");
     expect(sent).toContain("Decisions");
     expect(sent).toContain("Tasks");
-    expect(sent).toContain("Assignee: Bruno");
-    expect(sent).toContain("Deadline: by Friday");
+    expect(sent).toContain("**Assignee:** Bruno");
+    expect(sent).toContain("**Deadline:** By Friday");
     expect(sent).toContain("Open issues and notes");
     expect(sent).toContain("Full voice call transcript");
     expect(sent).not.toContain("Pendências e observações");
@@ -366,7 +366,7 @@ describe("publicação da reunião em fórum do Discord", () => {
         discussedTopics: ["Fluxo novo"],
         executiveSummary: "A equipe discutiu o fluxo.",
         observations: ["Ficou pendente decidir a ferramenta."],
-        tasks: [{ deadlineText: "até sexta", ownerName: "Bruno", text: "Enviar o arquivo." }],
+        tasks: [{ deadlineText: "até sexta", ownerNames: ["Bruno"], text: "Enviar o arquivo." }],
       },
       context.transcriptPath,
     );

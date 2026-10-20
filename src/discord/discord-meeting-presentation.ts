@@ -1,7 +1,7 @@
 import type { AppConfig } from "../config.js";
 import type { PublicationState } from "../summary/publication-state.js";
 import type { PublicSummary, PublicSummaryTask } from "../summary/summary-result.js";
-import { formatTaskDeadline, formatTaskOwners, taskOwners } from "../summary/task-presentation.js";
+import { formatTaskDeadline } from "../summary/task-presentation.js";
 
 export interface PublicationText {
   assignee: string;
@@ -131,17 +131,9 @@ export function formatSummary(
   appendList(sections, text.decisions, summary.decisions);
   if (summary.tasks.length > 0) {
     sections.push(
-      `## ${text.tasks}\n\n${summary.tasks
-        .map((task) => {
-          if (task.ownerNames !== undefined) {
-            return formatAssignedTask(task, text);
-          }
-          const details = [
-            task.ownerName === undefined ? undefined : `${text.assignee}: ${task.ownerName}`,
-            task.deadlineText === undefined ? undefined : `${text.deadline}: ${task.deadlineText}`,
-          ].filter((item): item is string => item !== undefined);
-          return `- ${task.text}${details.length === 0 ? "" : `\n  ${details.join(" · ")}`}`;
-        })
+      `## ${text.tasks}\n\n${[...summary.tasks]
+        .sort(compareTaskDeadlines)
+        .map((task) => formatTask(task, text))
         .join("\n\n")}`,
     );
   }
@@ -149,17 +141,47 @@ export function formatSummary(
   return sections.flatMap((section) => splitDiscordContent(section, 1_900));
 }
 
-function formatAssignedTask(task: PublicSummaryTask, text: PublicationText): string {
-  const owners = taskOwners(task);
-  const deadline = formatTaskDeadline(task);
+function formatTask(task: PublicSummaryTask, text: PublicationText): string {
+  const owners = task.ownerNames ?? [];
+  const deadline = formatTaskDeadline({
+    ...task,
+    deadlineText: task.deadlineText === undefined ? undefined : cleanDeadline(task.deadlineText),
+  });
   const ownerLabel = owners.length > 1 ? (text.assignees ?? text.assignee) : text.assignee;
   const details = [
     owners.length === 0
       ? undefined
-      : `**${ownerLabel}:** ${formatTaskOwners(task, text.language ?? "en")}`,
+      : `**${ownerLabel}:** ${new Intl.ListFormat(text.language ?? "en").format(owners)}`,
     deadline === undefined ? undefined : `**${text.deadline}:** ${deadline}`,
   ].filter((item): item is string => item !== undefined);
-  return [`- ${task.text}`, ...details.map((detail) => `  ${detail}`)].join("\n\n");
+  return [`- ${task.text}`, ...details.map((detail) => `  - ${detail}`)].join("\n");
+}
+
+/** Drops trailing punctuation and capitalizes the spoken deadline; never empties it. */
+function cleanDeadline(deadlineText: string): string {
+  const [first = "", ...rest] = deadlineText.replace(/[\s.,;:!?…]+$/u, "");
+  const cleaned = `${first.toUpperCase()}${rest.join("")}`;
+  return cleaned.length === 0 ? deadlineText : cleaned;
+}
+
+/** Dated tasks first (timed before date-only on the same day), then spoken-only, then none. */
+function compareTaskDeadlines(left: PublicSummaryTask, right: PublicSummaryTask): number {
+  const rank = deadlineRank(left) - deadlineRank(right);
+  if (rank !== 0 || left.deadlineDate === undefined || right.deadlineDate === undefined) {
+    return rank;
+  }
+  if (left.deadlineDate !== right.deadlineDate) {
+    return left.deadlineDate < right.deadlineDate ? -1 : 1;
+  }
+  if (left.deadlineTime === undefined || right.deadlineTime === undefined) {
+    return (left.deadlineTime === undefined ? 1 : 0) - (right.deadlineTime === undefined ? 1 : 0);
+  }
+  return left.deadlineTime.localeCompare(right.deadlineTime);
+}
+
+function deadlineRank(task: PublicSummaryTask): number {
+  if (task.deadlineDate !== undefined) return 0;
+  return task.deadlineText === undefined ? 2 : 1;
 }
 
 function appendList(sections: string[], title: string, items: readonly string[]): void {

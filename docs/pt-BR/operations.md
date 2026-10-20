@@ -177,7 +177,10 @@ atribuir uma tarefa a várias pessoas. No dashboard, cada combinação de respon
 separado, como “Bruno e Carla”; a tarefa mantém uma única conclusão compartilhada.
 Nas novas calls, prazos relativos preservam o texto literal e acrescentam a data interpretada em
 `DD/MM` no Discord e no dashboard. Metadados normalizados válidos permitem ordenar por vencimento e
-calcular atraso. Tarefas podem ser concluídas ou reabertas; a transcrição preservada e o resumo
+calcular atraso. No Discord, cada tarefa lista responsável e prazo como subitens, e as tarefas
+seguem a ordem do prazo: primeiro as com data interpretada (no mesmo dia, as com horário antes das
+que têm só a data), depois as que têm só o prazo falado e, por fim, as sem prazo. Empates mantêm a
+ordem da reunião. Tarefas podem ser concluídas ou reabertas; a transcrição preservada e o resumo
 publicado não são reescritos. A atualização não reprocessa calls históricas.
 
 

@@ -153,7 +153,10 @@ and the provider breakdown are shown only on the cost page.
 
 Tasks are persisted with retained meeting content and preserve the explicitly stated assignee and
 deadline. Valid normalized deadline metadata supports due-date ordering and overdue calculation
-without changing the forum's literal text.
+without replacing the spoken deadline in the forum post. In Discord, each task lists its assignee
+and deadline as nested items, and tasks follow deadline order: interpreted dates first (timed
+deadlines before date-only ones on the same day), then spoken-only deadlines, then tasks without a
+deadline. Ties keep the meeting order.
 Tasks can be completed or reopened; the retained transcript and published summary are not rewritten.
 
 
