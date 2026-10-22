@@ -127,7 +127,7 @@ describe("continuous integration contract", () => {
     );
     expect(implementation).toContain("needs: [quality, security, tests, runtime]");
     expect(implementation).toContain("needs: quality-gate-analysis");
-    expect(implementation.match(/if: \$\{\{ !cancelled\(\) \}\}/gu)).toHaveLength(2);
+    expect(implementation.match(/if: \$\{\{ !cancelled\(\) \}\}/gu)).toHaveLength(3);
     expect(implementation).toContain("runs-on: ubuntu-24.04");
     expect(implementation).not.toContain("timeout-minutes:");
     expect(implementation).toContain("postgres:18.4-alpine@sha256:");

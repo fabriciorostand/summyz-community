@@ -826,8 +826,10 @@ jobs:
 
       - name: Locate the latest successful main baseline
         id: baseline
+        continue-on-error: true
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
+          retries: 3
           script: |
             const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
               ...context.repo,
@@ -855,6 +857,7 @@ jobs:
 
       - name: Download the main baseline
         if: steps.baseline.outputs.run-id != ''
+        continue-on-error: true
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: ci-quality-gate-baseline
@@ -1185,6 +1188,7 @@ jobs:
           version: v0.74.0
 
       - name: Analyze the Quality Gate
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
