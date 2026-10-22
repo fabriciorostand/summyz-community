@@ -1,7 +1,10 @@
+import type { MeetingSummaryGenerator } from "summyz-community-bot/summary/meeting-summary-generator";
+import {
+  type SummaryDraft,
+  summaryDraftSchema,
+} from "summyz-community-shared/summary/summary-result";
+import { taskOwners } from "summyz-community-shared/summary/task-presentation";
 import { z } from "zod";
-import type { MeetingSummaryGenerator } from "../../src/summary/meeting-summary-generator.js";
-import { type SummaryDraft, summaryDraftSchema } from "../../src/summary/summary-result.js";
-import { taskOwners } from "../../src/summary/task-presentation.js";
 import {
   type ExpectedTask,
   type SummaryEvaluationCase,

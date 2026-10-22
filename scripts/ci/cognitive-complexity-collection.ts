@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { z } from "zod";
+import { productionSourceDirectories } from "./source-directories.js";
 
 const run = promisify(execFile);
 const configSchema = z
@@ -82,8 +83,7 @@ export const collectCognitiveReports = async (options: CollectionOptions): Promi
       [
         fileURLToPath(import.meta.resolve("@biomejs/biome/bin/biome")),
         "lint",
-        "src",
-        "web/src",
+        ...(await productionSourceDirectories(root)),
         `--config-path=${configPath}`,
         "--only=complexity/noExcessiveCognitiveComplexity",
         "--max-diagnostics=none",

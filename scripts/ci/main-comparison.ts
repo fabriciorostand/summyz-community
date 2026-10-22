@@ -45,7 +45,7 @@ const mainCheckIds = [
   "main_python_image",
   "main_database",
   "main_server_tests",
-  "main_web_tests",
+  "main_dashboard_tests",
   "main_python_tests",
   "main_npm_audit",
   "main_pip_audit",
@@ -65,7 +65,7 @@ const qualityReports = [
 ] as const;
 const coverageReports = [
   "server/coverage/coverage-summary.json",
-  "web/coverage/coverage-summary.json",
+  "dashboard/coverage/coverage-summary.json",
   "python/coverage.json",
 ] as const;
 const trivyReports = [
@@ -169,10 +169,10 @@ const coverageMetrics = (
   failures: string[],
 ): Partial<MainComparison> => {
   const server = validatedReport(reports, coverageReports[0], istanbulSchema, failures);
-  const web = validatedReport(reports, coverageReports[1], istanbulSchema, failures);
+  const dashboard = validatedReport(reports, coverageReports[1], istanbulSchema, failures);
   const python = validatedReport(reports, coverageReports[2], pythonCoverageSchema, failures);
-  if (!server || !web || !python) return {};
-  return { coverage: aggregateRepositoryCoverage([server, web, python]).percentage };
+  if (!server || !dashboard || !python) return {};
+  return { coverage: aggregateRepositoryCoverage([server, dashboard, python]).percentage };
 };
 
 const sourceMetrics = (
@@ -251,7 +251,11 @@ export const loadMainComparisonFiles = async (
     const suffix = /^(?:quality|security|runtime)\//u.test(path)
       ? path.slice(path.indexOf("/") + 1)
       : path;
-    const file = files.find((candidate) => candidate.replaceAll("\\", "/").endsWith(`/${suffix}`));
+    // An older main revision still writes its dashboard report under the former component name.
+    const suffixes = [suffix, suffix.replace(/^dashboard\//u, "web/")];
+    const file = files.find((candidate) =>
+      suffixes.some((ending) => candidate.replaceAll("\\", "/").endsWith(`/${ending}`)),
+    );
     if (!file) continue;
     try {
       reports[path] = JSON.parse(await readFile(file, "utf8"));
@@ -277,7 +281,7 @@ export const loadMainComparison = (
   stepsJson: string,
 ): Promise<MainComparison> =>
   loadMainComparisonFiles(
-    reportPaths.map((path) => join(directory, path)),
+    [...reportPaths, "web/coverage/coverage-summary.json"].map((path) => join(directory, path)),
     commitSha,
     stepsJson,
   );

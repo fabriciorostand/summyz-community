@@ -238,7 +238,7 @@ function Open-SetupPage {
     return
   }
   $publicBaseUrl = Get-DotEnvSetting -Name "PUBLIC_BASE_URL"
-  $webPort = Get-Setting -Name "WEB_PORT" -Default "8787"
+  $webPort = Get-Setting -Name "DASHBOARD_PORT" -Default "8787"
   $baseUrl = if ([string]::IsNullOrWhiteSpace($publicBaseUrl)) {
     "http://127.0.0.1:$webPort"
   } else {
@@ -282,7 +282,7 @@ switch ($commandName) {
   }
   "status" { Invoke-Compose "ps" }
   "logs" { Invoke-Compose "logs" "--follow" }
-  "recover-access" { Invoke-Compose "exec" "dashboard" "node" "dist/api/installation-access-recovery.js" "--access-mode" "public" }
+  "recover-access" { Invoke-Compose "exec" "dashboard" "node" "apps/api/dist/installation-access-recovery.js" "--access-mode" "public" }
   default {
     [Console]::Error.WriteLine("Usage: .\summyz-community.ps1 <up|down|restart|status|logs|recover-access> [--dry-run]")
     exit 2

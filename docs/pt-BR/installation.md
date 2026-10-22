@@ -66,7 +66,7 @@ com o hardware detectado. Sem GPU compatível ou se um serviço GPU falhar, a in
 com CPU e o dashboard mostra GPU indisponível nas etapas afetadas. O outro serviço GPU pode
 continuar disponível. A aplicação não monta o socket Docker.
 Por padrão, dashboard e PostgreSQL são publicados em `127.0.0.1`; o dashboard local não exige
-senha. `WEB_HOST` permite configurar o IP de publicação da porta do dashboard no Docker,
+senha. `DASHBOARD_HOST` permite configurar o IP de publicação da porta do dashboard no Docker,
 conforme o [guia de configuração](./configuration.md#ambiente-e-parâmetros-de-execução).
 Mantenha o modo local em loopback; o acesso pela rede exige o modo público.
 

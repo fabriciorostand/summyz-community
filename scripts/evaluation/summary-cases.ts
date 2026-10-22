@@ -1,5 +1,5 @@
+import { summaryTranscriptEntrySchema } from "summyz-community-shared/summary/summary-result";
 import { z } from "zod";
-import { summaryTranscriptEntrySchema } from "../../src/summary/summary-result.js";
 
 const expectedTaskSchema = z.object({
   sourceEntryIds: z.array(z.string().min(1)).min(1),

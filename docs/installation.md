@@ -65,7 +65,7 @@ hardware detected on the host. Without a compatible GPU, or if a GPU service fai
 completes with CPU and the dashboard shows GPU unavailable for affected stages. The other GPU
 service can remain available. The application never mounts the Docker socket. The dashboard
 and PostgreSQL are published on `127.0.0.1` by default; local dashboard access requires no password.
-`WEB_HOST` configures the Docker dashboard port publication IP, as described in the
+`DASHBOARD_HOST` configures the Docker dashboard port publication IP, as described in the
 [configuration guide](./configuration.md#environment-and-runtime-parameters). Keep local mode
 on loopback; network access requires public mode.
 

@@ -1,0 +1,299 @@
+import { Eye, SquareCheckBig } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { formatTaskDeadline } from "summyz-community-shared/summary/task-presentation";
+
+import { EmptyState, ErrorState, LoadingPanel } from "../components/states";
+import { Avatar, Badge, Card, Notice } from "../components/ui";
+import { useI18n } from "../i18n/store";
+import { useDashboard } from "../layout/dashboard-layout";
+import { TopBar } from "../layout/top-bar";
+import { api, type DashboardTask } from "../lib/api";
+import { groupByOwner, type OwnerGroup } from "../lib/task-groups";
+import { Screen } from "./screen";
+
+/** Rewrites one task's completion in place, leaving the rest of the list untouched. */
+function withCompletion(
+  tasks: DashboardTask[] | undefined,
+  taskId: string,
+  completedAt: string | null,
+): DashboardTask[] | undefined {
+  return tasks?.map((task) => (task.taskId === taskId ? { ...task, completedAt } : task));
+}
+
+export function TasksPage() {
+  const { controls, guilds, reloadDashboard } = useDashboard();
+  const { t, language } = useI18n();
+  const guildId = guilds.selectedGuildId;
+  const [tasks, setTasks] = useState<DashboardTask[]>();
+  const [loadError, setLoadError] = useState(false);
+  const [showCompleted, setShowCompleted] = useState(false);
+  const [ownerFilter, setOwnerFilter] = useState("");
+  const [reloadToken, setReloadToken] = useState(0);
+
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reloadToken is the explicit refetch trigger.
+  useEffect(() => {
+    if (guildId.length === 0) return;
+    let active = true;
+    setTasks(undefined);
+    setLoadError(false);
+    void api
+      .listTasks(guildId, showCompleted ? {} : { completed: false })
+      .then((next) => {
+        if (active) setTasks(next);
+      })
+      .catch(() => {
+        if (active) setLoadError(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [guildId, reloadToken, showCompleted]);
+
+  const toggleTask = useCallback(
+    async (task: DashboardTask) => {
+      const completed = task.completedAt === null;
+      const settle = (completedAt: string | null) =>
+        setTasks((current) => withCompletion(current, task.taskId, completedAt));
+      settle(completed ? new Date().toISOString() : null);
+      try {
+        await api.setTaskCompleted(guildId, task.taskId, completed);
+        reloadDashboard();
+      } catch {
+        // Put the row back the way the server still sees it.
+        settle(task.completedAt);
+      }
+    },
+    [guildId, reloadDashboard],
+  );
+
+  // Completing tasks needs the connected owner and the bot; history-only servers are read only.
+  const readOnly = guilds.selectedGuild?.installed === false;
+  const groups = tasks === undefined ? undefined : groupByOwner(tasks, t.tasks.noOwner, language);
+  const visibleGroups = groups?.filter((group) => ownerFilter === "" || group.key === ownerFilter);
+  const openCount = tasks?.filter((task) => task.completedAt === null).length ?? 0;
+
+  return (
+    <>
+      <TopBar actions={controls} title={t.tasks.title} />
+      <Screen>
+        <OwnerFilters
+          groups={groups}
+          onOwnerChange={setOwnerFilter}
+          onShowCompletedChange={setShowCompleted}
+          openCount={openCount}
+          ownerFilter={ownerFilter}
+          showCompleted={showCompleted}
+        />
+        {readOnly && (
+          <Notice icon={<Eye className="mt-0.5 size-3.5 shrink-0" />}>{t.tasks.readOnly}</Notice>
+        )}
+        <TasksBody
+          failed={loadError || guilds.error}
+          hasGuild={guilds.guilds?.length !== 0}
+          onRetry={() => setReloadToken((token) => token + 1)}
+          onToggle={readOnly ? undefined : toggleTask}
+          tasks={tasks}
+          visibleGroups={visibleGroups}
+        />
+      </Screen>
+    </>
+  );
+}
+
+function OwnerFilters({
+  groups,
+  onOwnerChange,
+  onShowCompletedChange,
+  openCount,
+  ownerFilter,
+  showCompleted,
+}: {
+  groups: OwnerGroup[] | undefined;
+  onOwnerChange: (key: string) => void;
+  onShowCompletedChange: (value: boolean) => void;
+  openCount: number;
+  ownerFilter: string;
+  showCompleted: boolean;
+}) {
+  const { t } = useI18n();
+  if (groups === undefined || groups.length === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      <OwnerChip
+        active={ownerFilter === ""}
+        count={openCount}
+        label={t.tasks.all}
+        onClick={() => onOwnerChange("")}
+      />
+      {groups.map((group) => (
+        <OwnerChip
+          active={ownerFilter === group.key}
+          avatarUrl={group.avatarUrl}
+          count={group.openCount}
+          key={group.key}
+          label={group.name}
+          onClick={() => onOwnerChange(group.key)}
+        />
+      ))}
+      <label className="ml-auto flex cursor-pointer items-center gap-2 text-[12.5px] text-ink-secondary">
+        <input
+          checked={showCompleted}
+          className="size-3.5 accent-action"
+          onChange={(event) => onShowCompletedChange(event.currentTarget.checked)}
+          type="checkbox"
+        />
+        {t.tasks.showCompleted}
+      </label>
+    </div>
+  );
+}
+
+function TasksBody({
+  failed,
+  hasGuild,
+  onRetry,
+  onToggle,
+  tasks,
+  visibleGroups,
+}: {
+  failed: boolean;
+  hasGuild: boolean;
+  onRetry: () => void;
+  /** Absent when the server is read only. */
+  onToggle: ((task: DashboardTask) => Promise<void>) | undefined;
+  tasks: DashboardTask[] | undefined;
+  visibleGroups: OwnerGroup[] | undefined;
+}) {
+  const { t } = useI18n();
+  if (failed) {
+    return (
+      <ErrorState code="request_failed" onRetry={onRetry} title={t.tasks.unavailableTitle}>
+        {t.tasks.unavailableBody}
+      </ErrorState>
+    );
+  }
+  if (!hasGuild) {
+    return <EmptyState title={t.tasks.noGuildTitle}>{t.tasks.noGuildBody}</EmptyState>;
+  }
+  if (tasks === undefined) return <LoadingPanel label={t.tasks.loading} />;
+  if (visibleGroups === undefined || visibleGroups.length === 0) {
+    return (
+      <EmptyState icon={<SquareCheckBig className="size-5" />} title={t.tasks.emptyTitle}>
+        {t.tasks.emptyBody}
+      </EmptyState>
+    );
+  }
+  return (
+    <>
+      {visibleGroups.map((group) => (
+        <OwnerSection group={group} key={group.key} onToggle={onToggle} />
+      ))}
+    </>
+  );
+}
+
+function OwnerChip({
+  active,
+  avatarUrl,
+  count,
+  label,
+  onClick,
+}: {
+  active: boolean;
+  avatarUrl?: string | null;
+  count: number;
+  label: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      aria-pressed={active}
+      className={`inline-flex max-w-full items-center gap-2 rounded-lg border px-2.5 py-1.5 text-[12.5px] transition-colors ${
+        active
+          ? "border-action bg-action-soft text-accent"
+          : "border-line bg-surface-raised text-ink-secondary hover:text-ink"
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      {avatarUrl !== undefined && <Avatar avatarUrl={avatarUrl} name={label} size={18} />}
+      <span className="min-w-0 truncate">{label}</span>
+      <span className="font-mono text-[10px] text-ink-dim">{count}</span>
+    </button>
+  );
+}
+
+function OwnerSection({
+  group,
+  onToggle,
+}: {
+  group: OwnerGroup;
+  /** Absent when the server is read only. */
+  onToggle: ((task: DashboardTask) => Promise<void>) | undefined;
+}) {
+  const { t } = useI18n();
+  return (
+    <Card>
+      <div className="mb-3 flex flex-wrap items-center gap-2.5">
+        <Avatar avatarUrl={group.avatarUrl} name={group.name} size={24} />
+        <span className="min-w-0 truncate text-[13.5px] font-medium text-ink">{group.name}</span>
+        <span className="label-mono text-ink-muted">{t.tasks.open(group.openCount)}</span>
+        {group.overdueCount > 0 && <Badge tone="fail">{t.tasks.overdue(group.overdueCount)}</Badge>}
+      </div>
+      <div className="flex flex-col">
+        {group.tasks.map((task) => (
+          <TaskRow key={task.taskId} onToggle={onToggle} task={task} />
+        ))}
+      </div>
+    </Card>
+  );
+}
+
+function TaskRow({
+  onToggle,
+  task,
+}: {
+  /** Absent when the server is read only. */
+  onToggle: ((task: DashboardTask) => Promise<void>) | undefined;
+  task: DashboardTask;
+}) {
+  const { format, t } = useI18n();
+  const completed = task.completedAt !== null;
+  return (
+    // Phones put the call link and the deadline under the task text; wider screens keep one row.
+    <div className="grid grid-cols-[auto_minmax(0,1fr)] items-start gap-x-3 gap-y-1.5 border-b border-line-soft py-2.5 last:border-0 sm:flex sm:items-center">
+      <label className="touch-target flex shrink-0 cursor-pointer pt-0.5 has-disabled:cursor-not-allowed sm:pt-0">
+        <input
+          aria-label={task.text}
+          checked={completed}
+          className="size-4 accent-action disabled:cursor-not-allowed"
+          disabled={onToggle === undefined}
+          onChange={() => void onToggle?.(task)}
+          type="checkbox"
+        />
+      </label>
+      <span
+        className={`min-w-0 text-[12.5px] sm:flex-1 ${completed ? "text-ink-dim line-through" : "text-ink"}`}
+      >
+        {task.text}
+      </span>
+      <div className="col-start-2 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 sm:contents">
+        <Link
+          className="touch-target min-w-0 truncate text-[11.5px] text-accent hover:text-accent-hover sm:shrink-0"
+          to={`/history/${task.meetingId}`}
+        >
+          {task.voiceChannelName ?? task.meetingId}
+        </Link>
+        <span
+          className={`label-mono shrink-0 sm:w-32 sm:text-right ${
+            task.overdue && !completed ? "text-fail" : "text-ink-dim"
+          }`}
+        >
+          {(task.ownerNames === undefined ? format.deadline(task) : formatTaskDeadline(task)) ??
+            t.tasks.noDeadline}
+        </span>
+      </div>
+    </div>
+  );
+}

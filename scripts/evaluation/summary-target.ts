@@ -1,15 +1,15 @@
 import { createHash } from "node:crypto";
-import { type AiProfile, resolveAiProfile } from "../../src/ai-profile.js";
-import { composeProtectedPrompt } from "../../src/ai-system-prompt.js";
-import type { BootstrapConfig } from "../../src/config.js";
-import { PostgresAiProfileStore } from "../../src/database/postgres-ai-profile-store.js";
-import type { PostgresDatabase } from "../../src/database/postgres-database.js";
-import { PostgresInstallationSettingsStore } from "../../src/database/postgres-installation-settings-store.js";
-import type { SecretBox } from "../../src/security/secret-box.js";
-import { MeetingSummaryGenerator } from "../../src/summary/meeting-summary-generator.js";
-import { OllamaSummaryProvider } from "../../src/summary/ollama-summary-provider.js";
-import { OpenRouterSummaryProvider } from "../../src/summary/openrouter-summary-provider.js";
-import { resolveSummaryLanguage } from "../../src/summary/summary-language.js";
+import { composeProtectedPrompt } from "summyz-community-bot/ai-system-prompt";
+import type { BootstrapConfig } from "summyz-community-bot/config";
+import { MeetingSummaryGenerator } from "summyz-community-bot/summary/meeting-summary-generator";
+import { OllamaSummaryProvider } from "summyz-community-bot/summary/ollama-summary-provider";
+import { OpenRouterSummaryProvider } from "summyz-community-bot/summary/openrouter-summary-provider";
+import { resolveSummaryLanguage } from "summyz-community-bot/summary/summary-language";
+import { type AiProfile, resolveAiProfile } from "summyz-community-shared/ai-profile";
+import { PostgresAiProfileStore } from "summyz-community-shared/database/postgres-ai-profile-store";
+import type { PostgresDatabase } from "summyz-community-shared/database/postgres-database";
+import { PostgresInstallationSettingsStore } from "summyz-community-shared/database/postgres-installation-settings-store";
+import type { SecretBox } from "summyz-community-shared/security/secret-box";
 
 export async function readEvaluationInstallation(
   database: Pick<PostgresDatabase, "transaction" | "close">,

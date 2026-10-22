@@ -1,12 +1,12 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { performance } from "node:perf_hooks";
 import { Pool } from "pg";
-import { z } from "zod";
-import { PostgresAnalyticsStore } from "../src/database/postgres-analytics-store.js";
+import { PostgresAnalyticsStore } from "summyz-community-shared/database/postgres-analytics-store";
 import {
   createPostgresDatabase,
   type PostgresExecutor,
-} from "../src/database/postgres-database.js";
+} from "summyz-community-shared/database/postgres-database";
+import { z } from "zod";
 
 const scenarios = [
   { name: "small", guilds: 5, meetings: 200, participants: 5, concurrency: 2 },

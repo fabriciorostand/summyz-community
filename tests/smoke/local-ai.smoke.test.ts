@@ -1,13 +1,13 @@
 import { setTimeout as delay } from "node:timers/promises";
-import { describe, expect, it } from "vitest";
-import { z } from "zod";
-import { requestOllamaStructured } from "../../src/local-ai/ollama-client.js";
-import { ProviderModelTransfer } from "../../src/models/model-transfer.js";
+import { ProviderModelTransfer } from "summyz-community-api/models/model-transfer";
 import {
   parseOllamaFamilies,
   parseOllamaVariants,
   readPublicLibrary,
-} from "../../src/models/ollama-library.js";
+} from "summyz-community-api/models/ollama-library";
+import { requestOllamaStructured } from "summyz-community-bot/local-ai/ollama-client";
+import { describe, expect, it } from "vitest";
+import { z } from "zod";
 
 const fasterWhisperUrl = process.env.FASTER_WHISPER_SMOKE_URL ?? "http://faster-whisper:8000";
 const fasterWhisperManagementUrl = process.env.FASTER_WHISPER_MANAGEMENT_URL ?? fasterWhisperUrl;

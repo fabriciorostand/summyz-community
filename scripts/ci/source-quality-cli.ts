@@ -1,6 +1,6 @@
 import { mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, extname, join, relative, resolve } from "node:path";
-
+import { productionSourceDirectories } from "./source-directories.js";
 import { analyzeSourceQuality, parseChangedLines, type SourceFile } from "./source-quality.js";
 
 const root = resolve(process.cwd());
@@ -25,8 +25,10 @@ const isProductionSource = (path: string): boolean => {
     return false;
   }
   return (
-    (/^src\/.*\.ts$/u.test(normalized) && !normalized.endsWith(".d.ts")) ||
-    (/^web\/src\/.*\.(?:ts|tsx)$/u.test(normalized) && !normalized.endsWith(".d.ts")) ||
+    (/^(?:(?:apps\/(?:bot|api|dashboard)|packages\/shared)\/src|src|web\/src)\/.*\.(?:ts|tsx)$/u.test(
+      normalized,
+    ) &&
+      !normalized.endsWith(".d.ts")) ||
     /^services\/faster-whisper\/[^/]+\.py$/u.test(normalized)
   );
 };
@@ -67,8 +69,7 @@ const main = async (): Promise<void> => {
     );
   }
   const candidateDirectories = [
-    resolve(root, "src"),
-    resolve(root, "web/src"),
+    ...(await productionSourceDirectories(root)).map((directory) => resolve(root, directory)),
     resolve(root, "services/faster-whisper"),
   ];
   const candidates = (await Promise.all(candidateDirectories.map(collectFiles))).flat();

@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "tsBuildInfoFile": "../../.cache/typescript/shared.tsbuildinfo",
+    "declaration": true,
+    "sourceMap": true,
+    "types": ["node"]
+  },
+  "include": ["src"]
+}

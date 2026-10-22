@@ -277,7 +277,7 @@ idioma, retenção e prompts pertencem às configurações persistidas da instal
 | `DATABASE_URL` | URL PostgreSQL obrigatória; `postgres:5432` dentro do Compose |
 | `SUMMYZ_SECRETS_KEY` | Chave de criptografia obrigatória gerada pelo launcher |
 | `SUMMYZ_SETUP_TOKEN` | Obrigatória na inicialização da API; gerada pelo launcher e verificada no setup público |
-| `WEB_HOST`, `WEB_PORT` | Endereço e porta da API nativa ou da publicação do dashboard no Docker; padrões `127.0.0.1`, `8787` |
+| `DASHBOARD_HOST`, `DASHBOARD_PORT` | Endereço e porta da API nativa ou da publicação do dashboard no Docker; padrões `127.0.0.1`, `8787` |
 | `PUBLIC_BASE_URL` | Origem do dashboard e base do callback OAuth; padrão `http://127.0.0.1:8787` |
 | `POSTGRES_DB`, `POSTGRES_USER`, `POSTGRES_PASSWORD` | Credenciais do banco Compose; senha gerada pelo launcher |
 | `POSTGRES_PORT` | Porta no host; `.env.example` define `5433`, mas Compose usa `5432` quando omitida |
@@ -286,7 +286,7 @@ idioma, retenção e prompts pertencem às configurações persistidas da instal
 O launcher cria `DATABASE_URL` para a rede Compose com `postgres:5432`. Na execução nativa, ajuste-a
 para o endereço do host e `POSTGRES_PORT` publicado. Os demais parâmetros estão abaixo.
 
-No Docker, `WEB_HOST` configura o IP de publicação no host; a API escuta internamente em
+No Docker, `DASHBOARD_HOST` configura o IP de publicação no host; a API escuta internamente em
 `0.0.0.0:8787` para receber o tráfego encaminhado. O padrão é `127.0.0.1`, mas você pode escolher
 `0.0.0.0` ou um IP de interface da máquina. Essa configuração não altera as portas 80/443 do Caddy
 nem a publicação de PostgreSQL. O modo local continua sem senha e rejeita cabeçalhos `Host` e

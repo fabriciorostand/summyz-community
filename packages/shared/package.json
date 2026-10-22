@@ -1,0 +1,28 @@
+{
+  "name": "summyz-community-shared",
+  "version": "1.0.0",
+  "private": true,
+  "license": "SEE LICENSE IN ../../LICENSE.md",
+  "type": "module",
+  "exports": {
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "development": "./src/*.ts",
+      "default": "./dist/*.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "test": "vitest run",
+    "test:coverage": "vitest run --coverage",
+    "typecheck": "tsc -b tsconfig.build.json && tsc --noEmit",
+    "lint": "biome lint .",
+    "format:check": "biome format ."
+  },
+  "dependencies": {
+    "discord.js": "14.27.0",
+    "pg": "8.23.0",
+    "pino": "10.3.1",
+    "zod": "4.4.3"
+  }
+}

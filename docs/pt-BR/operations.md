@@ -27,7 +27,7 @@ banco e URLs de setup/recuperação privados.
 
 ## Sincronização automática dos comandos Discord
 
-O catálogo atual em `src/discord/commands.ts` é a única fonte da verdade para os comandos slash
+O catálogo atual em `apps/bot/src/discord/commands.ts` é a única fonte da verdade para os comandos slash
 da aplicação Summyz. Ao conectar, o bot cria ou atualiza todos os comandos globais desse catálogo.
 Depois, remove comandos slash globais ausentes do catálogo e os registros slash por servidor da
 mesma aplicação, que são substituídos pelos globais. Isso corrige duplicatas e remove comandos

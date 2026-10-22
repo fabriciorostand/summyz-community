@@ -1,6 +1,6 @@
 import { mergeConfig } from "vitest/config";
 
-import baseConfig from "./vitest.config.js";
+import baseConfig from "./vitest.server.config.js";
 
 export default mergeConfig(baseConfig, {
   test: {
