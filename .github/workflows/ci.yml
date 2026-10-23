@@ -469,7 +469,7 @@ jobs:
           # Both need the transcription image, its FFmpeg build, and its locked wheels.
           transcription_paths='^(\.github/workflows/ci\.yml|\.dockerignore|services/faster-whisper/|docker/ffmpeg/|requirements/)'
           # The smoke test also runs the Node test image and the model code it imports.
-          smoke_paths='^(\.github/ci/|\.npmrc|compose\.yaml|docker/|package\.json|package-lock\.json|(apps/(bot|api|dashboard)|packages/shared)/package\.json|scripts/install-husky\.mjs|packages/shared/src/models/|apps/api/src/models/|tests/smoke/|vitest\.smoke\.config\.ts)'
+          smoke_paths='^(\.github/ci/|\.npmrc|compose\.yaml|docker/|package\.json|package-lock\.json|(apps/(bot|api|dashboard)|packages/shared)/package\.json|scripts/install-husky\.mjs|packages/shared/src/models/|apps/api/src/models/|tests/smoke/)'
           local_ai=false
           cuda=false
           if grep --extended-regexp --quiet "${transcription_paths}" <<<"${changed_files}"; then

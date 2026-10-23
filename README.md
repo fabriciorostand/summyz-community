@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="./assets/banner.png" width="820" alt="Summyz — recording and transcription bot for Discord" />
+  <img src="./docs/assets/banner.png" width="820" alt="Summyz — recording and transcription bot for Discord" />
 </p>
 
 <p align="center">

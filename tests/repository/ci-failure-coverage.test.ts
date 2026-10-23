@@ -11,7 +11,7 @@ const execute = promisify(execFile);
 
 it("publishes CI coverage after an assertion failure while preserving the failed exit status", async () => {
   const directory = await mkdtemp(join(tmpdir(), "summyz-failed-coverage-"));
-  const configuration = fileURLToPath(new URL("../../vitest.ci.config.ts", import.meta.url));
+  const configuration = fileURLToPath(new URL("../../vitest.config.ts", import.meta.url));
   const vitest = fileURLToPath(new URL("../../node_modules/vitest/vitest.mjs", import.meta.url));
   try {
     await writeFile(join(directory, "sample.js"), "export function sample() { return 1; }\n");
@@ -21,12 +21,14 @@ it("publishes CI coverage after an assertion failure while preserving the failed
     );
     await writeFile(
       join(directory, "vitest.config.mjs"),
-      `import configuration from ${JSON.stringify(configuration.replaceAll("\\", "/"))};
+      `import createConfiguration from ${JSON.stringify(configuration.replaceAll("\\", "/"))};
+const configuration = createConfiguration({ command: "serve", mode: "ci" });
+const { projects, ...ciTest } = configuration.test;
 export default {
   ...configuration,
   root: ${JSON.stringify(directory.replaceAll("\\", "/"))},
   test: {
-    ...configuration.test,
+    ...ciTest,
     globals: true,
     include: ["sample.test.js"],
     maxWorkers: 1,

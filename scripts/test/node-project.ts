@@ -15,7 +15,7 @@ export const nodeCoverageExclusions = [
   "packages/shared/src/database/postgres-installation-settings-store.ts",
   "packages/shared/src/database/postgres-analytics-store.ts",
 ];
-const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
+const repositoryRoot = fileURLToPath(new URL("../../", import.meta.url));
 
 export function createNodeTestConfig(name: string, root: string): ViteUserConfig {
   const workspacePrefix = `${relative(repositoryRoot, root).replaceAll("\\", "/")}/`;
