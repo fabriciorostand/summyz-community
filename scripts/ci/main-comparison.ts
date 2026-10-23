@@ -251,11 +251,7 @@ export const loadMainComparisonFiles = async (
     const suffix = /^(?:quality|security|runtime)\//u.test(path)
       ? path.slice(path.indexOf("/") + 1)
       : path;
-    // An older main revision still writes its dashboard report under the former component name.
-    const suffixes = [suffix, suffix.replace(/^dashboard\//u, "web/")];
-    const file = files.find((candidate) =>
-      suffixes.some((ending) => candidate.replaceAll("\\", "/").endsWith(`/${ending}`)),
-    );
+    const file = files.find((candidate) => candidate.replaceAll("\\", "/").endsWith(`/${suffix}`));
     if (!file) continue;
     try {
       reports[path] = JSON.parse(await readFile(file, "utf8"));
@@ -281,7 +277,7 @@ export const loadMainComparison = (
   stepsJson: string,
 ): Promise<MainComparison> =>
   loadMainComparisonFiles(
-    [...reportPaths, "web/coverage/coverage-summary.json"].map((path) => join(directory, path)),
+    reportPaths.map((path) => join(directory, path)),
     commitSha,
     stepsJson,
   );

@@ -4,11 +4,7 @@ import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import {
-  analyzeMainReports,
-  loadMainComparison,
-  loadMainComparisonFiles,
-} from "../../scripts/ci/main-comparison.js";
+import { analyzeMainReports, loadMainComparison } from "../../scripts/ci/main-comparison.js";
 
 const sha = "a".repeat(40);
 const sarif = { runs: [{ results: [] }] };
@@ -37,24 +33,6 @@ const reports = () => ({
 });
 
 describe("live main comparison", () => {
-  it("recovers dashboard coverage from reports produced before the workspace migration", async () => {
-    const directory = await mkdtemp(join(tmpdir(), "summyz-main-legacy-"));
-    try {
-      const files: string[] = [];
-      for (const [report, value] of Object.entries(reports())) {
-        const path = join(directory, report.replace("dashboard/coverage/", "web/coverage/"));
-        await mkdir(join(path, ".."), { recursive: true });
-        await writeFile(path, JSON.stringify(value));
-        files.push(path);
-      }
-      expect(await loadMainComparisonFiles(files, sha, "{}")).toMatchObject({
-        state: "success",
-        coverage: 90,
-      });
-    } finally {
-      await rm(directory, { recursive: true, force: true });
-    }
-  });
   it("keeps the available main maximum without requiring new-code measurement metadata", () => {
     const input = {
       ...reports(),

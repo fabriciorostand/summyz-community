@@ -81,13 +81,17 @@ npm run check
 npm run security:audit
 ```
 
-`check` executa Biome, tipos e cobertura dos quatro workspaces, testes da raiz e testes Python.
+`check` runs Biome, monorepo type checks, aggregate backend coverage, dashboard coverage, and Python
+unit tests. Every application (bot, API, shared, and dashboard) must reach at least 85% line,
+statement, branch, and function coverage. Backend coverage is measured together, so a bot test that
+runs shared code counts toward shared.
 Veja a [referência dos comandos do monorepo](./pt-BR/development.md#tdd-e-verificações-locais-de-qualidade).
 
 | Command | Check |
 | --- | --- |
 | `npm test` | Todos os workspaces, integrações configuradas, testes do repositório e Python |
-| `npm run test:coverage` | Cobertura dos quatro workspaces, testes da raiz e testes Python |
+| `npm run test:coverage` | Aggregate backend coverage with an 85% minimum per application, dashboard coverage, and Python unit tests |
+| `npm run test:coverage:workspaces` | Isolated per-workspace coverage reports, without a minimum |
 | `npm run test:dashboard` / `npm run test:dashboard:coverage` | Dashboard tests / CI coverage configuration |
 | `npm run test:python` / `npm run test:python:coverage` | Python unit tests / coverage and reports |
 | `npm run typecheck` / `npm run typecheck:dashboard` | Tipos do monorepo / dashboard |
@@ -95,8 +99,8 @@ Veja a [referência dos comandos do monorepo](./pt-BR/development.md#tdd-e-verif
 | `npm run format` | Apply formatting |
 
 Python coverage needs the tools in `requirements/ci.lock`; the unit script uses `unittest`.
-`check` inclui a cobertura do dashboard. Cobertura por domínio e smoke de IA local têm comandos
-separados. A CI também mantém a medição agregada do backend.
+Domain coverage and the local-AI smoke test have separate commands. CI enforces the same aggregate
+backend and dashboard minimums.
 
 ## PostgreSQL integration tests
 
@@ -163,7 +167,9 @@ direct pushes are blocked.
 
 Server, dashboard, and Python each need at least 85% global line coverage and 85% in every domain
 group. Changed-code coverage is one line-weighted aggregate across the three components, also at
-least 85%. HTML, JUnit, JSON, and SARIF reports are retained as artifacts. Internal PRs receive one
+least 85%. The test steps themselves also fail when bot, API, shared, or dashboard falls below 85%
+line, statement, branch, or function coverage. HTML, JUnit, JSON, and SARIF reports are retained
+as artifacts. Internal PRs receive one
 persistent English Quality Gate comment; fork PRs receive checks, summary, and artifacts without
 secrets or write access. Analysis collects results and stores the main baseline after pushes.
 

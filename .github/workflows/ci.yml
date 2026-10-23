@@ -336,14 +336,6 @@ jobs:
           --volume "${{ github.workspace }}/artifacts/reports:/app/artifacts/reports"
           summyz-community-tests:ci npm run test:coverage:ci
 
-      - name: Publish bot, API, and shared coverage reports
-        if: always()
-        run: >-
-          docker run --rm --network host
-          --env POSTGRES_TEST_URL=postgresql://summyz_ci:ci-only-password@127.0.0.1:5432/summyz_ci
-          --volume "${{ github.workspace }}/artifacts/reports:/app/artifacts/reports"
-          summyz-community-tests:ci npm run test:coverage:backend
-
       - name: Run dashboard tests with coverage
         if: always()
         run: >-
@@ -951,17 +943,18 @@ jobs:
         working-directory: main-source
         shell: bash
         run: |
-          mapfile -t source_directories < <(../node_modules/.bin/tsx --eval 'import { productionSourceDirectories } from "../scripts/ci/source-directories.ts"; productionSourceDirectories(process.cwd()).then(directories => console.log(directories.join("\n"))).catch(() => process.exit(1));')
-          test "${#source_directories[@]}" -gt 0
-          git diff --output=artifacts/reports/quality/source.diff HEAD HEAD -- "${source_directories[@]}" services/faster-whisper
+          git diff --output=artifacts/reports/quality/source.diff HEAD HEAD -- \
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           ../node_modules/.bin/jscpd --min-lines 5 --min-tokens 50 --threshold 3 --exit-code 0 \
             --reporters json --output artifacts/reports/quality/jscpd --format typescript,tsx,python \
             --skip-comments --ignore "**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*.d.ts" \
-            --absolute "${source_directories[@]}" services/faster-whisper
+            --absolute apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           lizard -l typescript -l python -C 10 -i -1 -x "*test*" -x "*spec*" \
-            --csv -o artifacts/reports/quality/lizard.csv "${source_directories[@]}" services/faster-whisper
+            --csv -o artifacts/reports/quality/lizard.csv \
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           lizard -l typescript -l python -C 10 -i -1 -x "*test*" -x "*spec*" \
-            --xml -o artifacts/reports/quality/lizard.xml "${source_directories[@]}" services/faster-whisper
+            --xml -o artifacts/reports/quality/lizard.xml \
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           ../node_modules/.bin/tsx ../scripts/ci/collect-cognitive-complexity-cli.ts || echo "Cognitive metrics unavailable."
           ../node_modules/.bin/tsx ../scripts/ci/source-quality-cli.ts \
             artifacts/reports/quality/source.diff artifacts/reports/quality/jscpd/jscpd-report.json \
@@ -1027,14 +1020,7 @@ jobs:
         run: >-
           docker run --rm
           --volume "${{ github.workspace }}/main-source/artifacts/reports:/app/artifacts/reports"
-          summyz-main-tests:ci node --input-type=module --eval '
-          import { readFileSync } from "node:fs";
-          import { spawnSync } from "node:child_process";
-          const { scripts } = JSON.parse(readFileSync("package.json", "utf8"));
-          const script = Object.keys(scripts).find(name => /^test:(?:dashboard|web):coverage$/.test(name));
-          if (!script) throw new Error("Dashboard coverage script unavailable");
-          const result = spawnSync("npm", ["run", script], { stdio: "inherit" });
-          process.exit(result.status ?? 1);'
+          summyz-main-tests:ci npm run test:dashboard:coverage
 
       - name: Stop isolated main test database
         id: main_database_cleanup

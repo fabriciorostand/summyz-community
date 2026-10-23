@@ -83,7 +83,7 @@ export const collectCognitiveReports = async (options: CollectionOptions): Promi
       [
         fileURLToPath(import.meta.resolve("@biomejs/biome/bin/biome")),
         "lint",
-        ...(await productionSourceDirectories(root)),
+        ...productionSourceDirectories,
         `--config-path=${configPath}`,
         "--only=complexity/noExcessiveCognitiveComplexity",
         "--max-diagnostics=none",

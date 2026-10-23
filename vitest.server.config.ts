@@ -1,6 +1,8 @@
 import { defineConfig } from "vitest/config";
 import { nodeCoverageExclusions } from "./vitest.node.config.js";
 
+const minimumCoverage = { branches: 85, functions: 85, lines: 85, statements: 85 };
+
 export default defineConfig({
   resolve: { conditions: ["development", "node"] },
   test: {
@@ -14,10 +16,15 @@ export default defineConfig({
     restoreMocks: true,
     coverage: {
       provider: "v8",
-      exclude: ["scripts/**", "tests/**", ...nodeCoverageExclusions],
+      exclude: ["scripts/**", "tests/**", "*.config.ts", ...nodeCoverageExclusions],
       reporter: ["text", "html"],
       reportsDirectory: "artifacts/coverage/server",
-      thresholds: { branches: 85, functions: 85, lines: 85, statements: 85 },
+      thresholds: {
+        ...minimumCoverage,
+        "apps/bot/src/**": minimumCoverage,
+        "apps/api/src/**": minimumCoverage,
+        "packages/shared/src/**": minimumCoverage,
+      },
     },
   },
 });

@@ -106,9 +106,12 @@ npm run check
 npm run security:audit
 ```
 
-`check` executa Biome, a checagem de tipos de todo o monorepo e as suítes de cobertura
-dos quatro workspaces, além dos testes da raiz e unitários Python. A cobertura de cada
-workspace fica em `artifacts/reports/<workspace>/coverage/`.
+`check` executa Biome, a checagem de tipos de todo o monorepo, a cobertura agregada do backend,
+a cobertura do dashboard e os testes unitários Python. Toda aplicação (bot, API, shared e
+dashboard) precisa de no mínimo 85% de linhas, statements, branches e funções. No backend, a
+cobertura é medida em conjunto: um teste do bot que executa código do shared conta para o shared.
+O relatório agregado fica em `artifacts/coverage/server/` e o do dashboard em
+`artifacts/reports/dashboard/coverage/`.
 
 | Comando na raiz | Verificação |
 | --- | --- |
@@ -116,7 +119,8 @@ workspace fica em `artifacts/reports/<workspace>/coverage/`.
 | `npm run test:bot` / `npm run test:api` | Testes do bot / API |
 | `npm run test:dashboard` / `npm run test:shared` | Testes do dashboard / pacote compartilhado |
 | `npm run test:integration` / `npm run test:repository` | Testes entre aplicações / do repositório |
-| `npm run test:coverage` | Cobertura dos quatro workspaces, testes da raiz e testes unitários Python |
+| `npm run test:coverage` | Cobertura agregada do backend com mínimo de 85% por aplicação, cobertura do dashboard e testes unitários Python |
+| `npm run test:coverage:workspaces` | Relatórios de cobertura isolados de cada workspace, sem limite mínimo |
 | `npm run test:coverage:ci` | Cobertura agregada do backend, integrações e testes do repositório |
 | `npm run test:dashboard:coverage` | Cobertura do dashboard |
 | `npm run test:python` / `npm run test:python:coverage` | Testes unitários Python / cobertura Python |
@@ -132,6 +136,9 @@ npm test --workspace apps/bot
 npm run test:coverage --workspace packages/shared
 npm run build --workspace apps/api
 ```
+
+Os relatórios de cobertura de um workspace isolado ficam em `artifacts/reports/<workspace>/coverage/`
+e não aplicam limite mínimo; o limite vale para a medição agregada.
 
 O build de cada aplicação Node compila primeiro o pacote compartilhado quando necessário.
 Os comandos nativos de execução de bot/API preservam a raiz como diretório de trabalho,
@@ -279,7 +286,9 @@ se pushes diretos são bloqueados.
 
 Servidor, dashboard e Python exigem ao menos 85% de cobertura global por linhas e 85% em cada grupo
 de domínio. A cobertura alterada é um agregado ponderado por linhas dos três componentes, também
-de pelo menos 85%. Relatórios HTML, JUnit, JSON e SARIF são preservados como artefatos. PRs internos
+de pelo menos 85%. As próprias etapas de teste também falham quando bot, API, shared ou dashboard
+ficam abaixo de 85% em linhas, statements, branches ou funções. Relatórios HTML, JUnit, JSON e
+SARIF são preservados como artefatos. PRs internos
 recebem um comentário persistente em inglês; forks recebem checks, resumo e artefatos sem segredos
 nem permissão de escrita. Analysis reúne resultados e guarda o baseline de main após pushes.
 

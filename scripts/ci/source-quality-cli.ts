@@ -25,9 +25,7 @@ const isProductionSource = (path: string): boolean => {
     return false;
   }
   return (
-    (/^(?:(?:apps\/(?:bot|api|dashboard)|packages\/shared)\/src|src|web\/src)\/.*\.(?:ts|tsx)$/u.test(
-      normalized,
-    ) &&
+    (/^(?:apps\/(?:bot|api|dashboard)|packages\/shared)\/src\/.*\.(?:ts|tsx)$/u.test(normalized) &&
       !normalized.endsWith(".d.ts")) ||
     /^services\/faster-whisper\/[^/]+\.py$/u.test(normalized)
   );
@@ -69,7 +67,7 @@ const main = async (): Promise<void> => {
     );
   }
   const candidateDirectories = [
-    ...(await productionSourceDirectories(root)).map((directory) => resolve(root, directory)),
+    ...productionSourceDirectories.map((directory) => resolve(root, directory)),
     resolve(root, "services/faster-whisper"),
   ];
   const candidates = (await Promise.all(candidateDirectories.map(collectFiles))).flat();

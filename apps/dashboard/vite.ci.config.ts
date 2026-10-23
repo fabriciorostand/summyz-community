@@ -12,6 +12,8 @@ export default mergeConfig(baseConfig, {
       reporter: ["text", "html", "json", "json-summary", "cobertura", "lcovonly"],
       reportsDirectory: "../../artifacts/reports/dashboard/coverage",
       thresholds: {
+        branches: 85,
+        functions: 85,
         lines: 85,
         statements: 85,
       },

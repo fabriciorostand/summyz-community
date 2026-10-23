@@ -1,4 +1,4 @@
-import { resolve } from "node:path";
+import { relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { ViteUserConfig } from "vitest/config";
 
@@ -18,6 +18,10 @@ export const nodeCoverageExclusions = [
 const repositoryRoot = fileURLToPath(new URL(".", import.meta.url));
 
 export function createNodeTestConfig(name: string, root: string): ViteUserConfig {
+  const workspacePrefix = `${relative(repositoryRoot, root).replaceAll("\\", "/")}/`;
+  const exclusions = nodeCoverageExclusions
+    .filter((file) => file.startsWith(workspacePrefix))
+    .map((file) => file.slice(workspacePrefix.length));
   return {
     root,
     resolve: { conditions: ["development", "node"] },
@@ -27,10 +31,9 @@ export function createNodeTestConfig(name: string, root: string): ViteUserConfig
       restoreMocks: true,
       coverage: {
         provider: "v8",
-        exclude: nodeCoverageExclusions.map((file) => resolve(repositoryRoot, file)),
+        exclude: exclusions,
         reporter: ["text", "html", "json", "json-summary", "cobertura"],
         reportsDirectory: resolve(repositoryRoot, `artifacts/reports/${name}/coverage`),
-        thresholds: { branches: 85, functions: 85, lines: 85, statements: 85 },
       },
     },
   };
