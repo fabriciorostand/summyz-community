@@ -2,12 +2,10 @@ import { createHash } from "node:crypto";
 import { readdir, readFile } from "node:fs/promises";
 import { cpus } from "node:os";
 import { join, resolve } from "node:path";
-
+import { calculateTranscriptMetrics } from "summyz-community-bot/local-ai/transcription-benchmark";
+import { FasterWhisperTranscriptionProvider } from "summyz-community-bot/transcription/faster-whisper-transcription-provider";
+import { recordingManifestSchema } from "summyz-community-shared/recording/manifest";
 import { z } from "zod";
-
-import { calculateTranscriptMetrics } from "../src/local-ai/transcription-benchmark.js";
-import { recordingManifestSchema } from "../src/recording/manifest.js";
-import { FasterWhisperTranscriptionProvider } from "../src/transcription/faster-whisper-transcription-provider.js";
 
 const benchmarkEnvironmentSchema = z.object({
   BENCHMARK_BATCH_SIZE: z.coerce.number().int().min(0).max(64).default(0),

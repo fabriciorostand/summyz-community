@@ -190,14 +190,14 @@ const main = async (): Promise<void> => {
     files,
     (path) =>
       pathEndsWith(path, "/server/coverage/coverage-summary.json") ||
-      pathEndsWith(path, "/web/coverage/coverage-summary.json") ||
+      pathEndsWith(path, "/dashboard/coverage/coverage-summary.json") ||
       pathEndsWith(path, "/python/coverage.json"),
   );
   const repositoryCoverage = aggregateRepositoryCoverage(
     coverageReports.map((report) => report.value),
   );
   const diffReports = await allJson(files, (path) =>
-    /\/diff-coverage\/(?:server|web|python)\.json$/u.test(path.replaceAll("\\", "/")),
+    /\/diff-coverage\/(?:server|dashboard|python)\.json$/u.test(path.replaceAll("\\", "/")),
   );
   const newCoverage = aggregateDiffCoverage(diffReports.map((report) => report.value));
   const sourceReport = await findJson(files, (path) => pathEndsWith(path, "/source-quality.json"));

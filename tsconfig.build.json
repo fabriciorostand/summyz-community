@@ -1,12 +1,14 @@
 {
-  "extends": "./tsconfig.json",
-  "compilerOptions": {
-    "outDir": "dist",
-    "rootDir": "src",
-    "sourceMap": true,
-    "declaration": true,
-    "types": ["node"]
-  },
-  "include": ["src"],
-  "exclude": ["tests", "**/*.test.ts"]
+  "files": [],
+  "references": [
+    {
+      "path": "packages/shared/tsconfig.build.json"
+    },
+    {
+      "path": "apps/bot/tsconfig.build.json"
+    },
+    {
+      "path": "apps/api/tsconfig.build.json"
+    }
+  ]
 }

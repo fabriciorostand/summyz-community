@@ -19,14 +19,17 @@ FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b8
 ARG NPM_VERSION=10.9.8
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
-COPY web/package.json ./web/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
+COPY apps/bot/package.json ./apps/bot/package.json
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/dashboard/package.json ./apps/dashboard/package.json
 COPY scripts/install-husky.mjs ./scripts/install-husky.mjs
 RUN npm install --global "npm@${NPM_VERSION}" && \
     test "$(npm --version)" = "${NPM_VERSION}" && \
     npm ci
-COPY tsconfig.json tsconfig.build.json ./
-COPY src ./src
-COPY web ./web
+COPY tsconfig.base.json tsconfig.json tsconfig.build.json ./
+COPY apps ./apps
+COPY packages ./packages
 RUN npm run build
 
 FROM build AS test
@@ -51,7 +54,7 @@ COPY scripts ./scripts
 COPY services ./services
 COPY requirements ./requirements
 COPY .env.example compose.yaml summyz-community summyz-community.ps1 summyz-community-public summyz-community-public.ps1 ./
-COPY vitest.config.ts vitest.ci.config.ts vitest.smoke.config.ts ./
+COPY vitest.config.ts vitest.node.config.ts vitest.server.config.ts vitest.ci.config.ts vitest.smoke.config.ts ./
 CMD ["npm", "run", "test:smoke:local-ai"]
 
 FROM node:22.23.2-bookworm-slim@sha256:83f487e0a63425e5b4d146fb5e5be574bcbe1b7b843d3ebafdd95eaf7767a7e5 AS runtime-base
@@ -68,15 +71,20 @@ RUN sed -i \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
-COPY web/package.json ./web/package.json
+COPY packages/shared/package.json ./packages/shared/package.json
+COPY apps/bot/package.json ./apps/bot/package.json
+COPY apps/api/package.json ./apps/api/package.json
+COPY apps/dashboard/package.json ./apps/dashboard/package.json
 COPY scripts/install-husky.mjs ./scripts/install-husky.mjs
 RUN npm install --global "npm@${NPM_VERSION}" && \
     test "$(npm --version)" = "${NPM_VERSION}" && \
     npm ci --omit=dev && \
     npm cache clean --force && \
     rm -rf /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx
-COPY --from=build /app/dist ./dist
-COPY --from=build /app/web/dist ./web/dist
+COPY --from=build /app/packages/shared/dist ./packages/shared/dist
+COPY --from=build /app/apps/bot/dist ./apps/bot/dist
+COPY --from=build /app/apps/api/dist ./apps/api/dist
+COPY --from=build /app/apps/dashboard/dist ./apps/dashboard/dist
 RUN mkdir -p /app/data && chown node:node /app/data
 
 FROM runtime-base AS bot-runtime
@@ -93,10 +101,10 @@ ENV LD_LIBRARY_PATH=/opt/ffmpeg/lib \
     PATH=/opt/ffmpeg/bin:${PATH}
 USER node
 
-CMD ["node", "dist/main.js"]
+CMD ["node", "apps/bot/dist/main.js"]
 
 FROM runtime-base AS dashboard-runtime
 
 USER node
 
-CMD ["node", "dist/api/main.js", "--access-mode", "local"]
+CMD ["node", "apps/api/dist/main.js", "--access-mode", "local"]

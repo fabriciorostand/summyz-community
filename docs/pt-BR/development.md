@@ -27,7 +27,7 @@ publicado.
 | `npm run dev` | Bot supervisionado em desenvolvimento |
 | `npm run dev:api:local` | API do dashboard em desenvolvimento, modo local |
 | `npm run dev:api:public` | API do dashboard em desenvolvimento, modo público |
-| `npm run dev:web` | Dashboard Vite em `127.0.0.1:5173`, com proxy de `/api` para `127.0.0.1:8787` |
+| `npm run dev:dashboard` | Dashboard Vite em `127.0.0.1:5173`, com proxy de `/api` para `127.0.0.1:8787` |
 | `npm run build` | Compilar servidor e dashboard |
 | `npm start` | Bot supervisionado compilado |
 | `npm run api:local` | API compilada do dashboard, modo local |
@@ -41,13 +41,13 @@ O script seleciona o modo de acesso por argumento `--access-mode local` ou `--ac
 O modo não é lido do `.env`; uma entrada antiga de `DASHBOARD_ACCESS_MODE` é ignorada. Sem argumento,
 a API assume o modo local. No Docker, o launcher seleciona o comando correspondente da API.
 
-`WEB_HOST` define o listener da API nativa e o endereço de publicação da porta do dashboard no
+`DASHBOARD_HOST` define o listener da API nativa e o endereço de publicação da porta do dashboard no
 Docker. O listener interno do contêiner permanece em `0.0.0.0:8787`. Alterar o host não altera
 as regras de autenticação, os cabeçalhos `Host` ou as origens aceitas pelo modo selecionado.
-Use `WEB_HOST=127.0.0.1` ao executar o modo local, que dispensa senha. Ao alternar os scripts,
+Use `DASHBOARD_HOST=127.0.0.1` ao executar o modo local, que dispensa senha. Ao alternar os scripts,
 verifique esse valor: ele é compartilhado entre os modos.
 
-Os scripts npm do modo público exigem `PUBLIC_BASE_URL` com origem HTTPS e `WEB_HOST` que aceite
+Os scripts npm do modo público exigem `PUBLIC_BASE_URL` com origem HTTPS e `DASHBOARD_HOST` que aceite
 conexões externas, como `0.0.0.0`. Eles não iniciam o Caddy nem configuram certificados: prepare o
 proxy HTTPS antes de acessar esse modo. O launcher Docker público fornece o Caddy automaticamente.
 
@@ -58,13 +58,37 @@ essas URLs acessíveis ao processo nativo. O fluxo Compose fornece a rede compar
 
 ## Estrutura e convenções do projeto
 
-- `src/discord`, `src/recording`: comandos, propriedade, captura de voz, manifestos e recuperação;
-- `src/transcription`, `src/refinement`, `src/summary`, `src/processing`: etapas validadas e jobs duráveis;
-- `src/models`, `src/local-ai`, `src/openrouter`, `src/cost`: catálogos, modelos, execução e custos;
-- `src/api`, `src/auth`, `src/database`: contratos do dashboard, acesso à instalação, banco e migrations;
-- `web/src`: rotas React, telas, preferências do navegador e mensagens inglês/pt-BR;
-- `services/faster-whisper`: serviço Python de transcrição;
-- `tests`, `web/src/**/*.test.*`, `scripts/ci`: testes e gates de qualidade.
+O repositório usa npm workspaces com uma instalação e um `package-lock.json` na raiz.
+O `package.json` da raiz coordena os comandos; cada aplicação e o pacote compartilhado
+possuem seus próprios comandos, dependências, configuração TypeScript e testes.
+
+```text
+apps/
+  bot/          src/ e tests/: Discord, gravação e execução do processamento
+  api/          src/ e tests/: API HTTP, autenticação e administração
+  dashboard/    src/, tests/ e public/: interface React
+packages/
+  shared/       src/ e tests/: persistência, modelos e contratos compartilhados
+tests/
+  integration/  contratos que atravessam aplicações
+  repository/   Docker, launchers, CI e estrutura do repositório
+services/
+  faster-whisper/  serviço Python de transcrição
+scripts/        ferramentas de desenvolvimento, avaliação e qualidade
+```
+
+As aplicações Node consomem `summyz-community-shared` por subcaminhos explícitos.
+O pacote compartilhado não importa aplicações e uma aplicação não importa outra.
+Contratos de manifestos, estados de processamento e resultados usados pela persistência
+ficam no pacote compartilhado; captura de áudio e execução das etapas ficam no bot.
+Os builds TypeScript usam referências entre projetos e geram `dist/` dentro de cada workspace.
+Os comandos de desenvolvimento usam a condição `development` para carregar fontes TypeScript.
+A API continua servindo o dashboard compilado no mesmo serviço Docker `dashboard`.
+
+Testes pertencem ao workspace responsável pelo código, inclusive integrações PostgreSQL.
+Somente verificações entre aplicações e do repositório ficam em `tests/` na raiz.
+Helpers de teste não entram nos builds de produção nem na medição de código de produção.
+O projeto de apresentação em `media/presentation` mantém sua configuração independente.
 
 Siga [AGENTS.md](../../AGENTS.md). TypeScript é estrito; valide dados externos, modele estados
 opcionais e trate rejeições e ciclos de vida explicitamente. Use identificadores de código/banco
@@ -82,22 +106,59 @@ npm run check
 npm run security:audit
 ```
 
-`check` executa Biome, typechecks do servidor e web, testes unitários Python, cobertura do servidor
-e testes web. Use os scripts separadamente para diagnosticar falhas:
+`check` executa Biome, a checagem de tipos de todo o monorepo, a cobertura agregada do backend,
+a cobertura do dashboard e os testes unitários Python. Toda aplicação (bot, API, shared e
+dashboard) precisa de no mínimo 85% de linhas, statements, branches e funções. No backend, a
+cobertura é medida em conjunto: um teste do bot que executa código do shared conta para o shared.
+O relatório agregado fica em `artifacts/coverage/server/` e o do dashboard em
+`artifacts/reports/dashboard/coverage/`.
 
-| Comando | Verificação |
+| Comando na raiz | Verificação |
 | --- | --- |
-| `npm test` | Suíte rápida do servidor, incluindo integrações de banco configuradas |
-| `npm run test:coverage` | Cobertura do servidor; limites de 85% para linhas, branches, funções e statements |
-| `npm run test:web` / `npm run test:web:coverage` | Testes do dashboard / configuração de cobertura CI |
-| `npm run test:python` / `npm run test:python:coverage` | Testes unitários Python / cobertura e relatórios |
-| `npm run typecheck` / `npm run typecheck:web` | Tipos do servidor / dashboard |
-| `npm run lint` / `npm run format:check` | Lint / formatação |
+| `npm test` | Todos os testes rápidos dos quatro workspaces, integrações, repositório e Python |
+| `npm run test:bot` / `npm run test:api` | Testes do bot / API |
+| `npm run test:dashboard` / `npm run test:shared` | Testes do dashboard / pacote compartilhado |
+| `npm run test:integration` / `npm run test:repository` | Testes entre aplicações / do repositório |
+| `npm run test:coverage` | Cobertura agregada do backend com mínimo de 85% por aplicação, cobertura do dashboard e testes unitários Python |
+| `npm run test:coverage:workspaces` | Relatórios de cobertura isolados de cada workspace, sem limite mínimo |
+| `npm run test:coverage:ci` | Cobertura agregada do backend, integrações e testes do repositório |
+| `npm run test:dashboard:coverage` | Cobertura do dashboard |
+| `npm run test:python` / `npm run test:python:coverage` | Testes unitários Python / cobertura Python |
+| `npm run typecheck` | Tipos de todos os workspaces, scripts e testes |
+| `npm run build` | Build das três aplicações e do pacote compartilhado |
+| `npm run lint` / `npm run format:check` | Lint / formatação do monorepo |
 | `npm run format` | Aplicar formatação |
 
-A cobertura Python precisa das ferramentas de `requirements/ci.lock`; o script unitário usa
-`unittest`. `check` não executa o gate de cobertura web, cobertura por domínio ou smoke local.
-A CI também inclui mais módulos na cobertura do servidor que a configuração local.
+Também é possível executar comandos diretamente em um workspace, por exemplo:
+
+```sh
+npm test --workspace apps/bot
+npm run test:coverage --workspace packages/shared
+npm run build --workspace apps/api
+```
+
+Os relatórios de cobertura de um workspace isolado ficam em `artifacts/reports/<workspace>/coverage/`
+e não aplicam limite mínimo; o limite vale para a medição agregada.
+
+O build de cada aplicação Node compila primeiro o pacote compartilhado quando necessário.
+Os comandos nativos de execução de bot/API preservam a raiz como diretório de trabalho,
+onde permanecem `.env` e os caminhos relativos de dados.
+
+`npm test` não inicia serviços externos. Integrações PostgreSQL usam `POSTGRES_TEST_URL` e são
+ignoradas quando ela não está configurada. Inferência real local permanece na suíte separada
+`npm run test:smoke:local-ai`; os comandos globais rápidos não a executam.
+Os testes Python exigem Python 3.12 e as dependências do serviço e de testes instaladas;
+a imagem de testes Python fornece esse ambiente. Cobertura por domínio e cobertura alterada
+também são verificadas pela CI.
+
+### Atualização dos nomes de configuração
+
+Na atualização para workspaces, renomeie em seu `.env` e nas configurações de implantação:
+`WEB_HOST` para `DASHBOARD_HOST`, `WEB_PORT` para `DASHBOARD_PORT` e `WEB_STATIC_DIR` para
+`DASHBOARD_STATIC_DIR`. Os nomes anteriores não são mais lidos. O diretório estático padrão
+agora é `apps/dashboard/dist`, relativo à raiz. Scripts npm e relatórios antes chamados
+`web` passam a usar `dashboard`, como `dev:dashboard` e `test:dashboard`.
+Nenhum arquivo `.env` existente é alterado automaticamente pela reorganização.
 
 ## Testes de integração PostgreSQL
 
@@ -203,18 +264,18 @@ com conteúdo e áudio preservados, sem presumir que o diretório terminal estej
 
 ## Migrations e preservação em upgrades
 
-Migrations são definições SQL TypeScript ordenadas em `src/database/migrations*.ts`.
+Migrations são definições SQL TypeScript ordenadas em `packages/shared/src/database/migrations*.ts`.
 Depois de aplicadas são imutáveis: PostgreSQL registra checksum SHA-256 e a inicialização falha
 de forma fechada se o SQL versionado divergir. Não corrija uma migration aplicada editando seu SQL histórico.
 
 Da versão 10 em diante, migrations devem preservar todas as reuniões não terminais: sem exclusão de
 dados de negócio, truncamento, remoção de colunas, exclusão em cascata ou atualização do
 processamento de reuniões. Tabelas só podem ser removidas quando não guardam dados de reuniões nem
-de configuração; as tabelas protegidas estão listadas em `src/database/migration-safety.ts`.
+de configuração; as tabelas protegidas estão listadas em `packages/shared/src/database/migration-safety.ts`.
 Limpeza pertence ao ciclo explícito de retenção após estado terminal. A inicialização deve
 preservar artefatos pendentes. Upgrades de processamento/manifesto exigem testes de contrato
 que comprovem preservação e recuperação de reuniões, jobs, custos, manifestos e catálogos de áudio.
-Consulte os testes de integração de upgrade e `tests/database-migration-safety.test.ts`.
+Consulte os testes de integração de upgrade e `packages/shared/tests/database-migration-safety.test.ts`.
 
 ## Integração contínua
 
@@ -225,7 +286,9 @@ se pushes diretos são bloqueados.
 
 Servidor, dashboard e Python exigem ao menos 85% de cobertura global por linhas e 85% em cada grupo
 de domínio. A cobertura alterada é um agregado ponderado por linhas dos três componentes, também
-de pelo menos 85%. Relatórios HTML, JUnit, JSON e SARIF são preservados como artefatos. PRs internos
+de pelo menos 85%. As próprias etapas de teste também falham quando bot, API, shared ou dashboard
+ficam abaixo de 85% em linhas, statements, branches ou funções. Relatórios HTML, JUnit, JSON e
+SARIF são preservados como artefatos. PRs internos
 recebem um comentário persistente em inglês; forks recebem checks, resumo e artefatos sem segredos
 nem permissão de escrita. Analysis reúne resultados e guarda o baseline de main após pushes.
 

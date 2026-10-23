@@ -1,0 +1,323 @@
+import { createManifest } from "summyz-community-shared/recording/manifest";
+import { describe, expect, it, vi } from "vitest";
+import {
+  RecordingAlreadyActiveError,
+  RecordingCoordinator,
+  type RecordingHandle,
+  RecordingRecoveryPendingError,
+  type RecordingSessionFactory,
+  shouldStartTranscription,
+} from "../src/recording/recording-coordinator.js";
+
+function createHandle(guildId: string, voiceChannelId: string): RecordingHandle {
+  return {
+    guildId,
+    meetingId: `meeting-${guildId}`,
+    notificationChannelId: `text-${guildId}`,
+    stop: vi.fn(async () => undefined),
+    voiceChannelId,
+  };
+}
+
+describe("RecordingCoordinator", () => {
+  it("inicia transcrição somente após comando ou canal vazio", () => {
+    expect(shouldStartTranscription("command")).toBe(true);
+    expect(shouldStartTranscription("channel_empty")).toBe(true);
+    expect(shouldStartTranscription("owner_changed")).toBe(true);
+    expect(shouldStartTranscription("shutdown")).toBe(false);
+    expect(shouldStartTranscription("reconnect_exhausted")).toBe(false);
+    expect(shouldStartTranscription("bot_left_guild")).toBe(false);
+  });
+
+  it("blocks a new recording while the previous one awaits ownership verification", async () => {
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async (input) => createHandle(input.guildId, input.voiceChannelId)),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    coordinator.setRecoverable("guild-1", true);
+
+    await expect(
+      coordinator.start({
+        guildId: "guild-1",
+        notificationChannelId: "text-1",
+        voiceChannelId: "voice-1",
+      }),
+    ).rejects.toBeInstanceOf(RecordingRecoveryPendingError);
+    expect(factory.create).not.toHaveBeenCalled();
+
+    coordinator.setRecoverable("guild-1", false);
+    await expect(
+      coordinator.start({
+        guildId: "guild-1",
+        notificationChannelId: "text-1",
+        voiceChannelId: "voice-1",
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("bloqueia inicializações concorrentes no mesmo servidor", async () => {
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async (input) => createHandle(input.guildId, input.voiceChannelId)),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+
+    const firstStart = coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+    await expect(
+      coordinator.start({
+        guildId: "guild-1",
+        notificationChannelId: "text-1",
+        voiceChannelId: "voice-1",
+      }),
+    ).rejects.toBeInstanceOf(RecordingAlreadyActiveError);
+    await firstStart;
+
+    expect(factory.create).toHaveBeenCalledTimes(1);
+    expect(coordinator.activeGuildIds()).toEqual(["guild-1"]);
+  });
+
+  it("reports a session being opened so recovery cannot take over its manifest", async () => {
+    let finishCreate: ((handle: RecordingHandle) => void) | undefined;
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(
+        () =>
+          new Promise<RecordingHandle>((resolve) => {
+            finishCreate = resolve;
+          }),
+      ),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    const starting = coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    expect(coordinator.isPending("guild-1")).toBe(true);
+    finishCreate?.(createHandle("guild-1", "voice-1"));
+    await starting;
+    expect(coordinator.isPending("guild-1")).toBe(false);
+  });
+
+  it("permite uma gravação por servidor", async () => {
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async (input) => createHandle(input.guildId, input.voiceChannelId)),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    await expect(
+      coordinator.start({
+        guildId: "guild-1",
+        notificationChannelId: "text-2",
+        voiceChannelId: "voice-2",
+      }),
+    ).rejects.toBeInstanceOf(RecordingAlreadyActiveError);
+  });
+
+  it("encerra imediatamente quando o canal fica sem pessoas", async () => {
+    const handle = createHandle("guild-1", "voice-1");
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async () => handle),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    await coordinator.handleHumanCountChanged("guild-1", "voice-1", 0);
+
+    expect(handle.stop).toHaveBeenCalledWith({ reason: "channel_empty" });
+    expect(coordinator.get("guild-1")).toBeUndefined();
+  });
+
+  it("não encerra por mudanças em outro canal", async () => {
+    const handle = createHandle("guild-1", "voice-1");
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async () => handle),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    await coordinator.handleHumanCountChanged("guild-1", "voice-other", 0);
+
+    expect(handle.stop).not.toHaveBeenCalled();
+  });
+
+  it("não encerra enquanto ainda houver pessoas no canal", async () => {
+    const handle = createHandle("guild-1", "voice-1");
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async () => handle),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    await coordinator.handleHumanCountChanged("guild-1", "voice-1", 1);
+
+    expect(handle.stop).not.toHaveBeenCalled();
+  });
+
+  it("registra quem entra no canal ativo e ignora outro canal", async () => {
+    const handle = {
+      ...createHandle("guild-1", "voice-1"),
+      recordParticipant: vi.fn(async () => undefined),
+    };
+    const coordinator = new RecordingCoordinator({
+      create: vi.fn(async () => handle),
+      resume: vi.fn(),
+    });
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    await coordinator.recordParticipant("guild-1", "voice-1", "user-1", "Ana");
+    await coordinator.recordParticipant("guild-1", "voice-other", "user-2", "Bia");
+
+    expect(handle.recordParticipant).toHaveBeenCalledOnce();
+    expect(handle.recordParticipant).toHaveBeenCalledWith("user-1", "Ana");
+  });
+
+  it("informa quando não existe gravação para encerrar", async () => {
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+
+    await expect(
+      coordinator.stop("guild-1", { reason: "command", stoppedByUserId: "user-1" }),
+    ).resolves.toBe(false);
+  });
+
+  it("remove a gravação encerrada pelo próprio handle", async () => {
+    const handle = createHandle("guild-1", "voice-1");
+    let notifyEnded: (() => void) | undefined;
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async (_input, onEnded) => {
+        notifyEnded = onEnded;
+        return handle;
+      }),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+
+    notifyEnded?.();
+
+    expect(coordinator.get("guild-1")).toBeUndefined();
+  });
+
+  it("libera o servidor quando a inicialização falha", async () => {
+    const handle = createHandle("guild-1", "voice-1");
+    const create = vi
+      .fn<RecordingSessionFactory["create"]>()
+      .mockRejectedValueOnce(new Error("falha"))
+      .mockResolvedValueOnce(handle);
+    const factory: RecordingSessionFactory = { create, resume: vi.fn() };
+    const coordinator = new RecordingCoordinator(factory);
+    const input = {
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    };
+
+    await expect(coordinator.start(input)).rejects.toThrow("falha");
+    await expect(coordinator.start(input)).resolves.toBe(handle);
+  });
+
+  it("retoma uma reunião interrompida e bloqueia retomada duplicada", async () => {
+    const manifest = createManifest({
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const handle = createHandle("guild-1", "voice-1");
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(),
+      resume: vi.fn(async () => handle),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+
+    await expect(coordinator.resume(manifest)).resolves.toBe(handle);
+    await expect(coordinator.resume(manifest)).resolves.toBeUndefined();
+    expect(coordinator.get("guild-1")).toBe(handle);
+  });
+
+  it("não registra uma retomada que não encontrou pessoas no canal", async () => {
+    const manifest = createManifest({
+      guildId: "guild-1",
+      meetingId: "meeting-1",
+      notificationChannelId: "text-1",
+      startedAt: "2026-08-16T20:00:00.000Z",
+      voiceChannelId: "voice-1",
+    });
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(),
+      resume: vi.fn(async () => undefined),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+
+    await expect(coordinator.resume(manifest)).resolves.toBeUndefined();
+    expect(coordinator.get("guild-1")).toBeUndefined();
+  });
+
+  it("encerra todas as gravações durante o desligamento", async () => {
+    const firstHandle = createHandle("guild-1", "voice-1");
+    const secondHandle = createHandle("guild-2", "voice-2");
+    const factory: RecordingSessionFactory = {
+      create: vi.fn(async (input) => (input.guildId === "guild-1" ? firstHandle : secondHandle)),
+      resume: vi.fn(),
+    };
+    const coordinator = new RecordingCoordinator(factory);
+    await coordinator.start({
+      guildId: "guild-1",
+      notificationChannelId: "text-1",
+      voiceChannelId: "voice-1",
+    });
+    await coordinator.start({
+      guildId: "guild-2",
+      notificationChannelId: "text-2",
+      voiceChannelId: "voice-2",
+    });
+
+    await coordinator.shutdown();
+
+    expect(firstHandle.stop).toHaveBeenCalledWith({ reason: "shutdown" });
+    expect(secondHandle.stop).toHaveBeenCalledWith({ reason: "shutdown" });
+    expect(coordinator.get("guild-1")).toBeUndefined();
+    expect(coordinator.get("guild-2")).toBeUndefined();
+  });
+});

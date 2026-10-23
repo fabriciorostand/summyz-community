@@ -262,7 +262,7 @@ show_setup_page() {
   setup_token=$(read_env_setting SUMMYZ_SETUP_TOKEN)
   [ -n "$setup_token" ] || return
   public_base_url=$(read_env_setting PUBLIC_BASE_URL)
-  web_port=$(read_env_setting WEB_PORT)
+  web_port=$(read_env_setting DASHBOARD_PORT)
   web_port=${web_port:-8787}
   if [ -n "$public_base_url" ]; then
     base_url=${public_base_url%/}
@@ -299,7 +299,7 @@ case "$command_name" in
     ;;
   status) run_compose ps ;;
   logs) run_compose logs --follow ;;
-  recover-access) run_compose exec dashboard node dist/api/installation-access-recovery.js --access-mode public ;;
+  recover-access) run_compose exec dashboard node apps/api/dist/installation-access-recovery.js --access-mode public ;;
   *)
     echo "Usage: ./summyz-community <up|down|restart|status|logs|recover-access> [--dry-run]" >&2
     exit 2

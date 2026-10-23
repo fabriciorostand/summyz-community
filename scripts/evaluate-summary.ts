@@ -1,7 +1,7 @@
 import path from "node:path";
-import { loadConfig } from "../src/config.js";
-import { createPostgresDatabase } from "../src/database/postgres-database.js";
-import { SecretBox } from "../src/security/secret-box.js";
+import { loadConfig } from "summyz-community-bot/config";
+import { createPostgresDatabase } from "summyz-community-shared/database/postgres-database";
+import { SecretBox } from "summyz-community-shared/security/secret-box";
 import { runSummaryEvaluation } from "./evaluation/summary-evaluation.js";
 import {
   evaluationHelp,

@@ -92,7 +92,7 @@ Messages sent to Discord must not reveal stack traces, internal paths, or secret
 - Migrations from version 10 onward must preserve every non-terminal meeting.
 - Never delete or truncate business data, drop columns, introduce cascading deletion, or update
   meeting processing data from a schema migration. Tables may be dropped only when they hold no
-  meeting or configuration data; protected tables are listed in `src/database/migration-safety.ts`.
+  meeting or configuration data; protected tables are listed in `packages/shared/src/database/migration-safety.ts`.
 - Data cleanup belongs to the explicit retention lifecycle and may run only after a meeting reaches
   a terminal state. Startup and schema migration paths must never remove pending meeting artifacts.
 - Every upgrade that changes processing or manifest schemas must include a contract test proving

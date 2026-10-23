@@ -38,51 +38,51 @@ const serverDomains: readonly CoverageDomain[] = [
   },
   {
     name: "auth-security-discord-api",
-    patterns: ["/src/auth/", "/src/security/", "/src/discord/", "/src/api/"],
+    patterns: ["/src/auth/", "/src/security/", "/src/discord/", "/apps/api/src/"],
   },
 ];
 
-const webDomains: readonly CoverageDomain[] = [
+const dashboardDomains: readonly CoverageDomain[] = [
   {
     name: "authentication-onboarding-account",
     patterns: [
-      "/web/src/app.tsx",
-      "/web/src/pages/account-page.tsx",
-      "/web/src/pages/installation-page.tsx",
-      "/web/src/pages/login-page.tsx",
-      "/web/src/pages/setup-page.tsx",
+      "/apps/dashboard/src/app.tsx",
+      "/apps/dashboard/src/pages/account-page.tsx",
+      "/apps/dashboard/src/pages/installation-page.tsx",
+      "/apps/dashboard/src/pages/login-page.tsx",
+      "/apps/dashboard/src/pages/setup-page.tsx",
     ],
   },
   {
     name: "guild-configuration-profiles",
     patterns: [
-      "/web/src/pages/guild-page.tsx",
-      "/web/src/pages/profiles/",
-      "/web/src/pages/servers-page.tsx",
+      "/apps/dashboard/src/pages/guild-page.tsx",
+      "/apps/dashboard/src/pages/profiles/",
+      "/apps/dashboard/src/pages/servers-page.tsx",
     ],
   },
   {
     name: "analytics-meeting-history",
     patterns: [
-      "/web/src/lib/format.ts",
-      "/web/src/lib/transcript.ts",
-      "/web/src/pages/call-detail-page.tsx",
-      "/web/src/pages/calls-page.tsx",
-      "/web/src/pages/overview-page.tsx",
+      "/apps/dashboard/src/lib/format.ts",
+      "/apps/dashboard/src/lib/transcript.ts",
+      "/apps/dashboard/src/pages/call-detail-page.tsx",
+      "/apps/dashboard/src/pages/calls-page.tsx",
+      "/apps/dashboard/src/pages/overview-page.tsx",
     ],
   },
   {
     name: "tasks-board",
-    patterns: ["/web/src/pages/tasks-page.tsx"],
+    patterns: ["/apps/dashboard/src/pages/tasks-page.tsx"],
   },
   {
     name: "api-client-shared-ui",
     patterns: [
-      "/web/src/components/",
-      "/web/src/hooks/",
-      "/web/src/layout/",
-      "/web/src/lib/api-contracts.ts",
-      "/web/src/lib/api.ts",
+      "/apps/dashboard/src/components/",
+      "/apps/dashboard/src/hooks/",
+      "/apps/dashboard/src/layout/",
+      "/apps/dashboard/src/lib/api-contracts.ts",
+      "/apps/dashboard/src/lib/api.ts",
     ],
   },
 ];
@@ -125,19 +125,23 @@ export function evaluateCoverageDomains(
 }
 
 async function main(): Promise<void> {
-  const [serverPath, webPath, pythonPath, outputPath] = process.argv.slice(2);
-  if ([serverPath, webPath, pythonPath, outputPath].some((value) => value === undefined)) {
+  const [serverPath, dashboardPath, pythonPath, outputPath] = process.argv.slice(2);
+  if ([serverPath, dashboardPath, pythonPath, outputPath].some((value) => value === undefined)) {
     throw new Error(
-      "Usage: coverage-domains <server-summary.json> <web-summary.json> <python-coverage.json> <output.json>",
+      "Usage: coverage-domains <server-summary.json> <dashboard-summary.json> <python-coverage.json> <output.json>",
     );
   }
-  if (serverPath === undefined || webPath === undefined || pythonPath === undefined) return;
+  if (serverPath === undefined || dashboardPath === undefined || pythonPath === undefined) return;
   if (outputPath === undefined) return;
 
   const components = {
     python: evaluateCoverageDomains(await readPythonCoverage(pythonPath), pythonDomains, 85),
     server: evaluateCoverageDomains(await readIstanbulSummary(serverPath), serverDomains, 85),
-    web: evaluateCoverageDomains(await readIstanbulSummary(webPath), webDomains, 85),
+    dashboard: evaluateCoverageDomains(
+      await readIstanbulSummary(dashboardPath),
+      dashboardDomains,
+      85,
+    ),
   };
   await mkdir(dirname(outputPath), { recursive: true });
   await writeFile(outputPath, `${JSON.stringify(components, null, 2)}\n`, "utf8");

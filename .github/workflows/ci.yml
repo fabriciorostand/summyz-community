@@ -57,7 +57,7 @@ jobs:
           ./node_modules/.bin/biome ci . --reporter=sarif \
             --reporter-file=artifacts/reports/quality/biome.sarif || quality_status=1
           npm run typecheck 2>&1 | tee artifacts/reports/quality/typecheck-server.txt || quality_status=1
-          npm run typecheck:web 2>&1 | tee artifacts/reports/quality/typecheck-dashboard.txt || quality_status=1
+          npm run typecheck:dashboard 2>&1 | tee artifacts/reports/quality/typecheck-dashboard.txt || quality_status=1
           npm run build 2>&1 | tee artifacts/reports/quality/build.txt || quality_status=1
           echo "${quality_status}" > artifacts/reports/quality/node.status
 
@@ -103,7 +103,7 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           git diff --output=artifacts/reports/quality/source.diff "${BASE_SHA}...HEAD" -- \
-            src web/src services/faster-whisper
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           ./node_modules/.bin/jscpd \
             --min-lines 5 \
             --min-tokens 50 \
@@ -115,16 +115,16 @@ jobs:
             --skip-comments \
             --ignore "**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*.d.ts" \
             --absolute \
-            src web/src services/faster-whisper
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           # lizard has no JSX parser: on .tsx it loses the end of a function and folds the
           # rest of the file into it, so its numbers do not describe the code. Cognitive
           # complexity for .tsx is enforced by Biome instead (see biome.json overrides).
           lizard -l typescript -l python -C 10 -i -1 \
             -x "*test*" -x "*spec*" --csv -o artifacts/reports/quality/lizard.csv \
-            src web/src services/faster-whisper
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           lizard -l typescript -l python -C 10 -i -1 \
             -x "*test*" -x "*spec*" --xml -o artifacts/reports/quality/lizard.xml \
-            src web/src services/faster-whisper
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           ./node_modules/.bin/tsx scripts/ci/collect-cognitive-complexity-cli.ts || echo "Cognitive metrics unavailable."
           ./node_modules/.bin/tsx scripts/ci/source-quality-cli.ts \
             artifacts/reports/quality/source.diff \
@@ -341,7 +341,7 @@ jobs:
         run: >-
           docker run --rm
           --volume "${{ github.workspace }}/artifacts/reports:/app/artifacts/reports"
-          summyz-community-tests:ci npm run test:web:coverage
+          summyz-community-tests:ci npm run test:dashboard:coverage
 
       - name: Build the exact Python test environment
         if: always()
@@ -377,7 +377,7 @@ jobs:
           summyz-community-tests:ci
           ./node_modules/.bin/tsx scripts/ci/coverage-domains.ts
           artifacts/reports/server/coverage/coverage-summary.json
-          artifacts/reports/web/coverage/coverage-summary.json
+          artifacts/reports/dashboard/coverage/coverage-summary.json
           artifacts/reports/python/coverage.json
           artifacts/reports/domain-coverage/results.json
 
@@ -400,15 +400,15 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
           mkdir -p artifacts/reports/diff-coverage
-          git diff --output=artifacts/reports/diff-coverage/server.diff "${BASE_SHA}...HEAD" -- src
-          git diff --relative=web --output=artifacts/reports/diff-coverage/web.diff "${BASE_SHA}...HEAD" -- web
+          git diff --output=artifacts/reports/diff-coverage/server.diff "${BASE_SHA}...HEAD" -- apps/bot/src apps/api/src packages/shared/src
+          git diff --relative=apps/dashboard --output=artifacts/reports/diff-coverage/dashboard.diff "${BASE_SHA}...HEAD" -- apps/dashboard
           git diff --relative=services/faster-whisper \
             --output=artifacts/reports/diff-coverage/python.diff \
             "${BASE_SHA}...HEAD" -- services/faster-whisper
-          for component in server web python; do
+          for component in server dashboard python; do
             case "${component}" in
               server) report="artifacts/reports/server/coverage/cobertura-coverage.xml" ;;
-              web) report="artifacts/reports/web/coverage/cobertura-coverage.xml" ;;
+              dashboard) report="artifacts/reports/dashboard/coverage/cobertura-coverage.xml" ;;
               python) report="artifacts/reports/python/coverage.xml" ;;
             esac
             if [[ -s "${report}" ]]; then
@@ -427,7 +427,7 @@ jobs:
             summyz-community-tests:ci \
             ./node_modules/.bin/tsx scripts/ci/changed-coverage-cli.ts \
             artifacts/reports/diff-coverage/server.json \
-            artifacts/reports/diff-coverage/web.json \
+            artifacts/reports/diff-coverage/dashboard.json \
             artifacts/reports/diff-coverage/python.json \
             artifacts/reports/diff-coverage/global.json \
             artifacts/reports/diff-coverage/global.md
@@ -469,7 +469,7 @@ jobs:
           # Both need the transcription image, its FFmpeg build, and its locked wheels.
           transcription_paths='^(\.github/workflows/ci\.yml|\.dockerignore|services/faster-whisper/|docker/ffmpeg/|requirements/)'
           # The smoke test also runs the Node test image and the model code it imports.
-          smoke_paths='^(\.github/ci/|\.npmrc|compose\.yaml|docker/|package\.json|package-lock\.json|web/package\.json|scripts/install-husky\.mjs|src/models/|tests/smoke/|vitest\.smoke\.config\.ts)'
+          smoke_paths='^(\.github/ci/|\.npmrc|compose\.yaml|docker/|package\.json|package-lock\.json|(apps/(bot|api|dashboard)|packages/shared)/package\.json|scripts/install-husky\.mjs|packages/shared/src/models/|apps/api/src/models/|tests/smoke/|vitest\.smoke\.config\.ts)'
           local_ai=false
           cuda=false
           if grep --extended-regexp --quiet "${transcription_paths}" <<<"${changed_files}"; then
@@ -818,8 +818,10 @@ jobs:
 
       - name: Locate the latest successful main baseline
         id: baseline
+        continue-on-error: true
         uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         with:
+          retries: 3
           script: |
             const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
               ...context.repo,
@@ -847,6 +849,7 @@ jobs:
 
       - name: Download the main baseline
         if: steps.baseline.outputs.run-id != ''
+        continue-on-error: true
         uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v5
         with:
           name: ci-quality-gate-baseline
@@ -940,15 +943,18 @@ jobs:
         working-directory: main-source
         shell: bash
         run: |
-          git diff --output=artifacts/reports/quality/source.diff HEAD HEAD -- src web/src services/faster-whisper
+          git diff --output=artifacts/reports/quality/source.diff HEAD HEAD -- \
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           ../node_modules/.bin/jscpd --min-lines 5 --min-tokens 50 --threshold 3 --exit-code 0 \
             --reporters json --output artifacts/reports/quality/jscpd --format typescript,tsx,python \
             --skip-comments --ignore "**/*.test.ts,**/*.test.tsx,**/*.spec.ts,**/*.spec.tsx,**/test_*.py,**/*.d.ts" \
-            --absolute src web/src services/faster-whisper
+            --absolute apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           lizard -l typescript -l python -C 10 -i -1 -x "*test*" -x "*spec*" \
-            --csv -o artifacts/reports/quality/lizard.csv src web/src services/faster-whisper
+            --csv -o artifacts/reports/quality/lizard.csv \
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           lizard -l typescript -l python -C 10 -i -1 -x "*test*" -x "*spec*" \
-            --xml -o artifacts/reports/quality/lizard.xml src web/src services/faster-whisper
+            --xml -o artifacts/reports/quality/lizard.xml \
+            apps/bot/src apps/api/src packages/shared/src apps/dashboard/src services/faster-whisper
           ../node_modules/.bin/tsx ../scripts/ci/collect-cognitive-complexity-cli.ts || echo "Cognitive metrics unavailable."
           ../node_modules/.bin/tsx ../scripts/ci/source-quality-cli.ts \
             artifacts/reports/quality/source.diff artifacts/reports/quality/jscpd/jscpd-report.json \
@@ -1008,13 +1014,13 @@ jobs:
           summyz-main-tests:ci npm run test:coverage:ci
 
       - name: Measure main dashboard coverage
-        id: main_web_tests
+        id: main_dashboard_tests
         if: github.event_name == 'pull_request' && steps.main_node_image.outcome == 'success'
         continue-on-error: true
         run: >-
           docker run --rm
           --volume "${{ github.workspace }}/main-source/artifacts/reports:/app/artifacts/reports"
-          summyz-main-tests:ci npm run test:web:coverage
+          summyz-main-tests:ci npm run test:dashboard:coverage
 
       - name: Stop isolated main test database
         id: main_database_cleanup
@@ -1168,6 +1174,7 @@ jobs:
           version: v0.74.0
 
       - name: Analyze the Quality Gate
+        if: ${{ !cancelled() }}
         shell: bash
         env:
           DETAILS_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
@@ -1191,7 +1198,7 @@ jobs:
               "main_node_image": {"outcome": "${{ steps.main_node_image.outcome }}"},
               "main_database": {"outcome": "${{ steps.main_database.outcome }}"},
               "main_server_tests": {"outcome": "${{ steps.main_server_tests.outcome }}"},
-              "main_web_tests": {"outcome": "${{ steps.main_web_tests.outcome }}"},
+              "main_dashboard_tests": {"outcome": "${{ steps.main_dashboard_tests.outcome }}"},
               "main_database_cleanup": {"outcome": "${{ steps.main_database_cleanup.outcome }}"},
               "main_python_image": {"outcome": "${{ steps.main_python_image.outcome }}"},
               "main_python_tests": {"outcome": "${{ steps.main_python_tests.outcome }}"},
