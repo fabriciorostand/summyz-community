@@ -34,11 +34,7 @@
 !tsconfig.base.json
 !tsconfig.json
 !tsconfig.build.json
-!vitest.node.config.ts
-!vitest.server.config.ts
 !vitest.config.ts
-!vitest.ci.config.ts
-!vitest.smoke.config.ts
 !summyz-community
 !summyz-community.ps1
 !summyz-community-public

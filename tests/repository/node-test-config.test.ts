@@ -1,9 +1,11 @@
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { expect, it } from "vitest";
-import { createNodeTestConfig } from "../../vitest.node.config.js";
-import serverConfig from "../../vitest.server.config.js";
+import { createNodeTestConfig } from "../../scripts/test/node-project.js";
+import smokeConfig from "../../tests/smoke/vitest.config.js";
+import rootConfig from "../../vitest.config.js";
 
+const repositoryConfig = (mode: string) => rootConfig({ command: "serve", mode });
 const minimum = { branches: 85, functions: 85, lines: 85, statements: 85 };
 const workspaceRoot = (workspace: string) =>
   fileURLToPath(new URL(`../../${workspace}/`, import.meta.url));
@@ -47,8 +49,58 @@ it.each(["apps/api", "apps/bot", "packages/shared"])(
   },
 );
 
+it("keeps a single Vitest configuration at the repository root", async () => {
+  const rootFiles = await readdir(new URL("../../", import.meta.url));
+  expect(rootFiles.filter((file) => /^vitest\..*\.ts$/u.test(file))).toEqual(["vitest.config.ts"]);
+});
+
+it("measures every backend workspace and the repository suite as projects", () => {
+  const projects = repositoryConfig("test").test?.projects;
+  expect(projects?.slice(0, 3)).toEqual(["packages/shared", "apps/bot", "apps/api"]);
+  expect(projects?.[3]).toMatchObject({
+    resolve: { conditions: ["development", "node"] },
+    test: {
+      name: "repository",
+      include: ["tests/integration/**/*.test.ts", "tests/repository/**/*.test.{ts,mjs}"],
+      restoreMocks: true,
+    },
+  });
+});
+
+it("writes local coverage reports outside CI mode", () => {
+  const { test } = repositoryConfig("test");
+  expect(test?.coverage).toMatchObject({
+    reporter: ["text", "html"],
+    reportsDirectory: "artifacts/coverage/server",
+  });
+  expect(test?.coverage).not.toHaveProperty("reportOnFailure");
+  expect(test).not.toHaveProperty("reporters");
+});
+
+it("publishes CI reports even when a test fails", () => {
+  const { test } = repositoryConfig("ci");
+  expect(test?.coverage).toMatchObject({
+    reportOnFailure: true,
+    reporter: ["text", "html", "json", "json-summary", "cobertura"],
+    reportsDirectory: "artifacts/reports/server/coverage",
+  });
+  expect(test).toMatchObject({
+    maxWorkers: "100%",
+    outputFile: { junit: "artifacts/reports/server/junit.xml" },
+    reporters: ["default", "junit"],
+  });
+});
+
+it("keeps the local-AI smoke suite isolated beside its tests", () => {
+  expect(smokeConfig.root).toBe(fileURLToPath(new URL("../../", import.meta.url)));
+  expect(smokeConfig.test).toMatchObject({
+    include: ["tests/smoke/**/*.smoke.test.ts"],
+    testTimeout: 30 * 60 * 1_000,
+  });
+});
+
 it("gates every backend application at 85% in the aggregate measurement", () => {
-  const coverage = serverConfig.test?.coverage;
+  const coverage = repositoryConfig("test").test?.coverage;
   expect(coverage?.thresholds).toEqual({
     ...minimum,
     "apps/bot/src/**": minimum,

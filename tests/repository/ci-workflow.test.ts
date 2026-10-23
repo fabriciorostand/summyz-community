@@ -451,7 +451,7 @@ describe("continuous integration contract", () => {
 
   it("runs the CI test suites on every runner core", async () => {
     const [serverCiConfig, dashboardCiConfig] = await Promise.all([
-      readFile(new URL("vitest.ci.config.ts", root), "utf8"),
+      readFile(new URL("vitest.config.ts", root), "utf8"),
       readFile(new URL("apps/dashboard/vite.ci.config.ts", root), "utf8"),
     ]);
 

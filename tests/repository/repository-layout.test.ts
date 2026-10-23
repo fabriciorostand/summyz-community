@@ -87,11 +87,10 @@ describe("repository layout", () => {
   });
 
   it("centralizes supported caches and generated evidence", async () => {
-    const [gitignore, pyproject, localVitest, ciVitest, dashboardVitest] = await Promise.all([
+    const [gitignore, pyproject, vitestConfig, dashboardVitest] = await Promise.all([
       readFile(new URL(".gitignore", root), "utf8"),
       readFile(new URL("pyproject.toml", root), "utf8"),
-      readFile(new URL("vitest.server.config.ts", root), "utf8"),
-      readFile(new URL("vitest.ci.config.ts", root), "utf8"),
+      readFile(new URL("vitest.config.ts", root), "utf8"),
       readFile(new URL("apps/dashboard/vite.ci.config.ts", root), "utf8"),
     ]);
 
@@ -100,8 +99,8 @@ describe("repository layout", () => {
     expect(pyproject).toContain('cache-dir = ".cache/ruff"');
     expect(pyproject).toContain('data_file = ".cache/coverage"');
     expect(pyproject).toContain('cache_dir = ".cache/pytest"');
-    expect(localVitest).toContain('reportsDirectory: "artifacts/coverage/server"');
-    expect(ciVitest).toContain('reportsDirectory: "artifacts/reports/server/coverage"');
+    expect(vitestConfig).toContain('reportsDirectory: "artifacts/coverage/server"');
+    expect(vitestConfig).toContain('reportsDirectory: "artifacts/reports/server/coverage"');
     expect(dashboardVitest).toContain(
       'reportsDirectory: "../../artifacts/reports/dashboard/coverage"',
     );

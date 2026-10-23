@@ -114,7 +114,7 @@ Messages sent to Discord must not reveal stack traces, internal paths, or secret
   description.
 - The type must indicate the purpose of the change. Use `feature`, `bugfix`, `hotfix`, `release`,
   `chore`, `docs`, `test`, or `refactor`, as appropriate.
-- Do not add prefixes that identify tools, agents, or people to branch names, such as `codex/`.
+- Do not add prefixes that identify tools, agents, or people to branch names.
 - Examples:
   - `feature/dashboard-backend-foundation`
   - `bugfix/meeting-cost-calculation`
@@ -131,4 +131,4 @@ Messages sent to Discord must not reveal stack traces, internal paths, or secret
   - `fix(audio): preserve timestamps of simultaneous segments`
   - `test(manifest): cover recovery after interrupted write`
   - `docs(readme): document initial setup`
-- **NEVER** add yourself as a co-author to commits (do not use `Co-Authored-By: Codex`).
+- **NEVER** add yourself as a co-author to commits.
